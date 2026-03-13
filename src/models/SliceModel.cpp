@@ -103,6 +103,15 @@ void SliceModel::setAgcMode(const QString& mode)
     emit agcModeChanged(mode);
 }
 
+void SliceModel::setAgcThreshold(int value)
+{
+    value = qBound(0, value, 100);
+    if (m_agcThreshold == value) return;
+    m_agcThreshold = value;
+    sendCommand(QString("slice set %1 agc_threshold=%2").arg(m_id).arg(value));
+    emit agcThresholdChanged(value);
+}
+
 void SliceModel::setSquelch(bool on, int level)
 {
     m_squelchOn    = on;
@@ -145,6 +154,15 @@ void SliceModel::setRfGain(float gain)
     sendCommand(QString("slice set %1 rf_gain=%2").arg(m_id).arg(static_cast<int>(gain)));
 }
 
+void SliceModel::setAudioPan(int pan)
+{
+    pan = qBound(0, pan, 100);
+    if (m_audioPan == pan) return;
+    m_audioPan = pan;
+    sendCommand(QString("slice set %1 audio_pan=%2").arg(m_id).arg(pan));
+    emit audioPanChanged(pan);
+}
+
 // ─── Status updates from radio ────────────────────────────────────────────────
 
 void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
@@ -181,6 +199,10 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
         m_rfGain = kvs["rf_gain"].toFloat();
     if (kvs.contains("audio_gain"))
         m_audioGain = kvs["audio_gain"].toFloat();
+    if (kvs.contains("audio_pan")) {
+        m_audioPan = kvs["audio_pan"].toInt();
+        emit audioPanChanged(m_audioPan);
+    }
 
     // Slice control state
     if (kvs.contains("rxant")) {
@@ -215,6 +237,10 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
     if (kvs.contains("agc_mode")) {
         m_agcMode = kvs["agc_mode"];
         emit agcModeChanged(m_agcMode);
+    }
+    if (kvs.contains("agc_threshold")) {
+        m_agcThreshold = kvs["agc_threshold"].toInt();
+        emit agcThresholdChanged(m_agcThreshold);
     }
     if (kvs.contains("squelch") || kvs.contains("squelch_level")) {
         if (kvs.contains("squelch"))       m_squelchOn    = kvs["squelch"] == "1";

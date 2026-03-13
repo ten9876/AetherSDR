@@ -5,6 +5,7 @@
 class QPushButton;
 class QSlider;
 class QLabel;
+class QComboBox;
 
 namespace AetherSDR {
 
@@ -47,7 +48,7 @@ private:
 
     void applyFilterPreset(int widthHz);
     void updateFilterButtons();
-    void updateAgcButtons();
+    void updateAgcCombo();
     static QString formatHz(int hz);
     static QString formatFilterWidth(int lo, int hi);
 
@@ -73,15 +74,17 @@ private:
     static constexpr int FILTER_WIDTHS[6] = {1800, 2100, 2400, 2700, 3300, 6000};
     QPushButton* m_filterBtns[6]{};
 
-    // AGC mode buttons (order: off / slow / med / fast)
+    // AGC
     static constexpr const char* AGC_MODES[4] = {"off", "slow", "med", "fast"};
-    QPushButton* m_agcBtns[4]{};
+    QComboBox*   m_agcCombo{nullptr};
+    QSlider*     m_agcTSlider{nullptr};
+    QLabel*      m_agcTLabel{nullptr};
 
-    // AF / RF gain
+    // AF gain + audio pan
     QSlider*     m_afSlider{nullptr};
     QLabel*      m_afLabel{nullptr};
-    QSlider*     m_rfSlider{nullptr};
-    QLabel*      m_rfLabel{nullptr};
+    QSlider*     m_panSlider{nullptr};
+    QLabel*      m_panLabel{nullptr};
 
     // Squelch
     QPushButton* m_sqlBtn{nullptr};

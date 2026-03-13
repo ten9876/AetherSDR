@@ -3,7 +3,7 @@
 A Linux-native SmartSDR-compatible client for FlexRadio Systems transceivers,
 built with **Qt6** and **C++20**.
 
-Current version: **0.1.2**
+Current version: **0.1.3**
 
 ---
 
@@ -25,6 +25,16 @@ Current version: **0.1.2**
 | Panadapter spectrum widget (FFT bins) | ✅ |
 | Panadapter dBm range auto-calibrated from radio | ✅ |
 | Audio RX via VITA-49 PCC routing + Qt Multimedia | ✅ |
+| RX applet — antenna select (RX/TX), filter presets, AGC mode+threshold | ✅ |
+| RX applet — AF gain, audio pan (L/R balance), squelch | ✅ |
+| RX applet — NB / NR / ANF DSP toggles | ✅ |
+| RX applet — RIT / XIT with ± step buttons | ✅ |
+| RX applet — tuning step size stepper (10 Hz – 10 kHz) | ✅ |
+| RX applet — tune lock (slice lock/unlock) | ✅ |
+| Freq dial — hover-column scroll-wheel tuning (per-digit) | ✅ |
+| Spectrum — click-to-tune snaps to step size | ✅ |
+| Spectrum — scroll-wheel tunes by step size | ✅ |
+| AppletPanel — toggle-button column (multiple applets visible simultaneously) | ✅ |
 | Audio TX (microphone → radio) | ⚠️ stub |
 | Volume / mute control | ✅ |
 | TX button | ✅ |
@@ -180,6 +190,23 @@ model-driven dial updates back to the radio.
 ---
 
 ## Changelog
+
+### v0.1.3
+- RX applet: complete header row (slice badge, tune-lock, RX/TX antenna dropdowns,
+  filter-width indicator, QSK toggle)
+- RX applet: AGC mode dropdown + AGC-T threshold slider (single row)
+- RX applet: AF gain slider; audio pan slider (L/R balance, double-click to re-centre)
+- RX applet: squelch on/off + level; NB / NR / ANF DSP toggles
+- RX applet: RIT and XIT on/off with painted-triangle ◀ ▶ step buttons
+- RX applet: tuning step stepper (10 Hz – 10 kHz) with ◀ ▶ buttons
+- Frequency dial: scroll-wheel over a digit now tunes that digit regardless of step size
+- Spectrum: click-to-tune snaps to nearest step-size multiple
+- Spectrum: scroll-wheel tunes slice frequency by step size per notch
+- AppletPanel: replaced QTabWidget with toggle-button column — multiple applets
+  can be shown or hidden independently
+- SliceModel: added `agc_threshold`, `audio_pan` commands and status-message parsing
+- SliceModel: corrected tune-lock to `slice lock <id>` / `slice unlock <id>`
+  (was incorrectly using `slice set locked=`)
 
 ### v0.1.2
 - Fix audio streaming: route VITA-49 packets by PacketClassCode (PCC), not by

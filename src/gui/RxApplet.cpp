@@ -4,12 +4,59 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QLabel>
+#include <QComboBox>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QFrame>
 #include <QMenu>
 #include <QAction>
+#include <QPainter>
+
+// Slider that resets to a default value on double-click.
+class ResetSlider : public QSlider {
+public:
+    explicit ResetSlider(int resetVal, Qt::Orientation o, QWidget* parent = nullptr)
+        : QSlider(o, parent), m_resetVal(resetVal) {}
+protected:
+    void mouseDoubleClickEvent(QMouseEvent*) override { setValue(m_resetVal); }
+private:
+    int m_resetVal;
+};
+
+// Button that paints a solid left- or right-pointing triangle.
+class TriBtn : public QPushButton {
+public:
+    enum Dir { Left, Right };
+    explicit TriBtn(Dir dir, QWidget* parent = nullptr)
+        : QPushButton(parent), m_dir(dir)
+    {
+        setFlat(false);
+        setFixedSize(22, 22);
+        setStyleSheet(
+            "QPushButton { background: #1a2a3a; border: 1px solid #203040; "
+            "border-radius: 3px; padding: 0; margin: 0; min-width: 0; min-height: 0; }"
+            "QPushButton:hover { background: #203040; }"
+            "QPushButton:pressed { background: #00b4d8; }");
+    }
+protected:
+    void paintEvent(QPaintEvent* ev) override {
+        QPushButton::paintEvent(ev);
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setBrush(isDown() ? QColor(0, 0, 0) : QColor(0xc8, 0xd8, 0xe8));
+        p.setPen(Qt::NoPen);
+        const int cx = width() / 2, cy = height() / 2;
+        QPolygon tri;
+        if (m_dir == Left)
+            tri << QPoint(cx - 5, cy) << QPoint(cx + 4, cy - 5) << QPoint(cx + 4, cy + 5);
+        else
+            tri << QPoint(cx + 5, cy) << QPoint(cx - 4, cy - 5) << QPoint(cx - 4, cy + 5);
+        p.drawPolygon(tri);
+    }
+private:
+    Dir m_dir;
+};
 
 namespace AetherSDR {
 
@@ -52,18 +99,8 @@ static QPushButton* mkToggle(const QString& text, QWidget* parent = nullptr)
     return b;
 }
 
-// Small non-checkable step button (◄ / ►).
-static QPushButton* mkStep(const QString& text, QWidget* parent = nullptr)
-{
-    auto* b = new QPushButton(text, parent);
-    b->setFlat(false);
-    b->setFixedSize(22, 22);
-    b->setStyleSheet("QPushButton { font-size: 11px; color: #c8d8e8; "
-                     "background: #1a2a3a; border: 1px solid #203040; border-radius: 3px; }"
-                     "QPushButton:hover { background: #203040; }"
-                     "QPushButton:pressed { background: #00b4d8; color: #000; }");
-    return b;
-}
+static QPushButton* mkLeft(QWidget* parent = nullptr)  { return new TriBtn(TriBtn::Left,  parent); }
+static QPushButton* mkRight(QWidget* parent = nullptr) { return new TriBtn(TriBtn::Right, parent); }
 
 // Shared stylesheet: blue when checked (used for ANT, filter, AGC).
 static const QString kBlueActive =
@@ -131,10 +168,10 @@ void RxApplet::buildUI()
 
         // RX antenna dropdown (blue)
         m_rxAntBtn = new QPushButton("ANT1");
-        m_rxAntBtn->setFixedHeight(22);
+        m_rxAntBtn->setFixedSize(40, 22);
         m_rxAntBtn->setStyleSheet(
             "QPushButton { color: #4488ff; border: 1px solid #4488ff; "
-            "border-radius: 3px; padding: 0 4px; font-size: 11px; }");
+            "border-radius: 3px; padding: 0 2px; font-size: 10px; }");
         connect(m_rxAntBtn, &QPushButton::clicked, this, [this] {
             QMenu menu(this);
             const QString cur = m_slice ? m_slice->rxAntenna() : "";
@@ -148,14 +185,14 @@ void RxApplet::buildUI()
             if (sel && m_slice)
                 m_slice->setRxAntenna(sel->text());
         });
-        row->addWidget(m_rxAntBtn, 1);
+        row->addWidget(m_rxAntBtn);
 
         // TX antenna dropdown (red)
         m_txAntBtn = new QPushButton("ANT1");
-        m_txAntBtn->setFixedHeight(22);
+        m_txAntBtn->setFixedSize(40, 22);
         m_txAntBtn->setStyleSheet(
             "QPushButton { color: #ff4444; border: 1px solid #ff4444; "
-            "border-radius: 3px; padding: 0 4px; font-size: 11px; }");
+            "border-radius: 3px; padding: 0 2px; font-size: 10px; }");
         connect(m_txAntBtn, &QPushButton::clicked, this, [this] {
             QMenu menu(this);
             const QString cur = m_slice ? m_slice->txAntenna() : "";
@@ -169,21 +206,23 @@ void RxApplet::buildUI()
             if (sel && m_slice)
                 m_slice->setTxAntenna(sel->text());
         });
-        row->addWidget(m_txAntBtn, 1);
+        row->addWidget(m_txAntBtn);
 
         // Filter width label (e.g. "2.7K")
         m_filterWidthLbl = new QLabel("2.7K");
-        m_filterWidthLbl->setFixedHeight(22);
+        m_filterWidthLbl->setFixedSize(36, 22);
         m_filterWidthLbl->setAlignment(Qt::AlignCenter);
         m_filterWidthLbl->setStyleSheet(
             "QLabel { color: #00c8ff; font-size: 11px; font-weight: bold; "
-            "border: 1px solid #1e3e5e; border-radius: 3px; padding: 0 3px; }");
+            "border: 1px solid #1e3e5e; border-radius: 3px; padding: 0 2px; }");
         row->addWidget(m_filterWidthLbl);
+
+        row->addStretch(1);
 
         // QSK toggle
         m_qskBtn = mkToggle("QSK");
-        m_qskBtn->setFixedWidth(36);
-        m_qskBtn->setStyleSheet(kAmberActive + " QPushButton { font-size: 11px; }");
+        m_qskBtn->setFixedSize(44, 22);
+        m_qskBtn->setStyleSheet(kAmberActive + " QPushButton { font-size: 11px; padding: 2px 4px; }");
         connect(m_qskBtn, &QPushButton::toggled, this, [this](bool on) {
             if (m_slice) m_slice->setQsk(on);
         });
@@ -203,13 +242,13 @@ void RxApplet::buildUI()
         lbl->setFixedWidth(34);
         row->addWidget(lbl);
 
-        m_stepDown  = mkStep("<");
+        m_stepDown  = mkLeft();
         m_stepLabel = new QLabel("100 Hz");
         m_stepLabel->setAlignment(Qt::AlignCenter);
         m_stepLabel->setStyleSheet(
             "QLabel { font-size: 11px; background: #0a0a18; border: 1px solid #1e2e3e; "
             "border-radius: 3px; padding: 1px 3px; }");
-        m_stepUp = mkStep(">");
+        m_stepUp = mkRight();
 
         // Helper: format a step value compactly.
         auto fmtStep = [](int hz) -> QString {
@@ -263,64 +302,117 @@ void RxApplet::buildUI()
 
     root->addWidget(hLine());
 
-    // ── AGC mode ──────────────────────────────────────────────────────────────
+    // ── AGC mode + threshold (single row) ────────────────────────────────────
     {
         auto* row = new QHBoxLayout;
-        row->setSpacing(3);
+        row->setSpacing(4);
         auto* lbl = new QLabel("AGC:");
         lbl->setFixedWidth(28);
         lbl->setStyleSheet("color: #708090; font-size: 11px;");
         row->addWidget(lbl);
 
-        const char* labels[] = {"Off","Slw","Med","Fst"};
-        for (int i = 0; i < 4; ++i) {
-            m_agcBtns[i] = mkToggle(labels[i]);
-            m_agcBtns[i]->setStyleSheet(kBlueActive);
-            const QString mode = AGC_MODES[i];
-            connect(m_agcBtns[i], &QPushButton::clicked, this, [this, mode](bool) {
-                if (m_slice) m_slice->setAgcMode(mode);
-            });
-            row->addWidget(m_agcBtns[i]);
-        }
+        m_agcCombo = new QComboBox;
+        m_agcCombo->addItem("Off",  QString("off"));
+        m_agcCombo->addItem("Slow", QString("slow"));
+        m_agcCombo->addItem("Med",  QString("med"));
+        m_agcCombo->addItem("Fast", QString("fast"));
+        m_agcCombo->setCurrentIndex(2);
+        m_agcCombo->setStyleSheet(
+            "QComboBox { font-size: 11px; padding: 1px 4px; background: #0a1a2a; "
+            "border: 1px solid #1e3e5e; border-radius: 3px; color: #c8d8e8; }"
+            "QComboBox::drop-down { border: none; width: 16px; }"
+            "QComboBox QAbstractItemView { background: #0a1a2a; color: #c8d8e8; "
+            "selection-background-color: #0070c0; }");
+        connect(m_agcCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
+            if (m_slice) m_slice->setAgcMode(m_agcCombo->itemData(idx).toString());
+        });
+        row->addWidget(m_agcCombo, 1);  // stretch 1 → ~25% of remaining space
+
+        m_agcTSlider = new QSlider(Qt::Horizontal);
+        m_agcTSlider->setRange(0, 100);
+        m_agcTSlider->setValue(65);
+        row->addWidget(m_agcTSlider, 3);  // stretch 3 → ~75% of remaining space
+
+        m_agcTLabel = new QLabel("65");
+        m_agcTLabel->setFixedWidth(24);
+        m_agcTLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_agcTLabel->setStyleSheet("font-size: 11px;");
+        row->addWidget(m_agcTLabel);
+
+        connect(m_agcTSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_agcTLabel->setText(QString::number(v));
+            if (m_slice) m_slice->setAgcThreshold(v);
+        });
         root->addLayout(row);
     }
 
     root->addWidget(hLine());
 
-    // ── AF / RF gain ──────────────────────────────────────────────────────────
-    auto mkGainRow = [&](const QString& labelText, QSlider*& slider, QLabel*& valLbl,
-                         int initVal) {
+    // ── AF gain ───────────────────────────────────────────────────────────────
+    {
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
-        auto* lbl = new QLabel(labelText);
+        auto* lbl = new QLabel("AF");
         lbl->setFixedWidth(18);
         lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         row->addWidget(lbl);
 
-        slider = new QSlider(Qt::Horizontal);
-        slider->setRange(0, 100);
-        slider->setValue(initVal);
-        row->addWidget(slider, 1);
+        m_afSlider = new QSlider(Qt::Horizontal);
+        m_afSlider->setRange(0, 100);
+        m_afSlider->setValue(70);
+        row->addWidget(m_afSlider, 1);
 
-        valLbl = new QLabel(QString::number(initVal));
-        valLbl->setFixedWidth(24);
-        valLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        valLbl->setStyleSheet("font-size: 11px;");
-        row->addWidget(valLbl);
+        m_afLabel = new QLabel("70");
+        m_afLabel->setFixedWidth(24);
+        m_afLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_afLabel->setStyleSheet("font-size: 11px;");
+        row->addWidget(m_afLabel);
         root->addLayout(row);
-    };
 
-    mkGainRow("AF", m_afSlider, m_afLabel, 70);
-    mkGainRow("RF", m_rfSlider, m_rfLabel, 0);
+        connect(m_afSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_afLabel->setText(QString::number(v));
+            emit afGainChanged(v);
+        });
+    }
 
-    connect(m_afSlider, &QSlider::valueChanged, this, [this](int v) {
-        m_afLabel->setText(QString::number(v));
-        emit afGainChanged(v);
-    });
-    connect(m_rfSlider, &QSlider::valueChanged, this, [this](int v) {
-        m_rfLabel->setText(QString::number(v));
-        if (m_slice) m_slice->setRfGain(static_cast<float>(v));
-    });
+    // ── Audio pan (L ←→ R) ───────────────────────────────────────────────────
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(4);
+
+        auto* lLbl = new QLabel("L");
+        lLbl->setFixedWidth(18);
+        lLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        row->addWidget(lLbl);
+
+        m_panSlider = new ResetSlider(50, Qt::Horizontal);
+        m_panSlider->setRange(0, 100);
+        m_panSlider->setValue(50);
+        row->addWidget(m_panSlider, 1);
+
+        auto* rLbl = new QLabel("R");
+        rLbl->setFixedWidth(10);
+        rLbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        row->addWidget(rLbl);
+
+        m_panLabel = new QLabel("C");
+        m_panLabel->setFixedWidth(20);
+        m_panLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_panLabel->setStyleSheet("font-size: 11px;");
+        row->addWidget(m_panLabel);
+        root->addLayout(row);
+
+        auto fmtPan = [](int v) -> QString {
+            if (v == 50) return "C";
+            if (v < 50)  return QString("L%1").arg(50 - v);
+            return QString("R%1").arg(v - 50);
+        };
+
+        connect(m_panSlider, &QSlider::valueChanged, this, [this, fmtPan](int v) {
+            m_panLabel->setText(fmtPan(v));
+            if (m_slice) m_slice->setAudioPan(v);
+        });
+    }
 
     root->addWidget(hLine());
 
@@ -330,8 +422,8 @@ void RxApplet::buildUI()
         row->setSpacing(4);
 
         m_sqlBtn = mkToggle("SQL");
-        m_sqlBtn->setFixedWidth(36);
-        m_sqlBtn->setStyleSheet(kGreenActive);
+        m_sqlBtn->setFixedWidth(44);
+        m_sqlBtn->setStyleSheet(kGreenActive + " QPushButton { font-size: 11px; padding: 2px 4px; }");
         row->addWidget(m_sqlBtn);
 
         m_sqlSlider = new QSlider(Qt::Horizontal);
@@ -395,22 +487,22 @@ void RxApplet::buildUI()
         row->setSpacing(4);
 
         m_ritOnBtn = mkToggle("RIT");
-        m_ritOnBtn->setFixedWidth(34);
-        m_ritOnBtn->setStyleSheet(kAmberActive);
+        m_ritOnBtn->setFixedWidth(44);
+        m_ritOnBtn->setStyleSheet(kAmberActive + " QPushButton { font-size: 11px; padding: 2px 4px; }");
         row->addWidget(m_ritOnBtn);
 
-        m_ritMinus = mkStep("<");
+        m_ritMinus = mkLeft();
         row->addWidget(m_ritMinus);
 
         m_ritLabel = new QLabel("0 Hz");
         m_ritLabel->setAlignment(Qt::AlignCenter);
-        m_ritLabel->setMinimumWidth(50);
+        m_ritLabel->setFixedWidth(60);
         m_ritLabel->setStyleSheet(
             "QLabel { font-size: 11px; background: #0a0a18; border: 1px solid #1e2e3e; "
             "border-radius: 3px; padding: 1px 3px; }");
-        row->addWidget(m_ritLabel, 1);
+        row->addWidget(m_ritLabel);
 
-        m_ritPlus = mkStep(">");
+        m_ritPlus = mkRight();
         row->addWidget(m_ritPlus);
 
         root->addLayout(row);
@@ -434,22 +526,22 @@ void RxApplet::buildUI()
         row->setSpacing(4);
 
         m_xitOnBtn = mkToggle("XIT");
-        m_xitOnBtn->setFixedWidth(34);
-        m_xitOnBtn->setStyleSheet(kAmberActive);
+        m_xitOnBtn->setFixedWidth(44);
+        m_xitOnBtn->setStyleSheet(kAmberActive + " QPushButton { font-size: 11px; padding: 2px 4px; }");
         row->addWidget(m_xitOnBtn);
 
-        m_xitMinus = mkStep("<");
+        m_xitMinus = mkLeft();
         row->addWidget(m_xitMinus);
 
         m_xitLabel = new QLabel("0 Hz");
         m_xitLabel->setAlignment(Qt::AlignCenter);
-        m_xitLabel->setMinimumWidth(50);
+        m_xitLabel->setFixedWidth(60);
         m_xitLabel->setStyleSheet(
             "QLabel { font-size: 11px; background: #0a0a18; border: 1px solid #1e2e3e; "
             "border-radius: 3px; padding: 1px 3px; }");
-        row->addWidget(m_xitLabel, 1);
+        row->addWidget(m_xitLabel);
 
-        m_xitPlus = mkStep(">");
+        m_xitPlus = mkRight();
         row->addWidget(m_xitPlus);
 
         root->addLayout(row);
@@ -541,18 +633,40 @@ void RxApplet::connectSlice(SliceModel* s)
         m_filterWidthLbl->setText(formatFilterWidth(lo, hi));
     });
 
-    // AGC
-    updateAgcButtons();
+    // AGC mode
+    updateAgcCombo();
     connect(s, &SliceModel::agcModeChanged, this, [this](const QString&) {
-        updateAgcButtons();
+        updateAgcCombo();
     });
 
-    // RF gain
+    // AGC threshold
     {
-        QSignalBlocker b(m_rfSlider);
-        m_rfSlider->setValue(static_cast<int>(s->rfGain()));
-        m_rfLabel->setText(QString::number(static_cast<int>(s->rfGain())));
+        QSignalBlocker b(m_agcTSlider);
+        m_agcTSlider->setValue(s->agcThreshold());
+        m_agcTLabel->setText(QString::number(s->agcThreshold()));
     }
+    connect(s, &SliceModel::agcThresholdChanged, this, [this](int v) {
+        QSignalBlocker b(m_agcTSlider);
+        m_agcTSlider->setValue(v);
+        m_agcTLabel->setText(QString::number(v));
+    });
+
+    // Audio pan
+    {
+        auto fmtPan = [](int v) -> QString {
+            if (v == 50) return "C";
+            if (v < 50)  return QString("L%1").arg(50 - v);
+            return QString("R%1").arg(v - 50);
+        };
+        QSignalBlocker b(m_panSlider);
+        m_panSlider->setValue(s->audioPan());
+        m_panLabel->setText(fmtPan(s->audioPan()));
+    }
+    connect(s, &SliceModel::audioPanChanged, this, [this](int v) {
+        QSignalBlocker b(m_panSlider);
+        m_panSlider->setValue(v);
+        m_panLabel->setText(v == 50 ? "C" : (v < 50 ? QString("L%1").arg(50-v) : QString("R%1").arg(v-50)));
+    });
 
     // Squelch
     {
@@ -663,12 +777,15 @@ void RxApplet::updateFilterButtons()
     }
 }
 
-void RxApplet::updateAgcButtons()
+void RxApplet::updateAgcCombo()
 {
     const QString cur = m_slice ? m_slice->agcMode() : "";
-    for (int i = 0; i < 4; ++i) {
-        QSignalBlocker sb(m_agcBtns[i]);
-        m_agcBtns[i]->setChecked(cur == AGC_MODES[i]);
+    QSignalBlocker sb(m_agcCombo);
+    for (int i = 0; i < m_agcCombo->count(); ++i) {
+        if (m_agcCombo->itemData(i).toString() == cur) {
+            m_agcCombo->setCurrentIndex(i);
+            break;
+        }
     }
 }
 

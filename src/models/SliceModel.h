@@ -32,6 +32,7 @@ public:
     bool    isTxSlice()  const { return m_txSlice; }
     float   rfGain()     const { return m_rfGain; }
     float   audioGain()  const { return m_audioGain; }
+    int     audioPan()   const { return m_audioPan; }
 
     // Getters — RX DSP state
     QString rxAntenna()   const { return m_rxAntenna; }
@@ -41,7 +42,8 @@ public:
     bool    nbOn()        const { return m_nb; }
     bool    nrOn()        const { return m_nr; }
     bool    anfOn()       const { return m_anf; }
-    QString agcMode()     const { return m_agcMode; }
+    QString agcMode()      const { return m_agcMode; }
+    int     agcThreshold() const { return m_agcThreshold; }
     bool    squelchOn()   const { return m_squelchOn; }
     int     squelchLevel()const { return m_squelchLevel; }
     bool    ritOn()       const { return m_ritOn; }
@@ -55,6 +57,7 @@ public:
     void setFilterWidth(int low, int high);
     void setAudioGain(float gain);
     void setRfGain(float gain);
+    void setAudioPan(int pan);
     void setRxAntenna(const QString& ant);
     void setTxAntenna(const QString& ant);
     void setLocked(bool locked);
@@ -63,6 +66,7 @@ public:
     void setNr(bool on);
     void setAnf(bool on);
     void setAgcMode(const QString& mode);
+    void setAgcThreshold(int value);
     void setSquelch(bool on, int level);
     void setRit(bool on, int hz);
     void setXit(bool on, int hz);
@@ -79,6 +83,7 @@ signals:
     void filterChanged(int low, int high);
     void activeChanged(bool active);
     void txSliceChanged(bool tx);
+    void audioPanChanged(int pan);
     void rxAntennaChanged(const QString& ant);
     void txAntennaChanged(const QString& ant);
     void lockedChanged(bool locked);
@@ -87,6 +92,7 @@ signals:
     void nrChanged(bool on);
     void anfChanged(bool on);
     void agcModeChanged(const QString& mode);
+    void agcThresholdChanged(int value);
     void squelchChanged(bool on, int level);
     void ritChanged(bool on, int hz);
     void xitChanged(bool on, int hz);
@@ -102,6 +108,7 @@ private:
     bool    m_txSlice{false};
     float   m_rfGain{0.0f};
     float   m_audioGain{50.0f};
+    int     m_audioPan{50};
 
     // Slice control state
     QString m_rxAntenna{"ANT1"};
@@ -112,6 +119,7 @@ private:
     bool    m_nr{false};
     bool    m_anf{false};
     QString m_agcMode{"med"};
+    int     m_agcThreshold{65};
     bool    m_squelchOn{false};
     int     m_squelchLevel{20};
     bool    m_ritOn{false};
