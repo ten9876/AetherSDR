@@ -3,6 +3,7 @@
 #include <QWidget>
 #include <QStringList>
 
+class QComboBox;
 class QPushButton;
 class QScrollArea;
 class QVBoxLayout;
@@ -44,6 +45,8 @@ public:
 private:
     QWidget*      m_sMeterSection{nullptr};
     SMeterWidget* m_sMeter{nullptr};
+    QComboBox*    m_txSelect{nullptr};
+    QComboBox*    m_rxSelect{nullptr};
     RxApplet*    m_rxApplet{nullptr};
     TunerApplet* m_tunerApplet{nullptr};
     TxApplet*      m_txApplet{nullptr};

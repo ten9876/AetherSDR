@@ -2,6 +2,7 @@
 
 #include <QPainter>
 #include <QPainterPath>
+#include <QSet>
 #include <QtMath>
 #include <QFontMetrics>
 
@@ -91,128 +92,183 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     // Background
     p.fillRect(rect(), QColor(0x0f, 0x0f, 0x1a));
 
-    // The gauge arc: center at bottom-center, radius fills most of the widget
+    // ── Arc geometry ─────────────────────────────────────────────────────
+    // Large radius with center far below widget → shallow ~70° arc segment
     const float cx = w * 0.5f;
-    const float cy = h * 0.88f;
-    const float radius = qMin(w * 0.42f, h * 0.72f);
+    const float radius = w * 0.85f;
+    const float cy = h + radius - h * 0.65f;  // arc center well below widget
+    const float needleCy = h + 6.0f;          // needle origin just below widget bottom
 
-    // Arc spans from 180° (left) to 0° (right) — i.e. the top semicircle
-    // fraction 0.0 → angle 180°, fraction 1.0 → angle 0°
-    auto fractionToAngle = [](float frac) -> float {
-        return M_PI * (1.0f - frac);  // radians, 0=right, PI=left
+    // Convert arc degrees to radians
+    const float arcStartRad = qDegreesToRadians(ARC_START_DEG);
+    const float arcEndRad   = qDegreesToRadians(ARC_END_DEG);
+    const float arcSpanRad  = arcEndRad - arcStartRad;
+
+    // fraction 0.0 → left end (ARC_END_DEG), fraction 1.0 → right end (ARC_START_DEG)
+    auto fractionToAngle = [&](float frac) -> float {
+        return arcEndRad - frac * arcSpanRad;  // radians
     };
 
-    // ── Draw arc background ──────────────────────────────────────────────
-    QPen arcPen(QColor(0x20, 0x30, 0x40), 2);
-    p.setPen(arcPen);
-    // Draw thin arc line
-    const QRectF arcRect(cx - radius, cy - radius, radius * 2, radius * 2);
-    p.drawArc(arcRect, 0, 180 * 16);  // Qt uses 1/16 degree units
-
-    // ── Draw scale ticks and labels ──────────────────────────────────────
-    QFont tickFont = font();
-    tickFont.setPixelSize(qMax(9, h / 14));
-    tickFont.setBold(true);
-    p.setFont(tickFont);
-
-    // S-unit ticks: S1 through S9
-    for (int s = 1; s <= 9; ++s) {
-        const float dbm = S0_DBM + s * DB_PER_S;
-        const float frac = dbmToFraction(dbm);
-        const float angle = fractionToAngle(frac);
-
-        const float tickInner = radius - 10;
-        const float tickOuter = radius - 2;
-        const float labelR    = radius - 20;
-
-        const float cosA = std::cos(angle);
-        const float sinA = std::sin(angle);
-
-        // Tick line
-        p.setPen(QPen(s <= 9 ? QColor(0xc8, 0xd8, 0xe8) : QColor(0xff, 0x44, 0x44), 1.5));
-        p.drawLine(QPointF(cx + tickInner * cosA, cy - tickInner * sinA),
-                   QPointF(cx + tickOuter * cosA, cy - tickOuter * sinA));
-
-        // Label
-        const QString label = (s <= 9) ? QString::number(s) : QString("+%1").arg((s - 9) * 10);
-        const QFontMetrics fm(tickFont);
-        const int tw = fm.horizontalAdvance(label);
-        p.setPen(s <= 9 ? QColor(0xc8, 0xd8, 0xe8) : QColor(0xff, 0x44, 0x44));
-        p.drawText(QPointF(cx + labelR * cosA - tw / 2.0,
-                           cy - labelR * sinA + fm.ascent() / 2.0), label);
-    }
-
-    // Over-S9 ticks: +10, +20, +40, +60
-    const int overs[] = {10, 20, 40, 60};
-    for (int over : overs) {
-        const float dbm = S9_DBM + over;
-        const float frac = dbmToFraction(dbm);
-        const float angle = fractionToAngle(frac);
-
-        const float tickInner = radius - 10;
-        const float tickOuter = radius - 2;
-        const float labelR    = radius - 20;
-
-        const float cosA = std::cos(angle);
-        const float sinA = std::sin(angle);
-
-        p.setPen(QPen(QColor(0xff, 0x44, 0x44), 1.5));
-        p.drawLine(QPointF(cx + tickInner * cosA, cy - tickInner * sinA),
-                   QPointF(cx + tickOuter * cosA, cy - tickOuter * sinA));
-
-        const QString label = QString("+%1").arg(over);
-        const QFontMetrics fm(tickFont);
-        const int tw = fm.horizontalAdvance(label);
-        p.setPen(QColor(0xff, 0x44, 0x44));
-        p.drawText(QPointF(cx + labelR * cosA - tw / 2.0,
-                           cy - labelR * sinA + fm.ascent() / 2.0), label);
-    }
-
-    // ── Draw colored arc segments ────────────────────────────────────────
-    // White arc from S0 to S9, red from S9 to S9+60
+    // ── Draw colored outer arc (RX scale) ───────────────────────────────
+    // White from S0 to S9, red from S9+
     {
-        // White segment: 0.0..0.6 → angles 180°..72°
+        const QRectF outerArc(cx - radius, cy - radius, radius * 2, radius * 2);
+        const float s9Deg = qRadiansToDegrees(fractionToAngle(0.6f));
+
         QPen whitePen(QColor(0xc8, 0xd8, 0xe8), 3);
         p.setPen(whitePen);
-        const float innerR = radius - 12;
-        const QRectF innerArc(cx - innerR, cy - innerR, innerR * 2, innerR * 2);
-        // Qt drawArc: start angle in 1/16°, CCW positive
-        // fraction 0.0 = 180°, fraction 0.6 = 72°
-        p.drawArc(innerArc,
-                  static_cast<int>(72 * 16),        // start at 72°
-                  static_cast<int>((180 - 72) * 16)); // span 108°
+        p.drawArc(outerArc,
+                  static_cast<int>(s9Deg * 16),
+                  static_cast<int>((ARC_END_DEG - s9Deg) * 16));
 
-        // Red segment: 0.6..1.0 → angles 72°..0°
+        QPen redPen(QColor(0xff, 0x44, 0x44), 3);
+        p.setPen(redPen);
+        p.drawArc(outerArc,
+                  static_cast<int>(ARC_START_DEG * 16),
+                  static_cast<int>((s9Deg - ARC_START_DEG) * 16));
+    }
+
+    // ── Draw colored inner arc (TX scale) — 6px gap ──────────────────────
+    // Blue from 0 to ~80 W, red from ~80 to 120 W
+    const float arcGap = 6.0f;
+    {
+        const float innerR = radius - arcGap;
+        const QRectF innerArc(cx - innerR, cy - innerR, innerR * 2, innerR * 2);
+
+        const float splitDeg = qRadiansToDegrees(fractionToAngle(100.0f / 120.0f));
+
+        QPen bluePen(QColor(0x00, 0x80, 0xd0), 3);
+        p.setPen(bluePen);
+        p.drawArc(innerArc,
+                  static_cast<int>(splitDeg * 16),
+                  static_cast<int>((ARC_END_DEG - splitDeg) * 16));
+
         QPen redPen(QColor(0xff, 0x44, 0x44), 3);
         p.setPen(redPen);
         p.drawArc(innerArc,
-                  0,                              // start at 0°
-                  static_cast<int>(72 * 16));     // span 72°
+                  static_cast<int>(ARC_START_DEG * 16),
+                  static_cast<int>((splitDeg - ARC_START_DEG) * 16));
+    }
+
+    // ── Tick drawing helpers ──────────────────────────────────────────────
+    QFont tickFont = font();
+    tickFont.setPixelSize(qMax(10, h / 10));
+    tickFont.setBold(true);
+    p.setFont(tickFont);
+    const QFontMetrics tfm(tickFont);
+
+    // Direction from needle origin through arc point, normalized
+    auto needleDir = [&](float angle) -> std::pair<float, float> {
+        const float arcX = cx + radius * std::cos(angle);
+        const float arcY = cy - radius * std::sin(angle);
+        const float dx = arcX - cx;
+        const float dy = arcY - needleCy;
+        const float len = std::sqrt(dx * dx + dy * dy);
+        return {dx / len, dy / len};
+    };
+
+    // Outside tick (RX): extends outward from the arc, label above
+    auto drawOutsideTick = [&](float frac, const QString& label, const QColor& color,
+                               bool showLabel) {
+        const float angle = fractionToAngle(frac);
+        const float arcX = cx + radius * std::cos(angle);
+        const float arcY = cy - radius * std::sin(angle);
+        auto [ux, uy] = needleDir(angle);
+
+        const QPointF inner(arcX + 2 * ux, arcY + 2 * uy);
+        const QPointF outer(arcX + 14 * ux, arcY + 14 * uy);
+
+        p.setPen(QPen(color, 1.5));
+        p.drawLine(inner, outer);
+
+        if (showLabel) {
+            const QPointF labelPt(arcX + 26 * ux, arcY + 26 * uy);
+            const int tw = tfm.horizontalAdvance(label);
+            p.setPen(color);
+            p.drawText(QPointF(labelPt.x() - tw / 2.0,
+                               labelPt.y() + tfm.ascent() / 2.0), label);
+        }
+    };
+
+    // Inside tick (TX): extends inward from the inner colored arc
+    const float innerArcR = radius - arcGap;
+    auto drawInsideTick = [&](float frac, const QString& label,
+                              const QColor& tickColor, const QColor& labelColor,
+                              bool showLabel) {
+        const float angle = fractionToAngle(frac);
+        // Start from the inner colored arc, not the outer arc
+        const float iArcX = cx + innerArcR * std::cos(angle);
+        const float iArcY = cy - innerArcR * std::sin(angle);
+        auto [ux, uy] = needleDir(angle);
+
+        const QPointF outer(iArcX - 2 * ux, iArcY - 2 * uy);
+        const QPointF inner(iArcX - 14 * ux, iArcY - 14 * uy);
+
+        p.setPen(QPen(tickColor, 1.5));
+        p.drawLine(inner, outer);
+
+        if (showLabel) {
+            const QPointF labelPt(iArcX - 26 * ux, iArcY - 26 * uy);
+            const int tw = tfm.horizontalAdvance(label);
+            p.setPen(labelColor);
+            p.drawText(QPointF(labelPt.x() - tw / 2.0,
+                               labelPt.y() + tfm.ascent() / 2.0), label);
+        }
+    };
+
+    const QColor whiteColor(0xc8, 0xd8, 0xe8);
+    const QColor redColor(0xff, 0x44, 0x44);
+
+    // ── Outside ticks (RX): S-meter scale — odd S-units only ──────────
+    for (int s = 1; s <= 9; s += 2) {
+        const float dbm = S0_DBM + s * DB_PER_S;
+        drawOutsideTick(dbmToFraction(dbm), QString::number(s), whiteColor, true);
+    }
+    for (int over : {20, 40}) {
+        const float dbm = S9_DBM + over;
+        drawOutsideTick(dbmToFraction(dbm), QString("+%1").arg(over), redColor, true);
+    }
+
+    // ── Inside ticks (TX): Power scale 0–120 W ──────────────────────────
+    // Linear mapping: 0 W → fraction 0.0, 120 W → fraction 1.0
+    const float txMaxW = 120.0f;
+    const QSet<int> txLabeled = {0, 40, 80, 100, 120};
+    const QColor blueColor(0x00, 0x80, 0xd0);
+    for (int watts = 0; watts <= 120; watts += 10) {
+        const float frac = watts / txMaxW;
+        const QString label = QString::number(watts);
+        const QColor& tickColor = (watts >= 100) ? redColor : blueColor;
+        const QColor& lblColor = (watts >= 100) ? redColor : whiteColor;
+        drawInsideTick(frac, label, tickColor, lblColor, txLabeled.contains(watts));
     }
 
     // ── Draw needle ──────────────────────────────────────────────────────
+    // Needle originates from needleCy (just below widget) rather than the
+    // arc center, so the pivot is barely out of frame.
     {
         const float frac = dbmToFraction(m_levelDbm);
         const float angle = fractionToAngle(frac);
-        const float needleLen = radius - 24;
 
-        const float cosA = std::cos(angle);
-        const float sinA = std::sin(angle);
+        // Compute where the needle should hit the scale (on the arc),
+        // then extend 20px past the arc along the same direction.
+        const float tipR = radius - 30;
+        const float tipX = cx + tipR * std::cos(angle);
+        const float tipY = cy - tipR * std::sin(angle);
+
+        // Direction from needle origin to tip, normalized
+        const float dx = tipX - cx;
+        const float dy = tipY - needleCy;
+        const float len = std::sqrt(dx * dx + dy * dy);
+        const float extX = tipX + 20.0f * dx / len;
+        const float extY = tipY + 20.0f * dy / len;
 
         // Needle shadow
         p.setPen(QPen(QColor(0, 0, 0, 80), 3));
-        p.drawLine(QPointF(cx + 1, cy + 1),
-                   QPointF(cx + 1 + needleLen * cosA, cy + 1 - needleLen * sinA));
+        p.drawLine(QPointF(cx + 1, needleCy + 1), QPointF(extX + 1, extY + 1));
 
         // Needle
         p.setPen(QPen(QColor(0xff, 0xff, 0xff), 2));
-        p.drawLine(QPointF(cx, cy),
-                   QPointF(cx + needleLen * cosA, cy - needleLen * sinA));
-
-        // Center dot
-        p.setBrush(QColor(0x00, 0xb4, 0xd8));
-        p.setPen(Qt::NoPen);
-        p.drawEllipse(QPointF(cx, cy), 4, 4);
+        p.drawLine(QPointF(cx, needleCy), QPointF(extX, extY));
     }
 
     // ── Draw peak marker (small triangle) ────────────────────────────────
@@ -228,7 +284,6 @@ void SMeterWidget::paintEvent(QPaintEvent*)
 
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(0xff, 0xaa, 0x00));
-        // Small triangle pointing inward
         const float perpCos = -sinA;
         const float perpSin = cosA;
         const float sz = 3.0f;
@@ -243,7 +298,6 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     }
 
     // ── Text readout — all top-aligned on the same baseline ─────────────
-    // Source label centered at top
     QFont srcFont = font();
     srcFont.setPixelSize(qMax(9, h / 14));
     const QFontMetrics sfm(srcFont);

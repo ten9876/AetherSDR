@@ -56,6 +56,10 @@ private:
     static constexpr float DB_PER_S = 6.0f;
 
     static constexpr float SMOOTH_ALPHA = 0.3f;
+
+    // Arc geometry: shallow arc spanning ~70° (like SmartSDR)
+    static constexpr float ARC_START_DEG = 55.0f;   // right end (degrees from +X axis)
+    static constexpr float ARC_END_DEG   = 125.0f;  // left end
 };
 
 } // namespace AetherSDR
