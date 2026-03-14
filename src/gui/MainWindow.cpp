@@ -9,10 +9,12 @@
 #include "TxApplet.h"
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
+#include "EqApplet.h"
 #include "models/SliceModel.h"
 #include "models/MeterModel.h"
 #include "models/TunerModel.h"
 #include "models/TransmitModel.h"
+#include "models/EqualizerModel.h"
 
 #include <QApplication>
 #include <QVBoxLayout>
@@ -141,6 +143,9 @@ MainWindow::MainWindow(QWidget* parent)
 
     // ── PHNE applet: VOX + CW controls ──────────────────────────────────────
     m_appletPanel->phoneApplet()->setTransmitModel(m_radioModel.transmitModel());
+
+    // ── EQ applet: graphic equalizer ─────────────────────────────────────────
+    m_appletPanel->eqApplet()->setEqualizerModel(m_radioModel.equalizerModel());
 
     // ── Audio level meter ──────────────────────────────────────────────────
     connect(&m_audio, &AudioEngine::levelChanged,

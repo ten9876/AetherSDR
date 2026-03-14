@@ -49,7 +49,8 @@ src/
 │   ├── RadioModel          — Central state: owns connection, slices, panadapter config
 │   ├── SliceModel          — Per-slice state (freq, mode, filter, DSP, RIT/XIT, etc.)
 │   ├── MeterModel          — Meter definition registry + VITA-49 value conversion
-│   └── TransmitModel       — Transmit state, internal ATU, TX profile management
+│   ├── TransmitModel       — Transmit state, internal ATU, TX profile management
+│   └── EqualizerModel      — 8-band EQ state for TX and RX (eq txsc / eq rxsc)
 └── gui/
     ├── MainWindow          — Dark-themed QMainWindow, wires everything together
     ├── ConnectionPanel     — Radio list + connect/disconnect button
@@ -62,6 +63,7 @@ src/
     ├── TunerApplet         — 4o3a TGXL tuner: gauges, relay bars, TUNE/OPERATE
     ├── PhoneCwApplet       — P/CW mic controls: level/compression gauges, mic profile, PROC/DAX/MON
     ├── PhoneApplet         — PHONE applet: VOX, AM carrier, DEXP, TX filter low/high
+    ├── EqApplet            — 8-band graphic equalizer applet (TX/RX views)
     └── HGauge.h            — Shared horizontal gauge widget (header-only)
 ```
 
@@ -343,6 +345,9 @@ them with `slice get <id>` rather than creating new ones.
   +ACC toggle, PROC/NOR-DX-DX+, DAX toggle, MON + monitor volume
 - PHONE applet: AM Carrier slider, VOX toggle + level, VOX delay, DEXP toggle +
   level (non-functional on fw v1.4.0.0), TX filter Low/High Cut step buttons
+- EQ applet: 8-band graphic equalizer (63 Hz – 8 kHz), ±10 dB vertical sliders,
+  independent RX/TX views, ON toggle, reset button (revert all bands to 0 dB)
+- EqualizerModel: TX/RX EQ state, parses `eq txsc`/`eq rxsc` status, emits commands
 - HGauge shared header: reusable horizontal gauge widget with three-zone fill,
   peak-hold markers, and reversed fill mode
 - TX button (sends `xmit 1` / `xmit 0`)
@@ -355,8 +360,6 @@ them with `slice get <id>` rather than creating new ones.
 - Audio TX (microphone → radio, full VITA-49 framing)
 - Band stacking / band map
 - CW keyer / memories
-- Phone applet (PHNE)
-- Equalizer (EQ applet)
 - Full meter display (SWR, ALC, power, etc. — MeterModel has the data)
 - Meter scaling review across all gauges (S-meter, TX power, mic level, compression)
 - DAX / CAT interface

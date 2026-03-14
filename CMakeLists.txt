@@ -39,6 +39,7 @@ set(MODEL_SOURCES
     src/models/MeterModel.cpp
     src/models/TunerModel.cpp
     src/models/TransmitModel.cpp
+    src/models/EqualizerModel.cpp
 )
 
 set(GUI_SOURCES
@@ -53,6 +54,7 @@ set(GUI_SOURCES
     src/gui/TxApplet.cpp
     src/gui/PhoneCwApplet.cpp
     src/gui/PhoneApplet.cpp
+    src/gui/EqApplet.cpp
 )
 
 set(ALL_SOURCES

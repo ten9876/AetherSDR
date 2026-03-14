@@ -5,6 +5,7 @@
 #include "TxApplet.h"
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
+#include "EqApplet.h"
 
 #include <QPushButton>
 #include <QScrollArea>
@@ -31,32 +32,6 @@ static QWidget* appletTitleBar(const QString& text)
                        "font-size: 10px; font-weight: bold; }");
     lbl->setGeometry(6, 1, 200, 14);
     return bar;
-}
-
-// ── Placeholder applet widget ────────────────────────────────────────────────
-
-static QWidget* makePlaceholder(const QString& name)
-{
-    auto* w = new QWidget;
-    w->hide();
-
-    auto* outer = new QVBoxLayout(w);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(0);
-
-    outer->addWidget(appletTitleBar(name));
-
-    // Body
-    auto* body = new QWidget;
-    auto* bl = new QVBoxLayout(body);
-    auto* txt = new QLabel(name + " applet\n(coming soon)");
-    txt->setAlignment(Qt::AlignCenter);
-    txt->setStyleSheet("color: #405060; font-size: 11px;");
-    txt->setFixedHeight(40);
-    bl->addWidget(txt);
-    outer->addWidget(body);
-
-    return w;
 }
 
 // ── AppletPanel ──────────────────────────────────────────────────────────────
@@ -160,7 +135,8 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     static_cast<QPushButton*>(btnLayout->itemAt(btnLayout->count() - 1)->widget())->setChecked(true);
     m_phoneCwApplet->show();
 
-    addApplet("EQ",   makePlaceholder("EQ"));
+    m_eqApplet = new EqApplet;
+    addApplet("EQ", m_eqApplet);
 
     btnLayout->addStretch();
 }

@@ -6,6 +6,7 @@
 #include "MeterModel.h"
 #include "TunerModel.h"
 #include "TransmitModel.h"
+#include "EqualizerModel.h"
 
 #include <QObject>
 #include <QString>
@@ -37,6 +38,7 @@ public:
     MeterModel*       meterModel()  { return &m_meterModel; }
     TunerModel*       tunerModel()  { return &m_tunerModel; }
     TransmitModel*    transmitModel() { return &m_transmitModel; }
+    EqualizerModel*   equalizerModel() { return &m_equalizerModel; }
     bool              hasAmplifier() const { return m_hasAmplifier; }
 
     // Getters
@@ -101,6 +103,7 @@ private:
     MeterModel       m_meterModel;
     TunerModel       m_tunerModel;
     TransmitModel    m_transmitModel;
+    EqualizerModel   m_equalizerModel;
 
     QString     m_name;
     QString     m_model;

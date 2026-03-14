@@ -56,6 +56,9 @@ Current version: **0.1.8**
 | PHONE applet — VOX toggle + level slider, VOX delay slider | ✅ |
 | PHONE applet — DEXP toggle + level slider | ⚠️ fw v1.4.0.0 rejects commands |
 | PHONE applet — TX filter Low Cut / High Cut step buttons | ✅ |
+| EQ applet — 8-band graphic equalizer (63 Hz – 8 kHz), ±10 dB per band | ✅ |
+| EQ applet — independent RX / TX EQ views with ON toggle | ✅ |
+| EQ applet — reset button (revert all bands to 0 dB) | ✅ |
 | Audio TX (microphone → radio) | ⚠️ stub |
 | Volume / mute control | ✅ |
 | TX button | ✅ |
@@ -78,7 +81,8 @@ src/
 │   ├── RadioModel.h/.cpp        # Central radio state, owns connection
 │   ├── SliceModel.h/.cpp        # Per-slice receiver state
 │   ├── MeterModel.h/.cpp        # Meter definition registry + value conversion
-│   └── TransmitModel.h/.cpp     # Transmit state, ATU, TX profiles
+│   ├── TransmitModel.h/.cpp     # Transmit state, ATU, TX profiles
+│   └── EqualizerModel.h/.cpp   # 8-band EQ state (TX + RX)
 └── gui/
     ├── MainWindow.h/.cpp        # Main application window
     ├── FrequencyDial.h/.cpp     # Custom 9-digit frequency widget
@@ -91,6 +95,7 @@ src/
     ├── TunerApplet.h/.cpp       # TGXL tuner applet
     ├── PhoneCwApplet.h/.cpp     # P/CW mic controls applet
     ├── PhoneApplet.h/.cpp       # PHONE applet (VOX, AM carrier, TX filter)
+    ├── EqApplet.h/.cpp          # 8-band graphic equalizer applet
     └── HGauge.h                 # Shared horizontal gauge widget (header-only)
 ```
 
@@ -239,6 +244,12 @@ model-driven dial updates back to the radio.
 ## Changelog
 
 ### v0.1.8
+- EQ applet: 8-band graphic equalizer (63 Hz – 8 kHz) with vertical sliders
+  (±10 dB), independent RX and TX views, ON toggle, and reset button (revert
+  all bands to 0 dB with custom-drawn undo arrow icon)
+- EqualizerModel: state model for TX and RX EQ bands, parses `eq txsc` / `eq rxsc`
+  status objects, emits `eq txsc`/`eq rxsc` commands for enable and per-band gain
+- EQ status arrives automatically on connect (no `sub eq all` needed on fw v1.4.0.0)
 - PHONE applet: AM Carrier level slider, VOX toggle + level slider, VOX delay
   slider, DEXP toggle + level slider (non-functional on fw v1.4.0.0), TX filter
   Low Cut / High Cut step buttons with inset frequency displays

@@ -35,6 +35,11 @@ RadioModel::RadioModel(QObject* parent)
         m_connection.sendCommand(cmd);
     });
 
+    // Forward equalizer model commands to the radio
+    connect(&m_equalizerModel, &EqualizerModel::commandReady, this, [this](const QString& cmd){
+        m_connection.sendCommand(cmd);
+    });
+
     m_reconnectTimer.setSingleShot(true);
     m_reconnectTimer.setInterval(3000);
     connect(&m_reconnectTimer, &QTimer::timeout, this, [this]() {
@@ -99,6 +104,7 @@ void RadioModel::onConnected()
         m_connection.sendCommand("sub amplifier all", [this](int, const QString&) {
           m_connection.sendCommand("sub meter all", [this](int, const QString&) {
             m_connection.sendCommand("sub audio all", [this](int, const QString&) {
+            // EQ status arrives automatically — no subscription needed on fw v1.4.0.0
             m_connection.sendCommand("client gui", [this](int code, const QString&) {
         if (code != 0)
             qWarning() << "RadioModel: client gui failed, code" << Qt::hex << code;
@@ -346,7 +352,17 @@ void RadioModel::onStatusReceived(const QString& object,
         return;
     }
 
-    // EQ, WAN, etc. — informational, ignore for now.
+    // EQ status: "eq txsc mode=1 63Hz=0 125Hz=5 ..." or "eq rxsc ..."
+    if (object == "eq txsc") {
+        m_equalizerModel.applyTxEqStatus(kvs);
+        return;
+    }
+    if (object == "eq rxsc") {
+        m_equalizerModel.applyRxEqStatus(kvs);
+        return;
+    }
+
+    // WAN, etc. — informational, ignore for now.
 }
 
 void RadioModel::handleRadioStatus(const QMap<QString, QString>& kvs)
