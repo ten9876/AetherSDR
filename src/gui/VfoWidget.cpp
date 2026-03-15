@@ -49,6 +49,41 @@ protected:
     }
 };
 
+// Button that paints a solid left- or right-pointing triangle.
+class TriBtn : public QPushButton {
+public:
+    enum Dir { Left, Right };
+    explicit TriBtn(Dir dir, QWidget* parent = nullptr)
+        : QPushButton(parent), m_dir(dir)
+    {
+        setFlat(false);
+        setFixedSize(22, 22);
+        setStyleSheet(
+            "QPushButton { background: #1a2a3a; border: 1px solid #203040; "
+            "border-radius: 3px; padding: 0; margin: 0; min-width: 0; min-height: 0; }"
+            "QPushButton:hover { background: #203040; }"
+            "QPushButton:pressed { background: #00b4d8; }");
+    }
+protected:
+    void paintEvent(QPaintEvent* ev) override {
+        QPushButton::paintEvent(ev);
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0xc8, 0xd8, 0xe8));
+        const double cx = width() / 2.0, cy = height() / 2.0;
+        if (m_dir == Left) {
+            const QPointF tri[] = {{cx + 3.0, cy - 4.0}, {cx + 3.0, cy + 4.0}, {cx - 3.0, cy}};
+            p.drawPolygon(tri, 3);
+        } else {
+            const QPointF tri[] = {{cx - 3.0, cy - 4.0}, {cx - 3.0, cy + 4.0}, {cx + 3.0, cy}};
+            p.drawPolygon(tri, 3);
+        }
+    }
+private:
+    Dir m_dir;
+};
+
 // Generate a small down-arrow PNG for combo boxes (shared temp file).
 static QString comboArrowPath()
 {
@@ -492,49 +527,122 @@ void VfoWidget::buildTabContent()
         m_tabStack->addWidget(modeTab);
     }
 
-    // Tab 3: X/RIT
+    // Tab 3: X/RIT — toggle, zero, ◀, Hz label, ▶ (matching RxApplet)
     {
+        static constexpr int RIT_STEP_HZ = 10;
+
+        static const QString kAmberActive =
+            "QPushButton:checked { background-color: #604000; color: #ffb800; "
+            "border: 1px solid #906000; }";
+        static const QString kRitBtnStyle =
+            "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
+            "border-radius: 2px; color: #c8d8e8; font-size: 11px; font-weight: bold; "
+            "padding: 1px 4px; }" + kAmberActive;
+        static const QString kZeroBtnStyle =
+            "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
+            "border-radius: 2px; color: #c8d8e8; font-size: 11px; font-weight: bold; "
+            "padding: 1px 4px; }"
+            "QPushButton:hover { background: #203040; }";
+        static const QString kHzLabelStyle =
+            "QLabel { font-size: 10px; background: #0a0a18; border: 1px solid #1e2e3e; "
+            "border-radius: 3px; padding: 0px 2px; color: #c8d8e8; }";
+
         auto* ritTab = new QWidget;
         auto* vb = new QVBoxLayout(ritTab);
         vb->setContentsMargins(2, 2, 2, 2);
         vb->setSpacing(2);
 
-        // RIT row
-        auto* ritRow = new QHBoxLayout;
-        ritRow->setSpacing(3);
-        m_ritBtn = new QPushButton("RIT");
-        m_ritBtn->setCheckable(true);
-        m_ritBtn->setFixedHeight(24);
-        m_ritBtn->setStyleSheet(kDspToggle);
-        ritRow->addWidget(m_ritBtn);
-        m_ritLabel = new QLabel("+0 Hz");
-        m_ritLabel->setStyleSheet("QLabel { background: transparent; border: none; "
-                                   "color: #c8d8e8; font-size: 13px; }");
-        m_ritLabel->setAlignment(Qt::AlignCenter);
-        ritRow->addWidget(m_ritLabel, 1);
-        vb->addLayout(ritRow);
+        // RIT row: toggle | 0 | ◀ | +0 Hz | ▶
+        {
+            auto* row = new QHBoxLayout;
+            row->setContentsMargins(0, 0, 0, 0);
+            row->setSpacing(0);
 
-        // XIT row
-        auto* xitRow = new QHBoxLayout;
-        xitRow->setSpacing(3);
-        m_xitBtn = new QPushButton("XIT");
-        m_xitBtn->setCheckable(true);
-        m_xitBtn->setFixedHeight(24);
-        m_xitBtn->setStyleSheet(kDspToggle);
-        xitRow->addWidget(m_xitBtn);
-        m_xitLabel = new QLabel("+0 Hz");
-        m_xitLabel->setStyleSheet("QLabel { background: transparent; border: none; "
-                                   "color: #c8d8e8; font-size: 13px; }");
-        m_xitLabel->setAlignment(Qt::AlignCenter);
-        xitRow->addWidget(m_xitLabel, 1);
-        vb->addLayout(xitRow);
+            m_ritBtn = new QPushButton("RIT");
+            m_ritBtn->setCheckable(true);
+            m_ritBtn->setFixedHeight(22);
+            m_ritBtn->setStyleSheet(kRitBtnStyle);
+            row->addWidget(m_ritBtn);
 
-        connect(m_ritBtn, &QPushButton::toggled, this, [this](bool on) {
-            if (!m_updatingFromModel && m_slice) m_slice->setRit(on, m_slice->ritFreq());
-        });
-        connect(m_xitBtn, &QPushButton::toggled, this, [this](bool on) {
-            if (!m_updatingFromModel && m_slice) m_slice->setXit(on, m_slice->xitFreq());
-        });
+            auto* zero = new QPushButton("0");
+            zero->setFixedHeight(22);
+            zero->setStyleSheet(kZeroBtnStyle);
+            connect(zero, &QPushButton::clicked, this, [this] {
+                if (m_slice) m_slice->setRit(m_ritBtn->isChecked(), 0);
+            });
+            row->addSpacing(2);
+            row->addWidget(zero);
+            row->addSpacing(2);
+
+            auto* minus = new TriBtn(TriBtn::Left);
+            row->addWidget(minus);
+
+            m_ritLabel = new QLabel("+0 Hz");
+            m_ritLabel->setAlignment(Qt::AlignCenter);
+            m_ritLabel->setStyleSheet(kHzLabelStyle);
+            row->addWidget(m_ritLabel, 1);
+
+            auto* plus = new TriBtn(TriBtn::Right);
+            row->addWidget(plus);
+
+            connect(m_ritBtn, &QPushButton::toggled, this, [this](bool on) {
+                if (!m_updatingFromModel && m_slice) m_slice->setRit(on, m_slice->ritFreq());
+            });
+            connect(minus, &QPushButton::clicked, this, [this] {
+                if (m_slice) m_slice->setRit(m_ritBtn->isChecked(), m_slice->ritFreq() - RIT_STEP_HZ);
+            });
+            connect(plus, &QPushButton::clicked, this, [this] {
+                if (m_slice) m_slice->setRit(m_ritBtn->isChecked(), m_slice->ritFreq() + RIT_STEP_HZ);
+            });
+
+            vb->addLayout(row);
+        }
+
+        // XIT row: toggle | 0 | ◀ | +0 Hz | ▶
+        {
+            auto* row = new QHBoxLayout;
+            row->setContentsMargins(0, 0, 0, 0);
+            row->setSpacing(0);
+
+            m_xitBtn = new QPushButton("XIT");
+            m_xitBtn->setCheckable(true);
+            m_xitBtn->setFixedHeight(22);
+            m_xitBtn->setStyleSheet(kRitBtnStyle);
+            row->addWidget(m_xitBtn);
+
+            auto* zero = new QPushButton("0");
+            zero->setFixedHeight(22);
+            zero->setStyleSheet(kZeroBtnStyle);
+            connect(zero, &QPushButton::clicked, this, [this] {
+                if (m_slice) m_slice->setXit(m_xitBtn->isChecked(), 0);
+            });
+            row->addSpacing(2);
+            row->addWidget(zero);
+            row->addSpacing(2);
+
+            auto* minus = new TriBtn(TriBtn::Left);
+            row->addWidget(minus);
+
+            m_xitLabel = new QLabel("+0 Hz");
+            m_xitLabel->setAlignment(Qt::AlignCenter);
+            m_xitLabel->setStyleSheet(kHzLabelStyle);
+            row->addWidget(m_xitLabel, 1);
+
+            auto* plus = new TriBtn(TriBtn::Right);
+            row->addWidget(plus);
+
+            connect(m_xitBtn, &QPushButton::toggled, this, [this](bool on) {
+                if (!m_updatingFromModel && m_slice) m_slice->setXit(on, m_slice->xitFreq());
+            });
+            connect(minus, &QPushButton::clicked, this, [this] {
+                if (m_slice) m_slice->setXit(m_xitBtn->isChecked(), m_slice->xitFreq() - RIT_STEP_HZ);
+            });
+            connect(plus, &QPushButton::clicked, this, [this] {
+                if (m_slice) m_slice->setXit(m_xitBtn->isChecked(), m_slice->xitFreq() + RIT_STEP_HZ);
+            });
+
+            vb->addLayout(row);
+        }
 
         m_tabStack->addWidget(ritTab);
     }
