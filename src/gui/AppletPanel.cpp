@@ -6,10 +6,11 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
+#include "CatApplet.h"
 #include "models/SliceModel.h"
 #include <QComboBox>
 #include <QLabel>
-
+#include <QSettings>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QVBoxLayout>
@@ -137,8 +138,10 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     scrollArea->setWidget(container);
     root->addWidget(scrollArea, 1);
 
-    // ── Helper: add one applet with its toggle button ────────────────────────
-    auto addApplet = [&](const QString& label, QWidget* applet) {
+    QSettings settings;
+
+    // ── Helper: add one applet with its toggle button (persistent state) ────
+    auto addApplet = [&](const QString& label, QWidget* applet, bool defaultOn) {
         auto* btn = new QPushButton(label, btnRow);
         btn->setCheckable(true);
         btnLayout->addWidget(btn);
@@ -146,23 +149,34 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         // Insert before the trailing stretch (index = count - 1).
         m_stack->insertWidget(m_stack->count() - 1, applet);
 
-        connect(btn, &QPushButton::toggled, applet, &QWidget::setVisible);
+        // Restore saved state (or use default)
+        const QString key = QStringLiteral("applet/%1").arg(label);
+        bool on = settings.value(key, defaultOn).toBool();
+        btn->setChecked(on);
+        applet->setVisible(on);
+
+        connect(btn, &QPushButton::toggled, applet, [applet, key](bool checked) {
+            applet->setVisible(checked);
+            QSettings().setValue(key, checked);
+        });
     };
 
-    // ANLG button — toggles the S-Meter section (visible by default)
+    // ANLG button — toggles the S-Meter section (default: visible)
     {
         auto* anlgBtn = new QPushButton("ANLG", btnRow);
         anlgBtn->setCheckable(true);
-        anlgBtn->setChecked(true);
+        bool anlgOn = settings.value("applet/ANLG", true).toBool();
+        anlgBtn->setChecked(anlgOn);
+        m_sMeterSection->setVisible(anlgOn);
         btnLayout->addWidget(anlgBtn);
-        connect(anlgBtn, &QPushButton::toggled, m_sMeterSection, &QWidget::setVisible);
+        connect(anlgBtn, &QPushButton::toggled, this, [this](bool on) {
+            m_sMeterSection->setVisible(on);
+            QSettings().setValue("applet/ANLG", on);
+        });
     }
 
-    // RX applet — visible by default
     m_rxApplet = new RxApplet;
-    addApplet("RX", m_rxApplet);
-    static_cast<QPushButton*>(btnLayout->itemAt(1)->widget())->setChecked(true);
-    m_rxApplet->show();
+    addApplet("RX", m_rxApplet, true);
 
     // Tuner applet — hidden until TGXL detected via amplifier subscription
     m_tunerApplet = new TunerApplet;
@@ -175,28 +189,20 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         connect(m_tuneBtn, &QPushButton::toggled, m_tunerApplet, &QWidget::setVisible);
     }
 
-    // TX applet — visible by default
     m_txApplet = new TxApplet;
-    addApplet("TX",   m_txApplet);
-    // The TX button was just added by addApplet; check it to show the applet.
-    static_cast<QPushButton*>(btnLayout->itemAt(btnLayout->count() - 1)->widget())->setChecked(true);
-    m_txApplet->show();
+    addApplet("TX", m_txApplet, true);
 
     m_phoneApplet = new PhoneApplet;
-    addApplet("PHNE", m_phoneApplet);
-    static_cast<QPushButton*>(btnLayout->itemAt(btnLayout->count() - 1)->widget())->setChecked(true);
-    m_phoneApplet->show();
+    addApplet("PHNE", m_phoneApplet, true);
 
-    // P/CW applet — visible by default
     m_phoneCwApplet = new PhoneCwApplet;
-    addApplet("P/CW", m_phoneCwApplet);
-    static_cast<QPushButton*>(btnLayout->itemAt(btnLayout->count() - 1)->widget())->setChecked(true);
-    m_phoneCwApplet->show();
+    addApplet("P/CW", m_phoneCwApplet, true);
 
     m_eqApplet = new EqApplet;
-    addApplet("EQ", m_eqApplet);
-    static_cast<QPushButton*>(btnLayout->itemAt(btnLayout->count() - 1)->widget())->setChecked(true);
-    m_eqApplet->show();
+    addApplet("EQ", m_eqApplet, true);
+
+    m_catApplet = new CatApplet;
+    addApplet("CAT", m_catApplet, false);
 
     btnLayout->addStretch();
 }

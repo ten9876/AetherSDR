@@ -12,6 +12,7 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
+#include "CatApplet.h"
 #include "RadioSetupDialog.h"
 #include "models/SliceModel.h"
 #include "models/MeterModel.h"
@@ -64,6 +65,7 @@ MainWindow::MainWindow(QWidget* parent)
             sizes[0] = 260;
         }
         m_splitter->setSizes(sizes);
+        QSettings("AetherSDR", "AetherSDR").setValue("connPanelCollapsed", collapsed);
     });
 
     connect(&m_discovery, &RadioDiscovery::radioDiscovered,
@@ -107,14 +109,16 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel, &RadioModel::sliceRemoved,
             this, &MainWindow::onSliceRemoved);
 
-    // ── TX audio stream: start mic capture when radio assigns stream ID ──
+    // ── TX audio stream: use PanadapterStream's registered UDP socket ──
+    m_audio.setPanStream(m_radioModel.panStream());
     connect(&m_radioModel, &RadioModel::txAudioStreamReady,
             this, [this](quint32 streamId) {
         m_audio.setTxStreamId(streamId);
-        // Send TX audio to the radio's VITA-49 port (same as RX: 4991)
-        m_audio.startTxStream(
-            m_radioModel.connection()->radioAddress(), 4991);
     });
+
+    // Gate DAX TX audio by MOX state — only send packets while transmitting
+    connect(m_radioModel.transmitModel(), &TransmitModel::moxChanged,
+            &m_audio, &AudioEngine::setMoxActive);
 
     // ── Panadapter stream → spectrum widget ───────────────────────────────
     connect(m_radioModel.panStream(), &PanadapterStream::spectrumReady,
@@ -240,6 +244,23 @@ MainWindow::MainWindow(QWidget* parent)
     // ── EQ applet: graphic equalizer ─────────────────────────────────────────
     m_appletPanel->eqApplet()->setEqualizerModel(m_radioModel.equalizerModel());
 
+    // ── CAT applet: rigctld + PTY + DAX ───────────────────────────────────────
+    m_daxManager = new DaxStreamManager(&m_radioModel, m_radioModel.panStream(), this);
+    m_appletPanel->catApplet()->setRadioModel(&m_radioModel);
+    m_appletPanel->catApplet()->setRigctlServer(&m_rigctlServer);
+    m_appletPanel->catApplet()->setRigctlPty(&m_rigctlPty);
+    m_appletPanel->catApplet()->setDaxStreamManager(m_daxManager);
+    m_appletPanel->catApplet()->setVirtualAudioBridge(&m_audioBridge);
+    m_appletPanel->catApplet()->setAudioEngine(&m_audio);
+
+    // Route DAX audio from DaxStreamManager → VirtualAudioBridge
+    connect(m_daxManager, &DaxStreamManager::daxAudioReady,
+            &m_audioBridge, &VirtualAudioBridge::feedDaxAudio);
+
+    // Route TX audio from VirtualAudioBridge → AudioEngine → radio VITA-49
+    connect(&m_audioBridge, &VirtualAudioBridge::txAudioReady,
+            &m_audio, &AudioEngine::sendDaxTxAudio);
+
     // ── Status bar telemetry ──────────────────────────────────────────────────
     connect(&m_radioModel, &RadioModel::networkQualityChanged,
             this, [this](const QString& quality, int pingMs) {
@@ -301,9 +322,12 @@ MainWindow::MainWindow(QWidget* parent)
     if (settings.contains("splitterState"))
         m_splitter->restoreState(settings.value("splitterState").toByteArray());
 
-    // Band memory save/restore is deprecated pending redesign.
-    // Clear any stale data from previous versions.
-    settings.remove("bands");
+    // Restore connection panel state
+    if (settings.value("connPanelCollapsed", false).toBool())
+        m_connPanel->setCollapsed(true);
+
+    // Band memory
+    m_bandSettings.loadFromFile();
 }
 
 MainWindow::~MainWindow() = default;
@@ -314,6 +338,14 @@ void MainWindow::closeEvent(QCloseEvent* event)
     settings.setValue("geometry",      saveGeometry());
     settings.setValue("windowState",   saveState());
     settings.setValue("splitterState", m_splitter->saveState());
+    // Save current band state and global frequency/mode for next launch
+    const QString curBand = m_bandSettings.currentBand();
+    if (!curBand.isEmpty() && activeSlice()) {
+        m_bandSettings.saveBandState(curBand, captureCurrentBandState());
+        settings.setValue("lastFrequency", activeSlice()->frequency());
+        settings.setValue("lastMode",      activeSlice()->mode());
+    }
+    m_bandSettings.saveToFile();
     m_discovery.stopListening();
     m_radioModel.disconnectFromRadio();
     m_audio.stopRxStream();
@@ -592,6 +624,26 @@ void MainWindow::onSliceAdded(SliceModel* s)
         // Detect initial band from radio's frequency
         if (m_bandSettings.currentBand().isEmpty())
             m_bandSettings.setCurrentBand(BandSettings::bandForFrequency(s->frequency()));
+
+        // Restore saved frequency/mode from last session
+        QSettings settings("AetherSDR", "AetherSDR");
+        const double lastFreq = settings.value("lastFrequency", 0.0).toDouble();
+        const QString lastMode = settings.value("lastMode").toString();
+        if (lastFreq > 0.0) {
+            const QString band = BandSettings::bandForFrequency(lastFreq);
+            m_bandSettings.setCurrentBand(band);
+            if (m_bandSettings.hasSavedState(band)) {
+                QTimer::singleShot(200, this, [this, band]() {
+                    restoreBandState(m_bandSettings.loadBandState(band));
+                });
+            } else {
+                QTimer::singleShot(200, this, [s, lastFreq, lastMode]() {
+                    if (!lastMode.isEmpty())
+                        s->setMode(lastMode);
+                    s->setFrequency(lastFreq);
+                });
+            }
+        }
     }
 
     // Forward slice frequency/mode changes → spectrum

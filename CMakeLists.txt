@@ -31,6 +31,11 @@ set(CORE_SOURCES
     src/core/CommandParser.cpp
     src/core/AudioEngine.cpp
     src/core/PanadapterStream.cpp
+    src/core/DaxStreamManager.cpp
+    src/core/RigctlProtocol.cpp
+    src/core/RigctlPty.cpp
+    src/core/RigctlServer.cpp
+    src/core/VirtualAudioBridge.cpp
 )
 
 set(MODEL_SOURCES
@@ -59,6 +64,7 @@ set(GUI_SOURCES
     src/gui/PhoneCwApplet.cpp
     src/gui/PhoneApplet.cpp
     src/gui/EqApplet.cpp
+    src/gui/CatApplet.cpp
 )
 
 set(ALL_SOURCES
@@ -104,6 +110,11 @@ target_compile_options(AetherSDR PRIVATE
 target_link_options(AetherSDR PRIVATE
     $<$<CONFIG:Debug>:-fsanitize=address>
 )
+
+# ── HAL plugin (macOS virtual audio device) ──────────────────────────────────
+if(APPLE)
+    add_subdirectory(hal-plugin)
+endif()
 
 # ── Install rules ────────────────────────────────────────────────────────────
 include(GNUInstallDirs)
