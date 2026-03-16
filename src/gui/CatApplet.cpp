@@ -36,11 +36,20 @@ static constexpr const char* kSectionStyle =
     "QPushButton { background: #1a2a3a; border: 1px solid #203040;"
     "  border-radius: 3px; padding: 2px 8px; font-size: 10px; color: #c8d8e8; }";
 
-static QLabel* sectionHeader(const QString& text)
+static QWidget* appletTitleBar(const QString& text)
 {
-    auto* lbl = new QLabel(text);
-    lbl->setStyleSheet("color: #00b4d8; font-size: 11px; font-weight: bold;");
-    return lbl;
+    auto* bar = new QWidget;
+    bar->setFixedHeight(16);
+    bar->setStyleSheet(
+        "QWidget { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+        "stop:0 #3a4a5a, stop:0.5 #2a3a4a, stop:1 #1a2a38); "
+        "border-bottom: 1px solid #0a1a28; }");
+
+    auto* lbl = new QLabel(text, bar);
+    lbl->setStyleSheet("QLabel { background: transparent; color: #8aa8c0; "
+                       "font-size: 10px; font-weight: bold; }");
+    lbl->setGeometry(6, 1, 240, 14);
+    return bar;
 }
 
 static QFrame* separator()
@@ -69,11 +78,20 @@ void CatApplet::buildUI()
     QSettings settings;
 
     // ── TCP Section ─────────────────────────────────────────────────────────
-    root->addWidget(sectionHeader("rigctld TCP Server"));
+    root->addWidget(appletTitleBar("rigctld TCP Server"));
+
+    static const QString kGreenToggle =
+        "QPushButton { background: #1a2a3a; border: 1px solid #205070; border-radius: 3px;"
+        " color: #c8d8e8; font-size: 10px; font-weight: bold; padding: 2px 8px; }"
+        "QPushButton:hover { background: #204060; }"
+        "QPushButton:checked { background: #006040; color: #00ff88; border: 1px solid #00a060; }";
 
     auto* tcpRow = new QHBoxLayout;
-    m_tcpEnable = new QCheckBox("Enable");
+    m_tcpEnable = new QPushButton("Enable");
+    m_tcpEnable->setCheckable(true);
     m_tcpEnable->setChecked(settings.value("cat/tcpEnable", false).toBool());
+    m_tcpEnable->setStyleSheet(kGreenToggle);
+    m_tcpEnable->setFixedHeight(22);
     tcpRow->addWidget(m_tcpEnable);
 
     auto* portLabel = new QLabel("Port:");
@@ -89,7 +107,7 @@ void CatApplet::buildUI()
     m_tcpStatus = new QLabel("Status: stopped");
     root->addWidget(m_tcpStatus);
 
-    connect(m_tcpEnable, &QCheckBox::toggled, this, [this](bool on) {
+    connect(m_tcpEnable, &QPushButton::toggled, this, [this](bool on) {
         QSettings().setValue("cat/tcpEnable", on);
         if (!m_server) return;
         if (on) {
@@ -115,10 +133,13 @@ void CatApplet::buildUI()
     root->addWidget(separator());
 
     // ── PTY Section ─────────────────────────────────────────────────────────
-    root->addWidget(sectionHeader("Virtual Serial Port"));
+    root->addWidget(appletTitleBar("Virtual Serial Port"));
 
-    m_ptyEnable = new QCheckBox("Enable");
+    m_ptyEnable = new QPushButton("Enable");
+    m_ptyEnable->setCheckable(true);
     m_ptyEnable->setChecked(settings.value("cat/ptyEnable", false).toBool());
+    m_ptyEnable->setStyleSheet(kGreenToggle);
+    m_ptyEnable->setFixedHeight(22);
     root->addWidget(m_ptyEnable);
 
     auto* ptyRow = new QHBoxLayout;
@@ -135,7 +156,7 @@ void CatApplet::buildUI()
         QApplication::clipboard()->setText(m_ptyPath->text().replace("Path: ", ""));
     });
 
-    connect(m_ptyEnable, &QCheckBox::toggled, this, [this](bool on) {
+    connect(m_ptyEnable, &QPushButton::toggled, this, [this](bool on) {
         QSettings().setValue("cat/ptyEnable", on);
         if (!m_pty) return;
         if (on)
@@ -159,10 +180,13 @@ void CatApplet::buildUI()
     root->addWidget(separator());
 
     // ── DAX Section ─────────────────────────────────────────────────────────
-    root->addWidget(sectionHeader("DAX Audio Channels"));
+    root->addWidget(appletTitleBar("DAX Audio Channels"));
 
-    m_daxEnable = new QCheckBox("Enable DAX 1-4");
+    m_daxEnable = new QPushButton("Enable DAX 1-4");
+    m_daxEnable->setCheckable(true);
     m_daxEnable->setChecked(settings.value("cat/daxEnable", false).toBool());
+    m_daxEnable->setStyleSheet(kGreenToggle);
+    m_daxEnable->setFixedHeight(22);
     root->addWidget(m_daxEnable);
 
     // DAX gain slider (0–100 → 0.0–1.0, default 25 = -12 dB)
@@ -218,7 +242,7 @@ void CatApplet::buildUI()
         root->addWidget(m_daxLabels[i]);
     }
 
-    connect(m_daxEnable, &QCheckBox::toggled, this, [this](bool on) {
+    connect(m_daxEnable, &QPushButton::toggled, this, [this](bool on) {
         QSettings().setValue("cat/daxEnable", on);
         if (on) {
             if (m_dax) m_dax->requestDaxStreams();

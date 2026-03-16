@@ -47,12 +47,12 @@ private:
     AudioEngine*        m_audio{nullptr};
 
     // TCP section
-    QCheckBox*   m_tcpEnable{nullptr};
+    QPushButton* m_tcpEnable{nullptr};
     QSpinBox*    m_tcpPort{nullptr};
     QLabel*      m_tcpStatus{nullptr};
 
     // PTY section
-    QCheckBox*   m_ptyEnable{nullptr};
+    QPushButton* m_ptyEnable{nullptr};
     QLabel*      m_ptyPath{nullptr};
     QPushButton* m_ptyCopy{nullptr};
 
@@ -60,7 +60,7 @@ private:
     QComboBox*   m_sliceSelect{nullptr};
 
     // DAX section
-    QCheckBox*   m_daxEnable{nullptr};
+    QPushButton* m_daxEnable{nullptr};
     QSlider*     m_daxGain{nullptr};
     QLabel*      m_daxGainLabel{nullptr};
     QSlider*     m_daxTxGain{nullptr};
