@@ -10,6 +10,8 @@
 
 namespace AetherSDR {
 
+class PanadapterStream;
+
 // AudioEngine handles audio playback (RX) and capture (TX).
 //
 // RX path:
@@ -41,14 +43,33 @@ public:
     bool startTxStream(const QHostAddress& radioAddress, quint16 radioPort);
     void stopTxStream();
 
-    // Set the TX stream ID (from radio's response to "stream create type=remote_audio_tx")
+    // Set the TX stream ID (from radio's response to "stream create type=dax_tx")
     void setTxStreamId(quint32 id) { m_txStreamId = id; }
+
+    // Set target address/port for TX VITA-49 packets (without starting mic capture)
+    void setTxTarget(const QHostAddress& addr, quint16 port) {
+        m_txAddress = addr; m_txPort = port;
+    }
+
+    // Set the PanadapterStream used to send TX packets via the registered UDP port.
+    void setPanStream(PanadapterStream* ps) { m_panStream = ps; }
 
     float rxVolume() const  { return m_rxVolume; }
     void  setRxVolume(float v);
 
     bool isMuted() const   { return m_muted; }
     void setMuted(bool m);
+
+    // Send DAX TX audio from VirtualAudioBridge (float32 stereo, 48 kHz).
+    // Internally decimates 2:1 to 24 kHz before building VITA-49 packets.
+    void sendDaxTxAudio(const QByteArray& floatPcm);
+
+    // TX gain for DAX audio (0.0–1.0). Default 0.05 (≈ −26 dB).
+    void setDaxTxGain(float g) { m_daxTxGain = qBound(0.0f, g, 1.0f); }
+    float daxTxGain() const { return m_daxTxGain; }
+
+    // Gate DAX TX audio: only send packets while MOX is active.
+    void setMoxActive(bool active);
 
 public slots:
     // Receives stripped PCM from PanadapterStream::audioDataReady().
@@ -66,6 +87,7 @@ private:
     QAudioFormat makeFormat() const;
     float computeRMS(const QByteArray& pcm) const;
     QByteArray buildVitaTxPacket(const float* samples, int numStereoSamples);
+    void flushTxWithSilence();
 
     // RX
     QAudioSink*   m_audioSink{nullptr};
@@ -80,7 +102,11 @@ private:
     quint32       m_txStreamId{0};
     quint8        m_txPacketCount{0};    // 4-bit, mod 16
     QByteArray    m_txAccumulator;       // accumulate PCM until 128 stereo pairs
+    QByteArray    m_daxTxAccumulator;    // accumulate float32 from VirtualAudioBridge
 
+    PanadapterStream* m_panStream{nullptr};
+    bool  m_moxActive{false};
+    float m_daxTxGain{0.5f};    // DAX TX gain (default −6 dB, adjustable via CatApplet)
     float m_rxVolume{1.0f};
     bool  m_muted{false};
 

@@ -92,6 +92,14 @@ void PanadapterStream::stop()
     m_localPort = 0;
 }
 
+qint64 PanadapterStream::sendToRadio(const QByteArray& packet)
+{
+    if (!m_conn) return -1;
+    const QHostAddress addr = m_conn->radioAddress();
+    if (addr.isNull()) return -1;
+    return m_socket.writeDatagram(packet, addr, 4991);
+}
+
 // ─── Datagram reception ───────────────────────────────────────────────────────
 
 void PanadapterStream::setOwnedStreamIds(quint32 panStreamId, quint32 wfStreamId)
@@ -153,6 +161,57 @@ void PanadapterStream::processDatagram(const QByteArray& data)
             stats.errorCount++;
     }
     stats.lastSeq = seq;
+
+    // Check if this stream ID is a DAX stream — route separately
+    if (m_daxStreamIds.contains(streamId)) {
+        int channel = m_daxStreamIds[streamId];
+
+        // Debug: log first few DAX packets per channel
+        static int daxDebugCount[5] = {};
+        if (channel >= 1 && channel <= 4 && daxDebugCount[channel]++ < 5) {
+            qDebug() << "PanadapterStream: DAX packet ch=" << channel
+                     << "streamId=0x" + QString::number(streamId, 16)
+                     << "pcc=0x" + QString::number(pcc, 16)
+                     << "size=" << data.size();
+        }
+
+        // Decode audio same as main stream, but emit daxAudioReady instead
+        QByteArray pcm;
+        if (pcc == PCC_IF_NARROW) {
+            // float32 stereo big-endian → int16 stereo little-endian
+            const int payloadStart = VITA49_HEADER_BYTES;
+            const int payloadBytes = data.size() - payloadStart - (hasTrailer ? 4 : 0);
+            if (payloadBytes < 4) return;
+            const int numFloats = payloadBytes / 4;
+            const uchar* src = raw + payloadStart;
+            pcm.resize(numFloats * 2);
+            auto* dst = reinterpret_cast<qint16*>(pcm.data());
+            for (int i = 0; i < numFloats; ++i) {
+                const quint32 u = qFromBigEndian<quint32>(src + i * 4);
+                float f;
+                std::memcpy(&f, &u, 4);
+                dst[i] = static_cast<qint16>(qBound(-1.0f, f, 1.0f) * 32767.0f);
+            }
+        } else if (pcc == PCC_IF_NARROW_REDUCED) {
+            // int16 mono big-endian → int16 stereo little-endian
+            const int payloadStart = VITA49_HEADER_BYTES;
+            const int payloadBytes = data.size() - payloadStart - (hasTrailer ? 4 : 0);
+            if (payloadBytes < 2) return;
+            const int monoSamples = payloadBytes / 2;
+            const uchar* src = raw + payloadStart;
+            pcm.resize(monoSamples * 4);
+            auto* dst = reinterpret_cast<qint16*>(pcm.data());
+            for (int i = 0; i < monoSamples; ++i) {
+                const qint16 s = qFromBigEndian<qint16>(src + i * 2);
+                dst[i * 2]     = s;
+                dst[i * 2 + 1] = s;
+            }
+        } else {
+            return;  // unexpected PCC for DAX stream
+        }
+        emit daxAudioReady(channel, pcm);
+        return;
+    }
 
     // Route by PacketClassCode
     switch (pcc) {
@@ -402,6 +461,21 @@ int PanadapterStream::packetTotalCount() const
     for (auto it = m_streamStats.constBegin(); it != m_streamStats.constEnd(); ++it)
         total += it->totalCount;
     return total;
+}
+
+// ─── DAX stream registration ─────────────────────────────────────────────────
+
+void PanadapterStream::registerDaxStream(quint32 streamId, int channel)
+{
+    m_daxStreamIds[streamId] = channel;
+    qDebug() << "PanadapterStream: registered DAX stream"
+             << Qt::hex << streamId << "→ channel" << channel;
+}
+
+void PanadapterStream::unregisterDaxStream(quint32 streamId)
+{
+    m_daxStreamIds.remove(streamId);
+    qDebug() << "PanadapterStream: unregistered DAX stream" << Qt::hex << streamId;
 }
 
 } // namespace AetherSDR

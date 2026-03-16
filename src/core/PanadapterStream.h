@@ -45,9 +45,19 @@ public:
     // Called whenever the radio reports min_dbm / max_dbm for the panadapter.
     void setDbmRange(float minDbm, float maxDbm);
 
+    // Send a VITA-49 packet to the radio via the registered UDP socket.
+    // Must be called after start(). Returns bytes sent, or -1 on error.
+    qint64 sendToRadio(const QByteArray& packet);
+
     // Set the stream IDs we own (filter out other clients' FFT/waterfall data).
     // panStreamId is the panadapter hex ID (e.g. 0x40000000).
     void setOwnedStreamIds(quint32 panStreamId, quint32 wfStreamId);
+
+    // Register/unregister a VITA-49 stream ID as a DAX audio channel (1-4).
+    // When a datagram's stream ID matches, audio is routed to daxAudioReady()
+    // instead of audioDataReady().
+    void registerDaxStream(quint32 streamId, int channel);
+    void unregisterDaxStream(quint32 streamId);
 
 
 signals:
@@ -62,6 +72,8 @@ signals:
     void audioDataReady(const QByteArray& pcm);
     // Meter data: parallel arrays of (meter_index, raw_int16_value).
     void meterDataReady(const QVector<quint16>& ids, const QVector<qint16>& vals);
+    // DAX audio for a specific channel (1-4). Same format as audioDataReady.
+    void daxAudioReady(int channel, const QByteArray& pcm);
 
 private slots:
     void onDatagramReady();
@@ -114,6 +126,7 @@ private:
     RadioConnection* m_conn{nullptr};
     FrameAssembler  m_frame;
     QMap<quint16, StreamStats> m_streamStats;  // keyed by PCC
+    QMap<quint32, int> m_daxStreamIds;           // stream ID → DAX channel (1-4)
 
 public:
     // Packet error/total counts across all streams (for network quality monitor).

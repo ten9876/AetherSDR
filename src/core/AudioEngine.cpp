@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include "PanadapterStream.h"
 
 #include <QMediaDevices>
 #include <QAudioDevice>
@@ -180,6 +181,63 @@ void AudioEngine::onTxAudioReady()
     }
 }
 
+void AudioEngine::setMoxActive(bool active)
+{
+    m_moxActive = active;
+    if (!active) {
+        // Clear any buffered TX audio when going back to RX
+        m_daxTxAccumulator.clear();
+
+        // Send a burst of silence packets to flush the radio's TX audio buffer.
+        // Without this, the radio stays in UNKEY_REQUESTED for the duration of
+        // any previously-buffered audio (up to ~14 s for FT8).
+        flushTxWithSilence();
+    }
+}
+
+void AudioEngine::flushTxWithSilence()
+{
+    if (m_txStreamId == 0 || !m_panStream) return;
+
+    // Send ~500 ms of silence at 24 kHz stereo (128 stereo pairs per packet).
+    // 24000 / 128 = 187.5 packets/sec → ~94 packets for 500 ms.
+    static constexpr int FLUSH_PACKETS = 100;
+    float silence[TX_SAMPLES_PER_PACKET * 2] = {};  // zero-initialized
+
+    for (int i = 0; i < FLUSH_PACKETS; ++i) {
+        QByteArray packet = buildVitaTxPacket(silence, TX_SAMPLES_PER_PACKET);
+        m_panStream->sendToRadio(packet);
+    }
+    qDebug() << "AudioEngine: flushed TX buffer with" << FLUSH_PACKETS << "silence packets";
+}
+
+void AudioEngine::sendDaxTxAudio(const QByteArray& floatPcm)
+{
+    if (m_txStreamId == 0 || !m_panStream || !m_moxActive) return;
+
+    // Input: float32 stereo at 24 kHz from HAL plugin (native DAX rate).
+    // Radio DAX TX expects 24 kHz stereo → direct 1:1, no resampling.
+    // Accumulate until we have enough for one VITA-49 packet (128 stereo pairs).
+    m_daxTxAccumulator.append(floatPcm);
+
+    static constexpr int FLOAT_BYTES_PER_PACKET =
+        TX_SAMPLES_PER_PACKET * 2 * static_cast<int>(sizeof(float));  // 128 pairs × 2ch × 4B = 1024
+
+    int offset = 0;
+    while (offset + FLOAT_BYTES_PER_PACKET <= m_daxTxAccumulator.size()) {
+        const auto* samples =
+            reinterpret_cast<const float*>(m_daxTxAccumulator.constData() + offset);
+
+        QByteArray packet = buildVitaTxPacket(samples, TX_SAMPLES_PER_PACKET);
+        m_panStream->sendToRadio(packet);
+
+        offset += FLOAT_BYTES_PER_PACKET;
+    }
+
+    if (offset > 0)
+        m_daxTxAccumulator.remove(0, offset);
+}
+
 QByteArray AudioEngine::buildVitaTxPacket(const float* samples, int numStereoSamples)
 {
     const int payloadBytes = numStereoSamples * 2 * 4;  // stereo × sizeof(float)
@@ -223,11 +281,13 @@ QByteArray AudioEngine::buildVitaTxPacket(const float* samples, int numStereoSam
     words[5] = 0;  // fractional timestamp high
     words[6] = 0;  // fractional timestamp low (sample count)
 
-    // ── Payload: float32 stereo, big-endian ───────────────────────────────
+    // ── Payload: float32 stereo, big-endian, with TX gain ───────────────
     quint32* payload = words + VITA_HEADER_WORDS;
+    const float gain = m_daxTxGain;
     for (int i = 0; i < numStereoSamples * 2; ++i) {
+        float s = samples[i] * gain;
         quint32 raw;
-        std::memcpy(&raw, &samples[i], 4);
+        std::memcpy(&raw, &s, 4);
         payload[i] = qToBigEndian(raw);
     }
 
