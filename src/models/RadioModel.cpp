@@ -84,6 +84,11 @@ void RadioModel::disconnectFromRadio()
 
 void RadioModel::setTransmit(bool tx)
 {
+    // Immediately stop TX audio when unkeying — don't wait for radio's
+    // interlock state to transition through UNKEY_REQUESTED → READY.
+    if (!tx)
+        m_transmitModel.setTransmitting(false);
+
     m_connection.sendCommand(QString("xmit %1").arg(tx ? 1 : 0));
 }
 
