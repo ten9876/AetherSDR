@@ -448,8 +448,25 @@ void MainWindow::buildMenuBar()
 
     settingsMenu->addSeparator();
 
-    settingsMenu->addAction("Autostart CAT with SmartSDR");
-    settingsMenu->addAction("Autostart DAX with SmartSDR");
+    auto* autoCatAction = settingsMenu->addAction("Autostart CAT with AetherSDR");
+    autoCatAction->setCheckable(true);
+    autoCatAction->setChecked(
+        AppSettings::instance().value("AutoStartCAT", "False").toString() == "True");
+    connect(autoCatAction, &QAction::toggled, this, [](bool on) {
+        auto& s = AppSettings::instance();
+        s.setValue("AutoStartCAT", on ? "True" : "False");
+        s.save();
+    });
+
+    auto* autoDaxAction = settingsMenu->addAction("Autostart DAX with AetherSDR");
+    autoDaxAction->setCheckable(true);
+    autoDaxAction->setChecked(
+        AppSettings::instance().value("AutoStartDAX", "False").toString() == "True");
+    connect(autoDaxAction, &QAction::toggled, this, [](bool on) {
+        auto& s = AppSettings::instance();
+        s.setValue("AutoStartDAX", on ? "True" : "False");
+        s.save();
+    });
 
     // Connect placeholder items to show "not implemented" message
     for (auto* action : settingsMenu->actions()) {
@@ -653,6 +670,14 @@ void MainWindow::onConnectionStateChanged(bool connected)
         // Auto-collapse the connection panel unless the user manually expanded it
         if (!m_userExpandedPanel)
             m_connPanel->setCollapsed(true);
+
+        // Auto-start CAT if enabled in settings
+        if (AppSettings::instance().value("AutoStartCAT", "False").toString() == "True") {
+            if (!m_rigctlServer.isRunning())
+                m_rigctlServer.start();
+            if (!m_rigctlPty.isRunning())
+                m_rigctlPty.start();
+        }
     } else {
         m_connStatusLabel->setText("Disconnected");
         m_radioInfoLabel->setText("");
