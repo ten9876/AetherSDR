@@ -50,6 +50,9 @@ set(GUI_SOURCES
     src/gui/SpectrumOverlayMenu.cpp
     src/gui/VfoWidget.cpp
     src/gui/RadioSetupDialog.cpp
+    src/gui/NetworkDiagnosticsDialog.cpp
+    src/gui/MemoryDialog.cpp
+    src/gui/SpotSettingsDialog.cpp
     src/gui/PanadapterApplet.cpp
     src/gui/AppletPanel.cpp
     src/gui/RxApplet.cpp

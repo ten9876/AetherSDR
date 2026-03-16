@@ -13,6 +13,32 @@
 #include <QList>
 #include <QMap>
 #include <QSet>
+
+namespace AetherSDR {
+
+struct MemoryEntry {
+    int     index{-1};
+    QString group;
+    QString owner;
+    double  freq{0.0};
+    QString name;
+    QString mode;
+    int     step{100};
+    QString offsetDir;       // "simplex", "up", "down"
+    double  repeaterOffset{0.0};
+    QString toneMode;        // "off", "ctcss_tx", ...
+    double  toneValue{0.0};
+    bool    squelch{false};
+    int     squelchLevel{0};
+    int     rxFilterLow{0};
+    int     rxFilterHigh{0};
+    int     rttyMark{2125};
+    int     rttyShift{170};
+    int     diglOffset{2210};
+    int     diguOffset{1500};
+};
+
+} // namespace AetherSDR
 #include <QTimer>
 #include <QElapsedTimer>
 
@@ -91,6 +117,10 @@ public:
     bool    filterSharpnessCwAuto()    const { return m_filterCwAuto; }
     int     filterSharpnessDigital()   const { return m_filterDigital; }
     bool    filterSharpnessDigitalAuto() const { return m_filterDigitalAuto; }
+
+    // Memory channel cache
+    const QMap<int, MemoryEntry>& memories() const { return m_memories; }
+    void handleMemoryStatus(int index, const QMap<QString, QString>& kvs);
     bool    lowLatencyDigital()        const { return m_lowLatencyDigital; }
     bool    hasStaticIp()     const { return m_hasStaticIp; }
     QString staticIp()        const { return m_staticIp; }
@@ -143,6 +173,12 @@ signals:
     void networkQualityChanged(const QString& quality, int pingMs);
     // Emitted when the radio assigns a TX audio stream ID.
     void txAudioStreamReady(quint32 streamId);
+    // Generic status relay — for dialogs that need to listen for specific objects.
+    void statusReceived(const QString& object, const QMap<QString, QString>& kvs);
+
+public:
+    // Send a raw command to the radio (for dialogs that need direct protocol access).
+    void sendCommand(const QString& cmd);
 
 private slots:
     void onStatusReceived(const QString& object, const QMap<QString, QString>& kvs);
@@ -277,6 +313,7 @@ private:
 
 private:
     QList<SliceModel*> m_slices;
+    QMap<int, MemoryEntry> m_memories;
     QSet<int>          m_ownedSliceIds;   // slice IDs that belong to our client
 
     RadioInfo m_lastInfo;               // stored for auto-reconnect
@@ -295,10 +332,25 @@ private:
     QTimer        m_pingTimer;           // 1-second interval
     QElapsedTimer m_pingStopwatch;       // measures RTT
     int           m_lastPingRtt{0};      // ms
+    int           m_maxPingRtt{0};       // max RTT seen this session
     int           m_lastErrorCount{0};   // snapshot for delta
     NetState      m_netState{NetState::Off};
     NetState      m_nextState{NetState::Off};
     int           m_stateCountdown{0};
+
+    // Network diagnostics — byte counters for rate calculation
+    qint64        m_txBytes{0};          // total TCP bytes sent
+
+public:
+    // Network diagnostics getters
+    int     lastPingRtt()      const { return m_lastPingRtt; }
+    int     maxPingRtt()       const { return m_maxPingRtt; }
+    QString networkQuality()   const;
+    int     packetDropCount()  const;
+    int     packetTotalCount() const;
+    qint64  rxBytes()          const;
+    qint64  txBytes()          const { return m_txBytes; }
+    void    addTxBytes(qint64 n) { m_txBytes += n; }
 };
 
 } // namespace AetherSDR

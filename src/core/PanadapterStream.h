@@ -119,6 +119,10 @@ public:
     // Packet error/total counts across all streams (for network quality monitor).
     int packetErrorCount() const;
     int packetTotalCount() const;
+    qint64 totalRxBytes() const { return m_totalRxBytes; }
+
+private:
+    qint64 m_totalRxBytes{0};
 };
 
 } // namespace AetherSDR

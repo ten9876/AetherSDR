@@ -156,7 +156,8 @@ void RadioModel::onConnected()
             m_connection.sendCommand("sub gps all", [this](int, const QString&) {
             m_connection.sendCommand("sub apd all", [this](int, const QString&) {
             m_connection.sendCommand("sub xvtr all", [this](int, const QString&) {
-            // EQ status arrives automatically — no subscription needed on fw v1.4.0.0
+            // Memory status arrives via normal status handler — no subscription needed.
+            // "sub memory all" returns 500000A3 (invalid subscription object).
             m_connection.sendCommand("client gui", [this](int code, const QString&) {
         if (code != 0)
             qWarning() << "RadioModel: client gui failed, code" << Qt::hex << code;
@@ -434,9 +435,66 @@ void RadioModel::evaluateNetworkQuality()
     }
 
     m_netState = m_nextState;
+    if (ping > m_maxPingRtt) m_maxPingRtt = ping;
 
     static const char* names[] = {"Off", "Excellent", "Very Good", "Good", "Fair", "Poor"};
     emit networkQualityChanged(names[static_cast<int>(m_netState)], ping);
+}
+
+QString RadioModel::networkQuality() const
+{
+    static const char* names[] = {"Off", "Excellent", "Very Good", "Good", "Fair", "Poor"};
+    return names[static_cast<int>(m_netState)];
+}
+
+int RadioModel::packetDropCount() const
+{
+    return m_panStream.packetErrorCount();
+}
+
+int RadioModel::packetTotalCount() const
+{
+    return m_panStream.packetTotalCount();
+}
+
+qint64 RadioModel::rxBytes() const
+{
+    return m_panStream.totalRxBytes();
+}
+
+void RadioModel::handleMemoryStatus(int index, const QMap<QString, QString>& kvs)
+{
+    // Check for removal — radio sends either "in_use=0" or "removed" (no value)
+    if (kvs.value("in_use") == "0" || kvs.contains("removed")) {
+        m_memories.remove(index);
+        return;
+    }
+
+    auto& m = m_memories[index];
+    m.index = index;
+
+    for (auto it = kvs.begin(); it != kvs.end(); ++it) {
+        const QString& k = it.key();
+        const QString& v = it.value();
+        if      (k == "group")           m.group = QString(v).replace('\x7f', ' ');
+        else if (k == "owner")           m.owner = QString(v).replace('\x7f', ' ');
+        else if (k == "freq")            m.freq = v.toDouble();
+        else if (k == "name")            m.name = QString(v).replace('\x7f', ' ');
+        else if (k == "mode")            m.mode = v;
+        else if (k == "step")            m.step = v.toInt();
+        else if (k == "repeater")        m.offsetDir = v;
+        else if (k == "repeater_offset") m.repeaterOffset = v.toDouble();
+        else if (k == "tone_mode")       m.toneMode = v;
+        else if (k == "tone_value")      m.toneValue = v.toDouble();
+        else if (k == "squelch")         m.squelch = (v == "1");
+        else if (k == "squelch_level")   m.squelchLevel = v.toInt();
+        else if (k == "rx_filter_low")   m.rxFilterLow = v.toInt();
+        else if (k == "rx_filter_high")  m.rxFilterHigh = v.toInt();
+        else if (k == "rtty_mark")       m.rttyMark = v.toInt();
+        else if (k == "rtty_shift")      m.rttyShift = v.toInt();
+        else if (k == "digl_offset")     m.diglOffset = v.toInt();
+        else if (k == "digu_offset")     m.diguOffset = v.toInt();
+    }
 }
 
 // ─── Raw message handler (for meter status with '#' separators) ──────────────
@@ -485,9 +543,19 @@ void RadioModel::onMessageReceived(const ParsedMessage& msg)
 //   "meter 1"         → meter reading (handled by onMessageReceived)
 //   "removed=True"    → object was removed
 
+void RadioModel::sendCommand(const QString& cmd)
+{
+    qDebug() << "RadioModel::sendCommand:" << cmd
+             << "connected:" << m_connection.isConnected();
+    m_connection.sendCommand(cmd);
+}
+
 void RadioModel::onStatusReceived(const QString& object,
                                   const QMap<QString, QString>& kvs)
 {
+    // Relay to listeners (e.g., MemoryDialog)
+    emit statusReceived(object, kvs);
+
     if (object == "radio") {
         handleRadioStatus(kvs);
         return;
@@ -558,6 +626,35 @@ void RadioModel::onStatusReceived(const QString& object,
         const bool removed = kvs.value("in_use") == "0";
         handleSliceStatus(sliceMatch.captured(1).toInt(), kvs, removed);
         return;
+    }
+
+    // Memory channels: "memory <index> key=val ..." or "memory <index> removed"
+    // When there are no KV pairs (e.g., "memory 7 removed"), the parser puts
+    // everything into the object name. Extract the index from the first token.
+    if (object.startsWith("memory ")) {
+        const QString rest = object.mid(7);  // "7 removed" or "7"
+        const int sp = rest.indexOf(' ');
+        const QString idxStr = (sp >= 0) ? rest.left(sp) : rest;
+        bool ok;
+        int idx = idxStr.toInt(&ok);
+        if (ok) {
+            // Merge any trailing bare words into kvs
+            QMap<QString, QString> merged = kvs;
+            if (sp >= 0) {
+                const QString extra = rest.mid(sp + 1);
+                for (const auto& token : extra.split(' ', Qt::SkipEmptyParts)) {
+                    const int eq = token.indexOf('=');
+                    if (eq < 0)
+                        merged.insert(token, QString{});
+                    else
+                        merged.insert(token.left(eq), token.mid(eq + 1));
+                }
+            }
+            qDebug() << "RadioModel: memory status for index" << idx
+                     << "keys:" << merged.keys();
+            handleMemoryStatus(idx, merged);
+            return;
+        }
     }
 
     // Meter status uses '#'-separated tokens and is handled by onMessageReceived().

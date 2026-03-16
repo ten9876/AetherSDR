@@ -13,6 +13,9 @@
 #include "PhoneApplet.h"
 #include "EqApplet.h"
 #include "RadioSetupDialog.h"
+#include "NetworkDiagnosticsDialog.h"
+#include "MemoryDialog.h"
+#include "SpotSettingsDialog.h"
 #include "models/SliceModel.h"
 #include "models/MeterModel.h"
 #include "models/TunerModel.h"
@@ -99,6 +102,8 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_connPanel, &ConnectionPanel::disconnectRequested,
             this, [this]{
         m_userDisconnected = true;  // block auto-reconnect until user explicitly connects
+        QSettings s("AetherSDR", "AetherSDR");
+        s.remove("lastRadioSerial");  // clear saved radio so restart won't auto-connect
         m_radioModel.disconnectFromRadio();
     });
 
@@ -350,10 +355,22 @@ void MainWindow::buildMenuBar()
     });
 
     settingsMenu->addAction("FlexControl...");
-    settingsMenu->addAction("Network...");
-    settingsMenu->addAction("Memory...");
+    auto* networkAction = settingsMenu->addAction("Network...");
+    connect(networkAction, &QAction::triggered, this, [this] {
+        NetworkDiagnosticsDialog dlg(&m_radioModel, this);
+        dlg.exec();
+    });
+    auto* memoryAction = settingsMenu->addAction("Memory...");
+    connect(memoryAction, &QAction::triggered, this, [this] {
+        MemoryDialog dlg(&m_radioModel, this);
+        dlg.exec();
+    });
     settingsMenu->addAction("USB Cables...");
-    settingsMenu->addAction("Spots...");
+    auto* spotsAction = settingsMenu->addAction("Spots...");
+    connect(spotsAction, &QAction::triggered, this, [this] {
+        SpotSettingsDialog dlg(&m_radioModel, this);
+        dlg.exec();
+    });
     settingsMenu->addAction("multiFLEX...");
     settingsMenu->addAction("TX Band Settings...");
 

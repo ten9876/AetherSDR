@@ -113,8 +113,10 @@ void PanadapterStream::onDatagramReady()
 {
     while (m_socket.hasPendingDatagrams()) {
         const QNetworkDatagram dg = m_socket.receiveDatagram();
-        if (!dg.isNull())
+        if (!dg.isNull()) {
+            m_totalRxBytes += dg.data().size();
             processDatagram(dg.data());
+        }
     }
 }
 
