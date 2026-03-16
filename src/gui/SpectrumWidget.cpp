@@ -740,6 +740,8 @@ void SpectrumWidget::pushWaterfallRow(const QVector<float>& bins, int destWidth,
 
 void SpectrumWidget::paintEvent(QPaintEvent*)
 {
+    if (width() <= 0 || height() <= FREQ_SCALE_H + DIVIDER_H + 2) return;
+
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, false);
 
