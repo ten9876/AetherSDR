@@ -224,11 +224,7 @@ void CatApplet::setRigctlPty(RigctlPty* pty)
             m_ptyPath->setText("Path: —");
         });
 
-        // Auto-start if was enabled
-        if (m_ptyEnable->isChecked()) {
-            pty->start();
-            updatePtyStatus();
-        }
+        // Auto-start handled by MainWindow via Autostart menu items
     }
 }
 
@@ -262,6 +258,20 @@ void CatApplet::updatePtyStatus()
     } else {
         m_ptyPath->setText("Path: " + m_pty->symlinkPath());
     }
+}
+
+void CatApplet::setTcpEnabled(bool on)
+{
+    QSignalBlocker b(m_tcpEnable);
+    m_tcpEnable->setChecked(on);
+    updateTcpStatus();
+}
+
+void CatApplet::setPtyEnabled(bool on)
+{
+    QSignalBlocker b(m_ptyEnable);
+    m_ptyEnable->setChecked(on);
+    updatePtyStatus();
 }
 
 } // namespace AetherSDR

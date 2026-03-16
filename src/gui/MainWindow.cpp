@@ -448,6 +448,16 @@ void MainWindow::buildMenuBar()
 
     settingsMenu->addSeparator();
 
+    auto* autoRigctlAction = settingsMenu->addAction("Autostart rigctld with AetherSDR");
+    autoRigctlAction->setCheckable(true);
+    autoRigctlAction->setChecked(
+        AppSettings::instance().value("AutoStartRigctld", "False").toString() == "True");
+    connect(autoRigctlAction, &QAction::toggled, this, [](bool on) {
+        auto& s = AppSettings::instance();
+        s.setValue("AutoStartRigctld", on ? "True" : "False");
+        s.save();
+    });
+
     auto* autoCatAction = settingsMenu->addAction("Autostart CAT with AetherSDR");
     autoCatAction->setCheckable(true);
     autoCatAction->setChecked(
@@ -472,7 +482,7 @@ void MainWindow::buildMenuBar()
     for (auto* action : settingsMenu->actions()) {
         if (!action->isSeparator() && action != radioSetup && action != chooseRadio
             && action != networkAction && action != memoryAction && action != spotsAction
-            && action != autoCatAction && action != autoDaxAction) {
+            && action != autoRigctlAction && action != autoCatAction && action != autoDaxAction) {
             connect(action, &QAction::triggered, this, [this, action] {
                 statusBar()->showMessage(action->text().remove("...") + " — not yet implemented", 3000);
             });
@@ -673,16 +683,26 @@ void MainWindow::onConnectionStateChanged(bool connected)
         if (!m_userExpandedPanel)
             m_connPanel->setCollapsed(true);
 
-        // Auto-start CAT if enabled in settings
-        if (AppSettings::instance().value("AutoStartCAT", "False").toString() == "True") {
-            const int port = AppSettings::instance().value("CatTcpPort", "4532").toInt();
+        // Auto-start rigctld TCP server if enabled
+        auto& as = AppSettings::instance();
+        if (as.value("AutoStartRigctld", "False").toString() == "True") {
+            const int port = as.value("CatTcpPort", "4532").toInt();
             if (!m_rigctlServer.isRunning()) {
                 m_rigctlServer.start(static_cast<quint16>(port));
-                qDebug() << "AutoStartCAT: rigctld started on port" << port;
+                qDebug() << "AutoStart: rigctld started on port" << port;
+                // Sync the CatApplet Enable button
+                if (m_appletPanel && m_appletPanel->catApplet())
+                    m_appletPanel->catApplet()->setTcpEnabled(true);
             }
+        }
+        // Auto-start CAT virtual serial port if enabled
+        if (as.value("AutoStartCAT", "False").toString() == "True") {
             if (!m_rigctlPty.isRunning()) {
                 m_rigctlPty.start();
-                qDebug() << "AutoStartCAT: PTY started";
+                qDebug() << "AutoStart: PTY started";
+                // Sync the CatApplet Enable button
+                if (m_appletPanel && m_appletPanel->catApplet())
+                    m_appletPanel->catApplet()->setPtyEnabled(true);
             }
         }
     } else {

@@ -28,6 +28,10 @@ public:
     void setRigctlPty(RigctlPty* pty);
     void setAudioEngine(AudioEngine* audio);
 
+    // Sync Enable button state (called by MainWindow on autostart)
+    void setTcpEnabled(bool on);
+    void setPtyEnabled(bool on);
+
 private:
     void buildUI();
     void updateTcpStatus();
