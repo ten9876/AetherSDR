@@ -1,0 +1,359 @@
+#include "RigctlProtocol.h"
+#include "models/RadioModel.h"
+#include "models/SliceModel.h"
+#include "models/TransmitModel.h"
+
+#include <QMetaObject>
+
+namespace AetherSDR {
+
+RigctlProtocol::RigctlProtocol(RadioModel* model)
+    : m_model(model)
+{}
+
+// ── Mode conversion tables ──────────────────────────────────────────────────
+// SmartSDR mode names observed on FLEX-8600 fw v1.4.0.0.
+// Hamlib mode names follow rig.h RIG_MODE_* definitions.
+
+QString RigctlProtocol::smartsdrToHamlib(const QString& mode)
+{
+    // Mapping verified against SmartSDR v4.1.5 / fw v1.4.0.0 mode list.
+    static const QMap<QString, QString> map = {
+        {"USB",  "USB"},   {"LSB",  "LSB"},
+        {"CW",   "CW"},   {"CWL",  "CWR"},
+        {"AM",   "AM"},   {"SAM",  "AMS"},
+        {"FM",   "FM"},   {"NFM",  "FM"},
+        {"DFM",  "FM"},   {"FDM",  "FM"},
+        {"DIGU", "PKTUSB"}, {"DIGL", "PKTLSB"},
+        {"RTTY", "RTTY"},
+    };
+    return map.value(mode.toUpper(), "USB");
+}
+
+QString RigctlProtocol::hamlibToSmartSDR(const QString& mode)
+{
+    static const QMap<QString, QString> map = {
+        {"USB",    "USB"},   {"LSB",    "LSB"},
+        {"CW",     "CW"},   {"CWR",    "CWL"},
+        {"AM",     "AM"},   {"AMS",    "SAM"},
+        {"FM",     "FM"},   {"WFM",    "FM"},
+        {"PKTUSB", "DIGU"}, {"PKTLSB", "DIGL"},
+        {"RTTY",   "RTTY"}, {"RTTYR",  "RTTY"},
+    };
+    return map.value(mode.toUpper(), "USB");
+}
+
+// Hamlib mode flag values (from hamlib/rig.h RIG_MODE_*)
+int RigctlProtocol::hamlibModeFlag(const QString& mode)
+{
+    static const QMap<QString, int> map = {
+        {"AM",     0x1},    {"CW",     0x2},
+        {"USB",    0x4},    {"LSB",    0x8},
+        {"RTTY",   0x10},   {"FM",     0x20},
+        {"WFM",    0x40},   {"CWR",    0x80},
+        {"RTTYR",  0x100},  {"AMS",    0x200},
+        {"PKTLSB", 0x400},  {"PKTUSB", 0x800},
+        {"PKTFM",  0x1000},
+    };
+    return map.value(mode, 0x4);
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+SliceModel* RigctlProtocol::currentSlice() const
+{
+    if (!m_model || !m_model->isConnected())
+        return nullptr;
+    auto slices = m_model->slices();
+    for (auto* s : slices) {
+        if (s->sliceId() == m_sliceIndex)
+            return s;
+    }
+    // Fallback to first slice
+    return slices.isEmpty() ? nullptr : slices.first();
+}
+
+QString RigctlProtocol::rprt(int code) const
+{
+    return QStringLiteral("RPRT %1\n").arg(code);
+}
+
+// ── Main entry point ────────────────────────────────────────────────────────
+
+QString RigctlProtocol::handleLine(const QString& line)
+{
+    QString trimmed = line.trimmed();
+    if (trimmed.isEmpty())
+        return {};
+
+    // Check for extended mode prefix
+    if (!trimmed.isEmpty() && (trimmed[0] == '+' || trimmed[0] == ';')) {
+        if (trimmed[0] == '+') {
+            m_extended = true;
+            trimmed = trimmed.mid(1);
+        }
+    }
+
+    // Split on ';' for batch commands
+    QStringList cmds = trimmed.split(';', Qt::SkipEmptyParts);
+    QString response;
+    for (const auto& cmd : cmds) {
+        response += processCommand(cmd.trimmed());
+    }
+    return response;
+}
+
+// ── Command dispatch ────────────────────────────────────────────────────────
+
+QString RigctlProtocol::processCommand(const QString& cmd)
+{
+    if (cmd.isEmpty())
+        return {};
+
+    // Long form: \command_name [args]
+    if (cmd.startsWith('\\')) {
+        QString rest = cmd.mid(1);
+        int spaceIdx = rest.indexOf(' ');
+        QString name = (spaceIdx >= 0) ? rest.left(spaceIdx) : rest;
+        QString args = (spaceIdx >= 0) ? rest.mid(spaceIdx + 1).trimmed() : QString();
+
+        if (name == "get_freq")       return cmdGetFreq();
+        if (name == "set_freq")       return cmdSetFreq(args);
+        if (name == "get_mode")       return cmdGetMode();
+        if (name == "set_mode")       return cmdSetMode(args);
+        if (name == "get_vfo")        return cmdGetVfo();
+        if (name == "set_vfo")        return cmdSetVfo(args);
+        if (name == "get_ptt")        return cmdGetPtt();
+        if (name == "set_ptt")        return cmdSetPtt(args);
+        if (name == "get_info")       return cmdGetInfo();
+        if (name == "get_split_vfo")  return cmdGetSplitVfo();
+        if (name == "set_split_vfo")  return cmdSetSplitVfo(args);
+        if (name == "dump_state")     return cmdDumpState();
+        if (name == "quit")           return {};  // caller handles disconnect
+        if (name == "chk_vfo")        return QStringLiteral("0\n");  // VFO mode disabled
+
+        return rprt(-4);  // RIG_EINVAL
+    }
+
+    // Short form: single character + optional args
+    QChar shortCmd = cmd[0];
+    QString args = cmd.mid(1).trimmed();
+
+    switch (shortCmd.toLatin1()) {
+    case 'f': return cmdGetFreq();
+    case 'F': return cmdSetFreq(args);
+    case 'm': return cmdGetMode();
+    case 'M': return cmdSetMode(args);
+    case 'v': return cmdGetVfo();
+    case 'V': return cmdSetVfo(args);
+    case 't': return cmdGetPtt();
+    case 'T': return cmdSetPtt(args);
+    case '_': return cmdGetInfo();
+    case 'S': return cmdGetSplitVfo();
+    case '1': return cmdDumpState();       // \dump_state
+    case 'q': return {};                   // quit
+    default:  return rprt(-4);             // RIG_EINVAL
+    }
+}
+
+// ── Individual command implementations ──────────────────────────────────────
+
+QString RigctlProtocol::cmdGetFreq()
+{
+    auto* slice = currentSlice();
+    if (!slice) return rprt(-8);  // RIG_ENAVAIL
+
+    auto hz = static_cast<long long>(slice->frequency() * 1e6);
+    if (m_extended)
+        return QStringLiteral("get_freq:\nFrequency: %1\n").arg(hz) + rprt(0);
+    return QStringLiteral("%1\n").arg(hz);
+}
+
+QString RigctlProtocol::cmdSetFreq(const QString& arg)
+{
+    auto* slice = currentSlice();
+    if (!slice) return rprt(-8);
+
+    bool ok;
+    double hz = arg.toDouble(&ok);
+    if (!ok || hz < 0) return rprt(-1);  // RIG_EINVAL
+
+    double mhz = hz / 1e6;
+    QMetaObject::invokeMethod(slice, [slice, mhz]() {
+        slice->setFrequency(mhz);
+    }, Qt::QueuedConnection);
+    return rprt(0);
+}
+
+QString RigctlProtocol::cmdGetMode()
+{
+    auto* slice = currentSlice();
+    if (!slice) return rprt(-8);
+
+    QString hamlibMode = smartsdrToHamlib(slice->mode());
+    int passband = slice->filterHigh() - slice->filterLow();
+    if (passband < 0) passband = -passband;
+
+    if (m_extended) {
+        return QStringLiteral("get_mode:\nMode: %1\nPassband: %2\n").arg(hamlibMode).arg(passband)
+               + rprt(0);
+    }
+    return QStringLiteral("%1\n%2\n").arg(hamlibMode).arg(passband);
+}
+
+QString RigctlProtocol::cmdSetMode(const QString& args)
+{
+    auto* slice = currentSlice();
+    if (!slice) return rprt(-8);
+
+    QStringList parts = args.split(' ', Qt::SkipEmptyParts);
+    if (parts.isEmpty()) return rprt(-1);
+
+    QString hamlibMode = parts[0].toUpper();
+    QString sdrMode = hamlibToSmartSDR(hamlibMode);
+
+    QMetaObject::invokeMethod(slice, [slice, sdrMode]() {
+        slice->setMode(sdrMode);
+    }, Qt::QueuedConnection);
+
+    // Set passband if provided and > 0
+    if (parts.size() >= 2) {
+        bool ok;
+        int passband = parts[1].toInt(&ok);
+        if (ok && passband > 0) {
+            QMetaObject::invokeMethod(slice, [slice, passband]() {
+                // Center the filter around 0 for SSB modes
+                QString m = slice->mode();
+                if (m == "LSB" || m == "DIGL" || m == "CWL") {
+                    slice->setFilterWidth(-passband, 0);
+                } else {
+                    slice->setFilterWidth(0, passband);
+                }
+            }, Qt::QueuedConnection);
+        }
+    }
+
+    return rprt(0);
+}
+
+QString RigctlProtocol::cmdGetVfo()
+{
+    if (m_extended)
+        return QStringLiteral("get_vfo:\nVFO: %1\n").arg(m_sliceIndex == 0 ? "VFOA" : "VFOB") + rprt(0);
+    return QStringLiteral("%1\n").arg(m_sliceIndex == 0 ? "VFOA" : "VFOB");
+}
+
+QString RigctlProtocol::cmdSetVfo(const QString& arg)
+{
+    QString vfo = arg.trimmed().toUpper();
+    if (vfo == "VFOA" || vfo == "MAIN")
+        m_sliceIndex = 0;
+    else if (vfo == "VFOB" || vfo == "SUB")
+        m_sliceIndex = 1;
+    else
+        return rprt(-1);
+    return rprt(0);
+}
+
+QString RigctlProtocol::cmdGetPtt()
+{
+    if (!m_model) return rprt(-8);
+    int ptt = m_model->transmitModel()->isTransmitting() ? 1 : 0;
+    if (m_extended)
+        return QStringLiteral("get_ptt:\nPTT: %1\n").arg(ptt) + rprt(0);
+    return QStringLiteral("%1\n").arg(ptt);
+}
+
+QString RigctlProtocol::cmdSetPtt(const QString& arg)
+{
+    if (!m_model) return rprt(-8);
+    bool ok;
+    int ptt = arg.trimmed().toInt(&ok);
+    if (!ok) return rprt(-1);
+
+    bool tx = (ptt != 0);
+    QMetaObject::invokeMethod(m_model, [this, tx]() {
+        m_model->setTransmit(tx);
+    }, Qt::QueuedConnection);
+    return rprt(0);
+}
+
+QString RigctlProtocol::cmdGetInfo()
+{
+    if (!m_model || !m_model->isConnected())
+        return QStringLiteral("AetherSDR\n");
+    return QStringLiteral("%1 %2 v%3\n")
+        .arg(m_model->name(), m_model->model(), m_model->version());
+}
+
+QString RigctlProtocol::cmdGetSplitVfo()
+{
+    // FLEX-8600 fw v1.4.0.0 does not expose split via SmartSDR — always report OFF, VFOA
+    if (m_extended)
+        return QStringLiteral("get_split_vfo:\nSplit: 0\nTX VFO: VFOA\n") + rprt(0);
+    return QStringLiteral("0\nVFOA\n");
+}
+
+QString RigctlProtocol::cmdSetSplitVfo(const QString&)
+{
+    // Accept but ignore — we don't support split
+    return rprt(0);
+}
+
+QString RigctlProtocol::cmdDumpState()
+{
+    // Mimic rigctld --model=2 (NET rigctl) output.
+    // WSJT-X and fldigi parse this to discover rig capabilities.
+    // Frequency range and mode set match FLEX-8600 fw v1.4.0.0 (30 kHz – 54 MHz).
+    // Mode flags: AM=0x1, CW=0x2, USB=0x4, LSB=0x8, RTTY=0x10, FM=0x20,
+    //             CWR=0x80, AMS=0x200, PKTLSB=0x400, PKTUSB=0x800
+    // Combined: 0x4|0x8|0x2|0x80|0x1|0x20|0x10|0x200|0x800|0x400 = 0xEBF
+
+    QString dump;
+    dump += "0\n";                       // protocol version
+    dump += "2\n";                       // rig model = NET rigctl
+    dump += "2\n";                       // ITU region
+    // RX range
+    dump += "30000.000000 54000000.000000 0xEBF -1 -1 0x40000003 0x3\n";
+    dump += "0 0 0 0 0 0 0\n";          // end RX range
+    // TX range
+    dump += "30000.000000 54000000.000000 0xEBF 1 100000 0x40000003 0x3\n";
+    dump += "0 0 0 0 0 0 0\n";          // end TX range
+    // Tuning steps
+    dump += "0xEBF 1\n";
+    dump += "0xEBF 10\n";
+    dump += "0xEBF 100\n";
+    dump += "0xEBF 1000\n";
+    dump += "0 0\n";                     // end tuning steps
+    // Filters
+    dump += "0x2 500\n";                 // CW 500Hz
+    dump += "0x2 200\n";                 // CW 200Hz
+    dump += "0xc 2400\n";               // SSB 2400Hz
+    dump += "0xc 1800\n";               // SSB 1800Hz
+    dump += "0x1 6000\n";               // AM 6000Hz
+    dump += "0x20 12000\n";             // FM 12000Hz
+    dump += "0 0\n";                     // end filters
+    // Max RIT/XIT
+    dump += "9999\n";                    // max RIT
+    dump += "9999\n";                    // max XIT
+    dump += "0\n";                       // max IF shift
+    dump += "0\n";                       // announces
+    // Preamp/attenuator
+    dump += "0\n";                       // preamp
+    dump += "0\n";                       // attenuator
+    // has get/set func
+    dump += "0\n";                       // has_get_func
+    dump += "0\n";                       // has_set_func
+    // has get/set level
+    dump += "0\n";                       // has_get_level
+    dump += "0\n";                       // has_set_level
+    // has get/set parm
+    dump += "0\n";                       // has_get_parm
+    dump += "0\n";                       // has_set_parm
+    // done
+    dump += "done\n";
+
+    return dump;
+}
+
+} // namespace AetherSDR
