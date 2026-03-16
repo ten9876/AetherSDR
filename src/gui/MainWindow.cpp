@@ -68,7 +68,9 @@ MainWindow::MainWindow(QWidget* parent)
             sizes[0] = 260;
         }
         m_splitter->setSizes(sizes);
-        QSettings("AetherSDR", "AetherSDR").setValue("connPanelCollapsed", collapsed);
+        auto& ss = AppSettings::instance();
+        ss.setValue("ConnPanelCollapsed", collapsed ? "True" : "False");
+        ss.save();
     });
 
     connect(&m_discovery, &RadioDiscovery::radioDiscovered,
@@ -697,25 +699,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
         if (m_bandSettings.currentBand().isEmpty())
             m_bandSettings.setCurrentBand(BandSettings::bandForFrequency(s->frequency()));
 
-        // Restore saved frequency/mode from last session
-        QSettings settings("AetherSDR", "AetherSDR");
-        const double lastFreq = settings.value("lastFrequency", 0.0).toDouble();
-        const QString lastMode = settings.value("lastMode").toString();
-        if (lastFreq > 0.0) {
-            const QString band = BandSettings::bandForFrequency(lastFreq);
-            m_bandSettings.setCurrentBand(band);
-            if (m_bandSettings.hasSavedState(band)) {
-                QTimer::singleShot(200, this, [this, band]() {
-                    restoreBandState(m_bandSettings.loadBandState(band));
-                });
-            } else {
-                QTimer::singleShot(200, this, [s, lastFreq, lastMode]() {
-                    if (!lastMode.isEmpty())
-                        s->setMode(lastMode);
-                    s->setFrequency(lastFreq);
-                });
-            }
-        }
+        // Band persistence is deprecated (issue #9) — radio state is source of truth
     }
 
     // Forward slice frequency/mode changes → spectrum
