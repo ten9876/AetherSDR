@@ -291,6 +291,13 @@ void TransmitModel::stopTune()
 
 void TransmitModel::setMox(bool on)
 {
+    // Immediately gate TX audio when turning off MOX — don't wait for
+    // the radio's interlock state to reach READY (which can take 7–15 s
+    // through UNKEY_REQUESTED, causing "stuck TX").
+    if (!on && m_transmitting) {
+        m_transmitting = false;
+        emit moxChanged(false);
+    }
     emit commandReady(QString("xmit %1").arg(on ? 1 : 0));
 }
 
