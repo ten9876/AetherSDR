@@ -68,6 +68,7 @@ void RigctlServer::onNewConnection()
 {
     while (m_server->hasPendingConnections()) {
         auto* socket = m_server->nextPendingConnection();
+        socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);  // TCP_NODELAY
         auto* protocol = new RigctlProtocol(m_model);
 
         ClientState cs;
@@ -116,7 +117,6 @@ void RigctlServer::onClientData()
         QString response = cs.protocol->handleLine(line);
         if (!response.isEmpty()) {
             socket->write(response.toUtf8());
-            socket->flush();
         }
     }
 }
