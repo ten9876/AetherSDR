@@ -18,6 +18,7 @@ class TxApplet;
 class PhoneCwApplet;
 class PhoneApplet;
 class EqApplet;
+class CatApplet;
 
 // AppletPanel — right-side panel with a row of toggle buttons at the top,
 // an S-Meter gauge below them, and a scrollable stack of applets.
@@ -38,6 +39,7 @@ public:
     PhoneCwApplet*  phoneCwApplet()  { return m_phoneCwApplet; }
     PhoneApplet*    phoneApplet()    { return m_phoneApplet; }
     EqApplet*       eqApplet()       { return m_eqApplet; }
+    CatApplet*      catApplet()      { return m_catApplet; }
 
     // Show/hide the TUNE button and applet based on tuner presence.
     void setTunerVisible(bool visible);
@@ -53,6 +55,7 @@ private:
     PhoneCwApplet* m_phoneCwApplet{nullptr};
     PhoneApplet*   m_phoneApplet{nullptr};
     EqApplet*      m_eqApplet{nullptr};
+    CatApplet*     m_catApplet{nullptr};
     QPushButton* m_tuneBtn{nullptr}; // TUNE toggle button (hidden until TGXL detected)
     QVBoxLayout* m_stack{nullptr};   // layout inside the scroll area
 };

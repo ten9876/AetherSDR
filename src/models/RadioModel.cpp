@@ -2,6 +2,7 @@
 #include "core/CommandParser.h"
 #include <QDebug>
 #include <QRegularExpression>
+#include <QSettings>
 
 namespace AetherSDR {
 
@@ -287,7 +288,17 @@ void RadioModel::onConnected()
                             // No slices at all, or no slices belonging to us
                             qDebug() << "RadioModel: creating own slice (total on radio:"
                                      << ids.size() << ", ours:" << m_slices.size() << ")";
-                            createDefaultSlice();
+                            // Use saved frequency/mode from last session if available
+                            QSettings settings("AetherSDR", "AetherSDR");
+                            double lastFreq = settings.value("lastFrequency", 0.0).toDouble();
+                            QString lastMode = settings.value("lastMode").toString();
+                            if (lastFreq > 0.0) {
+                                createDefaultSlice(
+                                    QString::number(lastFreq, 'f', 6),
+                                    lastMode.isEmpty() ? "USB" : lastMode);
+                            } else {
+                                createDefaultSlice();
+                            }
                         } else {
                             qDebug() << "RadioModel: SmartConnect — using our pan"
                                      << m_panId << "and" << m_slices.size() << "slice(s)";
