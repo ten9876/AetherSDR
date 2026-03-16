@@ -470,7 +470,9 @@ void MainWindow::buildMenuBar()
 
     // Connect placeholder items to show "not implemented" message
     for (auto* action : settingsMenu->actions()) {
-        if (!action->isSeparator() && action != radioSetup && action != chooseRadio) {
+        if (!action->isSeparator() && action != radioSetup && action != chooseRadio
+            && action != networkAction && action != memoryAction && action != spotsAction
+            && action != autoCatAction && action != autoDaxAction) {
             connect(action, &QAction::triggered, this, [this, action] {
                 statusBar()->showMessage(action->text().remove("...") + " — not yet implemented", 3000);
             });
@@ -673,10 +675,15 @@ void MainWindow::onConnectionStateChanged(bool connected)
 
         // Auto-start CAT if enabled in settings
         if (AppSettings::instance().value("AutoStartCAT", "False").toString() == "True") {
-            if (!m_rigctlServer.isRunning())
-                m_rigctlServer.start();
-            if (!m_rigctlPty.isRunning())
+            const int port = AppSettings::instance().value("CatTcpPort", "4532").toInt();
+            if (!m_rigctlServer.isRunning()) {
+                m_rigctlServer.start(static_cast<quint16>(port));
+                qDebug() << "AutoStartCAT: rigctld started on port" << port;
+            }
+            if (!m_rigctlPty.isRunning()) {
                 m_rigctlPty.start();
+                qDebug() << "AutoStartCAT: PTY started";
+            }
         }
     } else {
         m_connStatusLabel->setText("Disconnected");
