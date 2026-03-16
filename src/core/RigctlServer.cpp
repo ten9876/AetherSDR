@@ -116,6 +116,8 @@ void RigctlServer::onClientData()
 
         QString response = cs.protocol->handleLine(line);
         if (!response.isEmpty()) {
+            qDebug() << "rigctld cmd:" << trimmed
+                     << "-> resp:" << response.left(60).trimmed();
             socket->write(response.toUtf8());
         }
     }
