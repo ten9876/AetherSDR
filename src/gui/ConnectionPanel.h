@@ -20,6 +20,7 @@ public:
     void setConnected(bool connected);
     void setStatusText(const QString& text);
     void setCollapsed(bool collapsed);
+    bool isCollapsed() const { return m_collapsed; }
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
