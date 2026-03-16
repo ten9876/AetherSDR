@@ -119,10 +119,14 @@ This places `AetherSDR` in `/usr/local/bin`, the `.desktop` file in the app laun
 - [ ] DAX audio channels — PipeWire virtual devices for digital mode apps (FreeDV, WSJT-X, fldigi, JS8Call)
 - [ ] Hamlib/rigctld interface — TCP CAT/PTT control (port 4532) for third-party apps
 - [ ] Multi-slice support
-- [ ] Audio input device selector (currently uses system default)
 - [ ] TNF (tracking notch filter) management
 - [ ] Band stacking registers
 - [ ] Spot / DX cluster integration
+- [ ] CW keyer and memory support
+- [ ] SmartLink remote operation
+- [ ] Keyboard shortcuts and hotkeys
+
+See the full [issue tracker](https://github.com/ten9876/AetherSDR/issues) for 45+ tracked features and enhancements.
 
 ---
 
