@@ -1,8 +1,6 @@
 #include "CatApplet.h"
 #include "core/RigctlServer.h"
 #include "core/RigctlPty.h"
-#include "core/DaxStreamManager.h"
-#include "core/VirtualAudioBridge.h"
 #include "core/AudioEngine.h"
 #include "models/RadioModel.h"
 
@@ -179,79 +177,14 @@ void CatApplet::buildUI()
 
     root->addWidget(separator());
 
-    // ── DAX Section ─────────────────────────────────────────────────────────
+    // ── DAX Section (placeholder) ───────────────────────────────────────────
     root->addWidget(appletTitleBar("DAX Audio Channels"));
 
-    m_daxEnable = new QPushButton("Enable DAX 1-4");
-    m_daxEnable->setCheckable(true);
-    m_daxEnable->setChecked(settings.value("cat/daxEnable", false).toBool());
-    m_daxEnable->setStyleSheet(kGreenToggle);
-    m_daxEnable->setFixedHeight(22);
-    root->addWidget(m_daxEnable);
-
-    // DAX gain slider (0–100 → 0.0–1.0, default 25 = -12 dB)
-    auto* gainRow = new QHBoxLayout;
-    gainRow->addWidget(new QLabel("DAX Gain:"));
-    m_daxGain = new QSlider(Qt::Horizontal);
-    m_daxGain->setRange(0, 100);
-    m_daxGain->setValue(settings.value("cat/daxGain", 50).toInt());
-    m_daxGain->setFixedHeight(18);
-    m_daxGain->setStyleSheet(
-        "QSlider::groove:horizontal { background: #182028; height: 4px; border-radius: 2px; }"
-        "QSlider::handle:horizontal { background: #00b4d8; width: 12px; margin: -4px 0;"
-        "  border-radius: 6px; }");
-    gainRow->addWidget(m_daxGain, 1);
-    m_daxGainLabel = new QLabel(QStringLiteral("%1%").arg(m_daxGain->value()));
-    m_daxGainLabel->setFixedWidth(32);
-    gainRow->addWidget(m_daxGainLabel);
-    root->addLayout(gainRow);
-
-    connect(m_daxGain, &QSlider::valueChanged, this, [this](int val) {
-        m_daxGainLabel->setText(QStringLiteral("%1%").arg(val));
-        QSettings().setValue("cat/daxGain", val);
-        if (m_bridge)
-            m_bridge->setGain(val / 100.0f);
-    });
-
-    // DAX TX gain slider (0–100 → 0.0–1.0, default 50 = −6 dB)
-    auto* txGainRow = new QHBoxLayout;
-    txGainRow->addWidget(new QLabel("TX Gain:"));
-    m_daxTxGain = new QSlider(Qt::Horizontal);
-    m_daxTxGain->setRange(0, 100);
-    m_daxTxGain->setValue(settings.value("cat/daxTxGain", 50).toInt());
-    m_daxTxGain->setFixedHeight(18);
-    m_daxTxGain->setStyleSheet(
-        "QSlider::groove:horizontal { background: #182028; height: 4px; border-radius: 2px; }"
-        "QSlider::handle:horizontal { background: #00b4d8; width: 12px; margin: -4px 0;"
-        "  border-radius: 6px; }");
-    txGainRow->addWidget(m_daxTxGain, 1);
-    m_daxTxGainLabel = new QLabel(QStringLiteral("%1%").arg(m_daxTxGain->value()));
-    m_daxTxGainLabel->setFixedWidth(32);
-    txGainRow->addWidget(m_daxTxGainLabel);
-    root->addLayout(txGainRow);
-
-    connect(m_daxTxGain, &QSlider::valueChanged, this, [this](int val) {
-        m_daxTxGainLabel->setText(QStringLiteral("%1%").arg(val));
-        QSettings().setValue("cat/daxTxGain", val);
-        if (m_audio)
-            m_audio->setDaxTxGain(val / 100.0f);
-    });
-
-    for (int i = 0; i < 4; ++i) {
-        m_daxLabels[i] = new QLabel(QStringLiteral("DAX %1: —").arg(i + 1));
-        root->addWidget(m_daxLabels[i]);
-    }
-
-    connect(m_daxEnable, &QPushButton::toggled, this, [this](bool on) {
-        QSettings().setValue("cat/daxEnable", on);
-        if (on) {
-            if (m_dax) m_dax->requestDaxStreams();
-            if (m_bridge) m_bridge->open();
-        } else {
-            if (m_dax) m_dax->releaseDaxStreams();
-            if (m_bridge) m_bridge->close();
-        }
-    });
+    m_daxPlaceholder = new QLabel("DAX virtual audio requires PipeWire\n"
+                                   "integration — coming soon (issue #15)");
+    m_daxPlaceholder->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
+    m_daxPlaceholder->setAlignment(Qt::AlignCenter);
+    root->addWidget(m_daxPlaceholder);
 
     root->addStretch();
 }
@@ -298,60 +231,14 @@ void CatApplet::setRigctlPty(RigctlPty* pty)
     }
 }
 
-void CatApplet::setDaxStreamManager(DaxStreamManager* dax)
-{
-    m_dax = dax;
-    if (dax) {
-        connect(dax, &DaxStreamManager::streamCreated, this,
-                [this](int ch, quint32 sid) {
-                    if (ch >= 1 && ch <= 4)
-                        m_daxLabels[ch - 1]->setText(
-                            QStringLiteral("DAX %1: 0x%2 ✓")
-                                .arg(ch)
-                                .arg(sid, 8, 16, QChar('0')));
-                });
-        connect(dax, &DaxStreamManager::streamRemoved, this,
-                [this](int ch) {
-                    if (ch >= 1 && ch <= 4)
-                        m_daxLabels[ch - 1]->setText(
-                            QStringLiteral("DAX %1: —").arg(ch));
-                });
-    }
-}
-
-void CatApplet::setVirtualAudioBridge(VirtualAudioBridge* bridge)
-{
-    m_bridge = bridge;
-    if (bridge) {
-        // Apply saved gain
-        int val = QSettings().value("cat/daxGain", 50).toInt();
-        bridge->setGain(val / 100.0f);
-    }
-}
-
 void CatApplet::setAudioEngine(AudioEngine* audio)
 {
     m_audio = audio;
-    if (audio) {
-        // Apply saved TX gain
-        int val = QSettings().value("cat/daxTxGain", 50).toInt();
-        audio->setDaxTxGain(val / 100.0f);
-    }
 }
 
-void CatApplet::onConnectionStateChanged(bool connected)
+void CatApplet::onConnectionStateChanged(bool /*connected*/)
 {
-    if (connected) {
-        // Auto-start DAX if it was enabled before
-        if (m_daxEnable->isChecked()) {
-            if (m_dax) m_dax->requestDaxStreams();
-            if (m_bridge) m_bridge->open();
-        }
-    } else {
-        // Release DAX streams on disconnect
-        if (m_dax) m_dax->releaseDaxStreams();
-        if (m_bridge) m_bridge->close();
-    }
+    // DAX auto-start deferred — needs PipeWire virtual devices (issue #15)
 }
 
 void CatApplet::updateTcpStatus()

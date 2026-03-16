@@ -122,16 +122,14 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel, &RadioModel::sliceRemoved,
             this, &MainWindow::onSliceRemoved);
 
-    // ── TX audio stream: use PanadapterStream's registered UDP socket ──
-    m_audio.setPanStream(m_radioModel.panStream());
+    // ── TX audio stream: start mic capture when radio assigns stream ID ──
     connect(&m_radioModel, &RadioModel::txAudioStreamReady,
             this, [this](quint32 streamId) {
         m_audio.setTxStreamId(streamId);
+        // Send TX audio to the radio's VITA-49 port (same as RX: 4991)
+        m_audio.startTxStream(
+            m_radioModel.connection()->radioAddress(), 4991);
     });
-
-    // Gate DAX TX audio by MOX state — only send packets while transmitting
-    connect(m_radioModel.transmitModel(), &TransmitModel::moxChanged,
-            &m_audio, &AudioEngine::setMoxActive);
 
     // ── Panadapter stream → spectrum widget ───────────────────────────────
     connect(m_radioModel.panStream(), &PanadapterStream::spectrumReady,
@@ -310,22 +308,12 @@ MainWindow::MainWindow(QWidget* parent)
     // ── EQ applet: graphic equalizer ─────────────────────────────────────────
     m_appletPanel->eqApplet()->setEqualizerModel(m_radioModel.equalizerModel());
 
-    // ── CAT applet: rigctld + PTY + DAX ───────────────────────────────────────
-    m_daxManager = new DaxStreamManager(&m_radioModel, m_radioModel.panStream(), this);
+    // ── CAT applet: rigctld + PTY ──────────────────────────────────────────────
     m_appletPanel->catApplet()->setRadioModel(&m_radioModel);
     m_appletPanel->catApplet()->setRigctlServer(&m_rigctlServer);
     m_appletPanel->catApplet()->setRigctlPty(&m_rigctlPty);
-    m_appletPanel->catApplet()->setDaxStreamManager(m_daxManager);
-    m_appletPanel->catApplet()->setVirtualAudioBridge(&m_audioBridge);
     m_appletPanel->catApplet()->setAudioEngine(&m_audio);
-
-    // Route DAX audio from DaxStreamManager → VirtualAudioBridge
-    connect(m_daxManager, &DaxStreamManager::daxAudioReady,
-            &m_audioBridge, &VirtualAudioBridge::feedDaxAudio);
-
-    // Route TX audio from VirtualAudioBridge → AudioEngine → radio VITA-49
-    connect(&m_audioBridge, &VirtualAudioBridge::txAudioReady,
-            &m_audio, &AudioEngine::sendDaxTxAudio);
+    // DAX audio channels deferred — needs PipeWire virtual devices (issue #15)
 
     // ── Status bar telemetry ──────────────────────────────────────────────────
     connect(&m_radioModel, &RadioModel::networkQualityChanged,

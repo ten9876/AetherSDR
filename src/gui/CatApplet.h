@@ -5,7 +5,6 @@
 class QPushButton;
 class QLabel;
 class QSpinBox;
-class QCheckBox;
 class QComboBox;
 class QSlider;
 
@@ -14,8 +13,6 @@ namespace AetherSDR {
 class RadioModel;
 class RigctlServer;
 class RigctlPty;
-class DaxStreamManager;
-class VirtualAudioBridge;
 class AudioEngine;
 
 // CAT Applet — settings panel for rigctld TCP server, virtual serial port,
@@ -29,8 +26,6 @@ public:
     void setRadioModel(RadioModel* model);
     void setRigctlServer(RigctlServer* server);
     void setRigctlPty(RigctlPty* pty);
-    void setDaxStreamManager(DaxStreamManager* dax);
-    void setVirtualAudioBridge(VirtualAudioBridge* bridge);
     void setAudioEngine(AudioEngine* audio);
 
 private:
@@ -39,12 +34,10 @@ private:
     void updatePtyStatus();
     void onConnectionStateChanged(bool connected);
 
-    RadioModel*         m_model{nullptr};
-    RigctlServer*       m_server{nullptr};
-    RigctlPty*          m_pty{nullptr};
-    DaxStreamManager*   m_dax{nullptr};
-    VirtualAudioBridge* m_bridge{nullptr};
-    AudioEngine*        m_audio{nullptr};
+    RadioModel*    m_model{nullptr};
+    RigctlServer*  m_server{nullptr};
+    RigctlPty*     m_pty{nullptr};
+    AudioEngine*   m_audio{nullptr};
 
     // TCP section
     QPushButton* m_tcpEnable{nullptr};
@@ -59,13 +52,8 @@ private:
     // Slice selector
     QComboBox*   m_sliceSelect{nullptr};
 
-    // DAX section
-    QPushButton* m_daxEnable{nullptr};
-    QSlider*     m_daxGain{nullptr};
-    QLabel*      m_daxGainLabel{nullptr};
-    QSlider*     m_daxTxGain{nullptr};
-    QLabel*      m_daxTxGainLabel{nullptr};
-    QLabel*      m_daxLabels[4]{};
+    // DAX section (placeholder — needs PipeWire virtual devices, issue #15)
+    QLabel*      m_daxPlaceholder{nullptr};
 };
 
 } // namespace AetherSDR
