@@ -13,7 +13,7 @@
 #include <QComboBox>
 #include <QClipboard>
 #include <QApplication>
-#include <QSettings>
+#include "core/AppSettings.h"
 #include <QFrame>
 #include <QSlider>
 
@@ -73,7 +73,7 @@ void CatApplet::buildUI()
     root->setContentsMargins(6, 4, 6, 4);
     root->setSpacing(4);
 
-    QSettings settings;
+    auto& settings = AppSettings::instance();
 
     // ── TCP Section ─────────────────────────────────────────────────────────
     root->addWidget(appletTitleBar("rigctld TCP Server"));
@@ -87,7 +87,8 @@ void CatApplet::buildUI()
     auto* tcpRow = new QHBoxLayout;
     m_tcpEnable = new QPushButton("Enable");
     m_tcpEnable->setCheckable(true);
-    m_tcpEnable->setChecked(settings.value("cat/tcpEnable", false).toBool());
+    // Don't restore checked state — CAT auto-start is controlled by the
+    // "Autostart CAT with AetherSDR" menu item, not per-button state.
     m_tcpEnable->setStyleSheet(kGreenToggle);
     m_tcpEnable->setFixedHeight(22);
     tcpRow->addWidget(m_tcpEnable);
@@ -96,7 +97,7 @@ void CatApplet::buildUI()
     tcpRow->addWidget(portLabel);
     m_tcpPort = new QSpinBox;
     m_tcpPort->setRange(1024, 65535);
-    m_tcpPort->setValue(settings.value("cat/tcpPort", 4532).toInt());
+    m_tcpPort->setValue(settings.value("CatTcpPort", "4532").toInt());
     m_tcpPort->setFixedWidth(70);
     tcpRow->addWidget(m_tcpPort);
     tcpRow->addStretch();
@@ -106,11 +107,11 @@ void CatApplet::buildUI()
     root->addWidget(m_tcpStatus);
 
     connect(m_tcpEnable, &QPushButton::toggled, this, [this](bool on) {
-        QSettings().setValue("cat/tcpEnable", on);
+        // State managed by Autostart CAT menu item
         if (!m_server) return;
         if (on) {
             int port = m_tcpPort->value();
-            QSettings().setValue("cat/tcpPort", port);
+            auto& ss = AppSettings::instance(); ss.setValue("CatTcpPort", QString::number(port)); ss.save();
             m_server->start(static_cast<quint16>(port));
         } else {
             m_server->stop();
@@ -119,7 +120,7 @@ void CatApplet::buildUI()
     });
 
     connect(m_tcpPort, &QSpinBox::editingFinished, this, [this]() {
-        QSettings().setValue("cat/tcpPort", m_tcpPort->value());
+        { auto& ss = AppSettings::instance(); ss.setValue("CatTcpPort", QString::number(m_tcpPort->value())); ss.save(); }
         // Restart if running
         if (m_server && m_server->isRunning()) {
             m_server->stop();
@@ -135,7 +136,7 @@ void CatApplet::buildUI()
 
     m_ptyEnable = new QPushButton("Enable");
     m_ptyEnable->setCheckable(true);
-    m_ptyEnable->setChecked(settings.value("cat/ptyEnable", false).toBool());
+    // Don't restore checked state — controlled by Autostart CAT menu item.
     m_ptyEnable->setStyleSheet(kGreenToggle);
     m_ptyEnable->setFixedHeight(22);
     root->addWidget(m_ptyEnable);
@@ -155,7 +156,7 @@ void CatApplet::buildUI()
     });
 
     connect(m_ptyEnable, &QPushButton::toggled, this, [this](bool on) {
-        QSettings().setValue("cat/ptyEnable", on);
+        // State managed by Autostart CAT menu item
         if (!m_pty) return;
         if (on)
             m_pty->start();
