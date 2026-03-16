@@ -116,6 +116,7 @@ void RigctlServer::onClientData()
         QString response = cs.protocol->handleLine(line);
         if (!response.isEmpty()) {
             socket->write(response.toUtf8());
+            socket->flush();
         }
     }
 }
