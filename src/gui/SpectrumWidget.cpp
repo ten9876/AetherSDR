@@ -419,6 +419,15 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
             depthMenu->addAction("Normal", this, [this, hitTnf]{ emit tnfDepthRequested(hitTnf, 1); });
             depthMenu->addAction("Deep", this, [this, hitTnf]{ emit tnfDepthRequested(hitTnf, 2); });
             depthMenu->addAction("Very Deep", this, [this, hitTnf]{ emit tnfDepthRequested(hitTnf, 3); });
+            menu.addSeparator();
+            // Find current permanent state
+            bool isPerm = false;
+            for (const auto& t : m_tnfMarkers)
+                if (t.id == hitTnf) { isPerm = t.permanent; break; }
+            if (isPerm)
+                menu.addAction("Make Temporary", this, [this, hitTnf]{ emit tnfPermanentRequested(hitTnf, false); });
+            else
+                menu.addAction("Make Permanent", this, [this, hitTnf]{ emit tnfPermanentRequested(hitTnf, true); });
         } else {
             const QString freqStr = QString::number(freqMhz, 'f', 6);
             menu.addAction(QString("Add TNF at %1 MHz").arg(freqStr), this,
@@ -1056,13 +1065,18 @@ void SpectrumWidget::drawTnfMarkers(QPainter& p, const QRect& specRect, const QR
         // Skip if fully off-screen
         if (right < 0 || left > width()) continue;
 
+        // Permanent = green, temporary = yellow
+        const int r = tnf.permanent ? 0x30 : 0xff;
+        const int g = tnf.permanent ? 0xc0 : 0xc0;
+        const int b = tnf.permanent ? 0x30 : 0x00;
+
         // Shaded fill across spectrum + waterfall
-        const QColor fillColor(0xff, 0x30, 0x30, alpha);
+        const QColor fillColor(r, g, b, alpha);
         p.fillRect(left, specRect.top(), right - left, specRect.height(), fillColor);
         p.fillRect(left, wfRect.top(), right - left, wfRect.height(), fillColor);
 
         // Edge lines
-        const QPen edgePen(QColor(0xff, 0x40, 0x40, lineAlpha), 1, Qt::SolidLine);
+        const QPen edgePen(QColor(r, g, b, lineAlpha), 1, Qt::SolidLine);
         p.setPen(edgePen);
         p.drawLine(left, specRect.top(), left, wfRect.bottom());
         p.drawLine(right, specRect.top(), right, wfRect.bottom());
@@ -1074,7 +1088,7 @@ void SpectrumWidget::drawTnfMarkers(QPainter& p, const QRect& specRect, const QR
             << QPoint(cx + 5, specRect.top())
             << QPoint(cx, specRect.top() + triH);
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0xff, 0x40, 0x40, m_tnfGlobalEnabled ? 200 : 80));
+        p.setBrush(QColor(r, g, b, m_tnfGlobalEnabled ? 200 : 80));
         p.drawPolygon(tri);
     }
 }

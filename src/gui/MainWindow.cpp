@@ -254,6 +254,8 @@ MainWindow::MainWindow(QWidget* parent)
             tnf, &TnfModel::setTnfWidth);
     connect(spectrum(), &SpectrumWidget::tnfDepthRequested,
             tnf, &TnfModel::setTnfDepth);
+    connect(spectrum(), &SpectrumWidget::tnfPermanentRequested,
+            tnf, &TnfModel::setTnfPermanent);
 
     // ── Click-to-tune on the spectrum ─────────────────────────────────────
     connect(spectrum(), &SpectrumWidget::frequencyClicked,

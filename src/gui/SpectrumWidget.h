@@ -144,6 +144,7 @@ signals:
     void tnfRemoveRequested(int id);
     void tnfWidthRequested(int id, int widthHz);
     void tnfDepthRequested(int id, int depthDb);
+    void tnfPermanentRequested(int id, bool permanent);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
