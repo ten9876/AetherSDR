@@ -127,6 +127,28 @@ void RadioModel::setTransmit(bool tx)
     sendCmd(QString("xmit %1").arg(tx ? 1 : 0));
 }
 
+void RadioModel::addSlice()
+{
+    if (m_panId.isEmpty()) {
+        qWarning() << "RadioModel::addSlice: no panadapter, cannot create slice";
+        return;
+    }
+
+    // Create a new slice on the current panadapter at the center frequency.
+    // The radio will pick a default mode (USB) and antenna.
+    const QString freq = QString::number(m_panCenterMhz, 'f', 6);
+    const QString cmd = QString("slice create pan=%1 freq=%2").arg(m_panId, freq);
+
+    qDebug() << "RadioModel::addSlice:" << cmd;
+    m_connection.sendCommand(cmd, [](int code, const QString& body) {
+        if (code != 0)
+            qWarning() << "RadioModel: slice create failed, code"
+                       << Qt::hex << code << "body:" << body;
+        else
+            qDebug() << "RadioModel: new slice created, index =" << body;
+    });
+}
+
 void RadioModel::setPanBandwidth(double bandwidthMhz)
 {
     if (m_panId.isEmpty()) return;

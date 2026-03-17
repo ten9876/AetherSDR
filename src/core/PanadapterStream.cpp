@@ -82,6 +82,10 @@ bool PanadapterStream::start(RadioConnection* conn)
         qWarning() << "PanadapterStream: radio address unknown — skipping UDP registration";
     }
 
+    // Store radio address for sendToRadio (DAX TX path)
+    m_radioAddress = radioAddr;
+    m_radioPort = 4991;
+
     m_conn = conn;
     return true;
 }
@@ -184,6 +188,44 @@ void PanadapterStream::processDatagram(const QByteArray& data)
             stats.errorCount++;
     }
     stats.lastSeq = seq;
+
+    // Check if this stream ID is a DAX stream — route separately
+    if (m_daxStreamIds.contains(streamId)) {
+        int channel = m_daxStreamIds[streamId];
+        QByteArray pcm;
+        if (pcc == PCC_IF_NARROW) {
+            const int payloadStart = VITA49_HEADER_BYTES;
+            const int payloadBytes = data.size() - payloadStart - (hasTrailer ? 4 : 0);
+            if (payloadBytes < 4) return;
+            const int numFloats = payloadBytes / 4;
+            const uchar* src = raw + payloadStart;
+            pcm.resize(numFloats * 2);
+            auto* dst = reinterpret_cast<qint16*>(pcm.data());
+            for (int i = 0; i < numFloats; ++i) {
+                const quint32 u = qFromBigEndian<quint32>(src + i * 4);
+                float f;
+                std::memcpy(&f, &u, 4);
+                dst[i] = static_cast<qint16>(qBound(-1.0f, f, 1.0f) * 32767.0f);
+            }
+        } else if (pcc == PCC_IF_NARROW_REDUCED) {
+            const int payloadStart = VITA49_HEADER_BYTES;
+            const int payloadBytes = data.size() - payloadStart - (hasTrailer ? 4 : 0);
+            if (payloadBytes < 2) return;
+            const int monoSamples = payloadBytes / 2;
+            const uchar* src = raw + payloadStart;
+            pcm.resize(monoSamples * 4);
+            auto* dst = reinterpret_cast<qint16*>(pcm.data());
+            for (int i = 0; i < monoSamples; ++i) {
+                const qint16 s = qFromBigEndian<qint16>(src + i * 2);
+                dst[i * 2]     = s;
+                dst[i * 2 + 1] = s;
+            }
+        } else {
+            return;
+        }
+        emit daxAudioReady(channel, pcm);
+        return;
+    }
 
     // Route by PacketClassCode
     switch (pcc) {
@@ -369,6 +411,23 @@ void PanadapterStream::decodeWaterfallTile(const uchar* raw, int totalBytes, boo
 
 void PanadapterStream::decodeNarrowAudio(const uchar* raw, int totalBytes, bool hasTrailer)
 {
+    // One-time: log the RX audio VITA-49 header for comparison with our TX packets
+    static bool rxHeaderLogged = false;
+    if (!rxHeaderLogged && totalBytes >= 28) {
+        rxHeaderLogged = true;
+        const quint32* w = reinterpret_cast<const quint32*>(raw);
+        qDebug() << "VITA-49 RX audio header (host-order):"
+                 << QString("w0=%1 w1=%2 w2=%3 w3=%4 w4=%5 w5=%6 w6=%7")
+                    .arg(qFromBigEndian(w[0]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[1]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[2]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[3]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[4]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[5]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[6]), 8, 16, QChar('0'))
+                 << "totalBytes=" << totalBytes;
+    }
+
     // Payload: big-endian float32 stereo interleaved (L, R, L, R, ...).
     // Convert to little-endian int16 stereo for QAudioSink (Int16, 24 kHz).
     const int payloadStart = VITA49_HEADER_BYTES;
@@ -394,6 +453,23 @@ void PanadapterStream::decodeNarrowAudio(const uchar* raw, int totalBytes, bool 
 
 void PanadapterStream::decodeReducedBwAudio(const uchar* raw, int totalBytes, bool hasTrailer)
 {
+    // One-time: log the reduced-BW RX audio VITA-49 header
+    static bool rxReducedLogged = false;
+    if (!rxReducedLogged && totalBytes >= 28) {
+        rxReducedLogged = true;
+        const quint32* w = reinterpret_cast<const quint32*>(raw);
+        qDebug() << "VITA-49 RX reduced-BW audio header (host-order):"
+                 << QString("w0=%1 w1=%2 w2=%3 w3=%4 w4=%5 w5=%6 w6=%7")
+                    .arg(qFromBigEndian(w[0]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[1]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[2]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[3]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[4]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[5]), 8, 16, QChar('0'))
+                    .arg(qFromBigEndian(w[6]), 8, 16, QChar('0'))
+                 << "totalBytes=" << totalBytes;
+    }
+
     // Payload: big-endian int16 mono. Duplicate to stereo for QAudioSink.
     const int payloadStart = VITA49_HEADER_BYTES;
     const int payloadBytes = totalBytes - payloadStart - (hasTrailer ? 4 : 0);
@@ -457,6 +533,44 @@ int PanadapterStream::packetTotalCount() const
     for (auto it = m_streamStats.constBegin(); it != m_streamStats.constEnd(); ++it)
         total += it->totalCount;
     return total;
+}
+
+void PanadapterStream::registerDaxStream(quint32 streamId, int channel)
+{
+    m_daxStreamIds[streamId] = channel;
+    qDebug() << "PanadapterStream: registered DAX stream" << Qt::hex << streamId << "-> channel" << channel;
+}
+
+void PanadapterStream::unregisterDaxStream(quint32 streamId)
+{
+    m_daxStreamIds.remove(streamId);
+    qDebug() << "PanadapterStream: unregistered DAX stream" << Qt::hex << streamId;
+}
+
+void PanadapterStream::sendToRadio(const QByteArray& packet)
+{
+    if (m_radioAddress.isNull() || m_radioPort == 0) {
+        static int dropCount = 0;
+        if (++dropCount <= 5)
+            qWarning() << "PanadapterStream::sendToRadio: no dest! addr="
+                       << m_radioAddress.toString() << "port=" << m_radioPort;
+        return;
+    }
+    const qint64 sent = m_socket.writeDatagram(packet, m_radioAddress, m_radioPort);
+    static int txCount = 0;
+    ++txCount;
+    if (txCount <= 5 || txCount % 1000 == 0) {
+        qDebug() << "PanadapterStream::sendToRadio #" << txCount
+                 << "bytes=" << packet.size()
+                 << "sent=" << sent
+                 << "to=" << m_radioAddress.toString() << ":" << m_radioPort
+                 << "localPort=" << m_socket.localPort();
+    }
+    if (sent < 0) {
+        static int errCount = 0;
+        if (++errCount <= 10)
+            qWarning() << "PanadapterStream::sendToRadio ERROR:" << m_socket.errorString();
+    }
 }
 
 } // namespace AetherSDR

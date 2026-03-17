@@ -1,5 +1,6 @@
 #include "RxApplet.h"
 #include "ComboStyle.h"
+#include "SliceColors.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
 
@@ -952,9 +953,15 @@ void RxApplet::connectSlice(SliceModel* s)
 {
     // ── Header ─────────────────────────────────────────────────────────────
 
-    // Slice badge letter (0→A, 1→B, 2→C, 3→D)
+    // Slice badge letter (0→A, 1→B, 2→C, 3→D) with per-slice color
     const QChar letter = QChar('A' + s->sliceId());
     m_sliceBadge->setText(QString(letter));
+    const int sid = s->sliceId();
+    const char* badgeColor = (sid >= 0 && sid < kSliceColorCount)
+        ? kSliceColors[sid].hexActive : "#0070c0";
+    m_sliceBadge->setStyleSheet(
+        QString("QLabel { background: %1; color: #000000; "
+                "border-radius: 3px; font-weight: bold; font-size: 11px; }").arg(badgeColor));
 
     // Lock
     {

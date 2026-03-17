@@ -84,6 +84,8 @@ quint32 RadioConnection::sendCommand(const QString& command, ResponseCallback ca
 void RadioConnection::onSocketConnected()
 {
     qDebug() << "RadioConnection: TCP connected";
+    // Disable Nagle — send commands immediately without buffering
+    m_socket.setSocketOption(QAbstractSocket::LowDelayOption, 1);
     // Do NOT set Connected yet — wait for V and H messages from the radio.
     // The radio sends V<version>\n then H<handle>\n immediately after TCP accept.
 }

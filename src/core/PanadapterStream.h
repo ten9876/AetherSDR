@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QUdpSocket>
+#include <QHostAddress>
 #include <QVector>
 #include <QMap>
 
@@ -51,8 +52,15 @@ public:
     // panStreamId is the panadapter hex ID (e.g. 0x40000000).
     void setOwnedStreamIds(quint32 panStreamId, quint32 wfStreamId);
 
+    // DAX stream routing
+    void registerDaxStream(quint32 streamId, int channel);
+    void unregisterDaxStream(quint32 streamId);
+
+    // Send a raw UDP datagram to the radio (used for DAX TX VITA-49 packets)
+    void sendToRadio(const QByteArray& packet);
 
 signals:
+    void daxAudioReady(int channel, const QByteArray& pcm);
     void spectrumReady(const QVector<float>& binsDbm);
     // One row of waterfall data (dBm values, Width bins).
     // lowFreqMhz / highFreqMhz describe the frequency span of this tile.
@@ -153,6 +161,11 @@ public:
 
 private:
     qint64 m_totalRxBytes{0};
+
+    // DAX stream routing: stream ID → DAX channel (1-4)
+    QMap<quint32, int> m_daxStreamIds;
+    QHostAddress m_radioAddress;
+    quint16      m_radioPort{0};
 };
 
 } // namespace AetherSDR

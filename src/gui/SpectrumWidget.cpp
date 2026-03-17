@@ -1,6 +1,7 @@
 #include "SpectrumWidget.h"
 #include "SpectrumOverlayMenu.h"
 #include "VfoWidget.h"
+#include "SliceColors.h"
 
 #include <QPainter>
 #include <QPainterPath>
@@ -141,17 +142,69 @@ void SpectrumWidget::setDbmRange(float minDbm, float maxDbm)
     update();
 }
 
+// ─── Slice color table (shared via SliceColors.h) ────────────────────────────
+
+static QColor sliceColor(int sliceId, bool active) {
+    const auto& c = kSliceColors[sliceId & 3];
+    if (active) return QColor(c.r, c.g, c.b);
+    return QColor(c.dr, c.dg, c.db);
+}
+
+// ─── Multi-slice overlay management ──────────────────────────────────────────
+
+int SpectrumWidget::overlayIndex(int sliceId) const
+{
+    for (int i = 0; i < m_sliceOverlays.size(); ++i)
+        if (m_sliceOverlays[i].sliceId == sliceId) return i;
+    return -1;
+}
+
+const SpectrumWidget::SliceOverlay* SpectrumWidget::activeOverlay() const
+{
+    for (const auto& o : m_sliceOverlays)
+        if (o.isActive) return &o;
+    return m_sliceOverlays.isEmpty() ? nullptr : &m_sliceOverlays.first();
+}
+
+void SpectrumWidget::setSliceOverlay(int sliceId, double freq, int fLow, int fHigh,
+                                     bool tx, bool active)
+{
+    int idx = overlayIndex(sliceId);
+    if (idx < 0) {
+        m_sliceOverlays.append({sliceId, freq, fLow, fHigh, tx, active});
+    } else {
+        auto& o = m_sliceOverlays[idx];
+        o.freqMhz = freq; o.filterLowHz = fLow; o.filterHighHz = fHigh;
+        o.isTxSlice = tx; o.isActive = active;
+    }
+    update();
+}
+
+void SpectrumWidget::removeSliceOverlay(int sliceId)
+{
+    int idx = overlayIndex(sliceId);
+    if (idx >= 0) m_sliceOverlays.remove(idx);
+    update();
+}
+
+// ─── Legacy single-slice convenience wrappers ────────────────────────────────
+
 void SpectrumWidget::setVfoFrequency(double freqMhz)
 {
-    m_vfoFreqMhz = freqMhz;
-    update();
+    auto* o = const_cast<SliceOverlay*>(activeOverlay());
+    if (o) { o->freqMhz = freqMhz; update(); }
 }
 
 void SpectrumWidget::setVfoFilter(int lowHz, int highHz)
 {
-    m_filterLowHz  = lowHz;
-    m_filterHighHz = highHz;
-    update();
+    auto* o = const_cast<SliceOverlay*>(activeOverlay());
+    if (o) { o->filterLowHz = lowHz; o->filterHighHz = highHz; update(); }
+}
+
+void SpectrumWidget::setSliceInfo(int sliceId, bool isTxSlice)
+{
+    int idx = overlayIndex(sliceId);
+    if (idx >= 0) { m_sliceOverlays[idx].isTxSlice = isTxSlice; update(); }
 }
 
 void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
@@ -357,11 +410,15 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         return;
     }
 
-    // Click on off-screen VFO indicator → absorb (double-click recenters)
-    if (!m_offScreenVfoRect.isNull() &&
-        m_offScreenVfoRect.contains(QPoint(static_cast<int>(ev->position().x()), y))) {
-        ev->accept();
-        return;
+    // Click on off-screen slice indicator → absorb or switch slice
+    for (int oi = 0; oi < m_offScreenRects.size(); ++oi) {
+        if (!m_offScreenRects[oi].isNull() &&
+            m_offScreenRects[oi].contains(QPoint(static_cast<int>(ev->position().x()), y))) {
+            const auto& so = m_sliceOverlays[oi];
+            if (!so.isActive) emit sliceClicked(so.sliceId);
+            ev->accept();
+            return;
+        }
     }
 
     // Check for click on dBm scale strip (right edge of FFT area)
@@ -453,11 +510,27 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         }
     }
 
-    // Check for click on filter edges in FFT area (5px grab zone)
+    // Check for click near an inactive slice marker (8px grab zone) — switch active
     if (y < specH) {
         const int mx = static_cast<int>(ev->position().x());
-        const int loX = mhzToX(m_vfoFreqMhz + m_filterLowHz / 1.0e6);
-        const int hiX = mhzToX(m_vfoFreqMhz + m_filterHighHz / 1.0e6);
+        for (const auto& so : m_sliceOverlays) {
+            if (so.isActive) continue;
+            int sliceX = mhzToX(so.freqMhz);
+            if (std::abs(mx - sliceX) <= 8) {
+                emit sliceClicked(so.sliceId);
+                ev->accept();
+                return;
+            }
+        }
+    }
+
+    // Check for click on filter edges in FFT area (5px grab zone)
+    if (y < specH) {
+        const auto* ao = activeOverlay();
+        if (!ao) { ev->accept(); return; }
+        const int mx = static_cast<int>(ev->position().x());
+        const int loX = mhzToX(ao->freqMhz + ao->filterLowHz / 1.0e6);
+        const int hiX = mhzToX(ao->freqMhz + ao->filterHighHz / 1.0e6);
         constexpr int GRAB = 5;
 
         if (std::abs(mx - loX) <= GRAB) {
@@ -537,11 +610,13 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         const double newBw = std::clamp(m_bwDragStartBw * scale, 0.004, 14.0);
         // SSB modes: center on filter midpoint so the passband stays visible.
         // Other modes: center on VFO frequency.
-        double zoomCenter;
-        if (m_mode == "USB" || m_mode == "LSB" || m_mode == "DIGU" || m_mode == "DIGL" || m_mode == "RTTY") {
-            zoomCenter = m_vfoFreqMhz + (m_filterLowHz + m_filterHighHz) / 2.0 / 1.0e6;
-        } else {
-            zoomCenter = m_vfoFreqMhz;
+        double zoomCenter = m_centerMhz;
+        if (const auto* ao = activeOverlay()) {
+            if (m_mode == "USB" || m_mode == "LSB" || m_mode == "DIGU" || m_mode == "DIGL" || m_mode == "RTTY") {
+                zoomCenter = ao->freqMhz + (ao->filterLowHz + ao->filterHighHz) / 2.0 / 1.0e6;
+            } else {
+                zoomCenter = ao->freqMhz;
+            }
         }
         m_bandwidthMhz = newBw;
         m_centerMhz = zoomCenter;
@@ -553,20 +628,21 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
     }
 
     if (m_draggingFilter != FilterEdge::None) {
+        auto* ao = const_cast<SliceOverlay*>(activeOverlay());
+        if (!ao) { m_draggingFilter = FilterEdge::None; return; }
         const int mx = static_cast<int>(ev->position().x());
-        // Convert pixel position to Hz offset from VFO
         const double mhz = xToMhz(mx);
-        int hz = static_cast<int>(std::round((mhz - m_vfoFreqMhz) * 1.0e6));
+        int hz = static_cast<int>(std::round((mhz - ao->freqMhz) * 1.0e6));
 
         if (m_draggingFilter == FilterEdge::Low) {
-            hz = std::clamp(hz, m_filterMinHz, m_filterHighHz - 10);
-            m_filterLowHz = hz;
+            hz = std::clamp(hz, m_filterMinHz, ao->filterHighHz - 10);
+            ao->filterLowHz = hz;
         } else {
-            hz = std::clamp(hz, m_filterLowHz + 10, m_filterMaxHz);
-            m_filterHighHz = hz;
+            hz = std::clamp(hz, ao->filterLowHz + 10, m_filterMaxHz);
+            ao->filterHighHz = hz;
         }
         update();
-        emit filterChangeRequested(m_filterLowHz, m_filterHighHz);
+        emit filterChangeRequested(ao->filterLowHz, ao->filterHighHz);
         ev->accept();
         return;
     }
@@ -595,12 +671,17 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         const int mx = static_cast<int>(ev->position().x());
         const QPoint pos(mx, y);
 
-        // Check off-screen VFO indicator hover
-        bool wasHovering = m_hoveringOffScreenVfo;
-        m_hoveringOffScreenVfo = !m_offScreenVfoRect.isNull() && m_offScreenVfoRect.contains(pos);
-        if (m_hoveringOffScreenVfo != wasHovering) update();
+        // Check off-screen slice indicator hover
+        int oldHover = m_hoveringOffScreenIdx;
+        m_hoveringOffScreenIdx = -1;
+        for (int oi = 0; oi < m_offScreenRects.size(); ++oi) {
+            if (!m_offScreenRects[oi].isNull() && m_offScreenRects[oi].contains(pos)) {
+                m_hoveringOffScreenIdx = oi; break;
+            }
+        }
+        if (m_hoveringOffScreenIdx != oldHover) update();
 
-        if (m_hoveringOffScreenVfo) {
+        if (m_hoveringOffScreenIdx >= 0) {
             setCursor(Qt::PointingHandCursor);
         } else {
             const int stripX = width() - DBM_STRIP_W;
@@ -612,14 +693,30 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
                 else
                     setCursor(Qt::SizeVerCursor);
             } else {
-                // Check if hovering over a filter edge
-                const int loX = mhzToX(m_vfoFreqMhz + m_filterLowHz / 1.0e6);
-                const int hiX = mhzToX(m_vfoFreqMhz + m_filterHighHz / 1.0e6);
-                constexpr int GRAB = 5;
-                if (std::abs(mx - loX) <= GRAB || std::abs(mx - hiX) <= GRAB)
-                    setCursor(Qt::SizeHorCursor);
-                else
-                    setCursor(Qt::CrossCursor);
+                // Check if hovering over a filter edge or inactive slice marker
+                bool foundCursor = false;
+                if (const auto* ao = activeOverlay()) {
+                    const int loX = mhzToX(ao->freqMhz + ao->filterLowHz / 1.0e6);
+                    const int hiX = mhzToX(ao->freqMhz + ao->filterHighHz / 1.0e6);
+                    constexpr int GRAB = 5;
+                    if (std::abs(mx - loX) <= GRAB || std::abs(mx - hiX) <= GRAB) {
+                        setCursor(Qt::SizeHorCursor);
+                        foundCursor = true;
+                    }
+                }
+                if (!foundCursor) {
+                    // Check inactive slice markers
+                    for (const auto& so : m_sliceOverlays) {
+                        if (so.isActive) continue;
+                        int sliceX = mhzToX(so.freqMhz);
+                        if (std::abs(mx - sliceX) <= 8) {
+                            setCursor(Qt::PointingHandCursor);
+                            foundCursor = true;
+                            break;
+                        }
+                    }
+                }
+                if (!foundCursor) setCursor(Qt::CrossCursor);
             }
         }
     } else {
@@ -687,13 +784,15 @@ void SpectrumWidget::mouseDoubleClickEvent(QMouseEvent* ev)
     const int y = static_cast<int>(ev->position().y());
     const int mx = static_cast<int>(ev->position().x());
 
-    // Double-click on off-screen VFO indicator → recenter on VFO
-    if (!m_offScreenVfoRect.isNull() && m_offScreenVfoRect.contains(QPoint(mx, y))) {
-        m_centerMhz = m_vfoFreqMhz;
-        update();
-        emit centerChangeRequested(m_vfoFreqMhz);
-        ev->accept();
-        return;
+    // Double-click on off-screen slice indicator → recenter on that slice
+    for (int oi = 0; oi < m_offScreenRects.size(); ++oi) {
+        if (!m_offScreenRects[oi].isNull() && m_offScreenRects[oi].contains(QPoint(mx, y))) {
+            m_centerMhz = m_sliceOverlays[oi].freqMhz;
+            update();
+            emit centerChangeRequested(m_centerMhz);
+            ev->accept();
+            return;
+        }
     }
 
     // Double-click in FFT or waterfall → tune to clicked frequency
@@ -723,7 +822,9 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
     const int ticks = ev->angleDelta().y() / 120;   // +1 per notch up, -1 per notch down
     if (ticks == 0) { ev->ignore(); return; }
 
-    const double newMhz = snapToStep(m_vfoFreqMhz + ticks * m_stepHz / 1e6, m_stepHz);
+    const auto* ao = activeOverlay();
+    const double vfoMhz = ao ? ao->freqMhz : m_centerMhz;
+    const double newMhz = snapToStep(vfoMhz + ticks * m_stepHz / 1e6, m_stepHz);
     emit frequencyClicked(newMhz);
     ev->accept();
 }
@@ -887,13 +988,16 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
     drawFreqScale(p, scaleRect);
     drawWaterfall(p, wfRect);
     drawTnfMarkers(p, specRect, wfRect);
-    drawVfoMarker(p, specRect, wfRect);
-    drawOffScreenVfo(p, specRect);
+    drawSliceMarkers(p, specRect, wfRect);
+    drawOffScreenSlices(p, specRect);
 
-    // Reposition VFO widget to follow the marker
+    // Reposition VFO widget to follow the active slice marker
     if (m_vfoWidget) {
-        int vfoX = mhzToX(m_vfoFreqMhz);
-        m_vfoWidget->updatePosition(vfoX, specRect.top());
+        const auto* ao = activeOverlay();
+        if (ao) {
+            int vfoX = mhzToX(ao->freqMhz);
+            m_vfoWidget->updatePosition(vfoX, specRect.top());
+        }
     }
 
     // ── WNB / RF Gain indicators (top-right of FFT area) ──────────────────
@@ -1105,48 +1209,94 @@ int SpectrumWidget::tnfAtPixel(int x) const
 
 // ─── VFO marker (filter passband + tuned frequency line) ──────────────────────
 
-void SpectrumWidget::drawVfoMarker(QPainter& p, const QRect& specRect, const QRect& wfRect)
+void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const QRect& wfRect)
 {
     const double startMhz = m_centerMhz - m_bandwidthMhz / 2.0;
     const double endMhz   = m_centerMhz + m_bandwidthMhz / 2.0;
-    if (m_vfoFreqMhz < startMhz || m_vfoFreqMhz > endMhz) return;
 
-    const double filterLowMhz  = m_vfoFreqMhz + m_filterLowHz  / 1.0e6;
-    const double filterHighMhz = m_vfoFreqMhz + m_filterHighHz / 1.0e6;
+    // Draw inactive slices first, then active slice on top
+    auto drawOne = [&](const SliceOverlay& so) {
+        if (so.freqMhz < startMhz || so.freqMhz > endMhz) return;
 
-    const int vfoX   = mhzToX(m_vfoFreqMhz);
-    const int filterX1 = mhzToX(filterLowMhz);
-    const int filterX2 = mhzToX(filterHighMhz);
-    const int filterW  = filterX2 - filterX1;
+        const QColor col = sliceColor(so.sliceId, so.isActive);
+        const double fLoMhz = so.freqMhz + so.filterLowHz / 1.0e6;
+        const double fHiMhz = so.freqMhz + so.filterHighHz / 1.0e6;
 
-    // ── Filter passband shading ──────────────────────────────────────────────
+        const int vfoX = mhzToX(so.freqMhz);
+        const int fX1  = mhzToX(fLoMhz);
+        const int fX2  = mhzToX(fHiMhz);
+        const int fW   = fX2 - fX1;
 
-    // Spectrum: slightly brighter fill so the passband stands out over the FFT
-    p.fillRect(QRect(filterX1, specRect.top(), filterW, specRect.height()),
-               QColor(0x00, 0x80, 0xff, 35));
+        // ── Filter passband shading ──────────────────────────────────────
+        const int specAlpha = so.isActive ? 35 : 18;
+        const int wfAlpha   = so.isActive ? 25 : 12;
+        p.fillRect(QRect(fX1, specRect.top(), fW, specRect.height()),
+                   QColor(col.red(), col.green(), col.blue(), specAlpha));
+        p.fillRect(QRect(fX1, wfRect.top(), fW, wfRect.height()),
+                   QColor(col.red(), col.green(), col.blue(), wfAlpha));
 
-    // Waterfall: subtle overlay so colour map is still readable
-    p.fillRect(QRect(filterX1, wfRect.top(), filterW, wfRect.height()),
-               QColor(0x00, 0x60, 0xe0, 25));
+        // Filter edge lines — active slice only (avoids clutter)
+        if (so.isActive) {
+            p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 130), 1));
+            p.drawLine(fX1, specRect.top(), fX1, specRect.bottom());
+            p.drawLine(fX2, specRect.top(), fX2, specRect.bottom());
+        }
 
-    // Filter edge lines (spectrum only — would clutter the waterfall)
-    p.setPen(QPen(QColor(0x00, 0x90, 0xff, 130), 1));
-    p.drawLine(filterX1, specRect.top(), filterX1, specRect.bottom());
-    p.drawLine(filterX2, specRect.top(), filterX2, specRect.bottom());
+        // ── Center line ──────────────────────────────────────────────────
+        const qreal lineW = so.isActive ? 2.0 : 1.0;
+        const int lineAlpha = so.isActive ? 220 : 100;
+        p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), lineAlpha), lineW));
+        p.drawLine(vfoX, specRect.top(), vfoX, wfRect.bottom());
 
-    // ── Slice center line ────────────────────────────────────────────────────
+        // ── Triangle marker at top ───────────────────────────────────────
+        const int triHalf = so.isActive ? 6 : 4;
+        const int triH = so.isActive ? 10 : 7;
+        p.setPen(Qt::NoPen);
+        p.setBrush(col);
+        QPolygon tri;
+        tri << QPoint(vfoX - triHalf, specRect.top())
+            << QPoint(vfoX + triHalf, specRect.top())
+            << QPoint(vfoX, specRect.top() + triH);
+        p.drawPolygon(tri);
 
-    p.setPen(QPen(QColor(0xff, 0xa0, 0x00, 220), 1.5));
-    p.drawLine(vfoX, specRect.top(), vfoX, wfRect.bottom());
+        // ── Slice letter flag ────────────────────────────────────────────
+        const QChar letter = QChar('A' + (so.sliceId & 3));
+        QFont f = p.font(); f.setPointSize(8); f.setBold(true); p.setFont(f);
+        const QFontMetrics fm(f);
+        const int flagW = fm.horizontalAdvance(letter) + 8;
+        const int flagH = fm.height() + 2;
+        const int flagX = vfoX + triHalf + 2;
+        const int flagY = specRect.top();
+        const QRect flagRect(flagX, flagY, flagW, flagH);
 
-    // Triangle marker at top of spectrum
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(0xff, 0xa0, 0x00));
-    QPolygon tri;
-    tri << QPoint(vfoX - 6, specRect.top())
-        << QPoint(vfoX + 6, specRect.top())
-        << QPoint(vfoX, specRect.top() + 10);
-    p.drawPolygon(tri);
+        if (so.isActive) {
+            p.fillRect(flagRect, col);
+            p.setPen(QColor(0x0f, 0x0f, 0x1a));  // dark text on bright bg
+        } else {
+            p.setPen(QPen(col, 1));
+            p.drawRect(flagRect);
+        }
+        p.drawText(flagRect, Qt::AlignCenter, QString(letter));
+
+        // TX badge
+        if (so.isTxSlice) {
+            QFont txFont = p.font(); txFont.setPointSize(7); p.setFont(txFont);
+            const QFontMetrics txFm(txFont);
+            const int txW = txFm.horizontalAdvance("TX") + 4;
+            const int txX = flagX + flagW + 2;
+            const QRect txRect(txX, flagY, txW, flagH);
+            p.fillRect(txRect, QColor(0xcc, 0x20, 0x20));
+            p.setPen(Qt::white);
+            p.drawText(txRect, Qt::AlignCenter, "TX");
+        }
+    };
+
+    // Draw inactive slices first
+    for (const auto& so : m_sliceOverlays)
+        if (!so.isActive) drawOne(so);
+    // Draw active slice on top
+    for (const auto& so : m_sliceOverlays)
+        if (so.isActive) drawOne(so);
 }
 
 // ─── Frequency scale bar ──────────────────────────────────────────────────────
@@ -1273,107 +1423,83 @@ void SpectrumWidget::drawDbmScale(QPainter& p, const QRect& specRect)
 
 // ─── Off-screen VFO indicator ─────────────────────────────────────────────────
 
-void SpectrumWidget::drawOffScreenVfo(QPainter& p, const QRect& specRect)
+void SpectrumWidget::drawOffScreenSlices(QPainter& p, const QRect& specRect)
 {
     const double startMhz = m_centerMhz - m_bandwidthMhz / 2.0;
     const double endMhz   = m_centerMhz + m_bandwidthMhz / 2.0;
 
-    // Only draw when VFO is off-screen
-    if (m_vfoFreqMhz >= startMhz && m_vfoFreqMhz <= endMhz) {
-        m_offScreenVfoRect = QRect();
-        return;
-    }
+    m_offScreenRects.resize(m_sliceOverlays.size());
+    int leftStack = 0, rightStack = 0;  // vertical stacking counters
 
-    const bool vfoIsRight = (m_vfoFreqMhz > endMhz);
+    for (int oi = 0; oi < m_sliceOverlays.size(); ++oi) {
+        const auto& so = m_sliceOverlays[oi];
+        m_offScreenRects[oi] = QRect();
 
-    // Build label text: "TX A ▶ 14.100" or "◀ A 14.100"
-    const QChar letter = QChar('A' + m_sliceId);
-    // Format freq as MM.KKK
-    long long hz = static_cast<long long>(std::round(m_vfoFreqMhz * 1e6));
-    int mhzPart = static_cast<int>(hz / 1000000);
-    int khzPart = static_cast<int>((hz / 1000) % 1000);
-    const QString freqStr = QString("%1.%2")
-        .arg(mhzPart).arg(khzPart, 3, 10, QChar('0'));
+        if (so.freqMhz >= startMhz && so.freqMhz <= endMhz) continue;
 
-    const int alpha = m_hoveringOffScreenVfo ? 230 : 128;
-    const int padH = 4;
-    const int boxY = specRect.top() + 20;
+        const bool isRight = (so.freqMhz > endMhz);
+        const QColor col = sliceColor(so.sliceId, so.isActive);
+        const QChar letter = QChar('A' + (so.sliceId & 3));
 
-    // ── Top line: TX (small) + slice letter + chevron (large) ────────────
-    QFont bigFont = p.font();
-    bigFont.setPointSize(16);
-    bigFont.setBold(true);
+        long long hz = static_cast<long long>(std::round(so.freqMhz * 1e6));
+        int mhzPart = static_cast<int>(hz / 1000000);
+        int khzPart = static_cast<int>((hz / 1000) % 1000);
+        const QString freqStr = QString("%1.%2").arg(mhzPart).arg(khzPart, 3, 10, QChar('0'));
 
-    QFont smallFont = p.font();
-    smallFont.setPointSize(10);
-    smallFont.setBold(true);
+        const int hovAlpha = (oi == m_hoveringOffScreenIdx) ? 230 : (so.isActive ? 180 : 100);
+        const int padH = 4;
 
-    const QFontMetrics bigFm(bigFont);
-    const QFontMetrics smallFm(smallFont);
+        QFont bigFont = p.font(); bigFont.setPointSize(16); bigFont.setBold(true);
+        QFont smallFont = p.font(); smallFont.setPointSize(10); smallFont.setBold(true);
+        const QFontMetrics bigFm(bigFont);
+        const QFontMetrics smallFm(smallFont);
 
-    const QString chevron = vfoIsRight ? " >" : "< ";
-    const QString sliceAndChevron = vfoIsRight
-        ? QString(letter) + chevron : chevron + letter;
+        const QString chevron = isRight ? " >" : "< ";
+        const QString sliceAndChevron = isRight ? QString(letter) + chevron : chevron + letter;
 
-    // Measure top line width
-    int topLineW = bigFm.horizontalAdvance(sliceAndChevron);
-    int txW = 0;
-    if (m_isTxSlice) {
-        txW = smallFm.horizontalAdvance("TX ");
-        topLineW += txW;
-    }
+        int topLineW = bigFm.horizontalAdvance(sliceAndChevron);
+        int txW = 0;
+        if (so.isTxSlice) { txW = smallFm.horizontalAdvance("TX "); topLineW += txW; }
+        const int freqW = smallFm.horizontalAdvance(freqStr);
+        const int boxW = std::max(topLineW, freqW) + 2 * padH;
+        const int boxH = bigFm.height() + smallFm.height() + 4;
 
-    // ── Bottom line: frequency (small) ───────────────────────────────────
-    const int freqW = smallFm.horizontalAdvance(freqStr);
+        int& stackCount = isRight ? rightStack : leftStack;
+        const int boxY = specRect.top() + 20 + stackCount * (boxH + 4);
+        ++stackCount;
 
-    const int boxW = std::max(topLineW, freqW) + 2 * padH;
-    const int boxH = bigFm.height() + smallFm.height() + 4;
-
-    int boxX;
-    if (vfoIsRight) {
-        boxX = specRect.right() - DBM_STRIP_W - boxW - 4;
-    } else {
-        int leftMargin = 4;
-        if (m_overlayMenu && m_overlayMenu->isVisible())
-            leftMargin = m_overlayMenu->width() + 2;
-        boxX = specRect.left() + leftMargin;
-    }
-
-    m_offScreenVfoRect = QRect(boxX, boxY, boxW, boxH);
-
-    // Draw top line
-    p.setPen(QColor(0xff, 0xff, 0xff, alpha));
-    int tx = boxX + padH;
-    const int topBaseline = boxY + bigFm.ascent();
-
-    if (vfoIsRight) {
-        // TX (small, top-aligned) then A > (large)
-        if (m_isTxSlice) {
-            p.setFont(smallFont);
-            p.drawText(tx, boxY + smallFm.ascent(), "TX ");
-            tx += txW;
+        int boxX;
+        if (isRight) {
+            boxX = specRect.right() - DBM_STRIP_W - boxW - 4;
+        } else {
+            int leftMargin = 4;
+            if (m_overlayMenu && m_overlayMenu->isVisible())
+                leftMargin = m_overlayMenu->width() + 2;
+            boxX = specRect.left() + leftMargin;
         }
-        p.setFont(bigFont);
-        p.drawText(tx, topBaseline, sliceAndChevron);
-    } else {
-        // < A (large) then TX (small, top-aligned)
-        p.setFont(bigFont);
-        p.drawText(tx, topBaseline, sliceAndChevron);
-        tx += bigFm.horizontalAdvance(sliceAndChevron);
-        if (m_isTxSlice) {
-            p.setFont(smallFont);
-            p.drawText(tx, boxY + smallFm.ascent(), " TX");
-        }
-    }
 
-    // Draw bottom line (frequency, small, right-aligned to match top)
-    p.setFont(smallFont);
-    p.setPen(QColor(0xff, 0xff, 0xff, alpha));
-    const int freqY = topBaseline + smallFm.height() + 2;
-    if (vfoIsRight)
-        p.drawText(boxX + boxW - padH - freqW, freqY, freqStr);
-    else
-        p.drawText(boxX + padH, freqY, freqStr);
+        m_offScreenRects[oi] = QRect(boxX, boxY, boxW, boxH);
+
+        // Draw with slice color
+        p.setPen(QColor(col.red(), col.green(), col.blue(), hovAlpha));
+        int tx = boxX + padH;
+        const int topBaseline = boxY + bigFm.ascent();
+
+        if (isRight) {
+            if (so.isTxSlice) { p.setFont(smallFont); p.drawText(tx, boxY + smallFm.ascent(), "TX "); tx += txW; }
+            p.setFont(bigFont); p.drawText(tx, topBaseline, sliceAndChevron);
+        } else {
+            p.setFont(bigFont); p.drawText(tx, topBaseline, sliceAndChevron);
+            tx += bigFm.horizontalAdvance(sliceAndChevron);
+            if (so.isTxSlice) { p.setFont(smallFont); p.drawText(tx, boxY + smallFm.ascent(), " TX"); }
+        }
+
+        p.setFont(smallFont);
+        p.setPen(QColor(col.red(), col.green(), col.blue(), hovAlpha));
+        const int freqY = topBaseline + smallFm.height() + 2;
+        if (isRight) p.drawText(boxX + boxW - padH - freqW, freqY, freqStr);
+        else         p.drawText(boxX + padH, freqY, freqStr);
+    }
 }
 
 } // namespace AetherSDR

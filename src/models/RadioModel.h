@@ -167,6 +167,7 @@ public:
     void disconnectFromRadio();
     bool isWan() const { return m_wanConn != nullptr; }
     void setTransmit(bool tx);
+    void addSlice();   // Create a new slice on the current panadapter
     void setPanBandwidth(double bandwidthMhz);
     void setPanCenter(double centerMhz);
     void setPanDbmRange(float minDbm, float maxDbm);

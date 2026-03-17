@@ -1,5 +1,6 @@
 #include "MeterModel.h"
 #include <QDebug>
+#include <cmath>
 
 namespace AetherSDR {
 
@@ -90,7 +91,10 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             m_sLevel = v;
             sChanged = true;
         } else if (idx == m_fwdPwrIdx) {
-            m_fwdPower = v;
+            // FWDPWR meter reports in dBm — convert to watts for display.
+            // watts = 10^(dBm/10) / 1000
+            // e.g. 50 dBm = 100 W, 47 dBm ≈ 50 W, 40 dBm = 10 W
+            m_fwdPower = std::pow(10.0f, v / 10.0f) / 1000.0f;
             txChanged = true;
         } else if (idx == m_swrIdx) {
             m_swr = v;

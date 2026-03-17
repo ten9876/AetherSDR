@@ -309,6 +309,12 @@ void SliceModel::setTxSlice(bool on)
     sendCommand(QString("slice set %1 tx=%2").arg(m_id).arg(on ? 1 : 0));
 }
 
+void SliceModel::setActive(bool on)
+{
+    if (on)
+        sendCommand(QString("slice set %1 active=1").arg(m_id));
+}
+
 // ─── FM duplex/repeater setters ──────────────────────────────────────────────
 
 void SliceModel::setFmToneMode(const QString& mode)
@@ -429,8 +435,13 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
             emit modeListChanged(modes);
         }
     }
-    if (kvs.contains("active"))
-        m_active = kvs["active"] == "1";
+    if (kvs.contains("active")) {
+        bool a = kvs["active"] == "1";
+        if (a != m_active) {
+            m_active = a;
+            emit activeChanged(a);
+        }
+    }
     if (kvs.contains("tx")) {
         bool tx = kvs["tx"] == "1";
         if (tx != m_txSlice) {

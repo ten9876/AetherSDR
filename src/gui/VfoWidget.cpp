@@ -1,5 +1,6 @@
 #include "VfoWidget.h"
 #include "ComboStyle.h"
+#include "SliceColors.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
 
@@ -1347,6 +1348,12 @@ void VfoWidget::syncFromSlice()
     const char letters[] = "ABCD";
     int id = m_slice->sliceId();
     m_sliceBadge->setText(QString(QChar(id >= 0 && id < 4 ? letters[id] : '?')));
+    // Color-code the slice badge to match the spectrum overlay colors
+    const char* badgeColor = (id >= 0 && id < kSliceColorCount)
+        ? kSliceColors[id].hexActive : "#0070c0";
+    m_sliceBadge->setStyleSheet(
+        QString("QLabel { background: %1; color: #000000; "
+                "border-radius: 3px; font-weight: bold; font-size: 11px; }").arg(badgeColor));
     updateFreqLabel();
     updateFilterLabel();
 

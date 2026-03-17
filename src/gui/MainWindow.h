@@ -47,6 +47,9 @@ private:
     void applyDarkTheme();
     SliceModel* activeSlice() const;
     SpectrumWidget* spectrum() const;
+    void setActiveSlice(int sliceId);
+    void updateFilterLimitsForMode(const QString& mode);
+    void pushSliceOverlay(SliceModel* s);
 
     BandSnapshot captureCurrentBandState() const;
     void restoreBandState(const BandSnapshot& snap);
@@ -90,6 +93,9 @@ private:
     QLabel* m_paTempLabel{nullptr};
     QLabel* m_gpsLabel{nullptr};
     QLabel* m_gridLabel{nullptr};
+
+    // Active slice tracking for multi-slice support
+    int m_activeSliceId{-1};
 
     // Guard: set true while updating controls from the model, so that
     // onFrequencyChanged doesn't echo the change back to the radio.

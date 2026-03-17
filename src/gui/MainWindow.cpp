@@ -174,13 +174,15 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel, &RadioModel::sliceRemoved,
             this, &MainWindow::onSliceRemoved);
 
-    // ── TX audio stream: start mic capture when radio assigns stream ID ──
+    // ── TX audio stream: set stream ID for DAX TX path ──────────────────
+    // DAX TX audio is sent via PanadapterStream::sendToRadio() (the
+    // registered VITA-49 socket).  We do NOT start a separate mic TX
+    // stream — that would open a QAudioSource and an unregistered UDP
+    // socket, wasting resources and corrupting the shared packet counter.
     connect(&m_radioModel, &RadioModel::txAudioStreamReady,
             this, [this](quint32 streamId) {
         m_audio.setTxStreamId(streamId);
-        // Send TX audio to the radio's VITA-49 port (same as RX: 4991)
-        m_audio.startTxStream(
-            m_radioModel.connection()->radioAddress(), 4991);
+        qDebug() << "MainWindow: DAX TX stream ID set to" << Qt::hex << streamId;
     });
 
     // ── Panadapter stream → spectrum widget ───────────────────────────────
@@ -260,6 +262,14 @@ MainWindow::MainWindow(QWidget* parent)
     // ── Click-to-tune on the spectrum ─────────────────────────────────────
     connect(spectrum(), &SpectrumWidget::frequencyClicked,
             this, &MainWindow::onFrequencyChanged);
+
+    // ── +RX button: add a new slice on the current panadapter ──────────────
+    connect(spectrum()->overlayMenu(), &SpectrumOverlayMenu::addRxClicked,
+            this, [this]() { m_radioModel.addSlice(); });
+
+    // ── Slice marker click → switch active slice ────────────────────────────
+    connect(spectrum(), &SpectrumWidget::sliceClicked,
+            this, &MainWindow::setActiveSlice);
 
     // ── Band selection from overlay menu ───────────────────────────────────
     connect(spectrum()->overlayMenu(), &SpectrumOverlayMenu::bandSelected,
@@ -411,14 +421,16 @@ MainWindow::MainWindow(QWidget* parent)
     m_appletPanel->eqApplet()->setEqualizerModel(m_radioModel.equalizerModel());
 
     // ── 4-channel CAT: rigctld + PTY (A-D, each bound to a slice) ────────────
-    static const char kLetters[] = "ABCD";
-    for (int i = 0; i < kCatChannels; ++i) {
-        m_rigctlServers[i] = new RigctlServer(&m_radioModel, this);
-        m_rigctlServers[i]->setSliceIndex(i);
-        m_rigctlPtys[i] = new RigctlPty(&m_radioModel, this);
-        m_rigctlPtys[i]->setSliceIndex(i);
-        m_rigctlPtys[i]->setSymlinkPath(
-            QString("/tmp/AetherSDR-CAT-%1").arg(kLetters[i]));
+    {
+        static const char kLetters[] = "ABCD";
+        for (int i = 0; i < kCatChannels; ++i) {
+            m_rigctlServers[i] = new RigctlServer(&m_radioModel, this);
+            m_rigctlServers[i]->setSliceIndex(i);
+            m_rigctlPtys[i] = new RigctlPty(&m_radioModel, this);
+            m_rigctlPtys[i]->setSliceIndex(i);
+            m_rigctlPtys[i]->setSymlinkPath(
+                QString("/tmp/AetherSDR-CAT-%1").arg(kLetters[i]));
+        }
     }
     m_appletPanel->catApplet()->setRadioModel(&m_radioModel);
     m_appletPanel->catApplet()->setRigctlServers(m_rigctlServers, kCatChannels);
@@ -826,25 +838,28 @@ void MainWindow::onConnectionStateChanged(bool connected)
         if (!m_userExpandedPanel)
             m_connPanel->setCollapsed(true);
 
-        // Auto-start 4-channel CAT (rigctld TCP + PTY) if enabled
+        // Auto-start 4-channel rigctld TCP servers if enabled
         auto& as = AppSettings::instance();
         if (as.value("AutoStartRigctld", "False").toString() == "True") {
             const int basePort = as.value("CatTcpPort", "4532").toInt();
             for (int i = 0; i < kCatChannels; ++i) {
                 if (m_rigctlServers[i] && !m_rigctlServers[i]->isRunning()) {
-                    m_rigctlServers[i]->start(static_cast<quint16>(basePort + i));
-                    qDebug() << "AutoStart: rigctld channel" << i
+                    m_rigctlServers[i]->start(
+                        static_cast<quint16>(basePort + i));
+                    qDebug() << "AutoStart: rigctld ch" << i
                              << "on port" << (basePort + i);
                 }
             }
             if (m_appletPanel && m_appletPanel->catApplet())
                 m_appletPanel->catApplet()->setTcpEnabled(true);
         }
+        // Auto-start 4-channel CAT virtual serial ports if enabled
         if (as.value("AutoStartCAT", "False").toString() == "True") {
             for (int i = 0; i < kCatChannels; ++i) {
                 if (m_rigctlPtys[i] && !m_rigctlPtys[i]->isRunning()) {
                     m_rigctlPtys[i]->start();
-                    qDebug() << "AutoStart: PTY channel" << i;
+                    qDebug() << "AutoStart: PTY ch" << i
+                             << m_rigctlPtys[i]->symlinkPath();
                 }
             }
             if (m_appletPanel && m_appletPanel->catApplet())
@@ -871,95 +886,153 @@ void MainWindow::onConnectionError(const QString& msg)
 void MainWindow::onSliceAdded(SliceModel* s)
 {
     qDebug() << "MainWindow: slice added" << s->sliceId();
-    // Update controls to reflect the first (active) slice
+    // Wire up first slice: applet panel, VFO widget, band detection
     if (m_radioModel.slices().size() == 1) {
-        spectrum()->setVfoFrequency(s->frequency());
-        spectrum()->setVfoFilter(s->filterLow(), s->filterHigh());
-        spectrum()->setSliceInfo(s->sliceId(), s->isTxSlice());
-        m_panApplet->setSliceId(s->sliceId());
-        m_appletPanel->setSlice(s);
-        spectrum()->overlayMenu()->setSlice(s);
-        spectrum()->vfoWidget()->setSlice(s);
-        spectrum()->vfoWidget()->setTransmitModel(m_radioModel.transmitModel());
+        setActiveSlice(s->sliceId());
 
         // Detect initial band from radio's frequency
         if (m_bandSettings.currentBand().isEmpty())
             m_bandSettings.setCurrentBand(BandSettings::bandForFrequency(s->frequency()));
 
-        // Band persistence is deprecated (issue #9) — radio state is source of truth
-
         // Re-create audio stream if it was invalidated by a profile load
         if (m_needAudioStream) {
             m_needAudioStream = false;
-            // Clear any dax=1 persisted in the profile (kills RX audio)
             m_radioModel.sendCommand(QString("slice set %1 dax=0").arg(s->sliceId()));
             m_radioModel.createAudioStream();
         }
     }
 
-    // Forward slice frequency/mode changes → spectrum
-    connect(s, &SliceModel::frequencyChanged, this, [this](double mhz){
+    // Push overlay for this slice to the spectrum widget
+    pushSliceOverlay(s);
+
+    // Connect slice state changes → spectrum overlay updates
+    connect(s, &SliceModel::frequencyChanged, this, [this, s](double mhz) {
         m_updatingFromModel = true;
-        spectrum()->setVfoFrequency(mhz);
+        spectrum()->setSliceOverlay(s->sliceId(), mhz,
+            s->filterLow(), s->filterHigh(), s->isTxSlice(),
+            s->sliceId() == m_activeSliceId);
         m_updatingFromModel = false;
     });
-    connect(s, &SliceModel::filterChanged, spectrum(), &SpectrumWidget::setVfoFilter);
-
-    // Update filter limits when mode changes (per FlexLib Slice.cs)
-    auto updateFilterLimits = [this](const QString& mode) {
-        int minHz, maxHz;
-        if (mode == "LSB" || mode == "DIGL" || mode == "CWL") {
-            minHz = -12000; maxHz = 0;
-        } else if (mode == "AM" || mode == "SAM" || mode == "DSB") {
-            minHz = -12000; maxHz = 12000;
-        } else if (mode == "FM" || mode == "NFM" || mode == "DFM") {
-            minHz = -12000; maxHz = 12000;  // FM filters are fixed by radio
-        } else {
-            // USB, DIGU, CW, RTTY, etc.
-            minHz = 0; maxHz = 12000;
-        }
-        spectrum()->setFilterLimits(minHz, maxHz);
-        spectrum()->setMode(mode);
-    };
-    updateFilterLimits(s->mode());
-    connect(s, &SliceModel::modeChanged, this, updateFilterLimits);
-
-    // Track TX slice changes for the off-screen VFO indicator
-    connect(s, &SliceModel::txSliceChanged, this, [this, s](bool tx) {
-        spectrum()->setSliceInfo(s->sliceId(), tx);
+    connect(s, &SliceModel::filterChanged, this, [this, s](int lo, int hi) {
+        spectrum()->setSliceOverlay(s->sliceId(), s->frequency(),
+            lo, hi, s->isTxSlice(), s->sliceId() == m_activeSliceId);
     });
+    connect(s, &SliceModel::txSliceChanged, this, [this, s](bool tx) {
+        spectrum()->setSliceOverlay(s->sliceId(), s->frequency(),
+            s->filterLow(), s->filterHigh(), tx,
+            s->sliceId() == m_activeSliceId);
+    });
+
+    // When the radio notifies us that this slice became active, switch to it
+    connect(s, &SliceModel::activeChanged, this, [this, s](bool active) {
+        if (active)
+            setActiveSlice(s->sliceId());
+    });
+
+    // Update filter limits when the active slice's mode changes
+    connect(s, &SliceModel::modeChanged, this, [this, s](const QString& mode) {
+        if (s->sliceId() == m_activeSliceId)
+            updateFilterLimitsForMode(mode);
+    });
+
+    // If this is the first slice, or the radio says it's active, make it active
+    if (m_activeSliceId < 0 || s->isActive())
+        setActiveSlice(s->sliceId());
 }
 
 void MainWindow::onSliceRemoved(int id)
 {
     qDebug() << "MainWindow: slice removed" << id;
+    spectrum()->removeSliceOverlay(id);
 
-    // Clear stale slice pointers before re-wiring (the removed slice is
-    // already deleted — calling disconnect on it would SEGV).
-    m_appletPanel->setSlice(nullptr);
-    spectrum()->vfoWidget()->setSlice(nullptr);
-    spectrum()->overlayMenu()->setSlice(nullptr);
-
-    // Reset panadapter state so display settings re-sync with the radio
-    // (e.g., after a global profile load that changes pan center/bw/dBm)
+    // Reset panadapter state so display settings re-sync after profile load
     m_radioModel.resetPanState();
-
-    // The old audio stream is invalidated when the slice is removed.
-    // Re-create it when the next slice is added.
     m_needAudioStream = true;
 
-    // If we still have a slice, re-wire the GUI to it
-    if (auto* s = activeSlice()) {
-        qDebug() << "MainWindow: re-wiring GUI to slice" << s->sliceId();
-        // Re-run the same wiring as onSliceAdded for the remaining slice
-        onSliceAdded(s);
+    // If the removed slice was active, switch to the first remaining slice
+    if (id == m_activeSliceId) {
+        m_appletPanel->setSlice(nullptr);
+        spectrum()->vfoWidget()->setSlice(nullptr);
+        spectrum()->overlayMenu()->setSlice(nullptr);
+
+        const auto& slices = m_radioModel.slices();
+        if (!slices.isEmpty())
+            setActiveSlice(slices.first()->sliceId());
+        else
+            m_activeSliceId = -1;
     }
 }
 
 SliceModel* MainWindow::activeSlice() const
 {
-    const auto& slices = m_radioModel.slices();
-    return slices.isEmpty() ? nullptr : slices.first();
+    if (m_activeSliceId < 0) return nullptr;
+    return m_radioModel.slice(m_activeSliceId);
+}
+
+void MainWindow::setActiveSlice(int sliceId)
+{
+    auto* s = m_radioModel.slice(sliceId);
+    if (!s) return;
+
+    const int prevId = m_activeSliceId;
+    m_activeSliceId = sliceId;
+
+    // Tell the radio this slice is now active
+    if (sliceId != prevId) {
+        s->setActive(true);
+        // Auto TX-switch: move TX when user explicitly switches slices
+        // (skip on initial connection where prevId is -1 to avoid
+        //  interfering with the radio's TX initialization)
+        if (prevId >= 0 && !s->isTxSlice())
+            s->setTxSlice(true);
+    }
+
+    // Update all overlay isActive flags
+    for (auto* sl : m_radioModel.slices()) {
+        const bool isActive = (sl->sliceId() == sliceId);
+        spectrum()->setSliceOverlay(sl->sliceId(), sl->frequency(),
+            sl->filterLow(), sl->filterHigh(), sl->isTxSlice(), isActive);
+    }
+
+    // Re-wire applet panel, overlay menu, VFO widget to the new active slice
+    m_panApplet->setSliceId(sliceId);
+    m_appletPanel->setSlice(s);
+    spectrum()->overlayMenu()->setSlice(s);
+    spectrum()->vfoWidget()->setSlice(s);
+    spectrum()->vfoWidget()->setTransmitModel(m_radioModel.transmitModel());
+
+    // Update filter limits for the active slice's mode
+    updateFilterLimitsForMode(s->mode());
+
+    // Detect band from frequency
+    if (m_bandSettings.currentBand().isEmpty())
+        m_bandSettings.setCurrentBand(BandSettings::bandForFrequency(s->frequency()));
+
+    qDebug() << "MainWindow: active slice set to" << sliceId;
+}
+
+void MainWindow::updateFilterLimitsForMode(const QString& mode)
+{
+    int minHz, maxHz;
+    if (mode == "LSB" || mode == "DIGL" || mode == "CWL") {
+        minHz = -12000; maxHz = 0;
+    } else if (mode == "AM" || mode == "SAM" || mode == "DSB") {
+        minHz = -12000; maxHz = 12000;
+    } else if (mode == "FM" || mode == "NFM" || mode == "DFM") {
+        minHz = -12000; maxHz = 12000;
+    } else {
+        // USB, DIGU, CW, RTTY, etc.
+        minHz = 0; maxHz = 12000;
+    }
+    spectrum()->setFilterLimits(minHz, maxHz);
+    spectrum()->setMode(mode);
+}
+
+void MainWindow::pushSliceOverlay(SliceModel* s)
+{
+    spectrum()->setSliceOverlay(s->sliceId(), s->frequency(),
+        s->filterLow(), s->filterHigh(), s->isTxSlice(),
+        s->sliceId() == m_activeSliceId);
 }
 
 SpectrumWidget* MainWindow::spectrum() const
