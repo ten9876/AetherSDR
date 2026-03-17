@@ -153,7 +153,7 @@ MainWindow::MainWindow(QWidget* parent)
         m_radioModel.connectViaWan(&m_wanConnection,
             m_pendingWanRadio.publicIp,
             static_cast<quint16>(m_pendingWanRadio.publicUdpPort > 0
-                ? m_pendingWanRadio.publicUdpPort : 4991));
+                ? m_pendingWanRadio.publicUdpPort : 4993));
     });
     connect(&m_wanConnection, &WanConnection::disconnected, this, [this] {
         qDebug() << "MainWindow: WAN connection lost";
