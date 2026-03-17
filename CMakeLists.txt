@@ -127,14 +127,18 @@ target_compile_definitions(AetherSDR PRIVATE
 )
 
 # Compiler warnings
-target_compile_options(AetherSDR PRIVATE
-    -Wall -Wextra -Wpedantic
-    $<$<CONFIG:Debug>:-g3 -fsanitize=address>
-    $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
-)
-target_link_options(AetherSDR PRIVATE
-    $<$<CONFIG:Debug>:-fsanitize=address>
-)
+if(MSVC)
+    target_compile_options(AetherSDR PRIVATE /W3 /Zc:__cplusplus /permissive- /utf-8)
+else()
+    target_compile_options(AetherSDR PRIVATE
+        -Wall -Wextra -Wpedantic
+        $<$<CONFIG:Debug>:-g3 -fsanitize=address>
+        $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
+    )
+    target_link_options(AetherSDR PRIVATE
+        $<$<CONFIG:Debug>:-fsanitize=address>
+    )
+endif()
 
 
 # ── Install rules ────────────────────────────────────────────────────────────
