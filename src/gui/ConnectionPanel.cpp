@@ -100,8 +100,8 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     ipLabel->setFixedWidth(20);
     m_manualIpEdit = new QLineEdit(m_manualGroup);
     m_manualIpEdit->setPlaceholderText("radio IP address");
-    m_manualProbeBtn = new QPushButton("Connect", m_manualGroup);
-    m_manualProbeBtn->setFixedWidth(65);
+    m_manualProbeBtn = new QPushButton("Go", m_manualGroup);
+    m_manualProbeBtn->setFixedWidth(32);
     manRow->addWidget(ipLabel);
     manRow->addWidget(m_manualIpEdit, 1);
     manRow->addWidget(m_manualProbeBtn);
