@@ -56,8 +56,10 @@ private:
     RadioModel        m_radioModel;
     AudioEngine       m_audio;
     BandSettings      m_bandSettings;
-    RigctlServer      m_rigctlServer{&m_radioModel};
-    RigctlPty         m_rigctlPty{&m_radioModel};
+    // 4-channel CAT: each channel (A-D) binds to a slice index (0-3)
+    static constexpr int kCatChannels = 4;
+    RigctlServer*     m_rigctlServers[kCatChannels]{};
+    RigctlPty*        m_rigctlPtys[kCatChannels]{};
     SmartLinkClient   m_smartLink;
     WanConnection     m_wanConnection;
 

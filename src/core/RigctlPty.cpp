@@ -61,6 +61,7 @@ bool RigctlPty::start()
 
     // Set up protocol handler
     m_protocol = new RigctlProtocol(m_model);
+    m_protocol->setSliceIndex(m_sliceIndex);
 
     // Watch for data on the master FD
     m_notifier = new QSocketNotifier(m_masterFd, QSocketNotifier::Read, this);

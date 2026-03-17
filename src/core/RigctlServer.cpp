@@ -70,6 +70,7 @@ void RigctlServer::onNewConnection()
         auto* socket = m_server->nextPendingConnection();
         socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);  // TCP_NODELAY
         auto* protocol = new RigctlProtocol(m_model);
+        protocol->setSliceIndex(m_sliceIndex);
 
         ClientState cs;
         cs.socket = socket;

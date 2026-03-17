@@ -27,6 +27,13 @@ public:
     QString slavePath() const { return m_slavePath; }
     QString symlinkPath() const { return m_symlinkPath; }
 
+    // Which slice index this PTY's protocol will control.
+    void setSliceIndex(int idx) { m_sliceIndex = idx; }
+    int  sliceIndex() const     { return m_sliceIndex; }
+
+    // Override the default symlink path (e.g. /tmp/AetherSDR-CAT-B).
+    void setSymlinkPath(const QString& path) { m_symlinkPath = path; }
+
 signals:
     void started(const QString& path);
     void stopped();
@@ -37,6 +44,7 @@ private slots:
 private:
     RadioModel*      m_model;
     RigctlProtocol*  m_protocol{nullptr};
+    int              m_sliceIndex{0};
     int              m_masterFd{-1};
     int              m_slaveFd{-1};
     QString          m_slavePath;

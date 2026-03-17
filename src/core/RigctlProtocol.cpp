@@ -273,6 +273,13 @@ QString RigctlProtocol::cmdSetPtt(const QString& arg)
 
     bool tx = (ptt != 0);
     QMetaObject::invokeMethod(m_model, [this, tx]() {
+        // When keying TX, move the TX badge to this protocol's bound slice
+        // so the correct slice is used for transmission.
+        if (tx) {
+            auto* slice = currentSlice();
+            if (slice && !slice->isTxSlice())
+                slice->setTxSlice(true);
+        }
         m_model->setTransmit(tx);
     }, Qt::QueuedConnection);
     return rprt(0);

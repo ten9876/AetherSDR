@@ -26,6 +26,10 @@ public:
     quint16 port() const;
     int clientCount() const { return m_clients.size(); }
 
+    // Which slice index this server's connections will control.
+    void setSliceIndex(int idx) { m_sliceIndex = idx; }
+    int  sliceIndex() const     { return m_sliceIndex; }
+
 signals:
     void clientCountChanged(int count);
 
@@ -44,6 +48,7 @@ private:
     RadioModel*      m_model;
     QTcpServer*      m_server{nullptr};
     QList<ClientState> m_clients;
+    int              m_sliceIndex{0};
 };
 
 } // namespace AetherSDR

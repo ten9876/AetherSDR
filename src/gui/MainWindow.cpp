@@ -384,12 +384,20 @@ MainWindow::MainWindow(QWidget* parent)
     // ── EQ applet: graphic equalizer ─────────────────────────────────────────
     m_appletPanel->eqApplet()->setEqualizerModel(m_radioModel.equalizerModel());
 
-    // ── CAT applet: rigctld + PTY ──────────────────────────────────────────────
+    // ── 4-channel CAT: rigctld + PTY (A-D, each bound to a slice) ────────────
+    static const char kLetters[] = "ABCD";
+    for (int i = 0; i < kCatChannels; ++i) {
+        m_rigctlServers[i] = new RigctlServer(&m_radioModel, this);
+        m_rigctlServers[i]->setSliceIndex(i);
+        m_rigctlPtys[i] = new RigctlPty(&m_radioModel, this);
+        m_rigctlPtys[i]->setSliceIndex(i);
+        m_rigctlPtys[i]->setSymlinkPath(
+            QString("/tmp/AetherSDR-CAT-%1").arg(kLetters[i]));
+    }
     m_appletPanel->catApplet()->setRadioModel(&m_radioModel);
-    m_appletPanel->catApplet()->setRigctlServer(&m_rigctlServer);
-    m_appletPanel->catApplet()->setRigctlPty(&m_rigctlPty);
+    m_appletPanel->catApplet()->setRigctlServers(m_rigctlServers, kCatChannels);
+    m_appletPanel->catApplet()->setRigctlPtys(m_rigctlPtys, kCatChannels);
     m_appletPanel->catApplet()->setAudioEngine(&m_audio);
-    // DAX audio channels deferred — needs PipeWire virtual devices (issue #15)
 
     // ── Status bar telemetry ──────────────────────────────────────────────────
     connect(&m_radioModel, &RadioModel::networkQualityChanged,
@@ -792,27 +800,29 @@ void MainWindow::onConnectionStateChanged(bool connected)
         if (!m_userExpandedPanel)
             m_connPanel->setCollapsed(true);
 
-        // Auto-start rigctld TCP server if enabled
+        // Auto-start 4-channel CAT (rigctld TCP + PTY) if enabled
         auto& as = AppSettings::instance();
         if (as.value("AutoStartRigctld", "False").toString() == "True") {
-            const int port = as.value("CatTcpPort", "4532").toInt();
-            if (!m_rigctlServer.isRunning()) {
-                m_rigctlServer.start(static_cast<quint16>(port));
-                qDebug() << "AutoStart: rigctld started on port" << port;
-                // Sync the CatApplet Enable button
-                if (m_appletPanel && m_appletPanel->catApplet())
-                    m_appletPanel->catApplet()->setTcpEnabled(true);
+            const int basePort = as.value("CatTcpPort", "4532").toInt();
+            for (int i = 0; i < kCatChannels; ++i) {
+                if (m_rigctlServers[i] && !m_rigctlServers[i]->isRunning()) {
+                    m_rigctlServers[i]->start(static_cast<quint16>(basePort + i));
+                    qDebug() << "AutoStart: rigctld channel" << i
+                             << "on port" << (basePort + i);
+                }
             }
+            if (m_appletPanel && m_appletPanel->catApplet())
+                m_appletPanel->catApplet()->setTcpEnabled(true);
         }
-        // Auto-start CAT virtual serial port if enabled
         if (as.value("AutoStartCAT", "False").toString() == "True") {
-            if (!m_rigctlPty.isRunning()) {
-                m_rigctlPty.start();
-                qDebug() << "AutoStart: PTY started";
-                // Sync the CatApplet Enable button
-                if (m_appletPanel && m_appletPanel->catApplet())
-                    m_appletPanel->catApplet()->setPtyEnabled(true);
+            for (int i = 0; i < kCatChannels; ++i) {
+                if (m_rigctlPtys[i] && !m_rigctlPtys[i]->isRunning()) {
+                    m_rigctlPtys[i]->start();
+                    qDebug() << "AutoStart: PTY channel" << i;
+                }
             }
+            if (m_appletPanel && m_appletPanel->catApplet())
+                m_appletPanel->catApplet()->setPtyEnabled(true);
         }
         // Apply saved display settings after panadapter is created
         m_displaySettingsPushed = false;
