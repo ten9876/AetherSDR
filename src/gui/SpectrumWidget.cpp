@@ -10,6 +10,7 @@
 #include <QWheelEvent>
 #include <QMenu>
 #include "core/AppSettings.h"
+#include "models/BandPlan.h"
 #include <QDateTime>
 #include <cmath>
 #include <cstring>
@@ -1004,6 +1005,7 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
 
     drawGrid(p, specRect);
     drawSpectrum(p, specRect);
+    drawBandPlan(p, specRect);
     drawDbmScale(p, specRect);
 
     // Draggable divider bar
@@ -1163,6 +1165,40 @@ void SpectrumWidget::drawWaterfall(QPainter& p, const QRect& r)
         return;
     }
     p.drawImage(r, m_waterfall);
+}
+
+// ─── Band plan overlay (bottom 8px of FFT area) ─────────────────────────────
+
+void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
+{
+    const double startMhz = m_centerMhz - m_bandwidthMhz / 2.0;
+    const double endMhz   = m_centerMhz + m_bandwidthMhz / 2.0;
+    const int bandH = 8;
+    const int bandY = specRect.bottom() - bandH + 1;
+
+    for (int i = 0; i < kBandPlanCount; ++i) {
+        const auto& seg = kBandPlan[i];
+
+        // Skip segments fully outside the view
+        if (seg.highMhz <= startMhz || seg.lowMhz >= endMhz) continue;
+
+        const int x1 = mhzToX(std::max(seg.lowMhz, startMhz));
+        const int x2 = mhzToX(std::min(seg.highMhz, endMhz));
+        if (x2 <= x1) continue;
+
+        p.fillRect(x1, bandY, x2 - x1, bandH,
+                   QColor(seg.r, seg.g, seg.b, 100));
+
+        // Draw segment label if wide enough
+        if (x2 - x1 > 30) {
+            QFont f = p.font();
+            f.setPointSize(6);
+            p.setFont(f);
+            p.setPen(QColor(seg.r, seg.g, seg.b, 200));
+            p.drawText(QRect(x1, bandY, x2 - x1, bandH),
+                       Qt::AlignCenter, seg.label);
+        }
+    }
 }
 
 // ─── TNF markers ────────────────────────────────────────────────────────────
