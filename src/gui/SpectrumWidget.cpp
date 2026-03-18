@@ -9,6 +9,7 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QMenu>
+#include <QToolTip>
 #include "core/AppSettings.h"
 #include "models/BandPlan.h"
 #include <QDateTime>
@@ -749,6 +750,25 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
     } else {
         setCursor(Qt::CrossCursor);
     }
+
+    // Band plan spot tooltip on hover
+    const int specH2 = static_cast<int>((height() - FREQ_SCALE_H - DIVIDER_H) * m_spectrumFrac);
+    const int bandBarTop = specH2 - 8;
+    if (y >= bandBarTop && y <= specH2) {
+        const int mx2 = static_cast<int>(ev->position().x());
+        for (int i = 0; i < kBandSpotCount; ++i) {
+            const int sx = mhzToX(kBandSpots[i].freqMhz);
+            if (std::abs(mx2 - sx) <= 5) {
+                QToolTip::showText(ev->globalPosition().toPoint(),
+                    QString("%1 MHz — %2")
+                        .arg(kBandSpots[i].freqMhz, 0, 'f', 3)
+                        .arg(kBandSpots[i].tooltip),
+                    this);
+                return;
+            }
+        }
+        QToolTip::hideText();
+    }
 }
 
 void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
@@ -1189,9 +1209,9 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
         const QString lic(seg.license);
         int alpha = 150;
         if (lic == "E")          alpha = 50;
-        else if (lic == "E,A")   alpha = 75;
-        else if (lic == "E,A,G") alpha = 110;
-        else if (lic.contains("T") || lic.contains("N")) alpha = 150;
+        else if (lic == "E,G")   alpha = 100;
+        else if (lic.contains("T")) alpha = 150;
+        else if (lic.isEmpty())  alpha = 130; // beacons
 
         p.fillRect(x1, bandY, x2 - x1, bandH,
                    QColor(seg.r, seg.g, seg.b, alpha));
@@ -1210,9 +1230,8 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
             // Determine lowest (least restrictive) license class
             QString lowestClass;
             if (lic.contains("T"))       lowestClass = "Tech";
-            else if (lic.contains("N"))  lowestClass = "Tech";  // Novice grandfathered
             else if (lic.contains("G"))  lowestClass = "General";
-            else if (lic == "E" || lic == "E,A") lowestClass = "Extra";
+            else if (lic == "E")         lowestClass = "Extra";
 
             QString label = seg.label;
             if (!lowestClass.isEmpty() && x2 - x1 > 60)
@@ -1222,6 +1241,17 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
             p.drawText(QRect(x1, bandY, x2 - x1, bandH),
                        Qt::AlignCenter, label);
         }
+    }
+
+    // Draw single-frequency spot markers (white dots)
+    p.setPen(Qt::NoPen);
+    p.setBrush(Qt::white);
+    for (int i = 0; i < kBandSpotCount; ++i) {
+        const auto& spot = kBandSpots[i];
+        if (spot.freqMhz < startMhz || spot.freqMhz > endMhz) continue;
+        const int sx = mhzToX(spot.freqMhz);
+        const int dotR = 2;
+        p.drawEllipse(QPoint(sx, bandY + bandH / 2), dotR, dotR);
     }
 }
 
