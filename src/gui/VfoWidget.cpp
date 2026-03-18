@@ -301,12 +301,12 @@ void VfoWidget::buildUI()
             const bool onXvtr = m_slice &&
                 (m_slice->rxAntenna().startsWith("XVT") || m_slice->frequency() > 54.0);
             const double maxMhz = onXvtr ? 450.0 : 54.0;
-            const double maxKhz = maxMhz * 1000.0;
 
-            if (ok && freqMhz > maxKhz)
-                freqMhz /= 1e6;  // treat as Hz
-            else if (ok && freqMhz > maxMhz && freqMhz < maxKhz)
-                freqMhz /= 1e3;  // treat as kHz
+            if (ok && freqMhz > maxMhz * 1000.0)
+                freqMhz /= 1e6;  // treat as Hz (e.g. 144600000)
+            else if (ok && freqMhz > maxMhz && freqMhz <= maxMhz * 1000.0)
+                freqMhz /= 1e3;  // treat as kHz (e.g. 144600)
+            // Values <= maxMhz are already MHz (e.g. 144.6 or 14.225)
 
             if (ok && freqMhz >= 0.001 && freqMhz <= maxMhz && m_slice)
                 m_slice->setFrequency(freqMhz);
