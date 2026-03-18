@@ -853,7 +853,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
     });
 
     // Black + Auto: Auto button in col 1
-    makeRowWithBtn("Black:", 0, 100, 15, m_blackSlider, m_blackLabel,
+    makeRowWithBtn("Black:", 0, 250, 15, m_blackSlider, m_blackLabel,
                    m_autoBlackBtn, "Auto");
     m_autoBlackBtn->setChecked(true);
     connect(m_blackSlider, &QSlider::valueChanged, this, [this](int v) {
