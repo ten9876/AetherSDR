@@ -1173,7 +1173,7 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
 {
     const double startMhz = m_centerMhz - m_bandwidthMhz / 2.0;
     const double endMhz   = m_centerMhz + m_bandwidthMhz / 2.0;
-    const int bandH = 6;
+    const int bandH = 8;
     const int bandY = specRect.bottom() - bandH + 1;
 
     for (int i = 0; i < kBandPlanCount; ++i) {
