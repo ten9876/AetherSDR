@@ -5,3 +5,4 @@ build-*/
 .qtc_clangd/
 reference/
 docs/release_notes/
+build.ps1

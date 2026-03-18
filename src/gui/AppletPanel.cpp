@@ -8,6 +8,7 @@
 #include "PhoneApplet.h"
 #include "EqApplet.h"
 #include "CatApplet.h"
+#include "AntennaGeniusApplet.h"
 #include "models/SliceModel.h"
 #include <QComboBox>
 #include <QLabel>
@@ -199,6 +200,17 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_catApplet = new CatApplet;
     addApplet("DIGI", m_catApplet, false);
 
+    // Antenna Genius applet — hidden until device discovered on UDP 9007
+    m_agApplet = new AntennaGeniusApplet;
+    {
+        m_agBtn = new QPushButton("AG", btnRow);
+        m_agBtn->setCheckable(true);
+        m_agBtn->hide();  // hidden until setAgVisible(true)
+        btnLayout->addWidget(m_agBtn);
+        m_stack->insertWidget(m_stack->count() - 1, m_agApplet);
+        connect(m_agBtn, &QPushButton::toggled, m_agApplet, &QWidget::setVisible);
+    }
+
     btnLayout->addStretch();
 }
 
@@ -212,6 +224,18 @@ void AppletPanel::setTunerVisible(bool visible)
     } else {
         m_tuneBtn->setChecked(false);  // hide the applet
         m_tuneBtn->hide();
+    }
+}
+
+void AppletPanel::setAgVisible(bool visible)
+{
+    if (visible) {
+        m_agBtn->show();
+        if (!m_agBtn->isChecked())
+            m_agBtn->setChecked(true);
+    } else {
+        m_agBtn->setChecked(false);
+        m_agBtn->hide();
     }
 }
 

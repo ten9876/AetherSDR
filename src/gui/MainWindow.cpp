@@ -13,6 +13,7 @@
 #include "PhoneApplet.h"
 #include "EqApplet.h"
 #include "CatApplet.h"
+#include "AntennaGeniusApplet.h"
 #include "RadioSetupDialog.h"
 #include "NetworkDiagnosticsDialog.h"
 #include "MemoryDialog.h"
@@ -622,6 +623,11 @@ MainWindow::MainWindow(QWidget* parent)
     // ── EQ applet: graphic equalizer ─────────────────────────────────────────
     m_appletPanel->eqApplet()->setEqualizerModel(m_radioModel.equalizerModel());
 
+    // ── Antenna Genius applet: external 4O3A antenna switch ──────────────────
+    m_appletPanel->agApplet()->setModel(&m_antennaGenius);
+    connect(&m_antennaGenius, &AntennaGeniusModel::presenceChanged,
+            m_appletPanel, &AppletPanel::setAgVisible);
+
     // ── 4-channel CAT: rigctld + PTY (A-D, each bound to a slice) ────────────
     {
         static const char kLetters[] = "ABCD";
@@ -1139,7 +1145,16 @@ void MainWindow::onSliceAdded(SliceModel* s)
             s->filterLow(), s->filterHigh(), s->isTxSlice(),
             s->sliceId() == m_activeSliceId);
         m_updatingFromModel = false;
+
+        // Feed frequency to Antenna Genius for band→antenna recall
+        if (s->sliceId() == m_activeSliceId)
+            m_antennaGenius.setRadioFrequency(mhz);
     });
+
+    // Feed current frequency immediately (AG may connect later and reprocess).
+    if (s->sliceId() == m_activeSliceId && s->frequency() > 0.0)
+        m_antennaGenius.setRadioFrequency(s->frequency());
+
     connect(s, &SliceModel::filterChanged, this, [this, s](int lo, int hi) {
         spectrum()->setSliceOverlay(s->sliceId(), s->frequency(),
             lo, hi, s->isTxSlice(), s->sliceId() == m_activeSliceId);

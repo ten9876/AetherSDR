@@ -2,6 +2,7 @@
 
 #include "models/RadioModel.h"
 #include "models/BandSettings.h"
+#include "models/AntennaGeniusModel.h"
 #include "core/RadioDiscovery.h"
 #include "core/AudioEngine.h"
 #include "core/RigctlServer.h"
@@ -65,6 +66,7 @@ private:
     RigctlPty*        m_rigctlPtys[kCatChannels]{};
     SmartLinkClient   m_smartLink;
     WanConnection     m_wanConnection;
+    AntennaGeniusModel m_antennaGenius;
 
     // GUI — left sidebar
     ConnectionPanel* m_connPanel{nullptr};

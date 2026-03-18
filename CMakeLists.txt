@@ -82,6 +82,7 @@ set(MODEL_SOURCES
     src/models/EqualizerModel.cpp
     src/models/TnfModel.cpp
     src/models/BandSettings.cpp
+    src/models/AntennaGeniusModel.cpp
 )
 
 set(GUI_SOURCES
@@ -105,6 +106,7 @@ set(GUI_SOURCES
     src/gui/PhoneApplet.cpp
     src/gui/EqApplet.cpp
     src/gui/CatApplet.cpp
+    src/gui/AntennaGeniusApplet.cpp
 )
 
 set(ALL_SOURCES
