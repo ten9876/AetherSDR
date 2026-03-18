@@ -448,6 +448,15 @@ void AntennaGeniusModel::selectAntenna(int portId, int antennaId)
 {
     if (!m_connected) return;
 
+    // Prevent selecting an antenna already in use by the other port.
+    // Antenna 0 (deselect) is always allowed.
+    const auto& otherPort = (portId == 1) ? m_portB : m_portA;
+    if (antennaId > 0 && otherPort.rxAntenna == antennaId) {
+        qDebug() << "AntennaGenius: antenna" << antennaName(antennaId)
+                 << "already in use on port" << otherPort.portId << "— blocked";
+        return;
+    }
+
     const auto& ps = (portId == 1) ? m_portA : m_portB;
 
     // Determine the effective band: prefer the AG device's reported band,
@@ -457,10 +466,13 @@ void AntennaGeniusModel::selectAntenna(int portId, int antennaId)
         effectiveBand = m_lastRadioBand;
 
     // Always set rxant to the selected antenna.
-    // Only set txant if the antenna has TX permission for the current band;
-    // otherwise keep the existing txant (or set to 0 if none is valid).
+    // Deselect (antenna 0) clears both rxant and txant.
+    // Otherwise set txant only if the antenna has TX permission for the
+    // current band; keep the existing txant if not.
     int txAnt = ps.txAntenna;  // keep current TX antenna by default
-    if (canTxOnBand(antennaId, effectiveBand)) {
+    if (antennaId == 0) {
+        txAnt = 0;
+    } else if (canTxOnBand(antennaId, effectiveBand)) {
         txAnt = antennaId;
     } else if (effectiveBand > 0) {
         qDebug() << "AntennaGenius: antenna" << antennaName(antennaId)

@@ -283,9 +283,12 @@ void AntennaGeniusApplet::setModel(AntennaGeniusModel* model)
     connect(m_model, &AntennaGeniusModel::antennasChanged,
             this, &AntennaGeniusApplet::rebuildAntennaButtons);
 
-    // Port status updates.
+    // Port status updates — refresh both ports so "in use" exclusion stays in sync.
     connect(m_model, &AntennaGeniusModel::portStatusChanged,
-            this, &AntennaGeniusApplet::updatePortDisplay);
+            this, [this](int /*portId*/) {
+        updatePortDisplay(1);
+        updatePortDisplay(2);
+    });
 
     // Radio band changed (from frequency) → refresh button colours / permissions.
     connect(m_model, &AntennaGeniusModel::radioBandChanged, this, [this]() {
@@ -325,7 +328,13 @@ void AntennaGeniusApplet::rebuildAntennaButtons()
 
             int antId = ant.id;
             connect(btn, &QPushButton::clicked, this, [this, portId, antId]() {
-                if (m_model && m_model->isConnected() && !m_updatingFromModel)
+                if (!m_model || !m_model->isConnected() || m_updatingFromModel)
+                    return;
+                // Click on already-active antenna → deselect (set to 0).
+                const auto& ps = (portId == 1) ? m_model->portA() : m_model->portB();
+                if (ps.rxAntenna == antId)
+                    m_model->selectAntenna(portId, 0);
+                else
                     m_model->selectAntenna(portId, antId);
             });
 
@@ -375,13 +384,33 @@ void AntennaGeniusApplet::updatePortDisplay(int portId)
             "color: #00ff88; font-size: 11px; font-weight: bold;");
     }
 
+    // Get the other port's selected antenna so we can block duplicates.
+    const auto& otherPs = (portId == 1) ? m_model->portB() : m_model->portA();
+    int otherPortAnt = otherPs.rxAntenna;
+
     // Highlight buttons and colour-code by TX/RX permission for current band.
     auto antennas = m_model->antennas();
     for (int i = 0; i < btns.size() && i < antennas.size(); ++i) {
         QSignalBlocker b(btns[i]);
         int antId = antennas[i].id;
         bool isActive = (antId == ps.rxAntenna);
-        btns[i]->setChecked(isActive);
+
+        // Antenna in use by the other port — disable, dim, and force unchecked.
+        bool inUseByOther = (antId == otherPortAnt && otherPortAnt > 0);
+        btns[i]->setEnabled(!inUseByOther);
+        btns[i]->setChecked(inUseByOther ? false : isActive);
+
+        if (inUseByOther) {
+            btns[i]->setStyleSheet(
+                "QPushButton { background: #101820; border: 1px solid #182028; "
+                "border-radius: 3px; padding: 4px 6px; font-size: 10px; color: #404858; }"
+                "QPushButton:checked { background: #202830; color: #606878; "
+                "border: 1px solid #303848; }");
+            QString otherLabel = (portId == 1) ? "Port B" : "Port A";
+            btns[i]->setToolTip(QString("%1 — in use by %2")
+                .arg(antennas[i].name, otherLabel));
+            continue;
+        }
 
         bool canTx = m_model->canTxOnBand(antId, band);
         bool canRx = m_model->canRxOnBand(antId, band);
