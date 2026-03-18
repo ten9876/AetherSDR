@@ -257,8 +257,8 @@ void VfoWidget::buildUI()
     m_freqLabel->setStyleSheet("QLabel { background: transparent;"
                                 " border: 1px solid rgba(255,255,255,80);"
                                 " border-radius: 3px;"
-                                " color: #c8d8e8; font-size: 24px; font-weight: bold;"
-                                " padding: 0 2px; }");
+                                " color: #c8d8e8; font-size: 26px; font-weight: bold;"
+                                " padding: 0 0 0 2px; }");
     m_freqLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_freqLabel->installEventFilter(this);
     m_freqStack->addWidget(m_freqLabel);
@@ -271,7 +271,7 @@ void VfoWidget::buildUI()
     m_freqEdit->setAlignment(Qt::AlignRight);
     // Size to fit "000.000.000" at the label font size
     QFont labelFont;
-    labelFont.setPixelSize(24);
+    labelFont.setPixelSize(26);
     labelFont.setBold(true);
     const int stackW = QFontMetrics(labelFont).horizontalAdvance("000.000.000") + 8;
     m_freqStack->setFixedWidth(stackW);
@@ -297,12 +297,18 @@ void VfoWidget::buildUI()
             freqMhz = clean.toDouble(&ok);
 
             // If value looks like Hz or kHz (> 54 MHz is out of HF range)
-            if (ok && freqMhz > 54000.0)
+            // Context-aware parsing: on XVTR bands, accept higher freqs
+            const bool onXvtr = m_slice &&
+                (m_slice->rxAntenna().startsWith("XVT") || m_slice->frequency() > 54.0);
+            const double maxMhz = onXvtr ? 450.0 : 54.0;
+            const double maxKhz = maxMhz * 1000.0;
+
+            if (ok && freqMhz > maxKhz)
                 freqMhz /= 1e6;  // treat as Hz
-            else if (ok && freqMhz > 54.0 && freqMhz < 54000.0)
+            else if (ok && freqMhz > maxMhz && freqMhz < maxKhz)
                 freqMhz /= 1e3;  // treat as kHz
 
-            if (ok && freqMhz >= 0.001 && freqMhz <= 54.0 && m_slice)
+            if (ok && freqMhz >= 0.001 && freqMhz <= maxMhz && m_slice)
                 m_slice->setFrequency(freqMhz);
         }
         m_freqStack->setCurrentIndex(0);  // back to label

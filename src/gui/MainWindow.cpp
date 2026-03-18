@@ -1097,6 +1097,17 @@ void MainWindow::onConnectionStateChanged(bool connected)
             if (m_appletPanel && m_appletPanel->catApplet())
                 m_appletPanel->catApplet()->setPtyEnabled(true);
         }
+        // Populate XVTR bands after radio status settles
+        QTimer::singleShot(2000, this, [this] {
+            if (!m_radioModel.isConnected()) return;
+            QVector<SpectrumOverlayMenu::XvtrBand> xvtrBands;
+            for (const auto& x : m_radioModel.xvtrList()) {
+                if (x.isValid)
+                    xvtrBands.append({x.name, x.rfFreq});
+            }
+            spectrum()->overlayMenu()->setXvtrBands(xvtrBands);
+        });
+
         // Apply saved display settings after panadapter is created
         m_displaySettingsPushed = false;
     } else {

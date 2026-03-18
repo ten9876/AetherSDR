@@ -409,9 +409,13 @@ void RxApplet::buildUI()
                 }
                 bool ok = false;
                 double freqMhz = clean.toDouble(&ok);
-                if (ok && freqMhz > 54000.0) freqMhz /= 1e6;
-                else if (ok && freqMhz > 54.0 && freqMhz < 54000.0) freqMhz /= 1e3;
-                if (ok && freqMhz >= 0.001 && freqMhz <= 54.0)
+                const bool onXvtr = m_slice &&
+                    (m_slice->rxAntenna().startsWith("XVT") || m_slice->frequency() > 54.0);
+                const double maxMhz = onXvtr ? 450.0 : 54.0;
+                const double maxKhz = maxMhz * 1000.0;
+                if (ok && freqMhz > maxKhz) freqMhz /= 1e6;
+                else if (ok && freqMhz > maxMhz && freqMhz < maxKhz) freqMhz /= 1e3;
+                if (ok && freqMhz >= 0.001 && freqMhz <= maxMhz)
                     m_slice->setFrequency(freqMhz);
             }
             m_freqStack->setCurrentIndex(0);

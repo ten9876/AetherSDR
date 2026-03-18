@@ -37,6 +37,10 @@ public:
     void setSlice(SliceModel* slice);
     void setWnbState(bool on, int level);
     void setRfGain(int gain);
+
+    // Populate XVTR band sub-panel
+    struct XvtrBand { QString name; double rfFreqMhz; };
+    void setXvtrBands(const QVector<XvtrBand>& bands);
     QPushButton* dspNr2Button() const;
 
 protected:
@@ -96,6 +100,8 @@ private:
     // Band sub-panel (shown to the right of the menu)
     QWidget* m_bandPanel{nullptr};
     bool m_bandPanelVisible{false};
+    QWidget* m_xvtrPanel{nullptr};
+    bool m_xvtrPanelVisible{false};
 
     // ANT sub-panel
     QWidget*     m_antPanel{nullptr};
