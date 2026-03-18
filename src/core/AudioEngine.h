@@ -9,7 +9,14 @@
 #include <QUdpSocket>
 #include <QByteArray>
 
+#include <functional>
+#include <memory>
+#include <vector>
+#include <cstdint>
+
 namespace AetherSDR {
+
+class SpectralNR;
 
 // AudioEngine handles audio playback (RX) and capture (TX).
 //
@@ -52,6 +59,16 @@ public:
     void setMuted(bool m);
     bool isTxStreaming() const { return m_audioSource != nullptr; }
 
+    // Client-side NR2 (spectral noise reduction)
+    void setNr2Enabled(bool on);
+    bool nr2Enabled() const { return m_nr2Enabled; }
+
+    // Ensure FFTW wisdom is loaded/generated. Returns true if wisdom
+    // needs to be generated (slow). Call generateWisdom() in that case.
+    static bool needsWisdomGeneration();
+    // Must be called from a worker thread — blocks for several minutes.
+    static void generateWisdom(std::function<void(int,int,const std::string&)> progress = nullptr);
+
     // Device selection (restarts the stream if currently running)
     void setOutputDevice(const QAudioDevice& dev);
     void setInputDevice(const QAudioDevice& dev);
@@ -66,6 +83,7 @@ signals:
     void rxStarted();
     void rxStopped();
     void levelChanged(float rms);  // audio level for VU meter, 0.0–1.0
+    void nr2EnabledChanged(bool on);
 
 private slots:
     void onTxAudioReady();
@@ -74,6 +92,7 @@ private:
     QAudioFormat makeFormat() const;
     float computeRMS(const QByteArray& pcm) const;
     QByteArray buildVitaTxPacket(const float* samples, int numStereoSamples);
+    void processNr2(const QByteArray& stereoPcm);
 
     // RX
     QAudioSink*   m_audioSink{nullptr};
@@ -93,6 +112,15 @@ private:
     QAudioDevice m_inputDevice;
     float m_rxVolume{1.0f};
     bool  m_muted{false};
+
+    // Client-side NR2
+    std::unique_ptr<SpectralNR> m_nr2;
+    bool m_nr2Enabled{false};
+
+    // Pre-allocated NR2 work buffers (avoid per-call heap allocation)
+    std::vector<int16_t> m_nr2Mono;
+    std::vector<int16_t> m_nr2Processed;
+    QByteArray m_nr2Output;
 
     // VITA-49 TX constants
     static constexpr int    TX_SAMPLES_PER_PACKET = 128;  // stereo pairs

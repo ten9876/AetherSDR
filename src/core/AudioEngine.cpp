@@ -1,7 +1,9 @@
 #include "AudioEngine.h"
+#include "SpectralNR.h"
 
 #include <QMediaDevices>
 #include <QAudioDevice>
+#include <QDir>
 #include <QtEndian>
 #include <QDebug>
 #include <cmath>
@@ -84,10 +86,87 @@ void AudioEngine::setMuted(bool muted)
 
 void AudioEngine::feedAudioData(const QByteArray& pcm)
 {
-    if (m_audioDevice && m_audioDevice->isOpen())
-        m_audioDevice->write(pcm);
+    if (m_nr2Enabled && m_nr2) {
+        processNr2(pcm);
+        if (m_audioDevice && m_audioDevice->isOpen())
+            m_audioDevice->write(m_nr2Output);
+        emit levelChanged(computeRMS(m_nr2Output));
+    } else {
+        if (m_audioDevice && m_audioDevice->isOpen())
+            m_audioDevice->write(pcm);
+        emit levelChanged(computeRMS(pcm));
+    }
+}
 
-    emit levelChanged(computeRMS(pcm));
+static QString wisdomDir()
+{
+#ifdef _WIN32
+    // Windows: use %APPDATA%/AetherSDR/
+    QString dir = QDir::homePath() + "/AppData/Roaming/AetherSDR/";
+#else
+    QString dir = QDir::homePath() + "/.config/AetherSDR/AetherSDR/";
+#endif
+    QDir().mkpath(dir);
+    return dir;
+}
+
+bool AudioEngine::needsWisdomGeneration()
+{
+    QString path = wisdomDir() + "aethersdr_fftw_wisdom";
+    return !QFile::exists(path);
+}
+
+void AudioEngine::generateWisdom(std::function<void(int,int,const std::string&)> progress)
+{
+    SpectralNR::generateWisdom(wisdomDir().toStdString(), std::move(progress));
+}
+
+void AudioEngine::setNr2Enabled(bool on)
+{
+    if (m_nr2Enabled == on) return;
+    m_nr2Enabled = on;
+    if (on) {
+        // Load wisdom (should already exist — MainWindow generates it on first NR2 press)
+        static bool wisdomLoaded = false;
+        if (!wisdomLoaded) {
+            SpectralNR::generateWisdom(wisdomDir().toStdString());
+            wisdomLoaded = true;
+        }
+        m_nr2 = std::make_unique<SpectralNR>(256, DEFAULT_SAMPLE_RATE);
+    } else {
+        m_nr2.reset();
+    }
+    qDebug() << "AudioEngine: NR2" << (on ? "enabled" : "disabled");
+    emit nr2EnabledChanged(on);
+}
+
+void AudioEngine::processNr2(const QByteArray& stereoPcm)
+{
+    const int totalSamples = stereoPcm.size() / 2;       // int16 count
+    const int stereoFrames = totalSamples / 2;            // L+R pairs
+    const auto* src = reinterpret_cast<const int16_t*>(stereoPcm.constData());
+
+    // Resize pre-allocated buffers if needed (only re-allocates on size increase)
+    if (static_cast<int>(m_nr2Mono.size()) < stereoFrames) {
+        m_nr2Mono.resize(stereoFrames);
+        m_nr2Processed.resize(stereoFrames);
+    }
+
+    // Stereo -> mono (average L+R)
+    for (int i = 0; i < stereoFrames; ++i)
+        m_nr2Mono[i] = static_cast<int16_t>((src[2 * i] + src[2 * i + 1]) / 2);
+
+    // Process through SpectralNR
+    m_nr2->process(m_nr2Mono.data(), m_nr2Processed.data(), stereoFrames);
+
+    // Mono -> stereo (duplicate) into pre-allocated output buffer
+    const int outBytes = stereoFrames * 4;  // stereoFrames x 2ch x 2bytes
+    m_nr2Output.resize(outBytes);
+    auto* dst = reinterpret_cast<int16_t*>(m_nr2Output.data());
+    for (int i = 0; i < stereoFrames; ++i) {
+        dst[2 * i]     = m_nr2Processed[i];
+        dst[2 * i + 1] = m_nr2Processed[i];
+    }
 }
 
 float AudioEngine::computeRMS(const QByteArray& pcm) const

@@ -26,6 +26,35 @@ if(PkgConfig_FOUND)
     pkg_check_modules(PORTAUDIO portaudio-2.0)
 endif()
 
+# FFTW3 (required for NR2 spectral noise reduction)
+# Windows: run setup-fftw.ps1 first to download prebuilt DLLs
+# Linux:   apt install libfftw3-dev
+# macOS:   brew install fftw
+if(WIN32)
+    set(FFTW3_ROOT "${CMAKE_SOURCE_DIR}/third_party/fftw3")
+    if(EXISTS "${FFTW3_ROOT}/include/fftw3.h")
+        set(FFTW3_FOUND TRUE)
+        set(FFTW3_INCLUDE_DIRS "${FFTW3_ROOT}/include")
+        set(FFTW3_LIBRARIES "${FFTW3_ROOT}/lib/fftw3.lib")
+        set(FFTW3_DLL "${FFTW3_ROOT}/bin/libfftw3-3.dll")
+    else()
+        message(WARNING "FFTW3 not found. Run setup-fftw.ps1 to download it. NR2 will use fallback FFT.")
+    endif()
+else()
+    if(PkgConfig_FOUND)
+        pkg_check_modules(FFTW3 fftw3)
+    endif()
+    if(NOT FFTW3_FOUND)
+        find_library(FFTW3_LIB fftw3)
+        find_path(FFTW3_INC fftw3.h)
+        if(FFTW3_LIB AND FFTW3_INC)
+            set(FFTW3_FOUND TRUE)
+            set(FFTW3_LIBRARIES ${FFTW3_LIB})
+            set(FFTW3_INCLUDE_DIRS ${FFTW3_INC})
+        endif()
+    endif()
+endif()
+
 # Sources
 set(CORE_SOURCES
     src/core/AppSettings.cpp
@@ -33,6 +62,7 @@ set(CORE_SOURCES
     src/core/RadioConnection.cpp
     src/core/CommandParser.cpp
     src/core/AudioEngine.cpp
+    src/core/SpectralNR.cpp
     src/core/PanadapterStream.cpp
     src/core/RigctlProtocol.cpp
     src/core/RigctlPty.cpp
@@ -120,6 +150,20 @@ if(PORTAUDIO_FOUND)
     target_include_directories(AetherSDR PRIVATE ${PORTAUDIO_INCLUDE_DIRS})
     target_link_directories(AetherSDR PRIVATE ${PORTAUDIO_LIBRARY_DIRS})
     target_link_libraries(AetherSDR PRIVATE ${PORTAUDIO_LIBRARIES})
+endif()
+
+if(FFTW3_FOUND)
+    target_compile_definitions(AetherSDR PRIVATE HAVE_FFTW3)
+    target_include_directories(AetherSDR PRIVATE ${FFTW3_INCLUDE_DIRS})
+    target_link_libraries(AetherSDR PRIVATE ${FFTW3_LIBRARIES})
+    # Copy DLL to build dir on Windows
+    if(WIN32 AND FFTW3_DLL)
+        add_custom_command(TARGET AetherSDR POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${FFTW3_DLL}" "$<TARGET_FILE_DIR:AetherSDR>"
+            COMMENT "Copying libfftw3-3.dll to build directory"
+        )
+    endif()
 endif()
 
 # Pass project version to code

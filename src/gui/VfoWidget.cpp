@@ -452,6 +452,7 @@ void VfoWidget::buildTabContent()
         };
 
         m_nrBtn   = makeDsp("NR");
+        m_nr2Btn  = makeDsp("NR2");
         m_nbBtn   = makeDsp("NB");
         m_anfBtn  = makeDsp("ANF");
         m_apfBtn  = makeDsp("APF");
@@ -463,16 +464,17 @@ void VfoWidget::buildTabContent()
         m_anftBtn = makeDsp("ANFT");
         m_apfBtn->hide();  // only visible in CW mode
 
-        // Initial layout: 9 buttons in 4/4/1 grid (APF hidden)
+        // Initial layout: 10 buttons in 4/4/2 grid (APF hidden)
         m_dspGrid->addWidget(m_nrBtn,   0, 0);
-        m_dspGrid->addWidget(m_nbBtn,   0, 1);
-        m_dspGrid->addWidget(m_anfBtn,  0, 2);
-        m_dspGrid->addWidget(m_nrlBtn,  0, 3);
-        m_dspGrid->addWidget(m_nrsBtn,  1, 0);
-        m_dspGrid->addWidget(m_rnnBtn,  1, 1);
-        m_dspGrid->addWidget(m_nrfBtn,  1, 2);
-        m_dspGrid->addWidget(m_anflBtn, 1, 3);
-        m_dspGrid->addWidget(m_anftBtn, 2, 0);
+        m_dspGrid->addWidget(m_nr2Btn,  0, 1);
+        m_dspGrid->addWidget(m_nbBtn,   0, 2);
+        m_dspGrid->addWidget(m_anfBtn,  0, 3);
+        m_dspGrid->addWidget(m_nrlBtn,  1, 0);
+        m_dspGrid->addWidget(m_nrsBtn,  1, 1);
+        m_dspGrid->addWidget(m_rnnBtn,  1, 2);
+        m_dspGrid->addWidget(m_nrfBtn,  1, 3);
+        m_dspGrid->addWidget(m_anflBtn, 2, 0);
+        m_dspGrid->addWidget(m_anftBtn, 2, 1);
         dspVb->addLayout(m_dspGrid);
 
         // APF level slider (hidden unless CW mode)
@@ -775,6 +777,7 @@ void VfoWidget::buildTabContent()
         }
 
         connect(m_nrBtn,   &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setNr(on); });
+        connect(m_nr2Btn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit nr2Toggled(on); });
         connect(m_nbBtn,   &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setNb(on); });
         connect(m_anfBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setAnf(on); });
         connect(m_nrlBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setNrl(on); });
@@ -1223,6 +1226,7 @@ void VfoWidget::setSlice(SliceModel* slice)
         m_anftBtn->setVisible(isVoice);
         // Hide all DSP buttons in FM mode
         m_nrBtn->setVisible(!isFm);
+        m_nr2Btn->setVisible(!isFm);
         m_nbBtn->setVisible(!isFm);
         m_nrlBtn->setVisible(!isFm);
         m_nrsBtn->setVisible(!isFm);
@@ -1495,6 +1499,7 @@ void VfoWidget::syncFromSlice()
     m_anflBtn->setVisible(!isRtty && !isCw && !isDig && !isFm);
     m_anftBtn->setVisible(!isRtty && !isCw && !isDig && !isFm);
     m_nrBtn->setVisible(!isFm);
+    m_nr2Btn->setVisible(!isFm);
     m_nbBtn->setVisible(!isFm);
     m_nrlBtn->setVisible(!isFm);
     m_nrsBtn->setVisible(!isFm);
@@ -1564,7 +1569,7 @@ void VfoWidget::updateFilterLabel()
 void VfoWidget::relayoutDspGrid()
 {
     // Remove all widgets from the grid (without deleting them)
-    QPushButton* all[] = {m_nrBtn, m_nbBtn, m_anfBtn, m_apfBtn, m_nrlBtn,
+    QPushButton* all[] = {m_nrBtn, m_nr2Btn, m_nbBtn, m_anfBtn, m_apfBtn, m_nrlBtn,
                           m_nrsBtn, m_rnnBtn, m_nrfBtn, m_anflBtn, m_anftBtn};
     for (auto* btn : all)
         m_dspGrid->removeWidget(btn);

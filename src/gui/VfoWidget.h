@@ -37,10 +37,13 @@ public:
     // Reposition relative to VFO marker x coordinate.
     void updatePosition(int vfoX, int specTop);
 
+    QPushButton* nr2Button() const { return m_nr2Btn; }
+
 Q_SIGNALS:
     void afGainChanged(int value);
     void closeSliceRequested();
     void lockToggled(bool locked);
+    void nr2Toggled(bool on);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -100,6 +103,7 @@ private:
     // DSP tab
     QPushButton* m_nbBtn{nullptr};
     QPushButton* m_nrBtn{nullptr};
+    QPushButton* m_nr2Btn{nullptr};
     QPushButton* m_anfBtn{nullptr};
     QPushButton* m_nrlBtn{nullptr};
     QPushButton* m_nrsBtn{nullptr};

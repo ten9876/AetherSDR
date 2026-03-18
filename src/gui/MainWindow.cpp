@@ -38,6 +38,8 @@
 #include <QLabel>
 #include <QCloseEvent>
 #include <QMessageBox>
+#include <QProgressDialog>
+#include <QThread>
 #include "core/AppSettings.h"
 #include <QDebug>
 
@@ -448,6 +450,56 @@ MainWindow::MainWindow(QWidget* parent)
     });
     connect(spectrum()->vfoWidget(), &VfoWidget::afGainChanged, this, [this](int v) {
         m_audio.setRxVolume(v / 100.0f);
+    });
+
+    // ── Client-side NR2 toggle: VfoWidget → AudioEngine ─────────────────
+    // On first enable, generate FFTW wisdom if needed (takes several minutes).
+    connect(spectrum()->vfoWidget(), &VfoWidget::nr2Toggled,
+            this, [this](bool on) {
+        if (!on) {
+            m_audio.setNr2Enabled(false);
+            return;
+        }
+        // Check if wisdom exists; if not, generate with progress dialog
+        if (AudioEngine::needsWisdomGeneration()) {
+            auto* dlg = new QProgressDialog(
+                "Optimizing FFT plans for NR2...\n"
+                "Please do not close this window until wisdom plans are completed.",
+                QString(), 0, 100, this);
+            dlg->setWindowTitle("AetherSDR — FFTW Wisdom");
+            dlg->setWindowModality(Qt::ApplicationModal);
+            dlg->setMinimumDuration(0);
+            dlg->setAutoClose(true);
+            dlg->setAutoReset(false);
+            dlg->setCancelButton(nullptr);  // no cancel — must complete
+            dlg->setMinimumWidth(500);
+            dlg->show();
+
+            auto* thread = QThread::create([this, dlg]() {
+                AudioEngine::generateWisdom([dlg](int step, int total, const std::string& desc) {
+                    int pct = total > 0 ? (step * 100 / total) : 0;
+                    QMetaObject::invokeMethod(dlg, [dlg, pct, d = QString::fromStdString(desc)]() {
+                        dlg->setLabelText(d + "\n\nPlease do not close this window until wisdom plans are completed.");
+                        dlg->setValue(pct);
+                    });
+                });
+            });
+            connect(thread, &QThread::finished, this, [this, dlg, thread]() {
+                dlg->setValue(100);
+                dlg->deleteLater();
+                thread->deleteLater();
+                // Now enable NR2
+                m_audio.setNr2Enabled(true);
+            });
+            thread->start();
+        } else {
+            m_audio.setNr2Enabled(true);
+        }
+    });
+    connect(&m_audio, &AudioEngine::nr2EnabledChanged,
+            this, [this](bool on) {
+        QSignalBlocker sb(spectrum()->vfoWidget()->nr2Button());
+        spectrum()->vfoWidget()->nr2Button()->setChecked(on);
     });
 
     // ── Tuning step size → spectrum widget ─────────────────────────────────
