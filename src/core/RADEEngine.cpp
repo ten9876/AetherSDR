@@ -244,6 +244,7 @@ void RADEEngine::feedRxAudio(int channel, const QByteArray& pcm)
         }
         if (synced) {
             emit snrChanged(static_cast<float>(rade_snrdB_3k_est(m_rade)));
+            emit freqOffsetChanged(static_cast<float>(rade_freq_offset(m_rade)));
         }
 
         // 4. If features available, synthesize speech via FARGAN

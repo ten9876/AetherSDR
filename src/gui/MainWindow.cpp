@@ -1509,11 +1509,23 @@ void MainWindow::activateRADE()
             m_radioModel.connection()->radioAddress(), 4991);
     }
 
+    // RADE status indicator in VFO widget
+    auto* vfo = spectrum()->vfoWidget();
+    vfo->setRadeActive(true);
+    connect(m_radeEngine, &RADEEngine::syncChanged,
+            vfo, &VfoWidget::setRadeSynced);
+    connect(m_radeEngine, &RADEEngine::snrChanged,
+            vfo, &VfoWidget::setRadeSnr);
+    connect(m_radeEngine, &RADEEngine::freqOffsetChanged,
+            vfo, &VfoWidget::setRadeFreqOffset);
+
     qInfo() << "MainWindow: RADE mode activated";
 }
 
 void MainWindow::deactivateRADE()
 {
+    spectrum()->vfoWidget()->setRadeActive(false);
+
     m_audio.setRadeMode(false);
 
     if (m_radeEngine) {

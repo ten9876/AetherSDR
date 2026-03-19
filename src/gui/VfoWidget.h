@@ -41,6 +41,13 @@ public:
     QPushButton* nr2Button() const { return m_nr2Btn; }
     QPushButton* rn2Button() const { return m_rn2Btn; }
 
+#ifdef HAVE_RADE
+    void setRadeActive(bool on);
+    void setRadeSynced(bool synced);
+    void setRadeSnr(float snrDb);
+    void setRadeFreqOffset(float hz);
+#endif
+
 Q_SIGNALS:
     void afGainChanged(int value);
     void closeSliceRequested();
@@ -157,6 +164,11 @@ private:
     QLabel* m_xitLabel{nullptr};
     // DAX tab
     QComboBox* m_daxCmb{nullptr};
+
+#ifdef HAVE_RADE
+    QLabel* m_radeStatusLabel{nullptr};
+    bool    m_radeActive{false};
+#endif
 
     static constexpr int WIDGET_W = 252;
 };

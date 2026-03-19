@@ -364,7 +364,7 @@ void AudioEngine::onTxAudioReady()
     static int txChunkCount = 0;
     if (++txChunkCount <= 3 || txChunkCount % 500 == 0)
         qDebug() << "AudioEngine: TX audio chunk #" << txChunkCount
-                 << "bytes=" << data.size() << "avail=" << avail
+                 << "bytes=" << data.size()
                  << "streamId:" << Qt::hex << m_txStreamId;
 
     // Downsample 48kHz → 24kHz: drop every other stereo sample pair

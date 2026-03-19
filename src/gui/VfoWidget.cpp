@@ -221,6 +221,18 @@ void VfoWidget::buildUI()
 
     root->addLayout(hdr);
 
+#ifdef HAVE_RADE
+    // ── RADE modem status indicator (hidden until RADE mode activated) ────
+    m_radeStatusLabel = new QLabel;
+    m_radeStatusLabel->setFixedHeight(16);
+    m_radeStatusLabel->setTextFormat(Qt::RichText);
+    m_radeStatusLabel->setStyleSheet(
+        "QLabel { color: #00b4d8; font-size: 10px; font-weight: bold;"
+        " background: transparent; border: none; padding: 0; margin: 0; }");
+    m_radeStatusLabel->hide();
+    root->addWidget(m_radeStatusLabel);
+#endif
+
     // Close and lock buttons — floating outside the VFO overlay,
     // stacked vertically on the side opposite the marker.
     // Created as children of our parent (SpectrumWidget) so they
@@ -1871,5 +1883,51 @@ bool VfoWidget::eventFilter(QObject* obj, QEvent* event)
     }
     return QWidget::eventFilter(obj, event);
 }
+
+// ── RADE status indicator ─────────────────────────────────────────────────
+
+#ifdef HAVE_RADE
+void VfoWidget::setRadeActive(bool on)
+{
+    m_radeActive = on;
+    if (m_radeStatusLabel) {
+        m_radeStatusLabel->setVisible(on);
+        if (!on) m_radeStatusLabel->setText("");
+    }
+}
+
+void VfoWidget::setRadeSynced(bool synced)
+{
+    if (!m_radeActive || !m_radeStatusLabel) return;
+    if (synced)
+        m_radeStatusLabel->setText("RADE <font color='#00ff88'>\u25CF</font> ---");
+    else
+        m_radeStatusLabel->setText("RADE <font color='#505050'>\u25CB</font> ---");
+}
+
+void VfoWidget::setRadeSnr(float snrDb)
+{
+    if (!m_radeActive || !m_radeStatusLabel) return;
+    QString color = (snrDb < 5.0f) ? "#e0e040" : "#00ff88";
+    m_radeStatusLabel->setText(
+        QString("RADE <font color='%1'>\u25CF</font> %2dB")
+            .arg(color)
+            .arg(static_cast<int>(snrDb)));
+}
+
+void VfoWidget::setRadeFreqOffset(float hz)
+{
+    if (!m_radeActive || !m_radeStatusLabel) return;
+    // Append freq offset to existing text
+    QString current = m_radeStatusLabel->text();
+    int dbPos = current.indexOf("dB");
+    if (dbPos > 0) {
+        QString base = current.left(dbPos + 2);
+        QString sign = (hz >= 0) ? "+" : "";
+        m_radeStatusLabel->setText(
+            QString("%1 %2%3Hz").arg(base, sign).arg(static_cast<int>(hz)));
+    }
+}
+#endif
 
 } // namespace AetherSDR

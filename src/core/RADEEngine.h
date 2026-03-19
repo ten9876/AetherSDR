@@ -50,6 +50,7 @@ signals:
     void txModemReady(const QByteArray& pcm);     // Encoded modem, 24kHz stereo int16
     void syncChanged(bool synced);
     void snrChanged(float snrDb);
+    void freqOffsetChanged(float hz);
 
 private:
 #ifdef HAVE_RADE
