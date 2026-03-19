@@ -7,6 +7,8 @@
 #include <QAudioFormat>
 #include <QIODevice>
 #include <QUdpSocket>
+#include <QTimer>
+#include <QBuffer>
 #include <QByteArray>
 
 #include <functional>
@@ -53,6 +55,7 @@ public:
 
     // Set the TX stream ID (from radio's response to "stream create type=remote_audio_tx")
     void setTxStreamId(quint32 id) { m_txStreamId = id; }
+    quint32 txStreamId() const { return m_txStreamId; }
 
     float rxVolume() const  { return m_rxVolume; }
     void  setRxVolume(float v);
@@ -67,6 +70,11 @@ public:
 
     // Sends RADE modem output (float32 PCM) as VITA-49 packets via m_txSocket
     void sendModemTxAudio(const QByteArray& float32pcm);
+
+    // DAX TX: VirtualAudioBridge feeds float32 PCM for VITA-49 TX
+    void setDaxTxMode(bool on) { m_daxTxMode = on; }
+    bool isDaxTxMode() const { return m_daxTxMode; }
+    void feedDaxTxAudio(const QByteArray& float32pcm);
 
     // Plays RADE decoded speech (int16 stereo 24kHz) bypassing m_radeMode block
     void feedDecodedSpeech(const QByteArray& pcm);
@@ -102,6 +110,7 @@ signals:
     void nr2EnabledChanged(bool on);
     void rn2EnabledChanged(bool on);
     void txRawPcmReady(const QByteArray& pcm);  // raw 24kHz stereo int16 PCM for RADEEngine
+    void txPacketReady(const QByteArray& vitaPacket);  // VITA-49 TX packet for PanadapterStream
 
 private slots:
     void onTxAudioReady();
@@ -121,6 +130,10 @@ private:
     QUdpSocket    m_txSocket;
     QAudioSource* m_audioSource{nullptr};
     QIODevice*    m_micDevice{nullptr};
+#ifdef Q_OS_MAC
+    QTimer*       m_txPollTimer{nullptr};
+    QBuffer*      m_micBuffer{nullptr};
+#endif
     QHostAddress  m_txAddress;
     quint16       m_txPort{0};
     quint32       m_txStreamId{0};
@@ -128,6 +141,7 @@ private:
     QByteArray    m_txAccumulator;       // accumulate PCM until 128 stereo pairs
     QByteArray    m_txFloatAccumulator;  // accumulate float32 PCM for RADE modem TX
     bool          m_radeMode{false};     // RADE digital voice mode active
+    bool          m_daxTxMode{false};    // DAX TX mode: VirtualAudioBridge handles TX
 
     QAudioDevice m_outputDevice;
     QAudioDevice m_inputDevice;

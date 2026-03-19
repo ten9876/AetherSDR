@@ -626,7 +626,7 @@ void PhoneCwApplet::syncPhoneFromModel()
         m_procSlider->setValue(pos);
     }
 
-    m_daxBtn->setChecked(m_model->daxOn());
+    { const QSignalBlocker b(m_daxBtn); m_daxBtn->setChecked(m_model->daxOn()); }
     m_monBtn->setChecked(m_model->sbMonitor());
     m_monSlider->setValue(m_model->monGainSb());
     m_monLabel->setText(QString::number(m_model->monGainSb()));

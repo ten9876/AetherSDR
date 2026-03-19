@@ -26,6 +26,9 @@ class AppletPanel;
 #ifdef HAVE_RADE
 class RADEEngine;
 #endif
+#ifdef Q_OS_MAC
+class VirtualAudioBridge;
+#endif
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -116,6 +119,13 @@ private:
     RADEEngine* m_radeEngine{nullptr};
     void activateRADE();
     void deactivateRADE();
+#endif
+
+#ifdef Q_OS_MAC
+    VirtualAudioBridge* m_daxBridge{nullptr};
+    QString m_savedMicSelection;  // restore on stopDax
+    void startDax();
+    void stopDax();
 #endif
 };
 

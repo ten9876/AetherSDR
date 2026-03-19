@@ -254,6 +254,19 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
         return false;
     }
 
+    // Sample rate: macOS needs 48kHz for USB mics, Linux can try 24kHz first
+#ifdef Q_OS_MAC
+    fmt.setSampleRate(48000);
+    m_txDownsampleFrom48k = true;
+    if (!dev.isFormatSupported(fmt)) {
+        fmt.setSampleRate(24000);
+        m_txDownsampleFrom48k = false;
+        if (!dev.isFormatSupported(fmt)) {
+            qWarning() << "AudioEngine: input device supports neither 48kHz nor 24kHz";
+            return false;
+        }
+    }
+#else
     if (!dev.isFormatSupported(fmt)) {
         qWarning() << "AudioEngine: input device does not support 24kHz, trying 48kHz";
         fmt.setSampleRate(48000);
@@ -265,19 +278,41 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
     } else {
         m_txDownsampleFrom48k = false;
     }
+#endif
 
+    qDebug() << "AudioEngine: input device:" << dev.description()
+             << "rate:" << fmt.sampleRate() << "ch:" << fmt.channelCount();
+
+#ifdef Q_OS_MAC
+    // macOS: QAudioSource pull mode broken — use push mode with QBuffer
+    m_micBuffer = new QBuffer(this);
+    m_micBuffer->open(QIODevice::ReadWrite);
     m_audioSource = new QAudioSource(dev, fmt, this);
-    m_micDevice   = m_audioSource->start();
+    m_audioSource->start(m_micBuffer);
 
-    if (!m_micDevice) {
-        qWarning() << "AudioEngine: failed to open audio source";
-        delete m_audioSource;
-        m_audioSource = nullptr;
+    if (m_audioSource->state() == QAudio::StoppedState) {
+        qWarning() << "AudioEngine: failed to start audio source";
+        delete m_audioSource; m_audioSource = nullptr;
+        delete m_micBuffer; m_micBuffer = nullptr;
         return false;
     }
 
-    connect(m_micDevice, &QIODevice::readyRead,
-            this, &AudioEngine::onTxAudioReady);
+    // Poll push-mode buffer
+    m_txPollTimer = new QTimer(this);
+    m_txPollTimer->setInterval(5);
+    connect(m_txPollTimer, &QTimer::timeout, this, &AudioEngine::onTxAudioReady);
+    m_txPollTimer->start();
+#else
+    // Linux: pull mode works fine
+    m_audioSource = new QAudioSource(dev, fmt, this);
+    m_micDevice = m_audioSource->start();
+    if (!m_micDevice) {
+        qWarning() << "AudioEngine: failed to open audio source";
+        delete m_audioSource; m_audioSource = nullptr;
+        return false;
+    }
+    connect(m_micDevice, &QIODevice::readyRead, this, &AudioEngine::onTxAudioReady);
+#endif
 
     qDebug() << "AudioEngine: TX stream started ->" << radioAddress.toString()
              << ":" << radioPort << "streamId:" << Qt::hex << m_txStreamId;
@@ -286,12 +321,25 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
 
 void AudioEngine::stopTxStream()
 {
+#ifdef Q_OS_MAC
+    if (m_txPollTimer) {
+        m_txPollTimer->stop();
+        delete m_txPollTimer;
+        m_txPollTimer = nullptr;
+    }
+#endif
     if (m_audioSource) {
         m_audioSource->stop();
         delete m_audioSource;
         m_audioSource = nullptr;
         m_micDevice   = nullptr;
     }
+#ifdef Q_OS_MAC
+    if (m_micBuffer) {
+        delete m_micBuffer;
+        m_micBuffer = nullptr;
+    }
+#endif
     m_txSocket.close();
     m_txAccumulator.clear();
     m_txFloatAccumulator.clear();
@@ -299,11 +347,25 @@ void AudioEngine::stopTxStream()
 
 void AudioEngine::onTxAudioReady()
 {
+#ifdef Q_OS_MAC
+    if (!m_micBuffer || m_txStreamId == 0) return;
+    qint64 avail = m_micBuffer->pos();
+    if (avail <= 0) return;
+    QByteArray data = m_micBuffer->data();
+    m_micBuffer->buffer().clear();
+    m_micBuffer->seek(0);
+    if (data.isEmpty()) return;
+#else
     if (!m_micDevice || m_txStreamId == 0) return;
-
-    // Read all available PCM data (int16 stereo, 24 or 48 kHz)
     QByteArray data = m_micDevice->readAll();
     if (data.isEmpty()) return;
+#endif
+
+    static int txChunkCount = 0;
+    if (++txChunkCount <= 3 || txChunkCount % 500 == 0)
+        qDebug() << "AudioEngine: TX audio chunk #" << txChunkCount
+                 << "bytes=" << data.size() << "avail=" << avail
+                 << "streamId:" << Qt::hex << m_txStreamId;
 
     // Downsample 48kHz → 24kHz: drop every other stereo sample pair
     if (m_txDownsampleFrom48k && data.size() >= 8) {
@@ -324,6 +386,9 @@ void AudioEngine::onTxAudioReady()
         return;
     }
 
+    // DAX TX mode: VirtualAudioBridge is the TX audio source.
+    if (m_daxTxMode) return;
+
     m_txAccumulator.append(data);
 
     // Process complete packets (128 stereo pairs = 512 bytes of int16 PCM)
@@ -335,9 +400,9 @@ void AudioEngine::onTxAudioReady()
         for (int i = 0; i < TX_SAMPLES_PER_PACKET * 2; ++i)
             floatBuf[i] = pcm[i] / 32768.0f;
 
-        // Build and send VITA-49 packet
+        // Build VITA-49 packet and send via registered UDP socket
         QByteArray packet = buildVitaTxPacket(floatBuf, TX_SAMPLES_PER_PACKET);
-        m_txSocket.writeDatagram(packet, m_txAddress, m_txPort);
+        emit txPacketReady(packet);
 
         // Advance accumulator
         m_txAccumulator.remove(0, TX_PCM_BYTES_PER_PACKET);
@@ -434,7 +499,7 @@ void AudioEngine::setRadeMode(bool on)
 
 void AudioEngine::sendModemTxAudio(const QByteArray& float32pcm)
 {
-    if (m_txStreamId == 0 || !m_txSocket.isOpen()) return;
+    if (m_txStreamId == 0) return;
 
     m_txFloatAccumulator.append(float32pcm);
 
@@ -442,7 +507,20 @@ void AudioEngine::sendModemTxAudio(const QByteArray& float32pcm)
     while (m_txFloatAccumulator.size() >= FLOAT_BYTES_PER_PKT) {
         auto* samples = reinterpret_cast<const float*>(m_txFloatAccumulator.constData());
         QByteArray pkt = buildVitaTxPacket(samples, TX_SAMPLES_PER_PACKET);
-        m_txSocket.writeDatagram(pkt, m_txAddress, m_txPort);
+        emit txPacketReady(pkt);
+        m_txFloatAccumulator.remove(0, FLOAT_BYTES_PER_PKT);
+    }
+}
+
+void AudioEngine::feedDaxTxAudio(const QByteArray& float32pcm)
+{
+    if (m_txStreamId == 0) return;
+    m_txFloatAccumulator.append(float32pcm);
+    constexpr int FLOAT_BYTES_PER_PKT = TX_SAMPLES_PER_PACKET * 2 * sizeof(float);
+    while (m_txFloatAccumulator.size() >= FLOAT_BYTES_PER_PKT) {
+        auto* samples = reinterpret_cast<const float*>(m_txFloatAccumulator.constData());
+        QByteArray pkt = buildVitaTxPacket(samples, TX_SAMPLES_PER_PACKET);
+        emit txPacketReady(pkt);
         m_txFloatAccumulator.remove(0, FLOAT_BYTES_PER_PKT);
     }
 }

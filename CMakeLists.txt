@@ -118,6 +118,10 @@ set(CORE_SOURCES
     src/core/RADEEngine.cpp
 )
 
+if(APPLE)
+    list(APPEND CORE_SOURCES src/core/VirtualAudioBridge.cpp)
+endif()
+
 set(MODEL_SOURCES
     src/models/RadioModel.cpp
     src/models/SliceModel.cpp
@@ -248,6 +252,7 @@ if(APPLE)
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_ICON_FILE "AetherSDR.icns"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/packaging/macos/Info.plist.in"
     )
     set(MACOSX_ICON "${CMAKE_SOURCE_DIR}/docs/AetherSDR.icns")
     if(EXISTS "${MACOSX_ICON}")

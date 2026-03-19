@@ -46,6 +46,10 @@
 #ifdef HAVE_RADE
 #include "core/RADEEngine.h"
 #endif
+#ifdef Q_OS_MAC
+#include "core/VirtualAudioBridge.h"
+#include <QFileInfo>
+#endif
 #include <QDebug>
 
 namespace AetherSDR {
@@ -192,6 +196,10 @@ MainWindow::MainWindow(QWidget* parent)
     // registered VITA-49 socket).  We do NOT start a separate mic TX
     // stream — that would open a QAudioSource and an unregistered UDP
     // socket, wasting resources and corrupting the shared packet counter.
+    // Route TX VITA-49 packets through the registered UDP socket
+    connect(&m_audio, &AudioEngine::txPacketReady,
+            m_radioModel.panStream(), &PanadapterStream::sendToRadio);
+
     connect(&m_radioModel, &RadioModel::txAudioStreamReady,
             this, [this](quint32 streamId) {
         m_audio.setTxStreamId(streamId);
@@ -207,7 +215,8 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_radioModel.transmitModel(), &TransmitModel::micStateChanged,
             this, [this]() {
         if (m_radioModel.transmitModel()->micSelection() == "PC") {
-            if (!m_audio.isTxStreaming()) {
+            // Only start if TX stream ID is already assigned (avoid streamId=0)
+            if (!m_audio.isTxStreaming() && m_audio.txStreamId() != 0) {
                 m_audio.startTxStream(
                     m_radioModel.connection()->radioAddress(),
                     4991);
@@ -227,6 +236,15 @@ MainWindow::MainWindow(QWidget* parent)
         if (m_audio.isRadeMode()) {
             if (!tx && m_radeEngine && m_radeEngine->isActive())
                 m_radeEngine->resetTx();
+        }
+#endif
+#ifdef Q_OS_MAC
+        if (m_daxBridge) {
+            m_daxBridge->setTransmitting(tx);
+            // On TX→RX transition, re-enable mic for next voice TX.
+            // (m_daxTxMode was set dynamically when DAX TX audio arrived)
+            if (!tx)
+                m_audio.setDaxTxMode(false);
         }
 #endif
     });
@@ -1175,10 +1193,22 @@ void MainWindow::onConnectionStateChanged(bool connected)
 
         // Apply saved display settings after panadapter is created
         m_displaySettingsPushed = false;
+
+#ifdef Q_OS_MAC
+        // Delay DAX bridge start until RadioModel's SmartConnect sequence
+        // is fully complete (streams created, UDP bound, slices discovered).
+        // Starting too early causes our mic_selection=PC and dax=1 to be
+        // overridden by RadioModel's own setup, and DAX stream IDs won't
+        // be registered in PanadapterStream yet.
+        QTimer::singleShot(3000, this, [this]() { startDax(); });
+#endif
     } else {
         m_connStatusLabel->setText("Disconnected");
         m_radioInfoLabel->setText("");
         m_connPanel->setStatusText("Not connected");
+#ifdef Q_OS_MAC
+        stopDax();
+#endif
         m_audio.stopRxStream();
         m_audio.stopTxStream();
     }
@@ -1499,6 +1529,93 @@ void MainWindow::deactivateRADE()
     }
 
     qInfo() << "MainWindow: RADE mode deactivated";
+}
+#endif
+
+#ifdef Q_OS_MAC
+void MainWindow::startDax()
+{
+    if (m_daxBridge) return;
+
+    // Only start if HAL plugin is installed
+    if (!QFileInfo::exists("/Library/Audio/Plug-Ins/HAL/AetherSDRDAX.driver/Contents/MacOS/AetherSDRDAX")) {
+        qInfo() << "MainWindow: DAX HAL plugin not installed, skipping DAX bridge";
+        return;
+    }
+
+    m_daxBridge = new VirtualAudioBridge(this);
+    if (!m_daxBridge->open()) {
+        qWarning() << "MainWindow: failed to open DAX audio bridge";
+        delete m_daxBridge;
+        m_daxBridge = nullptr;
+        return;
+    }
+
+    // Listen for DAX stream status messages to register them in PanadapterStream.
+    // The radio sends "stream 0xNNNNNNNN type=dax_rx dax_channel=N" status lines
+    // in response to our stream create commands.
+    connect(&m_radioModel, &RadioModel::statusReceived,
+            m_daxBridge, [this](const QString& obj, const QMap<QString,QString>& kvs) {
+        if (!obj.startsWith("stream ")) return;
+        QString type = kvs.value("type");
+        if (type == "dax_rx") {
+            quint32 streamId = obj.mid(7).toUInt(nullptr, 16);
+            int ch = kvs.value("dax_channel").toInt();
+            if (streamId && ch >= 1 && ch <= 4) {
+                m_radioModel.panStream()->registerDaxStream(streamId, ch);
+                qDebug() << "MainWindow: registered DAX RX ch" << ch
+                         << "stream" << Qt::hex << streamId;
+            }
+        }
+    });
+
+    // Create DAX RX streams (4 channels)
+    for (int ch = 1; ch <= 4; ++ch)
+        m_radioModel.sendCommand(QString("stream create type=dax_rx dax_channel=%1").arg(ch));
+
+    // Wire DAX RX: PanadapterStream routes registered DAX streams here
+    connect(m_radioModel.panStream(), &PanadapterStream::daxAudioReady,
+            m_daxBridge, &VirtualAudioBridge::feedDaxAudio);
+
+    // Wire DAX TX: apps → HAL plugin → shm → VirtualAudioBridge → VITA-49
+    // When DAX TX audio arrives, block mic to prevent dual-source PTT delay.
+    // When DAX TX stops, re-enable mic for voice SSB.
+    connect(m_daxBridge, &VirtualAudioBridge::txAudioReady,
+            this, [this](const QByteArray& pcm) {
+        if (!m_audio.isDaxTxMode())
+            m_audio.setDaxTxMode(true);  // block mic while DAX TX active
+        m_audio.feedDaxTxAudio(pcm);
+    });
+
+    // Save current mic selection and switch to PC + dax=1
+    m_savedMicSelection = m_radioModel.transmitModel()->micSelection();
+    m_radioModel.sendCommand("transmit set mic_selection=PC");
+    m_radioModel.sendCommand("transmit set dax=1");
+
+    // Don't set m_daxTxMode here — it will be set dynamically when
+    // DAX TX audio arrives, and cleared when TX shm goes inactive.
+    qInfo() << "MainWindow: starting DAX audio bridge";
+}
+
+void MainWindow::stopDax()
+{
+    if (!m_daxBridge) return;
+
+    m_audio.setDaxTxMode(false);
+
+    disconnect(m_radioModel.panStream(), &PanadapterStream::daxAudioReady,
+               m_daxBridge, nullptr);
+    disconnect(m_daxBridge, &VirtualAudioBridge::txAudioReady,
+               this, nullptr);
+
+    // Restore original mic selection
+    if (!m_savedMicSelection.isEmpty() && m_savedMicSelection != "PC")
+        m_radioModel.sendCommand(QString("transmit set mic_selection=%1").arg(m_savedMicSelection));
+
+    m_daxBridge->close();
+    delete m_daxBridge;
+    m_daxBridge = nullptr;
+    qInfo() << "MainWindow: stopping DAX audio bridge";
 }
 #endif
 
