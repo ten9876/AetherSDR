@@ -74,7 +74,8 @@ signals:
     // lowFreqMhz / highFreqMhz describe the frequency span of this tile.
     // May be emitted multiple times per tile (once per Height row).
     void waterfallRowReady(const QVector<float>& binsDbm,
-                           double lowFreqMhz, double highFreqMhz);
+                           double lowFreqMhz, double highFreqMhz,
+                           quint32 timecode);
     // Emitted once per waterfall tile with the radio's computed auto black level.
     void waterfallAutoBlackLevel(quint32 autoBlack);
     // Raw PCM payload (header stripped) from IF-Data (audio) VITA-49 packets.

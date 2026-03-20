@@ -453,7 +453,7 @@ void PanadapterStream::decodeWaterfallTile(const uchar* raw, int totalBytes, boo
 
     const double frameHighMhz = m_wfFrame.lowFreqMhz + m_wfFrame.binBwMhz * m_wfFrame.totalBins;
     emit waterfallAutoBlackLevel(m_wfFrame.autoBlack);
-    emit waterfallRowReady(m_wfFrame.buf, m_wfFrame.lowFreqMhz, frameHighMhz);
+    emit waterfallRowReady(m_wfFrame.buf, m_wfFrame.lowFreqMhz, frameHighMhz, m_wfFrame.timecode);
 }
 
 // ─── Audio decode ─────────────────────────────────────────────────────────────

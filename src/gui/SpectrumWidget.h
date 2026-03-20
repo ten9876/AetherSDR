@@ -41,7 +41,8 @@ public:
     // When waterfall tile data is available, this is used instead of
     // the FFT-derived waterfall rows from updateSpectrum().
     void updateWaterfallRow(const QVector<float>& binsDbm,
-                            double lowFreqMhz, double highFreqMhz);
+                            double lowFreqMhz, double highFreqMhz,
+                            quint32 timecode = 0);
 
     // Update the dBm range used for the waterfall colour map and spectrum Y axis.
     void setDbmRange(float minDbm, float maxDbm);
@@ -289,6 +290,11 @@ private:
     int  m_rfGainValue{0};
 
     bool     m_transmitting{false};
+
+    // Waterfall time scale: ms-per-row derived from radio tile timecodes.
+    // Updated on each native tile arrival; used by drawTimeScale.
+    float    m_wfMsPerRow{100.0f};     // authoritative ms per waterfall row
+    quint32  m_wfPrevTimecode{0};      // previous tile timecode (for delta)
 
 
     // Client-side row averaging (Rate slider)

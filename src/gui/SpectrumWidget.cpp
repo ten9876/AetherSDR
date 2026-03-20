@@ -275,10 +275,20 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
 }
 
 void SpectrumWidget::updateWaterfallRow(const QVector<float>& binsIntensity,
-                                        double lowFreqMhz, double highFreqMhz)
+                                        double lowFreqMhz, double highFreqMhz,
+                                        quint32 timecode)
 {
     // Native waterfall tiles carry intensity values (int16/128.0f, ~96-120 on HF).
     if (binsIntensity.isEmpty() || m_waterfall.isNull()) return;
+
+    // Derive ms-per-row from consecutive tile timecodes (radio's internal clock).
+    // This is authoritative — no wall-clock measurement, no jitter.
+    if (timecode > 0 && m_wfPrevTimecode > 0 && timecode > m_wfPrevTimecode) {
+        float delta = static_cast<float>(timecode - m_wfPrevTimecode);
+        // Light smoothing to handle occasional out-of-order tiles
+        m_wfMsPerRow = 0.8f * m_wfMsPerRow + 0.2f * delta;
+    }
+    if (timecode > 0) m_wfPrevTimecode = timecode;
 
     // Client-side auto-black: track the noise floor from tile data and adjust
     // the black threshold to sit just above it. This replaces the radio's
@@ -1597,9 +1607,9 @@ void SpectrumWidget::drawTimeScale(QPainter& p, const QRect& wfRect)
     p.setPen(QColor(0x30, 0x40, 0x50));
     p.drawLine(stripX, wfRect.top(), stripX, wfRect.bottom());
 
-    // Total time depth: use the radio's line_duration (ms per row) directly.
-    // This is authoritative and stable — no jitter from tile arrival timing.
-    const float msPerRow = static_cast<float>(m_wfLineDuration > 0 ? m_wfLineDuration : 100);
+    // Total time depth: use ms-per-row derived from radio tile timecodes.
+    // This is the radio's own clock — stable and accurate to actual scroll rate.
+    const float msPerRow = m_wfMsPerRow > 0 ? m_wfMsPerRow : 100.0f;
     const float totalSec = wfRect.height() * msPerRow / 1000.0f;
     if (totalSec <= 0) return;
 
