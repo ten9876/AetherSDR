@@ -36,6 +36,10 @@ public:
     // Sync Enable button state (called by MainWindow on autostart)
     void setTcpEnabled(bool on);
     void setPtyEnabled(bool on);
+    void setDaxEnabled(bool on);
+
+signals:
+    void daxToggled(bool on);
 
 private:
     void buildUI();

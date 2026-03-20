@@ -244,6 +244,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_radioModel.transmitModel(), &TransmitModel::moxChanged,
             this, [this](bool tx) {
         spectrum()->setTransmitting(tx);
+        m_audio.setTransmitting(tx);
         // On RX resume, native tiles will restart and m_hasNativeWaterfall
         // will be set again by the first arriving tile.
 #ifdef HAVE_RADE
@@ -253,13 +254,8 @@ MainWindow::MainWindow(QWidget* parent)
         }
 #endif
 #ifdef Q_OS_MAC
-        if (m_daxBridge) {
+        if (m_daxBridge)
             m_daxBridge->setTransmitting(tx);
-            // On TX→RX transition, re-enable mic for next voice TX.
-            // (m_daxTxMode was set dynamically when DAX TX audio arrived)
-            if (!tx)
-                m_audio.setDaxTxMode(false);
-        }
 #endif
     });
 
@@ -742,6 +738,17 @@ MainWindow::MainWindow(QWidget* parent)
     m_appletPanel->catApplet()->setRigctlPtys(m_rigctlPtys, kCatChannels);
     m_appletPanel->catApplet()->setAudioEngine(&m_audio);
 
+#ifdef Q_OS_MAC
+    // DAX enable button in CatApplet → start/stop DAX bridge
+    connect(m_appletPanel->catApplet(), &CatApplet::daxToggled,
+            this, [this](bool on) {
+        if (on)
+            startDax();
+        else
+            stopDax();
+    });
+#endif
+
     // ── Status bar telemetry ──────────────────────────────────────────────────
     connect(&m_radioModel, &RadioModel::networkQualityChanged,
             this, [this](const QString& quality, int pingMs) {
@@ -1211,10 +1218,17 @@ void MainWindow::onConnectionStateChanged(bool connected)
 #ifdef Q_OS_MAC
         // Delay DAX bridge start until RadioModel's SmartConnect sequence
         // is fully complete (streams created, UDP bound, slices discovered).
+        // Auto-start DAX bridge if enabled in settings.
         // Starting too early causes our mic_selection=PC and dax=1 to be
         // overridden by RadioModel's own setup, and DAX stream IDs won't
         // be registered in PanadapterStream yet.
-        QTimer::singleShot(3000, this, [this]() { startDax(); });
+        if (AppSettings::instance().value("AutoStartDAX", "False").toString() == "True") {
+            QTimer::singleShot(3000, this, [this]() {
+                startDax();
+                if (m_appletPanel && m_appletPanel->catApplet())
+                    m_appletPanel->catApplet()->setDaxEnabled(true);
+            });
+        }
 #endif
     } else {
         m_connStatusLabel->setText("Disconnected");
@@ -1254,6 +1268,26 @@ void MainWindow::onSliceAdded(SliceModel* s)
             m_radioModel.createAudioStream();
         }
     }
+
+#ifdef Q_OS_MAC
+    // Update m_daxTxMode when TX slice or its mode changes.
+    // Digital modes (DIGU/DIGL/RTTY) use DAX bridge; voice modes use mic.
+    auto updateDaxTxMode = [this]() {
+        bool isDigital = false;
+        for (auto* sl : m_radioModel.slices()) {
+            if (sl->isTxSlice()) {
+                const QString& m = sl->mode();
+                isDigital = (m == "DIGU" || m == "DIGL" || m == "RTTY"
+                          || m == "DFM"  || m == "NFM");
+                break;
+            }
+        }
+        m_audio.setDaxTxMode(isDigital);
+    };
+    connect(s, &SliceModel::modeChanged, this, updateDaxTxMode);
+    connect(s, &SliceModel::txSliceChanged, this, updateDaxTxMode);
+    updateDaxTxMode();  // set initial state from current TX slice mode
+#endif
 
     // Push overlay for this slice to the spectrum widget
     pushSliceOverlay(s);
@@ -1541,6 +1575,7 @@ void MainWindow::deactivateRADE()
     spectrum()->vfoWidget()->setRadeActive(false);
 
     m_audio.setRadeMode(false);
+    m_audio.clearTxAccumulators();  // flush stale RADE modem data
 
     if (m_radeEngine) {
         disconnect(&m_audio, &AudioEngine::txRawPcmReady,
@@ -1604,12 +1639,14 @@ void MainWindow::startDax()
             m_daxBridge, &VirtualAudioBridge::feedDaxAudio);
 
     // Wire DAX TX: apps → HAL plugin → shm → VirtualAudioBridge → VITA-49
-    // When DAX TX audio arrives, block mic to prevent dual-source PTT delay.
-    // When DAX TX stops, re-enable mic for voice SSB.
+    // Always forward to feedDaxTxAudio — the gate is inside AudioEngine:
+    // feedDaxTxAudio blocks only when mic is actively sending (voice TX),
+    // preventing dual-source jitter. During RX and digital TX, DAX flows
+    // freely — this keeps VARAC/WSJT-X pre-PTT audio in the radio's
+    // buffer so TX starts instantly with no delay.
     connect(m_daxBridge, &VirtualAudioBridge::txAudioReady,
             this, [this](const QByteArray& pcm) {
-        if (!m_audio.isDaxTxMode())
-            m_audio.setDaxTxMode(true);  // block mic while DAX TX active
+        if (m_audio.isRadeMode()) return;
         m_audio.feedDaxTxAudio(pcm);
     });
 

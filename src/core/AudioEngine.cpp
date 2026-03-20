@@ -383,6 +383,11 @@ void AudioEngine::onTxAudioReady()
     // DAX TX mode: VirtualAudioBridge is the TX audio source.
     if (m_daxTxMode) return;
 
+    // Don't send mic audio when not transmitting — it accumulates in
+    // the radio's DAX TX buffer and plays back when TX starts, causing
+    // mic bleed into digital modes.
+    if (!m_transmitting) return;
+
     m_txAccumulator.append(data);
 
     // Process complete packets (128 stereo pairs = 512 bytes of int16 PCM)
@@ -513,6 +518,11 @@ void AudioEngine::sendModemTxAudio(const QByteArray& float32pcm)
 void AudioEngine::feedDaxTxAudio(const QByteArray& float32pcm)
 {
     if (m_txStreamId == 0) return;
+
+    // Block DAX audio when mic is actively sending (voice mode TX).
+    // This prevents dual-source jitter on the same VITA-49 stream.
+    // During RX and digital TX, DAX flows freely.
+    if (m_transmitting && !m_daxTxMode) return;
     m_txFloatAccumulator.append(float32pcm);
     constexpr int FLOAT_BYTES_PER_PKT = TX_SAMPLES_PER_PACKET * 2 * sizeof(float);
     while (m_txFloatAccumulator.size() >= FLOAT_BYTES_PER_PKT) {

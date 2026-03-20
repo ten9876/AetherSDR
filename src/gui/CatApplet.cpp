@@ -208,6 +208,19 @@ void CatApplet::buildUI()
     daxEnRow->addWidget(m_daxEnable);
     outer->addLayout(daxEnRow);
 
+    // DAX enable button → save setting + notify MainWindow
+    {
+        const QSignalBlocker b(m_daxEnable);
+        m_daxEnable->setChecked(
+            settings.value("AutoStartDAX", "False").toString() == "True");
+    }
+    connect(m_daxEnable, &QPushButton::toggled, this, [this](bool on) {
+        auto& ss = AppSettings::instance();
+        ss.setValue("AutoStartDAX", on ? "True" : "False");
+        ss.save();
+        emit daxToggled(on);
+    });
+
     // RX channel meters (DAX 1-4)
     const QString kMeterStyle =
         "QProgressBar { background: #0a0a18; border: 1px solid #1e2e3e;"
@@ -383,6 +396,12 @@ void CatApplet::setPtyEnabled(bool on)
     QSignalBlocker b(m_ptyEnable);
     m_ptyEnable->setChecked(on);
     updateAllChannelStatus();
+}
+
+void CatApplet::setDaxEnabled(bool on)
+{
+    QSignalBlocker b(m_daxEnable);
+    m_daxEnable->setChecked(on);
 }
 
 } // namespace AetherSDR

@@ -74,6 +74,8 @@ public:
     // DAX TX: VirtualAudioBridge feeds float32 PCM for VITA-49 TX
     void setDaxTxMode(bool on) { m_daxTxMode = on; }
     bool isDaxTxMode() const { return m_daxTxMode; }
+    void setTransmitting(bool tx) { m_transmitting = tx; }
+    void clearTxAccumulators() { m_txAccumulator.clear(); m_txFloatAccumulator.clear(); }
     void feedDaxTxAudio(const QByteArray& float32pcm);
 
     // Plays RADE decoded speech (int16 stereo 24kHz) bypassing m_radeMode block
@@ -142,6 +144,7 @@ private:
     QByteArray    m_txFloatAccumulator;  // accumulate float32 PCM for RADE modem TX
     bool          m_radeMode{false};     // RADE digital voice mode active
     bool          m_daxTxMode{false};    // DAX TX mode: VirtualAudioBridge handles TX
+    bool          m_transmitting{false}; // true when radio is in TX (MOX on)
 
     QAudioDevice m_outputDevice;
     QAudioDevice m_inputDevice;
