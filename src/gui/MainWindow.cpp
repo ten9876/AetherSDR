@@ -656,9 +656,9 @@ MainWindow::MainWindow(QWidget* parent)
 
 #ifdef HAVE_RADE
     connect(m_appletPanel->rxApplet(), &RxApplet::radeActivated,
-            this, [this](bool on) { if (on) activateRADE(); else deactivateRADE(); });
+            this, [this](bool on, int sliceId) { if (on) activateRADE(sliceId); else deactivateRADE(); });
     connect(spectrum()->vfoWidget(), &VfoWidget::radeActivated,
-            this, [this](bool on) { if (on) activateRADE(); else deactivateRADE(); });
+            this, [this](bool on, int sliceId) { if (on) activateRADE(sliceId); else deactivateRADE(); });
 #endif
 
     // ── Tuning step size → spectrum widget ─────────────────────────────────
@@ -1455,6 +1455,16 @@ void MainWindow::setActiveSlice(int sliceId)
     if (m_bandSettings.currentBand().isEmpty())
         m_bandSettings.setCurrentBand(BandSettings::bandForFrequency(s->frequency()));
 
+
+#ifdef HAVE_RADE
+    // Switch RADE audio mode based on whether the active slice is the RADE slice.
+    // When on the RADE slice: mic → RADEEngine, speaker blocked (muted at slice level).
+    // When on a non-RADE slice: mic → normal VITA-49, speaker plays normally.
+    if (m_radeSliceId >= 0 && m_radeEngine && m_radeEngine->isActive()) {
+        m_audio.setRadeMode(sliceId == m_radeSliceId);
+    }
+#endif
+
     qDebug() << "MainWindow: active slice set to" << sliceId;
 }
 
@@ -1555,9 +1565,9 @@ void MainWindow::onFrequencyChanged(double mhz)
 }
 
 #ifdef HAVE_RADE
-void MainWindow::activateRADE()
+void MainWindow::activateRADE(int sliceId)
 {
-    auto* s = activeSlice();
+    auto* s = m_radioModel.slice(sliceId);
     if (!s) return;
 
     // Set radio mode to DIGU/DIGL (passthrough for OFDM modem)
@@ -1568,6 +1578,11 @@ void MainWindow::activateRADE()
         s->setFilterWidth(-3500, 0);
     else
         s->setFilterWidth(0, 3500);
+
+    // Remember which slice and its previous mute state
+    m_radeSliceId = sliceId;
+    m_radePrevMute = s->audioMute();
+    s->setAudioMute(true);
 
     // Create and start RADE engine
     if (!m_radeEngine) {
@@ -1589,8 +1604,13 @@ void MainWindow::activateRADE()
     });
 
     // RX path: DAX RX audio -> RADEEngine -> decoded speech -> speaker
+    // Filter by the RADE slice's DAX channel so other slices' DAX audio is ignored
+    int daxCh = s->daxChannel();
     connect(m_radioModel.panStream(), &PanadapterStream::daxAudioReady,
-            m_radeEngine, &RADEEngine::feedRxAudio);
+            m_radeEngine, [this, daxCh](int channel, const QByteArray& pcm) {
+        if (channel == daxCh)
+            m_radeEngine->feedRxAudio(channel, pcm);
+    });
     connect(m_radeEngine, &RADEEngine::rxSpeechReady,
             &m_audio, &AudioEngine::feedDecodedSpeech);
 
@@ -1610,11 +1630,18 @@ void MainWindow::activateRADE()
     connect(m_radeEngine, &RADEEngine::freqOffsetChanged,
             vfo, &VfoWidget::setRadeFreqOffset);
 
-    qInfo() << "MainWindow: RADE mode activated";
+    qInfo() << "MainWindow: RADE mode activated on slice" << sliceId;
 }
 
 void MainWindow::deactivateRADE()
 {
+    // Restore audio mute state on the RADE slice
+    if (m_radeSliceId >= 0) {
+        if (auto* s = m_radioModel.slice(m_radeSliceId))
+            s->setAudioMute(m_radePrevMute);
+        m_radeSliceId = -1;
+    }
+
     spectrum()->vfoWidget()->setRadeActive(false);
 
     m_audio.setRadeMode(false);

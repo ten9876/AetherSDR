@@ -55,7 +55,7 @@ signals:
     void rn2CycleToggled(bool on);
 #ifdef HAVE_RADE
     // Emitted when user selects/deselects RADE digital voice mode
-    void radeActivated(bool on);
+    void radeActivated(bool on, int sliceId);
 #endif
 
 protected:

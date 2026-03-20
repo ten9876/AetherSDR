@@ -926,10 +926,10 @@ void VfoWidget::buildTabContent()
             QString mode = m_modeCombo->currentText();
 #ifdef HAVE_RADE
             if (mode == "RADE") {
-                emit radeActivated(true);
+                emit radeActivated(true, m_slice ? m_slice->sliceId() : -1);
                 return;
             }
-            emit radeActivated(false);
+            emit radeActivated(false, m_slice ? m_slice->sliceId() : -1);
 #endif
             if (!m_updatingFromModel && m_slice)
                 m_slice->setMode(mode);

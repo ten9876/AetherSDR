@@ -121,7 +121,9 @@ private:
 
 #ifdef HAVE_RADE
     RADEEngine* m_radeEngine{nullptr};
-    void activateRADE();
+    int  m_radeSliceId{-1};
+    bool m_radePrevMute{false};
+    void activateRADE(int sliceId);
     void deactivateRADE();
 #endif
 

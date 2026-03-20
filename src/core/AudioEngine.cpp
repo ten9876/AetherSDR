@@ -108,7 +108,9 @@ QByteArray AudioEngine::resampleStereo(const QByteArray& pcm)
 void AudioEngine::feedAudioData(const QByteArray& pcm)
 {
     if (!m_audioSink) return;  // PC audio disabled
-    if (m_radeMode) return;    // RADE mode: raw SSB audio is blocked; decoded speech via feedDecodedSpeech()
+    // Note: m_radeMode no longer blocks feedAudioData globally.
+    // The RADE slice's raw OFDM noise is muted at the slice level (audio_mute=1)
+    // so it doesn't reach the speaker. Other slices' audio plays normally.
 
     auto writeAudio = [this](const QByteArray& data) {
         if (!m_audioDevice || !m_audioDevice->isOpen()) return;

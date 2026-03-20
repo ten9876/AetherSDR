@@ -56,7 +56,7 @@ Q_SIGNALS:
     void rn2Toggled(bool on);
     void pcAudioToggled(bool on);
 #ifdef HAVE_RADE
-    void radeActivated(bool on);
+    void radeActivated(bool on, int sliceId);
 #endif
 
 protected:
