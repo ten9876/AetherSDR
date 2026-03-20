@@ -1,8 +1,11 @@
 #include "SupportDialog.h"
 #include "core/LogManager.h"
+#include "core/SupportBundle.h"
 
 #include <QCheckBox>
+#include <QCursor>
 #include <QDesktopServices>
+#include <QMessageBox>
 #include <QFileInfo>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -111,10 +114,15 @@ void SupportDialog::buildUI()
     connect(refreshBtn, &QPushButton::clicked, this, &SupportDialog::refreshLog);
     connect(clearBtn, &QPushButton::clicked, this, &SupportDialog::clearLog);
     connect(openBtn, &QPushButton::clicked, this, &SupportDialog::openLogFolder);
+    auto* sendBtn = new QPushButton("Send to Support");
+    sendBtn->setFixedHeight(26);
+    sendBtn->setStyleSheet("QPushButton { background: #00607a; color: #e0f0ff; font-weight: bold; }");
+    connect(sendBtn, &QPushButton::clicked, this, &SupportDialog::sendToSupport);
     actionRow->addWidget(refreshBtn);
     actionRow->addWidget(clearBtn);
     actionRow->addWidget(openBtn);
     actionRow->addStretch();
+    actionRow->addWidget(sendBtn);
     layout->addLayout(actionRow);
 
     // ── Instructions ──────────────────────────────────────────────────────
@@ -192,6 +200,32 @@ void SupportDialog::disableAll()
 {
     LogManager::instance().setAllEnabled(false);
     syncCheckboxes();
+}
+
+void SupportDialog::sendToSupport()
+{
+    setCursor(Qt::WaitCursor);
+
+    auto sys = SupportBundle::collectSystemInfo();
+    auto radio = SupportBundle::collectRadioInfo(m_radioModel);
+    QString bundlePath = SupportBundle::createBundle(radio);
+
+    setCursor(Qt::ArrowCursor);
+
+    if (bundlePath.isEmpty()) {
+        QMessageBox::warning(this, "Support Bundle",
+            "Failed to create support bundle.\n"
+            "Check that the log directory is writable.");
+        return;
+    }
+
+    QMessageBox::information(this, "Support Bundle Created",
+        QString("Support bundle saved to:\n%1\n\n"
+                "Your email client will now open.\n"
+                "Please attach the bundle file and describe the issue.")
+            .arg(bundlePath));
+
+    SupportBundle::openEmailClient(bundlePath, sys, radio);
 }
 
 QString SupportDialog::formatFileSize(qint64 bytes) const

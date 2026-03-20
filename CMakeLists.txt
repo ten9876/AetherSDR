@@ -117,6 +117,7 @@ set(CORE_SOURCES
     src/core/Resampler.cpp
     src/core/RADEEngine.cpp
     src/core/LogManager.cpp
+    src/core/SupportBundle.cpp
 )
 
 if(APPLE)

@@ -1002,6 +1002,7 @@ void MainWindow::buildMenuBar()
     auto* helpMenu = menuBar()->addMenu("&Help");
     helpMenu->addAction("Support...", this, [this]() {
         SupportDialog dlg(this);
+        dlg.setRadioModel(&m_radioModel);
         dlg.exec();
     });
     helpMenu->addSeparator();
