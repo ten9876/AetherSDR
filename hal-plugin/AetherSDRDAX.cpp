@@ -156,24 +156,6 @@ public:
 
         uint32_t wp = block->writePos.load(std::memory_order_acquire);
 
-        // Diagnostic: log to file so we can see if CoreAudio is calling us
-        if (m_writeCount % 500 == 0) {
-            FILE* f = fopen("/tmp/aethersdr-hal-tx.log", "a");
-            if (f) {
-                // Compute peak amplitude for diagnostics
-                float peak = 0.0f;
-                for (UInt32 i = 0; i < totalSamples && i < 64; ++i) {
-                    float a = std::fabs(src[i]);
-                    if (a > peak) peak = a;
-                }
-                fprintf(f, "[%llu] OnWriteMixedOutput: bytes=%u samples=%u wp=%u peak=%.6f\n",
-                        (unsigned long long)m_writeCount, bytesCount, totalSamples, wp, peak);
-                fflush(f);
-                fclose(f);
-            }
-        }
-        ++m_writeCount;
-
         for (uint32_t i = 0; i < totalSamples; ++i) {
             block->ringBuffer[wp % DaxShmBlock::RING_SIZE] = src[i];
             ++wp;
@@ -215,7 +197,6 @@ private:
 
     DaxShmBlock* m_shmBlock{nullptr};
     std::chrono::steady_clock::time_point m_lastRetry{};
-    uint64_t m_writeCount{0};
 };
 
 // ── AudioStreamBasicDescription helper ──────────────────────────────────────
