@@ -1478,16 +1478,11 @@ void RxApplet::applyFilterPreset(int widthHz)
     if (mode == "LSB" || mode == "DIGL") {
         lo = -widthHz;
         hi = 0;
-    } else if (mode == "CW") {
-        // Centered on CW pitch (default 600 Hz)
-        int pitch = m_txModel ? m_txModel->cwPitch() : 600;
-        lo = pitch - widthHz / 2;
-        hi = pitch + widthHz / 2;
-    } else if (mode == "CWL") {
-        // Centered on negative CW pitch
-        int pitch = m_txModel ? m_txModel->cwPitch() : 600;
-        lo = -(pitch + widthHz / 2);
-        hi = -(pitch - widthHz / 2);
+    } else if (mode == "CW" || mode == "CWL") {
+        // Centered on carrier — the radio's BFO/demodulator applies the
+        // pitch offset internally so signals at 0 Hz are heard at the sidetone.
+        lo = -widthHz / 2;
+        hi =  widthHz / 2;
     } else if (mode == "AM" || mode == "SAM" || mode == "DSB") {
         // Double-sideband: split width equally around carrier
         lo = -(widthHz / 2);

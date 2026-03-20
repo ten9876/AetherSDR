@@ -76,9 +76,6 @@ public:
     // Set the current demod mode (for zoom centering behavior).
     void setMode(const QString& mode) { m_mode = mode; }
 
-    // CW marker positioning: when centered, VFO marker draws at pitch offset
-    void setCwMarkerCentered(bool on) { m_cwMarkerCentered = on; update(); }
-    void setCwPitch(int hz) { m_cwPitch = hz; update(); }
 
     // Access the floating overlay menu (for wiring signals).
     SpectrumOverlayMenu* overlayMenu() const { return m_overlayMenu; }
@@ -220,8 +217,6 @@ private:
     int    m_filterMinHz{-12000};  // per-mode lower bound (active slice)
     int    m_filterMaxHz{12000};   // per-mode upper bound (active slice)
     QString m_mode{"USB"};         // current demod mode (active slice)
-    bool   m_cwMarkerCentered{true}; // draw VFO marker at pitch center (SmartSDR style)
-    int    m_cwPitch{600};           // CW sidetone pitch in Hz
 
     float m_refLevel{-50.0f};       // top of display (dBm)
     float m_dynamicRange{100.0f};   // dB range shown in spectrum (-50 to -150)

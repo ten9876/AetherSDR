@@ -910,17 +910,6 @@ void SpectrumWidget::mouseDoubleClickEvent(QMouseEvent* ev)
         const double startMhz = m_centerMhz - m_bandwidthMhz / 2.0;
         double rawMhz = startMhz + (ev->position().x() / width()) * m_bandwidthMhz;
 
-        // In CW centered mode, offset so the clicked signal lands at the
-        // center of the passband (the sidetone pitch). Use the actual filter
-        // midpoint from the active overlay for accuracy.
-        if (m_cwMarkerCentered && (m_mode == "CW" || m_mode == "CWL")) {
-            const auto* ao = activeOverlay();
-            if (ao) {
-                double midHz = (ao->filterLowHz + ao->filterHighHz) / 2.0;
-                rawMhz -= midHz / 1.0e6;
-            }
-        }
-
         emit frequencyClicked(snapToStep(rawMhz, m_stepHz));
         ev->accept();
         return;
@@ -1449,14 +1438,9 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
         }
 
         // ── Center line ──────────────────────────────────────────────────
-        // In CW centered mode, draw the marker at the center of the passband
-        // instead of at the carrier frequency. This uses the actual filter
-        // midpoint so it's always correct regardless of pitch or filter width.
+        // Always drawn at the carrier frequency. In CW mode, the filter
+        // is centered on the carrier and the radio's BFO handles the pitch offset.
         int markerX = vfoX;
-        if (m_cwMarkerCentered && so.isActive && (m_mode == "CW" || m_mode == "CWL")) {
-            double midHz = (so.filterLowHz + so.filterHighHz) / 2.0;
-            markerX = mhzToX(so.freqMhz + midHz / 1.0e6);
-        }
 
         const qreal lineW = so.isActive ? 2.0 : 1.0;
         const int lineAlpha = so.isActive ? 220 : 100;

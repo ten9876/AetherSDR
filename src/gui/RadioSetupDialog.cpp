@@ -1090,30 +1090,7 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         });
         grid->addWidget(decodeBtn, 2, 5);
 
-        // Passband Marker: Centered / Carrier
-        auto* markerLbl = new QLabel("Marker:");
-        markerLbl->setStyleSheet(kLabelStyle);
-        grid->addWidget(markerLbl, 2, 0);
 
-        bool centered = AppSettings::instance().value("CwMarkerCentered", "True").toString() == "True";
-        auto* centeredBtn = mkTogBtn("Centered", centered);
-        auto* carrierBtn = mkTogBtn("Carrier", !centered);
-        connect(centeredBtn, &QPushButton::toggled, this, [carrierBtn](bool on) {
-            QSignalBlocker b(carrierBtn);
-            carrierBtn->setChecked(!on);
-            auto& s = AppSettings::instance();
-            s.setValue("CwMarkerCentered", on ? "True" : "False");
-            s.save();
-        });
-        connect(carrierBtn, &QPushButton::toggled, this, [centeredBtn](bool on) {
-            QSignalBlocker b(centeredBtn);
-            centeredBtn->setChecked(!on);
-            auto& s = AppSettings::instance();
-            s.setValue("CwMarkerCentered", on ? "False" : "True");
-            s.save();
-        });
-        grid->addWidget(centeredBtn, 2, 1);
-        grid->addWidget(carrierBtn, 2, 2);
 
         vbox->addWidget(group);
     }

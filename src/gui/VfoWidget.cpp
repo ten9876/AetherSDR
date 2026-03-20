@@ -1831,14 +1831,10 @@ void VfoWidget::applyFilterPreset(int widthHz)
 
     if (mode == "LSB" || mode == "DIGL") {
         lo = -widthHz; hi = 0;
-    } else if (mode == "CW") {
-        int pitch = m_txModel ? m_txModel->cwPitch() : 600;
-        lo = pitch - widthHz / 2;
-        hi = pitch + widthHz / 2;
-    } else if (mode == "CWL") {
-        int pitch = m_txModel ? m_txModel->cwPitch() : 600;
-        lo = -(pitch + widthHz / 2);
-        hi = -(pitch - widthHz / 2);
+    } else if (mode == "CW" || mode == "CWL") {
+        // Centered on carrier — radio's BFO handles pitch offset
+        lo = -widthHz / 2;
+        hi =  widthHz / 2;
     } else if (mode == "AM" || mode == "SAM" || mode == "DSB") {
         lo = -(widthHz / 2); hi = (widthHz / 2);
     } else {
