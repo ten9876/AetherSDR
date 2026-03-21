@@ -64,6 +64,47 @@ jobs:
             -verbose=1 \
             -always-overwrite
 
+      - name: Import signing certificate
+        if: env.APPLE_CERT_BASE64 != ''
+        env:
+          APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          # Decode certificate
+          echo "$APPLE_CERT_BASE64" | base64 --decode > certificate.p12
+
+          # Create temporary keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          security import certificate.p12 -P "$APPLE_CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+          # Clean up
+          rm certificate.p12
+
+      - name: Sign app bundle
+        if: env.APPLE_CERT_BASE64 != ''
+        env:
+          APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          IDENTITY="Developer ID Application: ${{ secrets.APPLE_TEAM_ID }}"
+          codesign --force --deep --options runtime \
+            --sign "$IDENTITY" \
+            --timestamp \
+            --entitlements /dev/null \
+            build/AetherSDR.app
+          echo "=== Verify signature ==="
+          codesign -dv --verbose=4 build/AetherSDR.app
+
       - name: Create DMG
         run: |
           create-dmg \
@@ -78,6 +119,41 @@ jobs:
             "AetherSDR-${{ github.ref_name }}-macOS-universal.dmg" \
             "build/AetherSDR.app" \
           || true  # create-dmg returns 2 on success with no code sign
+
+      - name: Sign DMG
+        if: env.APPLE_CERT_BASE64 != ''
+        env:
+          APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          IDENTITY="Developer ID Application: ${{ secrets.APPLE_TEAM_ID }}"
+          codesign --force --sign "$IDENTITY" --timestamp \
+            AetherSDR-${{ github.ref_name }}-macOS-universal.dmg
+
+      - name: Notarize DMG
+        if: env.APPLE_CERT_BASE64 != ''
+        env:
+          APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool submit \
+            AetherSDR-${{ github.ref_name }}-macOS-universal.dmg \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait --timeout 600
+
+          # Staple the notarization ticket to the DMG
+          xcrun stapler staple \
+            AetherSDR-${{ github.ref_name }}-macOS-universal.dmg
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
