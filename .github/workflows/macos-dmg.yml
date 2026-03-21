@@ -140,7 +140,7 @@ jobs:
           echo "Notarization and stapling complete"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macOS-DMG
           path: AetherSDR-*.dmg

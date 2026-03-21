@@ -196,7 +196,7 @@ jobs:
 
       # ── Upload / Release ─────────────────────────────────────────────────
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macOS-Installer
           path: AetherSDR-*.pkg
