@@ -243,9 +243,11 @@ MainWindow::MainWindow(QWidget* parent)
         // On RX resume, native tiles will restart and m_hasNativeWaterfall
         // will be set again by the first arriving tile.
 #ifdef HAVE_RADE
-        if (m_audio.isRadeMode()) {
-            if (!tx && m_radeEngine && m_radeEngine->isActive())
+        if (m_radeSliceId >= 0 && m_radeEngine && m_radeEngine->isActive()) {
+            if (!tx) {
+                m_audio.setRadeMode(false);
                 m_radeEngine->resetTx();
+            }
         }
 #endif
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
@@ -1818,6 +1820,14 @@ void MainWindow::onFrequencyChanged(double mhz)
 #ifdef HAVE_RADE
 void MainWindow::activateRADE(int sliceId)
 {
+    // Guard against duplicate activation (VfoWidget + RxApplet both selecting RADE)
+    if (m_radeSliceId == sliceId && m_radeEngine && m_radeEngine->isActive())
+        return;
+
+    // If RADE is already active on a different slice, deactivate it first
+    if (m_radeSliceId >= 0 && m_radeSliceId != sliceId)
+        deactivateRADE();
+
     auto* s = m_radioModel.slice(sliceId);
     if (!s) return;
 
