@@ -100,11 +100,8 @@ void LogManager::applyFilterRules()
 
 QString LogManager::logFilePath() const
 {
-#ifdef _WIN32
-    return QDir::homePath() + "/AppData/Roaming/AetherSDR/aethersdr.log";
-#else
-    return QDir::homePath() + "/.config/AetherSDR/aethersdr.log";
-#endif
+    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+           + "/AetherSDR/aethersdr.log";
 }
 
 qint64 LogManager::logFileSize() const
