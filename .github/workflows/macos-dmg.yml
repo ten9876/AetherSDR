@@ -13,7 +13,7 @@ jobs:
     runs-on: macos-14
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Qt6 (universal frameworks via aqtinstall)
         uses: jurplel/install-qt-action@v4
