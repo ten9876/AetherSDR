@@ -135,6 +135,7 @@ private:
     QLabel* m_paTempLabel{nullptr};
     QLabel* m_supplyVoltLabel{nullptr};
     QLabel* m_networkLabel{nullptr};
+    QLabel* m_mfIndicator{nullptr};
     QLabel* m_tgxlIndicator{nullptr};
     QLabel* m_pgxlIndicator{nullptr};
     QLabel* m_txIndicator{nullptr};

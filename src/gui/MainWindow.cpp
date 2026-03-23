@@ -533,6 +533,24 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel, &RadioModel::txOwnerChanged,
             m_titleBar, &TitleBar::setOtherClientTx);
 
+    // Multi-Flex: status bar indicator when other clients are connected
+    connect(&m_radioModel, &RadioModel::otherClientsChanged,
+            this, [this](int count, const QStringList& names) {
+        if (count > 0) {
+            m_mfIndicator->setStyleSheet(
+                "QLabel { color: #00b4d8; font-weight: bold; font-size: 21px; }");
+            QString tip = QString("multiFLEX — %1 other client%2:\n")
+                .arg(count).arg(count > 1 ? "s" : "");
+            for (const QString& n : names)
+                tip += "  " + n + "\n";
+            m_mfIndicator->setToolTip(tip.trimmed());
+        } else {
+            m_mfIndicator->setStyleSheet(
+                "QLabel { color: rgba(255,255,255,40); font-weight: bold; font-size: 21px; }");
+            m_mfIndicator->setToolTip("No other clients connected");
+        }
+    });
+
     // Apply saved master volume
     int savedMasterVol = AppSettings::instance().value("MasterVolume", "100").toInt();
     m_audio.setRxVolume(savedMasterVol / 100.0f);
@@ -1338,6 +1356,15 @@ void MainWindow::buildUI()
     m_networkLabel->installEventFilter(this);
     netVbox->addWidget(m_networkLabel);
     hbox->addWidget(netStack);
+
+    addSep();
+
+    // Multi-Flex indicator — visible when other clients are connected
+    m_mfIndicator = new QLabel("MF");
+    m_mfIndicator->setStyleSheet(
+        "QLabel { color: rgba(255,255,255,40); font-weight: bold; font-size: 21px; }");
+    m_mfIndicator->setToolTip("No other clients connected");
+    hbox->addWidget(m_mfIndicator);
 
     addSep();
 

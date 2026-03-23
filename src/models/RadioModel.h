@@ -226,6 +226,8 @@ signals:
     void audioOutputChanged();
     // Emitted when TX ownership changes in Multi-Flex (another client transmitting)
     void txOwnerChanged(bool ownedByUs, const QString& otherStation);
+    // Emitted when the set of other connected clients changes.
+    void otherClientsChanged(int count, const QStringList& names);
     // Emitted when GPS status changes (from "sub gps all").
     void gpsStatusChanged(const QString& status, int tracked, int visible,
                           const QString& grid, const QString& altitude,
@@ -282,6 +284,7 @@ private:
     quint32 clientHandle() const;
     void updateStreamFilters();
     void handleGpsStatus(const QString& rawBody);
+    void emitOtherClientsChanged();
 
     // Standalone mode: create a panadapter then attach a slice to it.
     void createDefaultSlice(const QString& freqMhz = "14.225000",

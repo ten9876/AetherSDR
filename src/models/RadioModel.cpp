@@ -439,6 +439,7 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
             sendCmd("sub audio all", [this](int, const QString&) {
             sendCmd("sub gps all", [this](int, const QString&) {
             sendCmd("sub apd all", [this](int, const QString&) {
+            sendCmd("sub client all", [this](int, const QString&) {
             sendCmd("sub xvtr all", [this](int, const QString&) {
             // Memory status arrives via normal status handler — no subscription needed.
             // "sub memory all" returns 500000A3 (invalid subscription object).
@@ -601,6 +602,7 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
             sendCmd("sub tnf all");
             sendCmd("sub memories all");
             }); // sub xvtr all
+            }); // sub client all
             }); // sub apd all
             }); // sub gps all
             }); // sub audio all
@@ -624,6 +626,8 @@ void RadioModel::onDisconnected()
     m_panadapters.clear();
     m_activePanId.clear();
     m_ownedSliceIds.clear();
+    m_clientStations.clear();
+    emit otherClientsChanged(0, {});
     emit connectionStateChanged(false);
 
     if (m_wanConn) {
@@ -927,6 +931,17 @@ quint32 RadioModel::clientHandle() const
     return m_connection.clientHandle();
 }
 
+void RadioModel::emitOtherClientsChanged()
+{
+    quint32 ours = clientHandle();
+    QStringList names;
+    for (auto it = m_clientStations.cbegin(); it != m_clientStations.cend(); ++it) {
+        if (it.key() != ours)
+            names << it.value();
+    }
+    emit otherClientsChanged(names.size(), names);
+}
+
 void RadioModel::onStatusReceived(const QString& object,
                                   const QMap<QString, QString>& kvs)
 {
@@ -938,14 +953,24 @@ void RadioModel::onStatusReceived(const QString& object,
         return;
     }
 
-    // Client connected: "client 0x7594C952 connected program=SmartSDR-Maestro station=Maestro"
-    static const QRegularExpression clientRe(R"(^client\s+(0x[0-9A-Fa-f]+)$)");
+    // Client connected/disconnected:
+    //   object="client 0x7594C952"       kvs={connected, program=SmartSDR, station=W1AW}
+    //   object="client 0x7594C952 disconnected"  kvs={forced=0, ...}
+    static const QRegularExpression clientRe(R"(^client\s+(0x[0-9A-Fa-f]+)(?:\s+(\w+))?$)");
     if (object.startsWith("client 0x")) {
         const auto cm = clientRe.match(object);
-        if (cm.hasMatch() && kvs.contains("connected")) {
+        if (cm.hasMatch()) {
             quint32 handle = cm.captured(1).toUInt(nullptr, 16);
-            QString station = kvs.value("station", kvs.value("program", "Unknown"));
-            m_clientStations[handle] = station;
+            QString action = cm.captured(2);  // "disconnected" or empty
+
+            if (action == "disconnected") {
+                m_clientStations.remove(handle);
+                emitOtherClientsChanged();
+            } else if (kvs.contains("connected")) {
+                QString station = kvs.value("station", kvs.value("program", "Unknown"));
+                m_clientStations[handle] = station;
+                emitOtherClientsChanged();
+            }
         }
         return;
     }
