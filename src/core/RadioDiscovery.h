@@ -53,7 +53,7 @@ class RadioDiscovery : public QObject {
 
 public:
     static constexpr quint16 DISCOVERY_PORT = 4992;
-    static constexpr int STALE_TIMEOUT_MS  = 10000; // radio considered gone after 10s
+    static constexpr int STALE_TIMEOUT_MS  = 5000; // radio considered gone after 5s
 
     explicit RadioDiscovery(QObject* parent = nullptr);
     ~RadioDiscovery() override;

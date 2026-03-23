@@ -1689,7 +1689,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
             auto* label = new QLabel("Radio disconnected\nWaiting for reconnect...");
             label->setAlignment(Qt::AlignCenter);
             layout->addWidget(label);
-            auto* dismissBtn = new QPushButton("Dismiss");
+            auto* dismissBtn = new QPushButton("Disconnect");
             dismissBtn->setFixedWidth(120);
             layout->addWidget(dismissBtn, 0, Qt::AlignCenter);
             connect(dismissBtn, &QPushButton::clicked, this, [this]() {
