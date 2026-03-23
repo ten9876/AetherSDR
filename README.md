@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/logo-circle.png" alt="AetherSDR Logo" width="200">
-</p>
-
 # AetherSDR
 
 **A Linux-native client for FlexRadio Systems transceivers**
