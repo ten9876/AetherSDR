@@ -470,6 +470,11 @@ void VfoWidget::buildTabContent()
         m_afGainSlider->setRange(0, 100);
         m_afGainSlider->setStyleSheet(kSliderStyle);
         gainRow->addWidget(m_afGainSlider, 1);
+        auto* afVal = new QLabel("0");
+        afVal->setStyleSheet(kLabelStyle);
+        afVal->setFixedWidth(20);
+        afVal->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        gainRow->addWidget(afVal);
         vb->addLayout(gainRow);
 
         // Pan row: DIV button + L + slider (with center marker) + R
@@ -499,7 +504,8 @@ void VfoWidget::buildTabContent()
         panRow->addWidget(panR);
         vb->addLayout(panRow);
 
-        connect(m_afGainSlider, &QSlider::valueChanged, this, [this](int v) {
+        connect(m_afGainSlider, &QSlider::valueChanged, this, [this, afVal](int v) {
+            afVal->setText(QString::number(v));
             if (!m_updatingFromModel) {
                 if (m_slice) m_slice->setAudioGain(v);
                 emit afGainChanged(v);
@@ -526,6 +532,11 @@ void VfoWidget::buildTabContent()
         m_sqlSlider->setValue(20);
         m_sqlSlider->setStyleSheet(kSliderStyle);
         sqlRow->addWidget(m_sqlSlider, 1);
+        auto* sqlVal = new QLabel("20");
+        sqlVal->setStyleSheet(kLabelStyle);
+        sqlVal->setFixedWidth(20);
+        sqlVal->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        sqlRow->addWidget(sqlVal);
         vb->addLayout(sqlRow);
 
         connect(m_divBtn, &QPushButton::toggled, this, [this](bool on) {
@@ -537,7 +548,8 @@ void VfoWidget::buildTabContent()
             if (!m_updatingFromModel && m_slice)
                 m_slice->setSquelch(on, m_sqlSlider->value());
         });
-        connect(m_sqlSlider, &QSlider::valueChanged, this, [this](int v) {
+        connect(m_sqlSlider, &QSlider::valueChanged, this, [this, sqlVal](int v) {
+            sqlVal->setText(QString::number(v));
             if (!m_updatingFromModel && m_slice)
                 m_slice->setSquelch(m_sqlBtn->isChecked(), v);
         });
@@ -557,6 +569,11 @@ void VfoWidget::buildTabContent()
         m_agcTSlider->setValue(65);
         m_agcTSlider->setStyleSheet(kSliderStyle);
         agcRow->addWidget(m_agcTSlider, 1);
+        auto* agcVal = new QLabel("65");
+        agcVal->setStyleSheet(kLabelStyle);
+        agcVal->setFixedWidth(20);
+        agcVal->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        agcRow->addWidget(agcVal);
         vb->addLayout(agcRow);
 
         connect(m_agcCmb, &QComboBox::currentTextChanged, this, [this](const QString& text) {
@@ -570,7 +587,8 @@ void VfoWidget::buildTabContent()
                 m_slice->setAgcMode(mode);
             }
         });
-        connect(m_agcTSlider, &QSlider::valueChanged, this, [this](int v) {
+        connect(m_agcTSlider, &QSlider::valueChanged, this, [this, agcVal](int v) {
+            agcVal->setText(QString::number(v));
             if (!m_updatingFromModel && m_slice) m_slice->setAgcThreshold(v);
         });
 
