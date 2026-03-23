@@ -391,7 +391,7 @@ void TransmitModel::setDax(bool on)
 
 void TransmitModel::setSbMonitor(bool on)
 {
-    emit commandReady(QString("transmit set sb_monitor=%1").arg(on ? 1 : 0));
+    emit commandReady(QString("transmit set mon=%1").arg(on ? 1 : 0));
 }
 
 void TransmitModel::setMonGainSb(int gain)
