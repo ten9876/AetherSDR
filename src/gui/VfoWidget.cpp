@@ -1579,7 +1579,8 @@ void VfoWidget::setSlice(SliceModel* slice)
     connect(m_slice, &SliceModel::squelchChanged, this, [this](bool on, int level) {
         m_updatingFromModel = true;
         QSignalBlocker b1(m_sqlBtn), b2(m_sqlSlider);
-        m_sqlBtn->setChecked(on);
+        if (m_sqlBtn->isEnabled())
+            m_sqlBtn->setChecked(on);
         m_sqlSlider->setValue(level);
         m_updatingFromModel = false;
     });

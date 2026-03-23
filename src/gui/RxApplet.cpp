@@ -1321,7 +1321,8 @@ void RxApplet::connectSlice(SliceModel* s)
 
     connect(s, &SliceModel::squelchChanged, this, [this](bool on, int level) {
         QSignalBlocker b1(m_sqlBtn), b2(m_sqlSlider);
-        m_sqlBtn->setChecked(on);
+        if (m_sqlBtn->isEnabled())
+            m_sqlBtn->setChecked(on);
         m_sqlSlider->setValue(level);
     });
 
