@@ -3114,9 +3114,16 @@ void MainWindow::restoreBandState(const BandSnapshot& snap)
             s->setAgcMode(snap.agcMode);
         s->setAgcThreshold(snap.agcThreshold);
     }
-    m_radioModel.setPanCenter(snap.panCenterMhz);
-    m_radioModel.setPanBandwidth(snap.panBandwidthMhz);
-    m_radioModel.setPanDbmRange(snap.minDbm, snap.maxDbm);
+    if (auto* pan = m_radioModel.activePanadapter()) {
+        m_radioModel.sendCommand(
+            QString("display pan set %1 center=%2").arg(pan->panId()).arg(snap.panCenterMhz, 0, 'f', 6));
+        m_radioModel.sendCommand(
+            QString("display pan set %1 bandwidth=%2").arg(pan->panId()).arg(snap.panBandwidthMhz, 0, 'f', 6));
+        m_radioModel.sendCommand(
+            QString("display pan set %1 min_dbm=%2 max_dbm=%3").arg(pan->panId())
+                .arg(static_cast<double>(snap.minDbm), 0, 'f', 2)
+                .arg(static_cast<double>(snap.maxDbm), 0, 'f', 2));
+    }
     m_radioModel.setPanRfGain(snap.rfGain);
     m_radioModel.setPanWnb(snap.wnbOn);
     spectrum()->setSpectrumFrac(snap.spectrumFrac);
