@@ -915,8 +915,12 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         bool dualScu = model.contains("6600") || model.contains("6700")
                     || model.contains("8600") || model.contains("AU-520");
         int maxPans = dualScu ? 4 : 2;
-        QString currentLayout = AppSettings::instance()
-            .value("PanadapterLayout", "1").toString();
+        // Determine current layout from actual pan count, not saved setting
+        int activePanCount = m_panStack ? m_panStack->count() : 1;
+        QString currentLayout = "1";
+        if (activePanCount >= 2)
+            currentLayout = AppSettings::instance()
+                .value("PanadapterLayout", "1").toString();
         PanLayoutDialog dlg(maxPans, currentLayout, this);
         if (dlg.exec() == QDialog::Accepted && !dlg.selectedLayout().isEmpty()) {
             const QString layoutId = dlg.selectedLayout();
