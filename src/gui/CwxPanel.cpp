@@ -25,12 +25,13 @@ public:
     CwxBubble(const QString& text, const QString& time, QWidget* parent = nullptr)
         : QWidget(parent), m_text(text), m_time(time)
     {
-        QFont f("monospace", 12);
-        f.setBold(true);
-        QFontMetrics fm(f);
-        int textW = fm.horizontalAdvance(m_text + "  " + m_time) + 24;
-        int maxW = parent ? parent->width() - 30 : 220;
-        setFixedHeight(fm.height() + 16);
+        QFont textFont("monospace", 10);
+        QFont timeFont("monospace", 8);
+        QFontMetrics tfm(textFont);
+        QFontMetrics sfm(timeFont);
+        int textW = tfm.horizontalAdvance(m_text) + 24;
+        int maxW = parent ? parent->width() - 20 : 220;
+        setFixedHeight(tfm.height() + sfm.height() + 14);
         setMinimumWidth(qMin(textW, maxW));
     }
 
@@ -39,21 +40,26 @@ public:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
 
-        QRect r(4, 2, width() - 24, height() - 4);
+        QRect r(4, 2, width() - 12, height() - 4);
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(0x00, 0xb4, 0xd8));
         p.drawRoundedRect(r, 10, 10);
 
-        QFont f("monospace", 12);
-        f.setBold(true);
-        p.setFont(f);
+        // CW text — 10pt, left aligned, top
+        QFont textFont("monospace", 10);
+        p.setFont(textFont);
         p.setPen(QColor(0, 0, 0));
-        p.drawText(r.adjusted(10, 0, -10, 0), Qt::AlignVCenter | Qt::AlignLeft, m_text);
+        QFontMetrics tfm(textFont);
+        QRect textRect = r.adjusted(10, 4, -10, 0);
+        textRect.setHeight(tfm.height());
+        p.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, m_text);
 
-        QFont tf("monospace", 8);
-        p.setFont(tf);
+        // Timestamp — 8pt, right aligned, below text
+        QFont timeFont("monospace", 8);
+        p.setFont(timeFont);
         p.setPen(QColor(0x00, 0x30, 0x40));
-        p.drawText(r.adjusted(10, 0, -6, 0), Qt::AlignVCenter | Qt::AlignRight, m_time);
+        QRect timeRect = r.adjusted(10, tfm.height() + 4, -6, -2);
+        p.drawText(timeRect, Qt::AlignRight | Qt::AlignTop, m_time);
     }
 
 private:
@@ -122,7 +128,8 @@ CwxPanel::CwxPanel(CwxModel* model, QWidget* parent)
 
     m_setupBtn = new QPushButton("Setup");
     m_setupBtn->setCheckable(true);
-    m_setupBtn->setStyleSheet(kBtnStyle);
+    m_setupBtn->setStyleSheet(QString(kBtnStyle) +
+        " QPushButton { padding: 4px 6px; }");
     barLayout->addWidget(m_setupBtn);
 
     auto* speedLabel = new QLabel("Speed:");
