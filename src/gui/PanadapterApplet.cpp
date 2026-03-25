@@ -125,7 +125,7 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     cwBar->addWidget(minLabel);
 
     m_pitchMinSlider = new QSlider(Qt::Horizontal);
-    m_pitchMinSlider->setRange(300, 1100);  // max will be clamped by max slider
+    m_pitchMinSlider->setRange(300, 1200);
     m_pitchMinSlider->setValue(500);
     m_pitchMinSlider->setFixedWidth(50);
     m_pitchMinSlider->setStyleSheet(rangeSliderStyle);
@@ -137,22 +137,20 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     cwBar->addWidget(maxLabel);
 
     m_pitchMaxSlider = new QSlider(Qt::Horizontal);
-    m_pitchMaxSlider->setRange(400, 1200);  // min will be clamped by min slider
+    m_pitchMaxSlider->setRange(300, 1200);
     m_pitchMaxSlider->setValue(700);
     m_pitchMaxSlider->setFixedWidth(50);
     m_pitchMaxSlider->setStyleSheet(rangeSliderStyle);
     m_pitchMaxSlider->setToolTip("Decoder pitch search maximum (Hz)");
     cwBar->addWidget(m_pitchMaxSlider);
 
-    // Link sliders: maintain 100 Hz minimum gap, update tooltips
+    // Update tooltips and emit range change
     connect(m_pitchMinSlider, &QSlider::valueChanged, this, [this](int v) {
         m_pitchMinSlider->setToolTip(QString("%1 Hz").arg(v));
-        m_pitchMaxSlider->setMinimum(v + 100);
         emit pitchRangeChanged(v, m_pitchMaxSlider->value());
     });
     connect(m_pitchMaxSlider, &QSlider::valueChanged, this, [this](int v) {
         m_pitchMaxSlider->setToolTip(QString("%1 Hz").arg(v));
-        m_pitchMinSlider->setMaximum(v - 100);
         emit pitchRangeChanged(m_pitchMinSlider->value(), v);
     });
     m_pitchMinSlider->setToolTip(QString("%1 Hz").arg(m_pitchMinSlider->value()));
