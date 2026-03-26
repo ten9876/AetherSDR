@@ -29,6 +29,7 @@ public:
 
     // Set the slice ID (0=A, 1=B, 2=C, 3=D) shown in the title bar.
     void setSliceId(int id);
+    void clearSliceTitle();
 
     // CW decode panel
     void setCwPanelVisible(bool visible);

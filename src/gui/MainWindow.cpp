@@ -433,7 +433,7 @@ MainWindow::MainWindow(QWidget* parent)
         } else {
             applet = m_panStack->addPanadapter(pan->panId());
         }
-        m_panApplet = applet;
+        setActivePanApplet(applet);
         wirePanadapter(applet);
         connect(pan, &PanadapterModel::infoChanged,
                 applet->spectrumWidget(), &SpectrumWidget::setFrequencyRange);
@@ -561,21 +561,12 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
             &m_audio, &AudioEngine::feedAudioData);
 
-    // ── CW decoder: feed audio + display decoded text ─────────────────────
+    // ── CW decoder: feed audio ──────────────────────────────────────────
+    // Audio feed is global (same audio for all pans).
+    // Text/stats output is wired to m_panApplet via setActivePanApplet()
+    // which re-wires on active pan change.
     connect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
             &m_cwDecoder, &CwDecoder::feedAudio);
-    connect(&m_cwDecoder, &CwDecoder::textDecoded,
-            m_panApplet, &PanadapterApplet::appendCwText);
-    connect(&m_cwDecoder, &CwDecoder::statsUpdated,
-            m_panApplet, &PanadapterApplet::setCwStats);
-
-    // CW decoder pitch/speed lock buttons
-    connect(m_panApplet->lockPitchButton(), &QPushButton::toggled,
-            &m_cwDecoder, &CwDecoder::lockPitch);
-    connect(m_panApplet->lockSpeedButton(), &QPushButton::toggled,
-            &m_cwDecoder, &CwDecoder::lockSpeed);
-    connect(m_panApplet, &PanadapterApplet::pitchRangeChanged,
-            &m_cwDecoder, &CwDecoder::setPitchRange);
 
     // ── AF gain from applet panel → radio per-slice audio_level ─────────
     connect(m_appletPanel->rxApplet(), &RxApplet::afGainChanged, this, [this](int v) {
@@ -1562,6 +1553,24 @@ void MainWindow::buildUI()
     connect(m_panStack, &PanadapterStack::activePanChanged,
             this, [this](const QString& panId) {
         m_radioModel.setActivePanId(panId);
+
+        // Update m_panApplet and CW decoder wiring for the new active pan
+        if (auto* applet = m_panStack->panadapter(panId))
+            setActivePanApplet(applet);
+
+        // Show/hide CW decode panel based on the new active pan's slice mode
+        for (auto* sl : m_radioModel.slices()) {
+            if (sl->panId() == panId) {
+                bool isCw = (sl->mode() == "CW" || sl->mode() == "CWL");
+                bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
+                if (m_panApplet) m_panApplet->setCwPanelVisible(isCw && decodeOn);
+                if (isCw && !m_cwDecoder.isRunning())
+                    m_cwDecoder.start();
+                else if (!isCw && m_cwDecoder.isRunning())
+                    m_cwDecoder.stop();
+                break;
+            }
+        }
     });
     splitter->setStretchFactor(0, 0);  // CWX panel: fixed width
     splitter->setStretchFactor(1, 0);  // DVK panel: fixed width
@@ -2285,6 +2294,23 @@ void MainWindow::onSliceRemoved(int id)
         a->spectrumWidget()->removeVfoWidget(id);
     }
 
+    // Update pan title bars — show the first remaining slice on each pan,
+    // or clear the title if the pan has no slices left.
+    if (m_panStack) {
+        for (auto* applet : m_panStack->allApplets()) {
+            bool found = false;
+            for (auto* sl : m_radioModel.slices()) {
+                if (sl->panId() == applet->panId()) {
+                    applet->setSliceId(sl->sliceId());
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                applet->clearSliceTitle();
+        }
+    }
+
     // Reset panadapter state so display settings re-sync after profile load
     m_radioModel.resetPanState();
     m_needAudioStream = true;
@@ -2456,10 +2482,48 @@ void MainWindow::updateSplitState()
 // OverlayMenu signals to RadioModel, TnfModel, and MainWindow handlers.
 // In multi-pan mode (Phase 6+), called for each new panadapter.
 
+void MainWindow::setActivePanApplet(PanadapterApplet* applet)
+{
+    if (applet == m_panApplet) return;
+
+    // Disconnect CW decoder from old applet
+    if (m_panApplet) {
+        disconnect(&m_cwDecoder, &CwDecoder::textDecoded,
+                   m_panApplet, &PanadapterApplet::appendCwText);
+        disconnect(&m_cwDecoder, &CwDecoder::statsUpdated,
+                   m_panApplet, &PanadapterApplet::setCwStats);
+        disconnect(m_panApplet->lockPitchButton(), &QPushButton::toggled,
+                   &m_cwDecoder, &CwDecoder::lockPitch);
+        disconnect(m_panApplet->lockSpeedButton(), &QPushButton::toggled,
+                   &m_cwDecoder, &CwDecoder::lockSpeed);
+        disconnect(m_panApplet, &PanadapterApplet::pitchRangeChanged,
+                   &m_cwDecoder, &CwDecoder::setPitchRange);
+    }
+
+    m_panApplet = applet;
+
+    // Reconnect CW decoder to new applet
+    if (m_panApplet) {
+        connect(&m_cwDecoder, &CwDecoder::textDecoded,
+                m_panApplet, &PanadapterApplet::appendCwText);
+        connect(&m_cwDecoder, &CwDecoder::statsUpdated,
+                m_panApplet, &PanadapterApplet::setCwStats);
+        connect(m_panApplet->lockPitchButton(), &QPushButton::toggled,
+                &m_cwDecoder, &CwDecoder::lockPitch);
+        connect(m_panApplet->lockSpeedButton(), &QPushButton::toggled,
+                &m_cwDecoder, &CwDecoder::lockSpeed);
+        connect(m_panApplet, &PanadapterApplet::pitchRangeChanged,
+                &m_cwDecoder, &CwDecoder::setPitchRange);
+    }
+}
+
 void MainWindow::wirePanadapter(PanadapterApplet* applet)
 {
     auto* sw = applet->spectrumWidget();
     auto* menu = sw->overlayMenu();
+
+    // Set panId on the overlay menu so +RX routes to the correct pan
+    menu->setPanId(applet->panId());
 
     // ── Pan activation: clicking on this pan makes it active ─────────────
     connect(applet, &PanadapterApplet::activated,
@@ -2660,9 +2724,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 
     // ── +RX / +TNF buttons ───────────────────────────────────────────────
     connect(menu, &SpectrumOverlayMenu::addRxClicked,
-            this, [this]() {
+            this, [this](const QString& panId) {
         if (m_radioModel.slices().size() < m_radioModel.maxSlices())
-            m_radioModel.addSlice();
+            m_radioModel.addSliceOnPan(panId);
     });
     connect(menu, &SpectrumOverlayMenu::addTnfClicked,
             this, [this]() {

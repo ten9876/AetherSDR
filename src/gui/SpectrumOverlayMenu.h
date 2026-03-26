@@ -36,6 +36,10 @@ public:
                              bool autoBlack, int rate,
                              int floorPos = 75, bool floorEnable = false);
 
+    // Set the panadapter ID this overlay belongs to (for +RX routing).
+    void setPanId(const QString& id) { m_panId = id; }
+    QString panId() const { return m_panId; }
+
     // Connect/disconnect the ANT panel to a slice model.
     void setSlice(SliceModel* slice);
     void setWnbState(bool on, int level);
@@ -54,7 +58,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent* event) override { event->accept(); }
 
 signals:
-    void addRxClicked();
+    void addRxClicked(const QString& panId);
     void addTnfClicked();
     void addPanClicked();
     void daxClicked();
@@ -82,6 +86,7 @@ signals:
     void rfGainChanged(int gain);
 
 private:
+    QString m_panId;
     void toggle();
     void updateLayout();
     void toggleBandPanel();

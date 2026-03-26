@@ -107,7 +107,7 @@ SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
     // Menu buttons — Band, ANT, DSP handled specially (sub-panels)
     struct BtnDef { QString text; int specialIdx; void (SpectrumOverlayMenu::*sig)(); };
     const BtnDef defs[] = {
-        {"+RX",      -1, &SpectrumOverlayMenu::addRxClicked},   // 0
+        {"+RX",      -1, nullptr},   // 0 — handled separately (signal has panId arg)
         {"+TNF",     -1, &SpectrumOverlayMenu::addTnfClicked},  // 1
         {"Band",      0, nullptr},   // 2 — toggleBandPanel
         {"ANT",       1, nullptr},   // 3 — toggleAntPanel
@@ -128,7 +128,9 @@ SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
             connect(btn, &QPushButton::clicked, this, &SpectrumOverlayMenu::toggleDaxPanel);
         else if (def.specialIdx == 4)
             connect(btn, &QPushButton::clicked, this, &SpectrumOverlayMenu::toggleDisplayPanel);
-        else
+        else if (def.text == "+RX")
+            connect(btn, &QPushButton::clicked, this, [this]() { emit addRxClicked(m_panId); });
+        else if (def.sig)
             connect(btn, &QPushButton::clicked, this, def.sig);
         m_menuBtns.append(btn);
     }

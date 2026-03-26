@@ -215,6 +215,11 @@ void PanadapterApplet::setSliceId(int id)
     m_titleLabel->setText(QString("Slice %1").arg(letter));
 }
 
+void PanadapterApplet::clearSliceTitle()
+{
+    m_titleLabel->clear();
+}
+
 void PanadapterApplet::setCwPanelVisible(bool visible)
 {
     m_cwPanel->setVisible(visible);

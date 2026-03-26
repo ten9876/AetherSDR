@@ -250,6 +250,32 @@ void RadioModel::addSlice()
     });
 }
 
+void RadioModel::addSliceOnPan(const QString& panId)
+{
+    if (panId.isEmpty()) { addSlice(); return; }
+
+    auto* pan = panadapter(panId);
+    double newFreq = pan ? pan->centerMhz() : 14.1;
+    const double offsetMhz = (pan ? pan->bandwidthMhz() : 0.2) * 0.2;
+    for (auto* s : m_slices) {
+        if (std::abs(s->frequency() - newFreq) < 0.005) {
+            newFreq += offsetMhz;
+            break;
+        }
+    }
+    const QString freq = QString::number(newFreq, 'f', 6);
+    const QString cmd = QString("slice create pan=%1 freq=%2").arg(panId, freq);
+
+    qCDebug(lcProtocol) << "RadioModel::addSliceOnPan:" << cmd;
+    m_connection.sendCommand(cmd, [](int code, const QString& body) {
+        if (code != 0)
+            qCWarning(lcProtocol) << "RadioModel: slice create failed, code"
+                       << Qt::hex << code << "body:" << body;
+        else
+            qCDebug(lcProtocol) << "RadioModel: new slice created, index =" << body;
+    });
+}
+
 void RadioModel::createPanadapter()
 {
     qCDebug(lcProtocol) << "RadioModel::createPanadapter: sending display panafall create";

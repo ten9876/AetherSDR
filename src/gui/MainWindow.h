@@ -75,6 +75,7 @@ private:
     void updateSplitState();
     void disableSplit();
     void wirePanadapter(PanadapterApplet* applet);
+    void setActivePanApplet(PanadapterApplet* applet);
     SpectrumWidget* spectrumForSlice(SliceModel* s) const;
     void wireVfoWidget(VfoWidget* w, SliceModel* s);
     void enableNr2WithWisdom();  // Wisdom-gated NR2 enable (shared by VFO + overlay)
