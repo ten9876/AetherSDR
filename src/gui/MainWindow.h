@@ -10,6 +10,7 @@
 #include "core/SmartLinkClient.h"
 #include "core/WanConnection.h"
 #include "core/CwDecoder.h"
+#include "core/DxClusterClient.h"
 #ifdef HAVE_SERIALPORT
 #include "core/SerialPortController.h"
 #endif
@@ -102,6 +103,7 @@ private:
     WanConnection     m_wanConnection;
     AntennaGeniusModel m_antennaGenius;
     CwDecoder         m_cwDecoder;
+    DxClusterClient   m_dxCluster;
 #ifdef HAVE_SERIALPORT
     SerialPortController m_serialPort;
 #endif

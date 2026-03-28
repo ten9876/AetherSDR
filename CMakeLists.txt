@@ -154,6 +154,7 @@ set(CORE_SOURCES
     src/core/RigctlPty.cpp
     src/core/SmartLinkClient.cpp
     src/core/WanConnection.cpp
+    src/core/DxClusterClient.cpp
     src/core/RigctlServer.cpp
     src/core/FirmwareUploader.cpp
     src/core/DvkWavTransfer.cpp
@@ -203,6 +204,7 @@ set(GUI_SOURCES
     src/gui/NetworkDiagnosticsDialog.cpp
     src/gui/MemoryDialog.cpp
     src/gui/SpotSettingsDialog.cpp
+    src/gui/DxClusterDialog.cpp
     src/gui/CwxPanel.cpp
     src/gui/DvkPanel.cpp
     src/gui/AmpApplet.cpp

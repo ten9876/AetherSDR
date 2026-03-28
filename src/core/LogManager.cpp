@@ -24,6 +24,7 @@ Q_LOGGING_CATEGORY(lcTransmit,   "aether.transmit",    QtWarningMsg)
 Q_LOGGING_CATEGORY(lcFirmware,   "aether.firmware",    QtWarningMsg)
 Q_LOGGING_CATEGORY(lcTuner,      "aether.tuner",       QtWarningMsg)
 Q_LOGGING_CATEGORY(lcGui,        "aether.gui",         QtWarningMsg)
+Q_LOGGING_CATEGORY(lcDxCluster,  "aether.dxcluster",   QtWarningMsg)
 
 LogManager::LogManager()
 {
@@ -44,6 +45,7 @@ LogManager::LogManager()
         {"aether.firmware",   "Firmware",     "Firmware download, staging, upload"},
         {"aether.tuner",      "Tuner/AGM",    "TGXL tuner, Antenna Genius state"},
         {"aether.gui",        "GUI",          "Window, applets, dialogs"},
+        {"aether.dxcluster",  "DX Cluster",   "DX cluster telnet connection and spot parsing"},
     };
 
     // QLoggingCategory objects are defined above via Q_LOGGING_CATEGORY macros.

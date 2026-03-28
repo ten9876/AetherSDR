@@ -23,6 +23,7 @@
 #include "NetworkDiagnosticsDialog.h"
 #include "MemoryDialog.h"
 #include "SpotSettingsDialog.h"
+#include "DxClusterDialog.h"
 #include "CwxPanel.h"
 #include "DvkPanel.h"
 #include "core/DvkWavTransfer.h"
@@ -217,6 +218,27 @@ MainWindow::MainWindow(QWidget* parent)
     });
     connect(&m_wanConnection, &WanConnection::errorOccurred, this, [this](const QString& err) {
         m_connPanel->setStatusText("SmartLink error: " + err);
+    });
+
+    // ── DX Cluster — forward parsed spots to radio ──────────────────────
+    connect(&m_dxCluster, &DxClusterClient::spotReceived,
+            this, [this](const DxSpot& spot) {
+        if (!m_radioModel.isConnected()) return;
+        // Build spot add command matching FlexLib Radio.cs field order
+        QString call = QString(spot.dxCall).replace(' ', QChar(0x7f));
+        QString freq = QString::number(spot.freqMhz, 'f', 6);
+        QString cmd = "spot add callsign=" + call + " rx_freq=" + freq
+                     + " tx_freq=" + freq
+                     + " source=DXCluster"
+                     + " spotter_callsign=" + spot.spotterCall
+                     + " lifetime_seconds=1800";
+        if (!spot.comment.isEmpty())
+            cmd += " comment=" + QString(spot.comment).replace(' ', QChar(0x7f));
+        m_radioModel.sendCmdPublic(cmd, [cmd](int code, const QString& body) {
+            if (code != 0)
+                qWarning() << "DX Cluster: spot add failed, code:" << Qt::hex << code
+                           << "body:" << body << "cmd:" << cmd;
+        });
     });
 
     // ── Wire up radio model ────────────────────────────────────────────────
@@ -1230,6 +1252,17 @@ void MainWindow::buildMenuBar()
         dlg.exec();
         refreshSpots();  // final refresh on close
     });
+    auto* dxClusterAction = settingsMenu->addAction("DX Cluster...");
+    connect(dxClusterAction, &QAction::triggered, this, [this] {
+        DxClusterDialog dlg(&m_dxCluster, this);
+        connect(&dlg, &DxClusterDialog::connectRequested,
+                this, [this](const QString& host, quint16 port, const QString& call) {
+            m_dxCluster.connectToCluster(host, port, call);
+        });
+        connect(&dlg, &DxClusterDialog::disconnectRequested,
+                this, [this] { m_dxCluster.disconnect(); });
+        dlg.exec();
+    });
     settingsMenu->addAction("multiFLEX...");
     auto* txBandAct = settingsMenu->addAction("TX Band Settings...");
     connect(txBandAct, &QAction::triggered, this, [this] {
@@ -1970,7 +2003,19 @@ void MainWindow::onConnectionStateChanged(bool connected)
             });
         }
 #endif
+        // Auto-connect DX cluster if enabled
+        {
+            auto& cs = AppSettings::instance();
+            if (cs.value("DxClusterAutoConnect", "False").toString() == "True") {
+                QString host = cs.value("DxClusterHost", "dxc.nc7j.com").toString();
+                quint16 cPort = static_cast<quint16>(cs.value("DxClusterPort", 7300).toInt());
+                QString call = cs.value("DxClusterCallsign").toString();
+                if (!call.isEmpty() && !m_dxCluster.isConnected())
+                    m_dxCluster.connectToCluster(host, cPort, call);
+            }
+        }
     } else {
+        m_dxCluster.disconnect();
         m_connStatusLabel->setText("Disconnected");
         m_radioInfoLabel->setText("");
         m_radioVersionLabel->setText("");
