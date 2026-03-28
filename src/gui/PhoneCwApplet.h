@@ -24,6 +24,9 @@ public:
 
     void setTransmitModel(TransmitModel* model);
 
+signals:
+    void micLevelChanged(int level);  // slider value 0-100
+
 public slots:
     // Phone meters (mic level / compression)
     void updateMeters(float micLevel, float compLevel,

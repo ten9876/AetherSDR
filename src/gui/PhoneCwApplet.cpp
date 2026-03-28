@@ -208,6 +208,7 @@ void PhoneCwApplet::buildPhonePanel()
             m_micLevelLabel->setText(QString::number(v));
             if (!m_updatingFromModel && m_model)
                 m_model->setMicLevel(v);
+            emit micLevelChanged(v);
         });
 
         connect(m_accBtn, &QPushButton::toggled, this, [this](bool on) {

@@ -425,6 +425,12 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel, &RadioModel::remoteTxStreamReady,
             this, [this](quint32 streamId) {
         m_audio.setRemoteTxStreamId(streamId);
+        // Restore PC mic gain from client-side settings (radio has no
+        // hardware gain stage for PC input — client-authoritative)
+        if (m_radioModel.transmitModel()->micSelection() == "PC") {
+            int gain = AppSettings::instance().value("PcMicGain", 100).toInt();
+            m_audio.setPcMicGain(gain);
+        }
         qDebug() << "MainWindow: remote audio TX stream ID set to" << Qt::hex << streamId;
         // Ensure mic TX stream is running for VOX monitoring
         if (!m_audio.isTxStreaming()) {
@@ -445,6 +451,16 @@ MainWindow::MainWindow(QWidget* parent)
             }
         } else {
             m_audio.stopTxStream();
+        }
+    });
+    // Sync PC mic gain directly from slider (radio ignores mic_level for PC input)
+    connect(m_appletPanel->phoneCwApplet(), &PhoneCwApplet::micLevelChanged,
+            this, [this](int level) {
+        if (m_radioModel.transmitModel()->micSelection() == "PC") {
+            m_audio.setPcMicGain(level);
+            auto& s = AppSettings::instance();
+            s.setValue("PcMicGain", level);
+            s.save();
         }
     });
 

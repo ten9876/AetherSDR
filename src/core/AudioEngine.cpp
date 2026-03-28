@@ -609,6 +609,16 @@ void AudioEngine::onTxAudioReady()
     // DAX TX mode: VirtualAudioBridge is the TX audio source.
     if (m_daxTxMode) return;
 
+    // ── Apply client-side PC mic gain ────────────────────────────────────
+    // mic_level slider (0-100) maps to 0.0-1.0 gain on raw PCM.
+    // Applied before metering so the meter reflects the actual level sent.
+    if (m_pcMicGain < 0.999f) {
+        auto* pcm = reinterpret_cast<int16_t*>(data.data());
+        int sampleCount = data.size() / sizeof(int16_t);
+        for (int i = 0; i < sampleCount; ++i)
+            pcm[i] = static_cast<int16_t>(qBound(-32768, static_cast<int>(pcm[i] * m_pcMicGain), 32767));
+    }
+
     // ── Client-side PC mic level metering ────────────────────────────────
     // Accumulate peak and RMS over a ~50ms window, then emit once.
     // Only used when mic_selection=PC (gated in MainWindow).

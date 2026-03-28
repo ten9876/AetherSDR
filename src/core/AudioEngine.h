@@ -68,6 +68,9 @@ public:
     void setMuted(bool m);
     bool isTxStreaming() const { return m_audioSource != nullptr; }
 
+    // Client-side PC mic gain (0-100 → 0.0-1.0, applied before Opus encoding)
+    void setPcMicGain(int level) { m_pcMicGain = qBound(0, level, 100) / 100.0f; }
+
     // Opus TX encoding for SmartLink compressed audio
     void setOpusTxEnabled(bool on) { m_opusTxEnabled = on; }
     bool isOpusTxEnabled() const { return m_opusTxEnabled; }
@@ -167,6 +170,7 @@ private:
     QByteArray    m_voxAccumulator;     // accumulate PCM for VOX/met_in_rx stream
     QByteArray    m_txFloatAccumulator;  // accumulate float32 PCM for RADE modem TX
     std::atomic<bool> m_radeMode{false}; // RADE digital voice mode active (atomic: cross-thread)
+    float         m_pcMicGain{1.0f};     // client-side PC mic gain (0.0-1.0)
     bool          m_daxTxMode{false};    // DAX TX mode: VirtualAudioBridge handles TX
     bool          m_transmitting{false}; // true when radio is in TX (MOX on)
     bool          m_opusTxEnabled{false}; // Opus TX encoding for SmartLink
