@@ -52,31 +52,26 @@ void RadioConnection::disconnectFromRadio()
     m_heartbeat.stop();
     if (m_socket.state() != QAbstractSocket::UnconnectedState)
         m_socket.disconnectFromHost();
-    m_pendingCallbacks.clear();
     m_seqCounter = 1;
     m_handle = 0;
 }
 
 // ─── Command dispatch ─────────────────────────────────────────────────────────
 
-quint32 RadioConnection::sendCommand(const QString& command, ResponseCallback callback)
+void RadioConnection::writeCommand(quint32 seq, const QString& command)
 {
     if (!isConnected()) {
-        qCWarning(lcConnection) << "RadioConnection::sendCommand: not connected";
-        return 0;
+        qCWarning(lcConnection) << "RadioConnection::writeCommand: not connected, dropping seq" << seq;
+        return;
     }
-    const quint32 seq = m_seqCounter.fetch_add(1);
-    if (callback)
-        m_pendingCallbacks.insert(seq, std::move(callback));
-
     const QByteArray data = CommandParser::buildCommand(seq, command);
     if (command.startsWith("ping")) {
         m_lastPingSeq = seq;
+        m_pingStopwatch.restart();   // start RTT clock here in the worker thread
     } else {
         qCDebug(lcConnection) << "TX:" << data.trimmed();
     }
     m_socket.write(data);
-    return seq;
 }
 
 // ─── Socket slots ─────────────────────────────────────────────────────────────
@@ -150,7 +145,7 @@ void RadioConnection::processLine(const QString& line)
         break;
 
     case MessageType::Handle:
-        m_handle = msg.handle;
+        m_handle.store(msg.handle, std::memory_order_relaxed);
         qCDebug(lcConnection) << "RadioConnection: assigned handle" << QString::number(m_handle, 16);
         setState(ConnectionState::Connected);
         m_heartbeat.start();
@@ -161,11 +156,11 @@ void RadioConnection::processLine(const QString& line)
         break;
 
     case MessageType::Response: {
-        auto it = m_pendingCallbacks.find(msg.sequence);
-        if (it != m_pendingCallbacks.end()) {
-            it.value()(msg.resultCode, msg.object);
-            m_pendingCallbacks.erase(it);
-        }
+        // Measure ping RTT entirely in the worker thread for true network latency.
+        if (m_lastPingSeq && msg.sequence == m_lastPingSeq && m_pingStopwatch.isValid())
+            emit pingRttMeasured(static_cast<int>(m_pingStopwatch.elapsed()));
+        // Dispatch response to RadioModel via queued signal (safe cross-thread).
+        emit responseArrived(msg.sequence, msg.resultCode, msg.object);
         break;
     }
 

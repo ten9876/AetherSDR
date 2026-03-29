@@ -11,6 +11,12 @@ namespace AetherSDR {
 RadioModel::RadioModel(QObject* parent)
     : QObject(parent)
 {
+    // Move the TCP connection to its own thread so socket reads fire immediately,
+    // independent of how busy the UI event loop is.  All signals from m_connection
+    // cross the thread boundary automatically via Qt's queued-connection mechanism.
+    m_connection.moveToThread(&m_connThread);
+    m_connThread.start();
+
     connect(&m_connection, &RadioConnection::statusReceived,
             this, &RadioModel::onStatusReceived);
     connect(&m_connection, &RadioConnection::messageReceived,
@@ -23,6 +29,26 @@ RadioModel::RadioModel(QObject* parent)
             this, &RadioModel::onConnectionError);
     connect(&m_connection, &RadioConnection::versionReceived,
             this, &RadioModel::onVersionReceived);
+
+    // Dispatch response callbacks on the main thread.
+    connect(&m_connection, &RadioConnection::responseArrived,
+            this, [this](quint32 seq, int code, QString body) {
+        auto it = m_pendingCallbacks.find(seq);
+        if (it != m_pendingCallbacks.end()) {
+            auto cb = std::move(it.value());
+            m_pendingCallbacks.erase(it);
+            cb(code, body);
+        }
+    });
+
+    // Receive true network RTT measured in the worker thread.
+    connect(&m_connection, &RadioConnection::pingRttMeasured,
+            this, [this](int ms) {
+        m_pingMissCount = 0;
+        m_lastPingRtt = ms;
+        evaluateNetworkQuality();
+        emit pingReceived();
+    });
 
     // Forward VITA-49 meter packets to MeterModel
     connect(&m_panStream, &PanadapterStream::meterDataReady,
@@ -91,12 +117,22 @@ RadioModel::RadioModel(QObject* parent)
     connect(&m_reconnectTimer, &QTimer::timeout, this, [this]() {
         if (!m_intentionalDisconnect && !m_lastInfo.address.isNull()) {
             qCDebug(lcProtocol) << "RadioModel: auto-reconnecting to" << m_lastInfo.address.toString();
-            m_connection.connectToRadio(m_lastInfo);
+            const RadioInfo info = m_lastInfo;
+            QMetaObject::invokeMethod(&m_connection, [this, info]() {
+                m_connection.connectToRadio(info);
+            }, Qt::QueuedConnection);
         } else {
             m_reconnectTimer.stop();
         }
     });
 
+}
+
+RadioModel::~RadioModel()
+{
+    // Stop the worker thread cleanly before RadioConnection is destroyed.
+    m_connThread.quit();
+    m_connThread.wait();
 }
 
 bool RadioModel::isConnected() const
@@ -131,7 +167,9 @@ void RadioModel::connectToRadio(const RadioInfo& info)
             : (i < info.guiClientPrograms.size() ? info.guiClientPrograms[i] : "Unknown");
         m_clientStations[h] = station;
     }
-    m_connection.connectToRadio(info);
+    QMetaObject::invokeMethod(&m_connection, [this, info]() {
+        m_connection.connectToRadio(info);
+    }, Qt::QueuedConnection);
 }
 
 void RadioModel::connectViaWan(WanConnection* wan, const QString& publicIp, quint16 udpPort)
@@ -178,7 +216,10 @@ void RadioModel::disconnectFromRadio()
         m_wanConn->disconnectFromRadio();
         m_wanConn = nullptr;
     } else {
-        m_connection.disconnectFromRadio();
+        m_pendingCallbacks.clear();
+        QMetaObject::invokeMethod(&m_connection, [this]() {
+            m_connection.disconnectFromRadio();
+        }, Qt::QueuedConnection);
     }
 }
 
@@ -186,7 +227,10 @@ void RadioModel::forceDisconnect()
 {
     // Close TCP without setting m_intentionalDisconnect — allows auto-reconnect
     // when the radio reappears in discovery or via the repeating reconnect timer.
-    m_connection.disconnectFromRadio();
+    m_pendingCallbacks.clear();
+    QMetaObject::invokeMethod(&m_connection, [this]() {
+        m_connection.disconnectFromRadio();
+    }, Qt::QueuedConnection);
 }
 
 void RadioModel::setTransmit(bool tx)
@@ -249,7 +293,7 @@ void RadioModel::addSlice()
     const QString cmd = QString("slice create pan=%1 freq=%2").arg(m_activePanId, freq);
 
     qCDebug(lcProtocol) << "RadioModel::addSlice:" << cmd;
-    m_connection.sendCommand(cmd, [](int code, const QString& body) {
+    sendCmd(cmd, [](int code, const QString& body) {
         if (code != 0)
             qCWarning(lcProtocol) << "RadioModel: slice create failed, code"
                        << Qt::hex << code << "body:" << body;
@@ -275,7 +319,7 @@ void RadioModel::addSliceOnPan(const QString& panId)
     const QString cmd = QString("slice create pan=%1 freq=%2").arg(panId, freq);
 
     qCDebug(lcProtocol) << "RadioModel::addSliceOnPan:" << cmd;
-    m_connection.sendCommand(cmd, [](int code, const QString& body) {
+    sendCmd(cmd, [](int code, const QString& body) {
         if (code != 0)
             qCWarning(lcProtocol) << "RadioModel: slice create failed, code"
                        << Qt::hex << code << "body:" << body;
@@ -844,15 +888,10 @@ void RadioModel::startNetworkMonitor()
             forceDisconnect();
             return;
         }
-        // Send ping and measure RTT
-        m_pingStopwatch.restart();
-        sendCmd("ping", [this](int code, const QString&) {
-            if (code != 0) return;
-            m_pingMissCount = 0;  // reset on successful response
-            m_lastPingRtt = static_cast<int>(m_pingStopwatch.elapsed());
-            evaluateNetworkQuality();
-            emit pingReceived();
-        });
+        // Send ping — RTT is measured in the worker thread and delivered
+        // via the pingRttMeasured signal, which updates m_lastPingRtt and
+        // calls evaluateNetworkQuality() on the main thread.
+        sendCmd("ping");
     });
     m_pingTimer.start(1000);
 }
@@ -1095,7 +1134,16 @@ quint32 RadioModel::sendCmd(const QString& command, ResponseCallback cb)
 {
     if (m_wanConn)
         return m_wanConn->sendCommand(command, std::move(cb));
-    return m_connection.sendCommand(command, std::move(cb));
+
+    // Allocate seq on the main thread (atomic), store the callback here,
+    // then post the actual socket write to the worker thread.
+    const quint32 seq = m_connection.nextSeq();
+    if (cb)
+        m_pendingCallbacks.insert(seq, std::move(cb));
+    QMetaObject::invokeMethod(&m_connection, [this, seq, cmd = command]() {
+        m_connection.writeCommand(seq, cmd);
+    }, Qt::QueuedConnection);
+    return seq;
 }
 
 quint32 RadioModel::clientHandle() const

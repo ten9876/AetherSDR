@@ -9,6 +9,7 @@
 #include <QString>
 #include <QHostAddress>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <functional>
 #include <atomic>
 
@@ -26,8 +27,8 @@ enum class ConnectionState {
 //
 // Usage:
 //   RadioConnection conn;
-//   conn.connectToRadio(radioInfo);
-//   conn.sendCommand("sub slice all");
+//   conn.moveToThread(&workerThread);
+//   conn.connectToRadio(radioInfo);    // invoke via QMetaObject from main thread
 //   connect(&conn, &RadioConnection::statusReceived, this, &MyClass::onStatus);
 class RadioConnection : public QObject {
     Q_OBJECT
@@ -49,11 +50,13 @@ public:
     void connectToHost(const QHostAddress& address, quint16 port = 4992);
     void disconnectFromRadio();
 
-    // Send a command, returns the sequence number assigned.
-    // Optional callback is called when the R response arrives.
-    using ResponseCallback = std::function<void(int resultCode, const QString& body)>;
-    quint32 sendCommand(const QString& command,
-                        ResponseCallback callback = nullptr);
+    // Write a pre-sequenced command to the socket.
+    // Must be called from the thread that owns this object.
+    // Use nextSeq() to allocate a sequence number from any thread.
+    void writeCommand(quint32 seq, const QString& command);
+
+    // Allocate the next sequence number. Thread-safe (atomic).
+    quint32 nextSeq() { return m_seqCounter.fetch_add(1); }
 
 signals:
     void stateChanged(ConnectionState state);
@@ -68,6 +71,14 @@ signals:
     void statusReceived(const QString& object, const QMap<QString, QString>& kvs);
     void versionReceived(const QString& version);
 
+    // Emitted when a response arrives (replaces callback mechanism).
+    // When RadioConnection runs in a worker thread this signal is queued,
+    // so the slot fires on the receiver's thread automatically.
+    void responseArrived(quint32 seq, int resultCode, QString body);
+
+    // True network RTT measured entirely inside the worker thread.
+    void pingRttMeasured(int ms);
+
 private slots:
     void onSocketConnected();
     void onSocketDisconnected();
@@ -79,16 +90,15 @@ private:
     void processLine(const QString& line);
     void setState(ConnectionState s);
 
-    QTcpSocket  m_socket;
-    QByteArray  m_readBuffer;
-    QTimer      m_heartbeat;
+    QTcpSocket    m_socket;
+    QByteArray    m_readBuffer;
+    QTimer        m_heartbeat;
+    QElapsedTimer m_pingStopwatch;   // started at write, stopped at read — worker thread only
 
-    ConnectionState m_state{ConnectionState::Disconnected};
-    quint32 m_handle{0};
-    std::atomic<quint32> m_seqCounter{1};
-    quint32 m_lastPingSeq{0};
-
-    QMap<quint32, ResponseCallback> m_pendingCallbacks;
+    ConnectionState          m_state{ConnectionState::Disconnected};
+    std::atomic<quint32>     m_handle{0};
+    std::atomic<quint32>     m_seqCounter{1};
+    quint32                  m_lastPingSeq{0};
 };
 
 } // namespace AetherSDR

@@ -48,6 +48,8 @@ struct MemoryEntry {
 } // namespace AetherSDR
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QThread>
+#include <functional>
 
 namespace AetherSDR {
 
@@ -66,6 +68,7 @@ class RadioModel : public QObject {
 
 public:
     explicit RadioModel(QObject* parent = nullptr);
+    ~RadioModel() override;
 
     // Access the underlying connection and panadapter stream
     RadioConnection*  connection()  { return &m_connection; }
@@ -299,7 +302,7 @@ private:
     void registerAsGuiClient(const QString& clientId);
 
     // Route command to active connection (LAN or WAN)
-    using ResponseCallback = RadioConnection::ResponseCallback;
+    using ResponseCallback = std::function<void(int resultCode, const QString& body)>;
     quint32 sendCmd(const QString& command, ResponseCallback cb = nullptr);
     quint32 clientHandle() const;
     void updateStreamFilters();
@@ -311,6 +314,8 @@ private:
                             const QString& mode    = "USB",
                             const QString& antenna = "ANT1");
 
+    QThread          m_connThread;       // RadioConnection lives here
+    QMap<quint32, ResponseCallback> m_pendingCallbacks;  // main-thread only
     RadioConnection  m_connection;
     PanadapterStream m_panStream;
     MeterModel       m_meterModel;
@@ -481,8 +486,7 @@ private:
     static constexpr int LAN_PING_POOR_MS = 100;
 
     QTimer        m_pingTimer;           // 1-second interval
-    QElapsedTimer m_pingStopwatch;       // measures RTT
-    int           m_lastPingRtt{0};      // ms
+    int           m_lastPingRtt{0};      // ms — updated via pingRttMeasured signal
     int           m_maxPingRtt{0};       // max RTT seen this session
     int           m_lastErrorCount{0};   // snapshot for delta
     NetState      m_netState{NetState::Off};
