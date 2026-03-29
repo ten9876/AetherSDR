@@ -237,6 +237,50 @@ widgets for consistency.
 - Reference issues: `Fixes #42` or `Closes #42`.
 - Blank line then longer description if needed.
 
+### Commit Signing
+
+All commits to `main` must be GPG-signed. Unsigned commits will be rejected
+by branch protection. Each contributor uses their own personal GPG key — do
+NOT use the project release signing key for commits.
+
+#### Quick Setup
+
+1. **Generate a GPG key** (if you don't already have one):
+   ```bash
+   gpg --quick-gen-key "Your Name <your-email@example.com>" ed25519 sign 0
+   ```
+
+2. **Add the key to your GitHub account:**
+   ```bash
+   # Copy your public key
+   gpg --armor --export <KEY_ID>
+   ```
+   Paste the output at [GitHub → Settings → SSH and GPG keys → New GPG key](https://github.com/settings/gpg/new).
+
+3. **Configure git to sign commits:**
+   ```bash
+   git config --global user.signingkey <KEY_ID>
+   git config --global commit.gpgsign true
+   ```
+
+4. **Verify it works:**
+   ```bash
+   git commit --allow-empty -m "Test signed commit"
+   git log --show-signature -1
+   ```
+
+Your commits will show a green "Verified" badge on GitHub.
+
+#### Troubleshooting
+
+If `gpg` prompts for a passphrase but hangs in a terminal, set the GPG TTY:
+
+```bash
+echo 'export GPG_TTY=$(tty)' >> ~/.bashrc   # or ~/.zshrc
+```
+
+For GUI-based passphrase entry, install `pinentry-gnome3` or `pinentry-qt`.
+
 ---
 
 ## What We Will Not Accept

@@ -315,6 +315,24 @@ The codebase is modular — each subsystem (core protocol, models, GUI widgets) 
 
 ---
 
+## Verifying Downloads
+
+Linux AppImages and source archives are GPG-signed. macOS artifacts are Apple
+notarized. Each release includes detached signatures (`.asc`) and a signed
+`SHA256SUMS.txt`. All commits on `main` are signed by their authors.
+
+```bash
+# Import the public key
+curl -sSL https://raw.githubusercontent.com/ten9876/AetherSDR/main/docs/RELEASE-SIGNING-KEY.pub.asc | gpg --import
+
+# Verify a download
+gpg --verify AetherSDR-v1.0.0-x86_64.AppImage.asc AetherSDR-v1.0.0-x86_64.AppImage
+```
+
+See [docs/VERIFYING-RELEASES.md](docs/VERIFYING-RELEASES.md) for full instructions.
+
+---
+
 ## License
 
 AetherSDR is free and open-source software licensed under the [GNU General Public License v3](LICENSE).

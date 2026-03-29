@@ -1,0 +1,91 @@
+name: Sign Release Artifacts
+
+# GPG signs Linux AppImage and source archives only.
+# macOS artifacts are signed via Apple codesign + notarization.
+# Windows artifacts will be signed via a separate authority.
+
+on:
+  workflow_run:
+    workflows: ["AppImage"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to sign (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  sign:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p artifacts
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --dir artifacts --pattern '*.AppImage'
+
+      - name: Generate source archive
+        run: |
+          git archive --format=tar.gz --prefix="AetherSDR-${{ steps.tag.outputs.tag }}/" \
+            HEAD > "artifacts/AetherSDR-${{ steps.tag.outputs.tag }}-source.tar.gz"
+
+      - name: Import GPG key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          KEY_FP=$(gpg --list-secret-keys --with-colons | grep fpr | head -1 | cut -d: -f10)
+          echo "${KEY_FP}:6:" | gpg --import-ownertrust
+
+      - name: Generate SHA256SUMS
+        working-directory: artifacts
+        run: |
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Sign artifacts (detached .asc)
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        working-directory: artifacts
+        run: |
+          for file in *.AppImage *.tar.gz; do
+            [ -f "$file" ] || continue
+            gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$GPG_PASSPHRASE" \
+              --detach-sign --armor "$file"
+            echo "Signed: $file -> ${file}.asc"
+          done
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$GPG_PASSPHRASE" \
+            --detach-sign --armor SHA256SUMS.txt
+
+      - name: Upload signatures to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.tag.outputs.tag }}" \
+            artifacts/*.asc artifacts/SHA256SUMS.txt \
+            artifacts/*-source.tar.gz \
+            --clobber
