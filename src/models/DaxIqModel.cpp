@@ -6,8 +6,10 @@
 #include <QtEndian>
 #include <cmath>
 #include <cstring>
+#ifndef Q_OS_WIN
 #include <unistd.h>
 #include <fcntl.h>
+#endif
 
 namespace AetherSDR {
 
@@ -150,16 +152,19 @@ DaxIqWorker::DaxIqWorker(QObject* parent)
 
 DaxIqWorker::~DaxIqWorker()
 {
+#ifndef Q_OS_WIN
     for (int i = 0; i < DaxIqModel::NUM_CHANNELS; ++i) {
         if (m_pipeFds[i] >= 0) {
             ::close(m_pipeFds[i]);
             m_pipeFds[i] = -1;
         }
     }
+#endif
 }
 
 void DaxIqWorker::createPipe(int channel, int sampleRate)
 {
+#ifndef Q_OS_WIN
     int idx = channel - 1;
     if (idx < 0 || idx >= DaxIqModel::NUM_CHANNELS) return;
     if (m_pipeFds[idx] >= 0) destroyPipe(channel);
@@ -188,10 +193,14 @@ void DaxIqWorker::createPipe(int channel, int sampleRate)
     m_pipeFds[idx] = fd;
     qCDebug(lcAudio) << "DaxIqWorker: opened IQ pipe ch" << channel
                       << "rate" << sampleRate;
+#else
+    Q_UNUSED(channel); Q_UNUSED(sampleRate);
+#endif
 }
 
 void DaxIqWorker::destroyPipe(int channel)
 {
+#ifndef Q_OS_WIN
     int idx = channel - 1;
     if (idx < 0 || idx >= DaxIqModel::NUM_CHANNELS) return;
     if (m_pipeFds[idx] >= 0) {
@@ -203,6 +212,9 @@ void DaxIqWorker::destroyPipe(int channel)
         "pactl list short modules | grep aethersdr-iq-%1 | awk '{print $1}' | "
         "xargs -r -n1 pactl unload-module").arg(channel);
     QProcess::startDetached("bash", {"-c", cmd});
+#else
+    Q_UNUSED(channel);
+#endif
 }
 
 void DaxIqWorker::processIqPacket(int channel, const QByteArray& rawPayload, int sampleRate)
@@ -238,10 +250,12 @@ void DaxIqWorker::processIqPacket(int channel, const QByteArray& rawPayload, int
         m_sumSq[idx] = 0.0;
     }
 
-    // Write to pipe (non-blocking)
+    // Write to pipe (non-blocking, Linux/macOS only)
+#ifndef Q_OS_WIN
     if (m_pipeFds[idx] >= 0) {
         ::write(m_pipeFds[idx], swapped.constData(), swapped.size());
     }
+#endif
 }
 
 } // namespace AetherSDR
