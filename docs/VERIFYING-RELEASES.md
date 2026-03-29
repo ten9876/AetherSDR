@@ -15,9 +15,7 @@ Linux and source artifacts.
 
 ## GPG Key Fingerprint
 
-<!-- TODO: Replace with actual fingerprint after key generation -->
-
-    XXXX XXXX XXXX XXXX XXXX  XXXX XXXX XXXX XXXX XXXX
+    B765 6E6B CB2E 022B 79F0  F97B 5578 D10E 3D59 18F3
 
 ## Import the Public Key
 
