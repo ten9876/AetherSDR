@@ -16,7 +16,9 @@ static const QVector<PanLayout> kAllLayouts = {
     {"2h",  "A | B",       2, {{1, 1}}},
     {"2h1", "A|B / C",     3, {{1, 1}, {1}}},
     {"12h", "A / B|C",     3, {{1}, {1, 1}}},
+    {"3v",  "A / B / C",   3, {{1}, {1}, {1}}},
     {"2x2", "A|B / C|D",   4, {{1, 1}, {1, 1}}},
+    {"4v",  "A/B/C/D",     4, {{1}, {1}, {1}, {1}}},
     {"1",   "Single",      1, {{1}}},
 };
 
@@ -104,7 +106,7 @@ PanLayoutDialog::PanLayoutDialog(int maxPans, const QString& currentLayout,
     setWindowTitle("Panadapter Layout");
     setStyleSheet("QDialog { background: #0f0f1a; }"
                   "QLabel { color: #c8d8e8; }");
-    setFixedSize(420, 320);
+    setFixedSize(560, 360);
     buildUI(maxPans, currentLayout);
 }
 

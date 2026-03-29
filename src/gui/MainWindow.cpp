@@ -3904,7 +3904,8 @@ void MainWindow::applyPanLayout(const QString& layoutId)
     if (!m_radioModel.isConnected()) return;
 
     static const QMap<QString, int> kPanCounts = {
-        {"1", 1}, {"2v", 2}, {"2h", 2}, {"2h1", 3}, {"12h", 3}, {"2x2", 4}
+        {"1", 1}, {"2v", 2}, {"2h", 2}, {"2h1", 3}, {"12h", 3}, {"3v", 3},
+        {"2x2", 4}, {"4v", 4}
     };
     const int needed = kPanCounts.value(layoutId, 1);
     const int existing = m_panStack->count();

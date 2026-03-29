@@ -175,6 +175,12 @@ void PanadapterStack::rearrangeLayout(const QString& layoutId)
         botSplit->addWidget(applets[2]);
         m_splitter->addWidget(botSplit);
     }
+    else if (layoutId == "3v" && applets.size() >= 3) {
+        // A / B / C vertical stack
+        m_splitter->addWidget(applets[0]);
+        m_splitter->addWidget(applets[1]);
+        m_splitter->addWidget(applets[2]);
+    }
     else if (layoutId == "2x2" && applets.size() >= 4) {
         // A|B on top, C|D on bottom
         auto* topSplit = new QSplitter(Qt::Horizontal);
@@ -189,6 +195,13 @@ void PanadapterStack::rearrangeLayout(const QString& layoutId)
         botSplit->addWidget(applets[2]);
         botSplit->addWidget(applets[3]);
         m_splitter->addWidget(botSplit);
+    }
+    else if (layoutId == "4v" && applets.size() >= 4) {
+        // A / B / C / D vertical stack
+        m_splitter->addWidget(applets[0]);
+        m_splitter->addWidget(applets[1]);
+        m_splitter->addWidget(applets[2]);
+        m_splitter->addWidget(applets[3]);
     }
     else {
         // Default: vertical stack (2v, 1, or fallback)
@@ -339,6 +352,19 @@ void PanadapterStack::applyLayout(const QString& layoutId, const QStringList& pa
         m_splitter->setStretchFactor(1, 1);
 
         if (m_activePanId.isEmpty()) setActivePan(panIds[0]);
+    }
+    else if (layoutId == "3v" && panIds.size() >= 3) {
+        // A / B / C — vertical stack
+        addPanadapter(panIds[0]);
+        addPanadapter(panIds[1]);
+        addPanadapter(panIds[2]);
+    }
+    else if (layoutId == "4v" && panIds.size() >= 4) {
+        // A / B / C / D — vertical stack
+        addPanadapter(panIds[0]);
+        addPanadapter(panIds[1]);
+        addPanadapter(panIds[2]);
+        addPanadapter(panIds[3]);
     }
 }
 
