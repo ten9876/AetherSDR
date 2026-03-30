@@ -863,11 +863,13 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_audio, &AudioEngine::rn2EnabledChanged, this, syncRn2);
     connect(&m_audio, &AudioEngine::bnrEnabledChanged, this, syncBnr);
     // NR2/RN2 overlay sync is wired in wirePanadapter()
-    // RxApplet NR button 3-state cycle → NR2 enable/disable
+    // RxApplet NR button 3-state cycle → NR2 enable/disable (#329)
     connect(m_appletPanel->rxApplet(), &RxApplet::nr2CycleToggled,
             this, [this](bool on) {
-        if (auto* vfo = spectrum()->vfoWidget())
-            vfo->nr2Button()->setChecked(on);
+        if (on)
+            enableNr2WithWisdom();
+        else
+            m_audio.setNr2Enabled(false);
     });
     // Sync RxApplet NR button visual when NR2 state changes
     connect(&m_audio, &AudioEngine::nr2EnabledChanged,
