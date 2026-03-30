@@ -81,6 +81,7 @@ quint32 WanConnection::sendCommand(const QString& command, ResponseCallback call
     const QByteArray data = CommandParser::buildCommand(seq, command);
     if (command.startsWith("ping")) {
         m_lastPingSeq = seq;
+        m_pingStopwatch.restart();
     } else {
         qCDebug(lcSmartLink) << "WAN TX:" << data.trimmed();
     }
@@ -158,6 +159,10 @@ void WanConnection::processLine(const QString& line)
     bool isPingReply = false;
     if (m_lastPingSeq && line.startsWith("R")) {
         isPingReply = line.startsWith(QString("R%1|").arg(m_lastPingSeq));
+        if (isPingReply) {
+            emit pingRttMeasured(static_cast<int>(m_pingStopwatch.elapsed()));
+            m_lastPingSeq = 0;
+        }
     }
     if (!isGps && !isPingReply)
         qCDebug(lcSmartLink) << "WAN RX:" << line;

@@ -1127,7 +1127,7 @@ MainWindow::MainWindow(QWidget* parent)
         } else if (actionName == "StepDown") {
             if (auto* rx = m_appletPanel->rxApplet()) rx->cycleStepDown();
         } else if (actionName == "ToggleMox") {
-            m_radioModel.setTransmit(!m_radioModel.transmitModel()->isMox());
+            m_radioModel.setTransmit(!m_radioModel.transmitModel()->isTransmitting());
         } else if (actionName == "ToggleTune") {
             bool tuning = m_radioModel.transmitModel()->isTuning();
             m_radioModel.sendCommand(QString("transmit tune %1").arg(tuning ? 0 : 1));

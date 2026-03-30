@@ -267,6 +267,7 @@ This places `AetherSDR` in `/usr/local/bin`, the `.desktop` file in the app laun
 
 ### Shipped
 - [x] DAX audio channels — Linux (PulseAudio/PipeWire pipe modules), macOS (CoreAudio HAL plugin)
+- [x] DAX IQ streaming for SDR apps (SDR#, GQRX, GNU Radio) — 4 channels at 24/48/96/192 kHz (#124)
 - [x] SmartLink Opus audio compression with Auto/None/Opus toggle
 - [x] Multi-slice support with color-coded markers and independent TX assignment
 - [x] CW decoder (ggmorse) with confidence-colored text
@@ -279,6 +280,7 @@ This places `AetherSDR` in `/usr/local/bin`, the `.desktop` file in the app laun
 - [x] Opus compressed audio for SmartLink WAN
 - [x] Per-module diagnostic logging (Help → Support)
 - [x] macOS code signing and notarization
+- [x] GPG release signing (Linux AppImage, Windows binaries, source archives)
 - [x] Windows Inno Setup installer
 - [x] Digital mode frequency markers (FT8/FT4/WSPR/JS8Call/PSK31/RTTY, verified against WSJT-X)
 - [x] 3-tier TX power meters (barefoot/Aurora/PGXL)
@@ -286,18 +288,30 @@ This places `AetherSDR` in `/usr/local/bin`, the `.desktop` file in the app laun
 - [x] SmartSDR-style status bar with clickable TNF toggle
 - [x] Diversity mode (DIV) with ESC beamforming — phase/gain sliders, polar display, ESC meter (#20, #38)
 - [x] NVIDIA NIM BNR GPU noise removal — world's first GPU-accelerated AI noise removal in an SDR client (#288)
+- [x] SpotHub — DX Cluster, RBN, WSJT-X, POTA, FreeDV Reporter spot integration with density badges
+- [x] Visual keyboard shortcut manager — 45+ bindable actions, color-coded keyboard map, persistent bindings (#239)
+- [x] Click-and-drag VFO tuning inside filter passband (#404)
+- [x] Space PTT hold-to-transmit with proper TX state sync
+- [x] Per-slice record/play with TX playback for voice keyer (#164)
+- [x] Drag-reorderable applet panel with persistent order (#335)
+- [x] Collapsible applet panel with hamburger toggle (#178)
+- [x] Configurable band plan overlay size (Off/Small/Medium/Large/Huge) (#406)
+- [x] FlexControl USB tuning knob with configurable buttons (#25)
+- [x] MIDI controller mapping with Learn mode and 50+ parameters (#355)
+- [x] Panadapter click-to-spot with DX cluster forwarding (#36)
+- [x] USB cable management (CAT/BCD/Bit/Passthrough) (#40)
+- [x] Configurable tune inhibit per TX output for amplifier protection (#427)
 
 ### In Progress
-- [ ] DAX IQ streaming for SDR apps (#124)
 - [ ] SmartLink own Auth0 credentials (pending FlexRadio developer support)
 
 ### Planned
 - [ ] DAX audio channels — Windows virtual audio devices (#87)
-- [ ] Band stacking registers
-- [x] SpotHub — DX Cluster, RBN, WSJT-X, POTA spot integration with density badges
+- [ ] GPU-accelerated spectrum/waterfall via QRhi (#391)
+- [ ] Detachable/pop-out panadapter and radio panel windows (#246)
 - [ ] CW keyer memories and CWX macros (#18)
-- [ ] Keyboard shortcuts and hotkeys
 - [ ] Master PC volume control (#137)
+- [ ] Headless ASAN test infrastructure (#440)
 
 See the full [issue tracker](https://github.com/ten9876/AetherSDR/issues) for all tracked features and enhancements.
 

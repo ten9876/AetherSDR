@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QSslSocket>
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QString>
 #include <QHostAddress>
 #include <QTimer>
@@ -47,6 +48,7 @@ signals:
     void messageReceived(const ParsedMessage& msg);
     void statusReceived(const QString& object, const QMap<QString, QString>& kvs);
     void versionReceived(const QString& version);
+    void pingRttMeasured(int ms);
 
 private slots:
     void onTlsConnected();
@@ -69,6 +71,7 @@ private:
     quint32 m_handle{0};
     std::atomic<quint32> m_seqCounter{1};
     quint32 m_lastPingSeq{0};
+    QElapsedTimer m_pingStopwatch;
 
     QMap<quint32, ResponseCallback> m_pendingCallbacks;
 };

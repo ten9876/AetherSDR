@@ -363,12 +363,13 @@ void TxApplet::setTunerModel(TunerModel* tuner)
     if (!tuner) return;
 
     auto updateButtons = [this, tuner]() {
+        // When TGXL is in Operate, disable only the internal ATU controls.
+        // TUNE stays enabled — it sends a carrier through the TGXL for
+        // power/SWR checks, matching SmartSDR behavior (#443).
         bool tgxlOperate = tuner->isPresent() && tuner->isOperate() && !tuner->isBypass();
-        m_tuneBtn->setEnabled(!tgxlOperate);
         m_atuBtn->setEnabled(!tgxlOperate);
         m_memBtn->setEnabled(!tgxlOperate);
         QString tip = tgxlOperate ? "Disabled — TGXL is in OPERATE mode" : "";
-        m_tuneBtn->setToolTip(tip);
         m_atuBtn->setToolTip(tip);
         m_memBtn->setToolTip(tip);
     };

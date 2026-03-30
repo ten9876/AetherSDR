@@ -171,6 +171,12 @@ void RadioModel::connectViaWan(WanConnection* wan, const QString& publicIp, quin
     connect(wan, &WanConnection::versionReceived, this, &RadioModel::onVersionReceived);
     connect(wan, &WanConnection::messageReceived, this, &RadioModel::onMessageReceived);
     connect(wan, &WanConnection::statusReceived, this, &RadioModel::onStatusReceived);
+    connect(wan, &WanConnection::pingRttMeasured, this, [this](int ms) {
+        m_pingMissCount = 0;
+        m_lastPingRtt = ms;
+        evaluateNetworkQuality();
+        emit pingReceived();
+    });
 
     // The WAN connection is already established (TLS + wan validate done)
     // and has already received V/H. Trigger onConnected manually.
