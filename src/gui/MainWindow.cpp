@@ -1914,7 +1914,12 @@ void MainWindow::buildMenuBar()
     });
 
     // Inhibit during TUNE submenu — user selects which TX outputs to suppress
-    auto* tuneInhibitMenu = settingsMenu->addMenu("Inhibit during TUNE");
+    // Keep menu open on click so users can multi-select without reopening.
+    auto* tuneInhibitMenu = new QMenu("Inhibit during TUNE", settingsMenu);
+    connect(tuneInhibitMenu, &QMenu::triggered, this, [tuneInhibitMenu](QAction*) {
+        tuneInhibitMenu->show();
+    });
+    settingsMenu->addMenu(tuneInhibitMenu);
     tuneInhibitMenu->setToolTip(
         "Select which TX outputs to suppress during TUNE to protect external amplifiers.\n"
         "Selected outputs are disabled before TUNE starts and restored when TUNE completes.\n"
