@@ -4200,8 +4200,11 @@ void MainWindow::registerShortcutActions()
             if (!m_radioModel.isConnected()) return;
             m_radioModel.setTransmit(!m_radioModel.transmitModel()->isTransmitting());
         });
-    // PTT (Momentary) via Space is handled in keyPressEvent/keyReleaseEvent
-    // because QShortcut has no "released" signal.
+    // PTT (Hold) via Space is handled by the app-level event filter
+    // because QShortcut has no "released" signal. Register with null
+    // handler so the keyboard map shows it as bound.
+    m_shortcutManager.registerAction("ptt_hold", "PTT (Hold)", "TX",
+        QKeySequence(Qt::Key_Space), nullptr);
     m_shortcutManager.registerAction("tune_toggle", "TUNE Toggle", "TX",
         QKeySequence(), [this]() {
             if (!m_radioModel.isConnected()) return;
