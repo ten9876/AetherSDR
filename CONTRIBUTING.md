@@ -506,7 +506,7 @@ technical and focused — treat it like a code review conversation.
 
 Be respectful, constructive, and patient. Ham radio has a long tradition of
 helping each other learn — bring that spirit here. We're all building
-something together.
+something together. See our full [Code of Conduct](CODE_OF_CONDUCT.md).
 
 73 de KK7GWY
 
