@@ -117,6 +117,10 @@ MainWindow::MainWindow(QWidget* parent)
     buildUI();
     registerShortcutActions();
 
+    // Install event filter on the application to intercept Space PTT
+    // before child widgets (buttons, combos) consume the key event.
+    qApp->installEventFilter(this);
+
     // ── Wire up discovery ──────────────────────────────────────────────────
     connect(&m_discovery, &RadioDiscovery::radioDiscovered,
             m_connPanel, &ConnectionPanel::onRadioDiscovered);
@@ -1431,32 +1435,34 @@ void MainWindow::closeEvent(QCloseEvent* event)
 
 void MainWindow::keyPressEvent(QKeyEvent* event)
 {
-    // Space = PTT hold (press to TX, release to RX)
-    if (event->key() == Qt::Key_Space && !event->isAutoRepeat()
-        && m_keyboardShortcutsEnabled && !isTextInputFocused()
-        && m_radioModel.isConnected() && !m_spacePttActive) {
-        m_spacePttActive = true;
-        m_radioModel.setTransmit(true);
-        event->accept();
-        return;
-    }
     QMainWindow::keyPressEvent(event);
 }
 
 void MainWindow::keyReleaseEvent(QKeyEvent* event)
 {
-    if (event->key() == Qt::Key_Space && !event->isAutoRepeat()
-        && m_spacePttActive) {
-        m_spacePttActive = false;
-        m_radioModel.setTransmit(false);
-        event->accept();
-        return;
-    }
     QMainWindow::keyReleaseEvent(event);
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 {
+    // Space PTT: intercept at application level so it works regardless of
+    // which widget has focus (buttons, combos, etc. won't steal Space).
+    if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        if (ke->key() == Qt::Key_Space && !ke->isAutoRepeat()
+            && m_keyboardShortcutsEnabled && !isTextInputFocused()
+            && m_radioModel.isConnected()) {
+            if (event->type() == QEvent::KeyPress && !m_spacePttActive) {
+                m_spacePttActive = true;
+                m_radioModel.setTransmit(true);
+            } else if (event->type() == QEvent::KeyRelease && m_spacePttActive) {
+                m_spacePttActive = false;
+                m_radioModel.setTransmit(false);
+            }
+            return true;  // consume — don't let buttons activate
+        }
+    }
+
     if (obj == m_networkLabel && event->type() == QEvent::MouseButtonDblClick) {
         NetworkDiagnosticsDialog dlg(&m_radioModel, this);
         dlg.exec();
