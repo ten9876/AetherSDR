@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Build dependencies for AetherSDR CI
 # Must include everything CMakeLists.txt can find_package() for
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y \
     cmake \
     ninja-build \
     pkg-config \
@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     patch \
     curl \
+    make \
     qt6-base-dev \
     qt6-multimedia-dev \
     qt6-websockets-dev \
