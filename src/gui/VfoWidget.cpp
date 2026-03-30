@@ -2053,6 +2053,16 @@ void VfoWidget::setPlayEnabled(bool enabled)
         m_playBtn->setEnabled(enabled);
 }
 
+void VfoWidget::beginDirectEntry()
+{
+    if (m_slice) {
+        m_freqEdit->setText(QString::number(m_slice->frequency(), 'f', 6));
+        m_freqEdit->selectAll();
+    }
+    m_freqStack->setCurrentIndex(1);
+    m_freqEdit->setFocus();
+}
+
 void VfoWidget::syncFromSlice()
 {
     if (!m_slice) return;
@@ -2456,13 +2466,7 @@ bool VfoWidget::eventFilter(QObject* obj, QEvent* event)
 {
     // Double-click on frequency label → open inline edit
     if (obj == m_freqLabel && event->type() == QEvent::MouseButtonDblClick) {
-        // Pre-fill with current frequency in MHz (e.g. "14.225000")
-        if (m_slice) {
-            m_freqEdit->setText(QString::number(m_slice->frequency(), 'f', 6));
-            m_freqEdit->selectAll();
-        }
-        m_freqStack->setCurrentIndex(1);  // show edit
-        m_freqEdit->setFocus();
+        beginDirectEntry();
         return true;
     }
 
