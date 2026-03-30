@@ -317,9 +317,10 @@ The codebase is modular — each subsystem (core protocol, models, GUI widgets) 
 
 ## Verifying Downloads
 
-Linux AppImages and source archives are GPG-signed. macOS artifacts are Apple
-notarized. Each release includes detached signatures (`.asc`) and a signed
-`SHA256SUMS.txt`. All commits on `main` are signed by their authors.
+Linux AppImages, Windows binaries, and source archives are GPG-signed. macOS
+artifacts are Apple notarized. Each release includes detached signatures
+(`.asc`) and a signed `SHA256SUMS.txt`. All commits on `main` are signed
+by their authors.
 
 ```bash
 # Import the public key
