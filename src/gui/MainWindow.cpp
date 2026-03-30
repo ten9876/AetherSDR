@@ -29,6 +29,7 @@
 #include "AmpApplet.h"
 #include "ProfileManagerDialog.h"
 #include "SupportDialog.h"
+#include "ShortcutDialog.h"
 #include "models/SliceModel.h"
 #include "models/MeterModel.h"
 #include "models/TunerModel.h"
@@ -85,6 +86,23 @@
 
 namespace AetherSDR {
 
+// ─── Shortcut guard (file-scope for use as std::function<bool()>) ───────────
+
+static bool s_keyboardShortcutsEnabled = false;
+
+static bool isTextInputFocused()
+{
+    auto* w = QApplication::focusWidget();
+    if (!w) return false;
+    return qobject_cast<QLineEdit*>(w) || qobject_cast<QTextEdit*>(w)
+        || qobject_cast<QPlainTextEdit*>(w) || qobject_cast<QSpinBox*>(w)
+        || qobject_cast<QComboBox*>(w);
+}
+
+static bool shortcutGuard() {
+    return s_keyboardShortcutsEnabled && !isTextInputFocused();
+}
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
@@ -96,7 +114,7 @@ MainWindow::MainWindow(QWidget* parent)
     applyDarkTheme();
     buildMenuBar();
     buildUI();
-    setupKeyboardShortcuts();
+    registerShortcutActions();
 
     // ── Wire up discovery ──────────────────────────────────────────────────
     connect(&m_discovery, &RadioDiscovery::radioDiscovered,
@@ -2053,8 +2071,16 @@ void MainWindow::buildMenuBar()
     kbAct->setChecked(m_keyboardShortcutsEnabled);
     connect(kbAct, &QAction::toggled, this, [this](bool on) {
         m_keyboardShortcutsEnabled = on;
+        s_keyboardShortcutsEnabled = on;
         AppSettings::instance().setValue("KeyboardShortcutsEnabled", on ? "True" : "False");
         AppSettings::instance().save();
+    });
+    auto* configShortcutsAct = viewMenu->addAction("Configure Shortcuts...");
+    connect(configShortcutsAct, &QAction::triggered, this, [this] {
+        ShortcutDialog dlg(&m_shortcutManager, this);
+        dlg.exec();
+        // Rebuild shortcuts in case bindings changed
+        m_shortcutManager.rebuildShortcuts(this, shortcutGuard);
     });
 
     viewMenu->addSeparator();
@@ -4017,15 +4043,6 @@ SpectrumWidget* MainWindow::spectrumForSlice(SliceModel* s) const
 
 // ─── Keyboard Shortcuts ───────────────────────────────────────────────────────
 
-static bool isTextInputFocused()
-{
-    auto* w = QApplication::focusWidget();
-    if (!w) return false;
-    return qobject_cast<QLineEdit*>(w) || qobject_cast<QTextEdit*>(w)
-        || qobject_cast<QPlainTextEdit*>(w) || qobject_cast<QSpinBox*>(w)
-        || qobject_cast<QComboBox*>(w);
-}
-
 void MainWindow::updateKeyerAvailability(const QString& mode)
 {
     static const QString kActive   = "QLabel { color: #00b4d8; font-weight: bold; font-size: 24px; }";
@@ -4061,11 +4078,11 @@ void MainWindow::updateKeyerAvailability(const QString& mode)
     m_dvkIndicator->setCursor(isSsb ? Qt::PointingHandCursor : Qt::ArrowCursor);
 }
 
-void MainWindow::setupKeyboardShortcuts()
+void MainWindow::registerShortcutActions()
 {
     // Helper: nudge active slice frequency by N steps on the active pan
     auto nudgeFreq = [this](int steps) {
-        if (!m_keyboardShortcutsEnabled || isTextInputFocused() || !m_radioModel.isConnected()) return;
+        if (!m_radioModel.isConnected()) return;
         auto* s = activeSlice();
         if (!s || s->isLocked()) return;
         int stepHz = spectrum() ? spectrum()->stepSize() : 100;
@@ -4077,90 +4094,238 @@ void MainWindow::setupKeyboardShortcuts()
         if (spectrum()) spectrum()->setVfoFrequency(newMhz);
     };
 
-    // Left/Right arrow — nudge frequency by step size
-    auto* left = new QShortcut(Qt::Key_Left, this);
-    connect(left, &QShortcut::activated, this, [nudgeFreq]() { nudgeFreq(-1); });
-    auto* right = new QShortcut(Qt::Key_Right, this);
-    connect(right, &QShortcut::activated, this, [nudgeFreq]() { nudgeFreq(1); });
-
-    // Shift+Left/Right — nudge by 10 steps
-    auto* shiftLeft = new QShortcut(Qt::SHIFT | Qt::Key_Left, this);
-    connect(shiftLeft, &QShortcut::activated, this, [nudgeFreq]() { nudgeFreq(-10); });
-    auto* shiftRight = new QShortcut(Qt::SHIFT | Qt::Key_Right, this);
-    connect(shiftRight, &QShortcut::activated, this, [nudgeFreq]() { nudgeFreq(10); });
-
-    // Up/Down arrow — AF gain ±5
-    auto* up = new QShortcut(Qt::Key_Up, this);
-    connect(up, &QShortcut::activated, this, [this]() {
-        if (!m_keyboardShortcutsEnabled || isTextInputFocused()) return;
-        auto* s = activeSlice();
-        if (s) s->setAudioGain(std::min(100.0f, s->audioGain() + 5.0f));
-    });
-    auto* down = new QShortcut(Qt::Key_Down, this);
-    connect(down, &QShortcut::activated, this, [this]() {
-        if (!m_keyboardShortcutsEnabled || isTextInputFocused()) return;
-        auto* s = activeSlice();
-        if (s) s->setAudioGain(std::max(0.0f, s->audioGain() - 5.0f));
-    });
-
-    // Spacebar — push-to-talk (TX while held)
-    auto* pttOn = new QShortcut(Qt::Key_Space, this);
-    pttOn->setAutoRepeat(false);
-    connect(pttOn, &QShortcut::activated, this, [this]() {
-        if (!m_keyboardShortcutsEnabled || isTextInputFocused() || !m_radioModel.isConnected()) return;
-        m_radioModel.sendCommand("xmit 1");
-    });
-    // Note: QShortcut doesn't have a "released" signal. For PTT release,
-    // we use keyReleaseEvent override. For now, spacebar toggles MOX.
-    // TODO: implement held-spacebar PTT via keyPressEvent/keyReleaseEvent
-
-    // T — toggle MOX
-    auto* mox = new QShortcut(Qt::Key_T, this);
-    connect(mox, &QShortcut::activated, this, [this]() {
-        if (!m_keyboardShortcutsEnabled || isTextInputFocused() || !m_radioModel.isConnected()) return;
-        bool tx = m_radioModel.transmitModel()->isTransmitting();
-        m_radioModel.sendCommand(QString("xmit %1").arg(tx ? 0 : 1));
-    });
-
-    // M — toggle mute
-    auto* mute = new QShortcut(Qt::Key_M, this);
-    connect(mute, &QShortcut::activated, this, [this]() {
-        if (!m_keyboardShortcutsEnabled || isTextInputFocused()) return;
-        auto* s = activeSlice();
-        if (s) s->setAudioMute(!s->audioMute());
-    });
-
-    // [ / ] — cycle step size down / up
-    auto* stepDown = new QShortcut(Qt::Key_BracketLeft, this);
-    connect(stepDown, &QShortcut::activated, this, [this]() {
-        if (!m_keyboardShortcutsEnabled || isTextInputFocused()) return;
+    // Step cycle helper
+    auto cycleStep = [this](int dir) {
         auto* sw = spectrum();
         if (!sw) return;
         static const int steps[] = {10, 50, 100, 250, 500, 1000, 2500, 5000, 10000};
         int cur = sw->stepSize();
-        for (int i = std::size(steps) - 1; i >= 0; --i) {
-            if (steps[i] < cur) { sw->setStepSize(steps[i]); return; }
+        if (dir > 0) {
+            for (int i = 0; i < static_cast<int>(std::size(steps)); ++i)
+                if (steps[i] > cur) { sw->setStepSize(steps[i]); return; }
+        } else {
+            for (int i = static_cast<int>(std::size(steps)) - 1; i >= 0; --i)
+                if (steps[i] < cur) { sw->setStepSize(steps[i]); return; }
         }
-    });
-    auto* stepUp = new QShortcut(Qt::Key_BracketRight, this);
-    connect(stepUp, &QShortcut::activated, this, [this]() {
-        if (!m_keyboardShortcutsEnabled || isTextInputFocused()) return;
-        auto* sw = spectrum();
-        if (!sw) return;
-        static const int steps[] = {10, 50, 100, 250, 500, 1000, 2500, 5000, 10000};
-        int cur = sw->stepSize();
-        for (int i = 0; i < static_cast<int>(std::size(steps)); ++i) {
-            if (steps[i] > cur) { sw->setStepSize(steps[i]); return; }
-        }
-    });
+    };
 
-    // L — toggle tune lock
-    auto* lock = new QShortcut(Qt::Key_L, this);
-    connect(lock, &QShortcut::activated, this, [this]() {
-        if (!m_keyboardShortcutsEnabled || isTextInputFocused()) return;
-        auto* s = activeSlice();
-        if (s) s->setLocked(!s->isLocked());
-    });
+    // ── Frequency ───────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("tune_up_1", "Tune Up (1 step)", "Frequency",
+        QKeySequence(Qt::Key_Right), [nudgeFreq]() { nudgeFreq(1); });
+    m_shortcutManager.registerAction("tune_down_1", "Tune Down (1 step)", "Frequency",
+        QKeySequence(Qt::Key_Left), [nudgeFreq]() { nudgeFreq(-1); });
+    m_shortcutManager.registerAction("tune_up_10", "Tune Up (10 steps)", "Frequency",
+        QKeySequence(Qt::SHIFT | Qt::Key_Right), [nudgeFreq]() { nudgeFreq(10); });
+    m_shortcutManager.registerAction("tune_down_10", "Tune Down (10 steps)", "Frequency",
+        QKeySequence(Qt::SHIFT | Qt::Key_Left), [nudgeFreq]() { nudgeFreq(-10); });
+    m_shortcutManager.registerAction("tune_up_1mhz", "Tune Up 1 MHz", "Frequency",
+        QKeySequence(), [nudgeFreq]() { nudgeFreq(10000); });
+    m_shortcutManager.registerAction("tune_down_1mhz", "Tune Down 1 MHz", "Frequency",
+        QKeySequence(), [nudgeFreq]() { nudgeFreq(-10000); });
+
+    // ── Band ────────────────────────────────────────────────────────────
+    struct BandDef { const char* id; const char* name; double mhz; };
+    static const BandDef bands[] = {
+        {"band_160m", "160m", 1.900}, {"band_80m", "80m", 3.800},
+        {"band_60m", "60m", 5.357},   {"band_40m", "40m", 7.200},
+        {"band_30m", "30m", 10.125},  {"band_20m", "20m", 14.225},
+        {"band_17m", "17m", 18.118},  {"band_15m", "15m", 21.300},
+        {"band_12m", "12m", 24.940},  {"band_10m", "10m", 28.400},
+        {"band_6m",  "6m",  50.125},  {"band_2m",  "2m",  146.000},
+    };
+    for (const auto& b : bands) {
+        double freq = b.mhz;
+        m_shortcutManager.registerAction(b.id, b.name, "Band",
+            QKeySequence(), [this, freq]() {
+                if (!m_radioModel.isConnected()) return;
+                auto* s = activeSlice();
+                if (s && !s->isLocked()) s->tuneAndRecenter(freq);
+            });
+    }
+
+    // ── Mode ────────────────────────────────────────────────────────────
+    static const char* modes[] = {"USB", "LSB", "CW", "CWL", "AM", "FM", "DIGU", "DIGL", "RTTY"};
+    for (const char* mode : modes) {
+        QString m = mode;
+        m_shortcutManager.registerAction(
+            QString("mode_%1").arg(m.toLower()), m, "Mode",
+            QKeySequence(), [this, m]() {
+                if (!m_radioModel.isConnected()) return;
+                auto* s = activeSlice();
+                if (s) s->setMode(m);
+            });
+    }
+
+    // ── TX ──────────────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("mox_toggle", "MOX Toggle", "TX",
+        QKeySequence(Qt::Key_T), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            bool tx = m_radioModel.transmitModel()->isTransmitting();
+            m_radioModel.sendCommand(QString("xmit %1").arg(tx ? 0 : 1));
+        });
+    m_shortcutManager.registerAction("ptt_momentary", "PTT (Momentary)", "TX",
+        QKeySequence(Qt::Key_Space), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            m_radioModel.sendCommand("xmit 1");
+        });
+    m_shortcutManager.registerAction("tune_toggle", "TUNE Toggle", "TX",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            bool tuning = m_radioModel.transmitModel()->isTuning();
+            m_radioModel.sendCommand(QString("transmit tune %1").arg(tuning ? 0 : 1));
+        });
+
+    // ── Audio ───────────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("af_gain_up", "AF Gain Up", "Audio",
+        QKeySequence(Qt::Key_Up), [this]() {
+            auto* s = activeSlice();
+            if (s) s->setAudioGain(std::min(100.0f, s->audioGain() + 5.0f));
+        });
+    m_shortcutManager.registerAction("af_gain_down", "AF Gain Down", "Audio",
+        QKeySequence(Qt::Key_Down), [this]() {
+            auto* s = activeSlice();
+            if (s) s->setAudioGain(std::max(0.0f, s->audioGain() - 5.0f));
+        });
+    m_shortcutManager.registerAction("mute_toggle", "Mute Toggle", "Audio",
+        QKeySequence(Qt::Key_M), [this]() {
+            auto* s = activeSlice();
+            if (s) s->setAudioMute(!s->audioMute());
+        });
+
+    // ── Slice ───────────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("next_slice", "Next Slice", "Slice",
+        QKeySequence(), [this]() {
+            const auto& slices = m_radioModel.slices();
+            if (slices.size() <= 1) return;
+            int idx = 0;
+            for (int i = 0; i < slices.size(); ++i)
+                if (slices[i]->sliceId() == m_activeSliceId) { idx = i; break; }
+            setActiveSlice(slices[(idx + 1) % slices.size()]->sliceId());
+        });
+    m_shortcutManager.registerAction("prev_slice", "Prev Slice", "Slice",
+        QKeySequence(), [this]() {
+            const auto& slices = m_radioModel.slices();
+            if (slices.size() <= 1) return;
+            int idx = 0;
+            for (int i = 0; i < slices.size(); ++i)
+                if (slices[i]->sliceId() == m_activeSliceId) { idx = i; break; }
+            setActiveSlice(slices[(idx - 1 + slices.size()) % slices.size()]->sliceId());
+        });
+    m_shortcutManager.registerAction("split_toggle", "Split Toggle", "Slice",
+        QKeySequence(), [this]() {
+            if (!m_splitActive) {
+                if (m_radioModel.slices().size() >= m_radioModel.maxSlices()) return;
+                auto* s = activeSlice();
+                if (!s) return;
+                QString panId = s->panId();
+                if (panId.isEmpty())
+                    panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
+                bool isCw = s->mode() == "CW" || s->mode() == "CWL";
+                double txFreq = s->frequency() + (isCw ? 0.001 : 0.005);
+                m_splitActive = true;
+                m_splitRxSliceId = s->sliceId();
+                m_radioModel.sendCommand(
+                    QString("slice create pan=%1 freq=%2").arg(panId).arg(txFreq, 0, 'f', 6));
+            } else {
+                disableSplit();
+            }
+        });
+
+    // ── Filter ──────────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("filter_widen", "Filter Widen", "Filter",
+        QKeySequence(), [this]() {
+            auto* s = activeSlice();
+            if (!s) return;
+            s->setFilterWidth(s->filterLow(), s->filterHigh() + 100);
+        });
+    m_shortcutManager.registerAction("filter_narrow", "Filter Narrow", "Filter",
+        QKeySequence(), [this]() {
+            auto* s = activeSlice();
+            if (!s) return;
+            s->setFilterWidth(s->filterLow(), std::max(s->filterLow() + 50, s->filterHigh() - 100));
+        });
+
+    // ── Tuning ──────────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("step_up", "Step Size Up", "Tuning",
+        QKeySequence(Qt::Key_BracketRight), [cycleStep]() { cycleStep(1); });
+    m_shortcutManager.registerAction("step_down", "Step Size Down", "Tuning",
+        QKeySequence(Qt::Key_BracketLeft), [cycleStep]() { cycleStep(-1); });
+    m_shortcutManager.registerAction("lock_toggle", "Tune Lock Toggle", "Tuning",
+        QKeySequence(Qt::Key_L), [this]() {
+            auto* s = activeSlice();
+            if (s) s->setLocked(!s->isLocked());
+        });
+
+    // ── DSP ─────────────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("nb_toggle", "NB Toggle", "DSP",
+        QKeySequence(), [this]() {
+            auto* s = activeSlice();
+            if (s) s->setNb(!s->nbOn());
+        });
+    m_shortcutManager.registerAction("nr_cycle", "NR Cycle (Off/NR/NR2)", "DSP",
+        QKeySequence(), [this]() {
+            auto* s = activeSlice();
+            if (!s) return;
+            if (m_audio.nr2Enabled()) {
+                m_audio.setNr2Enabled(false);
+            } else if (s->nrOn()) {
+                s->setNr(false);
+                enableNr2WithWisdom();
+            } else {
+                s->setNr(true);
+            }
+        });
+    m_shortcutManager.registerAction("anf_toggle", "ANF Toggle", "DSP",
+        QKeySequence(), [this]() {
+            auto* s = activeSlice();
+            if (s) s->setAnf(!s->anfOn());
+        });
+
+    // ── AGC ─────────────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("agc_cycle", "AGC Mode Cycle", "AGC",
+        QKeySequence(), [this]() {
+            auto* s = activeSlice();
+            if (!s) return;
+            static const char* modes[] = {"off", "slow", "med", "fast"};
+            QString cur = s->agcMode().toLower();
+            int idx = 0;
+            for (int i = 0; i < 4; ++i)
+                if (cur == modes[i]) { idx = i; break; }
+            s->setAgcMode(modes[(idx + 1) % 4]);
+        });
+
+    // ── Display ─────────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("band_zoom", "Band Zoom", "Display",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto* s = activeSlice();
+            if (s) m_radioModel.sendCommand(
+                QString("slice set %1 band_zoom=1").arg(s->sliceId()));
+        });
+    m_shortcutManager.registerAction("segment_zoom", "Segment Zoom", "Display",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto* s = activeSlice();
+            if (s) m_radioModel.sendCommand(
+                QString("slice set %1 segment_zoom=1").arg(s->sliceId()));
+        });
+
+    // ── RIT/XIT ─────────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("rit_toggle", "RIT Toggle", "RIT/XIT",
+        QKeySequence(), [this]() {
+            auto* s = activeSlice();
+            if (s) s->setRit(!s->ritOn(), s->ritFreq());
+        });
+    m_shortcutManager.registerAction("xit_toggle", "XIT Toggle", "RIT/XIT",
+        QKeySequence(), [this]() {
+            auto* s = activeSlice();
+            if (s) s->setXit(!s->xitOn(), s->xitFreq());
+        });
+
+    // ── Load user bindings and create QShortcuts ────────────────────────
+    m_shortcutManager.loadBindings();
+    s_keyboardShortcutsEnabled = m_keyboardShortcutsEnabled;
+    m_shortcutManager.rebuildShortcuts(this, shortcutGuard);
 }
 
 void MainWindow::applyPanLayout(const QString& layoutId)

@@ -24,6 +24,7 @@
 #ifdef HAVE_MIDI
 #include "core/MidiControlManager.h"
 #endif
+#include "core/ShortcutManager.h"
 
 #include <QMainWindow>
 #include <QSplitter>
@@ -91,7 +92,7 @@ private:
     SpectrumWidget* spectrumForSlice(SliceModel* s) const;
     void wireVfoWidget(VfoWidget* w, SliceModel* s);
     void enableNr2WithWisdom();  // Wisdom-gated NR2 enable (shared by VFO + overlay)
-    void setupKeyboardShortcuts();
+    void registerShortcutActions();
     void updateKeyerAvailability(const QString& mode);
     void applyPanLayout(const QString& layoutId);
     void createPansSequentially(const QString& layoutId, int total,
@@ -214,6 +215,7 @@ private:
     QTimer* m_layoutRestoreTimer{nullptr}; // debounced layout rearrange after pans added on connect
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     bool m_keyboardShortcutsEnabled{false}; // global enable for keyboard shortcuts (View menu)
+    ShortcutManager m_shortcutManager;
 
 #ifdef HAVE_RADE
     RADEEngine* m_radeEngine{nullptr};
