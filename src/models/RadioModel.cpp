@@ -31,8 +31,10 @@ RadioModel::RadioModel(QObject* parent)
     connect(&m_panStream, &PanadapterStream::meterDataReady,
             &m_meterModel, &MeterModel::updateValues);
 
-    // Forward tuner commands to the radio
+    // Forward tuner commands to the radio — route through tune inhibit check
     connect(&m_tunerModel, &TunerModel::commandReady, this, [this](const QString& cmd){
+        if (cmd.startsWith("tgxl autotune"))
+            applyTuneInhibit();
         sendCmd(cmd);
     });
 
@@ -56,44 +58,9 @@ RadioModel::RadioModel(QObject* parent)
             }
         }
 
-        // Intercept TUNE start: inhibit selected TX outputs to protect amplifier
-        // fw v4.1.x: tx1/tx2 = amp PTT, tx3 = preamp protection (user-configurable)
-        if (cmd == "transmit tune 1") {
-            auto& s = AppSettings::instance();
-            double txFreq = 0.0;
-            for (auto* sl : m_slices) {
-                if (sl->isTxSlice()) { txFreq = sl->frequency(); break; }
-            }
-            int bandId = bandIdForFrequency(txFreq);
-            if (bandId >= 0) {
-                auto it = m_txBandSettings.find(bandId);
-                if (it != m_txBandSettings.end()) {
-                    QStringList inhibited;
-                    if (s.value("TuneInhibitAccTx", "False").toString() == "True" && it->accTx) {
-                        sendCmd(QString("interlock bandset %1 acc_tx_enabled=0").arg(bandId));
-                        inhibited << "ACC TX";
-                    }
-                    if (s.value("TuneInhibitTx1", "False").toString() == "True" && it->tx1) {
-                        sendCmd(QString("interlock bandset %1 tx1_enabled=0").arg(bandId));
-                        inhibited << "TX1";
-                    }
-                    if (s.value("TuneInhibitTx2", "False").toString() == "True" && it->tx2) {
-                        sendCmd(QString("interlock bandset %1 tx2_enabled=0").arg(bandId));
-                        inhibited << "TX2";
-                    }
-                    if (s.value("TuneInhibitTx3", "False").toString() == "True" && it->tx3) {
-                        sendCmd(QString("interlock bandset %1 tx3_enabled=0").arg(bandId));
-                        inhibited << "TX3";
-                    }
-                    if (!inhibited.isEmpty()) {
-                        m_tuneInhibitBandId = bandId;
-                        m_tuneInhibitActive = true;
-                        qDebug() << "Tune PA inhibit: disabled" << inhibited.join(", ")
-                                 << "on band" << bandId << "before tune";
-                    }
-                }
-            }
-        }
+        // Intercept TUNE start from internal ATU and barefoot tune paths
+        if (cmd == "transmit tune 1" || cmd == "atu start")
+            applyTuneInhibit();
         sendCmd(cmd);
     });
 
@@ -914,6 +881,43 @@ int RadioModel::bandIdForFrequency(double freqMhz) const
             return it->bandId;
     }
     return -1;
+}
+
+void RadioModel::applyTuneInhibit()
+{
+    auto& s = AppSettings::instance();
+    double txFreq = 0.0;
+    for (auto* sl : m_slices) {
+        if (sl->isTxSlice()) { txFreq = sl->frequency(); break; }
+    }
+    int bandId = bandIdForFrequency(txFreq);
+    if (bandId < 0) return;
+    auto it = m_txBandSettings.find(bandId);
+    if (it == m_txBandSettings.end()) return;
+
+    QStringList inhibited;
+    if (s.value("TuneInhibitAccTx", "False").toString() == "True" && it->accTx) {
+        sendCmd(QString("interlock bandset %1 acc_tx_enabled=0").arg(bandId));
+        inhibited << "ACC TX";
+    }
+    if (s.value("TuneInhibitTx1", "False").toString() == "True" && it->tx1) {
+        sendCmd(QString("interlock bandset %1 tx1_enabled=0").arg(bandId));
+        inhibited << "TX1";
+    }
+    if (s.value("TuneInhibitTx2", "False").toString() == "True" && it->tx2) {
+        sendCmd(QString("interlock bandset %1 tx2_enabled=0").arg(bandId));
+        inhibited << "TX2";
+    }
+    if (s.value("TuneInhibitTx3", "False").toString() == "True" && it->tx3) {
+        sendCmd(QString("interlock bandset %1 tx3_enabled=0").arg(bandId));
+        inhibited << "TX3";
+    }
+    if (!inhibited.isEmpty()) {
+        m_tuneInhibitBandId = bandId;
+        m_tuneInhibitActive = true;
+        qDebug() << "Tune PA inhibit: disabled" << inhibited.join(", ")
+                 << "on band" << bandId << "before tune";
+    }
 }
 
 void RadioModel::restoreTuneInhibit()

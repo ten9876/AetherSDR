@@ -422,6 +422,7 @@ private:
     bool m_tuneInhibitActive{false};
 
     int bandIdForFrequency(double freqMhz) const;  // map TX freq → band ID
+    void applyTuneInhibit();    // suppress selected TX outputs before tune
     void restoreTuneInhibit();  // re-enable TX outputs after tune
 
 public:
