@@ -48,6 +48,7 @@
 #include <QDateTime>
 #include <QPropertyAnimation>
 #include <QIcon>
+#include <QKeyEvent>
 #include <QPixmap>
 #include <QPainter>
 #include <QVBoxLayout>
@@ -1426,6 +1427,32 @@ void MainWindow::closeEvent(QCloseEvent* event)
     }
 
     QMainWindow::closeEvent(event);
+}
+
+void MainWindow::keyPressEvent(QKeyEvent* event)
+{
+    // Space = PTT hold (press to TX, release to RX)
+    if (event->key() == Qt::Key_Space && !event->isAutoRepeat()
+        && m_keyboardShortcutsEnabled && !isTextInputFocused()
+        && m_radioModel.isConnected() && !m_spacePttActive) {
+        m_spacePttActive = true;
+        m_radioModel.setTransmit(true);
+        event->accept();
+        return;
+    }
+    QMainWindow::keyPressEvent(event);
+}
+
+void MainWindow::keyReleaseEvent(QKeyEvent* event)
+{
+    if (event->key() == Qt::Key_Space && !event->isAutoRepeat()
+        && m_spacePttActive) {
+        m_spacePttActive = false;
+        m_radioModel.setTransmit(false);
+        event->accept();
+        return;
+    }
+    QMainWindow::keyReleaseEvent(event);
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
@@ -4165,14 +4192,10 @@ void MainWindow::registerShortcutActions()
     m_shortcutManager.registerAction("mox_toggle", "MOX Toggle", "TX",
         QKeySequence(Qt::Key_T), [this]() {
             if (!m_radioModel.isConnected()) return;
-            bool tx = m_radioModel.transmitModel()->isTransmitting();
-            m_radioModel.sendCommand(QString("xmit %1").arg(tx ? 0 : 1));
+            m_radioModel.setTransmit(!m_radioModel.transmitModel()->isTransmitting());
         });
-    m_shortcutManager.registerAction("ptt_momentary", "PTT (Momentary)", "TX",
-        QKeySequence(Qt::Key_Space), [this]() {
-            if (!m_radioModel.isConnected()) return;
-            m_radioModel.sendCommand("xmit 1");
-        });
+    // PTT (Momentary) via Space is handled in keyPressEvent/keyReleaseEvent
+    // because QShortcut has no "released" signal.
     m_shortcutManager.registerAction("tune_toggle", "TUNE Toggle", "TX",
         QKeySequence(), [this]() {
             if (!m_radioModel.isConnected()) return;
