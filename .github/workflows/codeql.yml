@@ -11,6 +11,7 @@ on:
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    container: ghcr.io/ten9876/aethersdr-ci:latest
     permissions:
       security-events: write
 
@@ -20,13 +21,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config \
-            qt6-base-dev qt6-multimedia-dev qt6-websockets-dev libgl1-mesa-dev \
-            libasound2-dev autoconf automake libtool
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
