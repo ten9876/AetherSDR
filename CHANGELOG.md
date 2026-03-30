@@ -23,6 +23,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Strip height scales with font size
 - Replaces the previous on/off checkbox
 
+**Visual Keyboard Shortcut Manager (#239)**
+- View → Configure Shortcuts opens a visual keyboard map dialog
+- Full ANSI keyboard layout with keys color-coded by action category
+- Click any key to assign/change/clear its binding
+- ~45 bindable actions across 12 categories (Frequency, Band, Mode, TX, Audio, Slice, Filter, Tuning, DSP, AGC, Display, RIT/XIT)
+- Conflict detection with reassign prompt
+- Filterable action table with search and category filter
+- Reset to defaults (per-key or all)
+- Bindings persist across restarts via AppSettings
+- Replaces hardcoded keyboard shortcuts with fully customizable bindings
+
+**Click-and-Drag VFO Tuning (#404)**
+- Click inside the filter passband and drag left/right to tune the VFO
+- Frequency snaps to step size during drag
+- Filter edge drag (resize) takes priority within ±5px grab zone
+
+**Go to Frequency (G key)**
+- Press G to open the VFO direct frequency entry field
+- Pre-fills with current frequency, selected for easy overtype
+
+**Space PTT Hold-to-Transmit**
+- Hold Space to transmit, release to return to RX (true momentary PTT)
+- Works regardless of which UI widget has focus
+- Properly syncs TX state with TX applet and status bar
+
 ### Bug Fixes
 
 **NR2/RN2/BNR Crash on DSP Mode Switch**
@@ -62,6 +87,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - ESC gain slider thumb was invisible (black) on macOS and Windows
 - Root cause: kSliderStyle only defined horizontal handle rules; ESC gain slider is vertical
 - Fix: added vertical groove and handle QSS rules
+
+**RxApplet NR2 Button Not Working (#329)**
+- Cycling the RX panel NR button to NR2 didn't enable noise reduction
+- Root cause: the `nr2CycleToggled` handler only synced the VFO button visual but never called `enableNr2WithWisdom()`
+- Fix: NR2 now actually enables when cycled from the RX panel, matching VFO and overlay buttons
+
+**Split Slice on Wrong Pan (#328)**
+- In multi-pan mode, clicking SPLIT could create the TX slice on the wrong panadapter
+- Root cause: split used `m_activePanId` (global) instead of the RX slice's actual pan
+- Fix: use `rxSlice->panId()` for the `slice create` command
+- Bonus: CW split now offsets 1 kHz up (standard convention), other modes 5 kHz
 
 ## [v0.7.11] — 2026-03-29
 

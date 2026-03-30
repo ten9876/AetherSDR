@@ -997,6 +997,18 @@ and panadapter. The radio assigns these to our `client_handle`.
   to kSliderStyle so thumb renders grey not black (#394)
 - **Configurable band plan size**: View → Band Plan submenu with
   Off/Small(6pt)/Medium(10pt)/Large(12pt)/Huge(16pt) (#406)
+- **Visual keyboard shortcut manager**: View → Configure Shortcuts dialog
+  with painted ANSI keyboard layout, color-coded by category, ~45
+  bindable actions, conflict detection, persistent bindings (#239)
+- **Click-and-drag VFO tuning**: drag inside filter passband to tune,
+  snapped to step size. Filter edge drag takes priority (#404)
+- **Go to Frequency shortcut**: G key opens VFO direct entry field
+- **Space PTT hold-to-transmit**: app-level event filter, works
+  regardless of widget focus, proper TX state sync
+- **RxApplet NR2 fix**: NR button 3-state cycle now actually enables
+  NR2 instead of only syncing the visual state (#329)
+- **Split pan fix**: TX slice created on same pan as RX slice in
+  multi-pan mode, CW split offsets 1 kHz up (#328)
 
 ## What's NOT Yet Implemented
 
@@ -1006,5 +1018,4 @@ and panadapter. The radio assigns these to our `client_handle`.
 - SmartLink NAT hole-punching (for radios without UPnP/port forwarding)
 - SmartLink WAN auto-reconnect
 - SmartLink jitter buffer for high-latency connections
-- Keyboard shortcuts and hotkeys
 - GPU-accelerated spectrum/waterfall via QRhi (#391)
