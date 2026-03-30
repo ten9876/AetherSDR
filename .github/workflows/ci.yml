@@ -9,34 +9,16 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container: ghcr.io/ten9876/aethersdr-ci:latest
 
     steps:
       - uses: actions/checkout@v6
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build pkg-config \
-            qt6-base-dev qt6-multimedia-dev qt6-websockets-dev libgl1-mesa-dev \
-            libasound2-dev autoconf automake libtool
 
       - name: Cache Opus build
         uses: actions/cache@v4
         with:
           path: build/build_opus-prefix
           key: opus-${{ hashFiles('third_party/radae/cmake/BuildOpus.cmake') }}
-
-      - name: Cache CMake build
-        uses: actions/cache@v4
-        with:
-          path: |
-            build/CMakeFiles
-            build/AetherSDR_autogen
-            build/**/*.o
-            build/**/*.obj
-          key: cmake-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'src/**/*.cpp', 'src/**/*.h') }}
-          restore-keys: |
-            cmake-${{ runner.os }}-
 
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
