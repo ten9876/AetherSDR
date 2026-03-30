@@ -5,10 +5,11 @@
 | Platform | Signing Method |
 |----------|---------------|
 | Linux AppImage | GPG detached signature (`.asc`) |
+| Windows .exe | GPG detached signature (`.asc`) |
+| Windows .zip | GPG detached signature (`.asc`) |
 | Source archive | GPG detached signature (`.asc`) |
 | macOS DMG | Apple codesign + notarization |
 | macOS .pkg | Apple codesign + notarization |
-| Windows .exe | Separate signing authority (planned) |
 
 Each release also includes a GPG-signed `SHA256SUMS.txt` covering all
 Linux and source artifacts.
@@ -65,9 +66,16 @@ signature automatically — no manual steps required.
 
 ## Windows Users
 
-Windows signing is planned via a separate authority. Until then, Windows
-SmartScreen may show a warning on the `.exe` installer. This is expected
-for open-source projects without an EV code signing certificate.
+The Windows `.exe` installer and `.zip` portable build are GPG-signed.
+Windows SmartScreen may still show a warning because the binaries are
+not Authenticode-signed. This is expected for open-source projects
+without an EV code signing certificate. To verify the download:
+
+```powershell
+# Install Gpg4win from https://gpg4win.org/
+gpg --import RELEASE-SIGNING-KEY.pub.asc
+gpg --verify AetherSDR-Setup-v0.7.12.exe.asc AetherSDR-Setup-v0.7.12.exe
+```
 
 ## Commit Signing
 

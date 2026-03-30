@@ -1,12 +1,11 @@
 name: Sign Release Artifacts
 
-# GPG signs Linux AppImage and source archives only.
+# GPG signs Linux AppImage, Windows binaries, and source archives.
 # macOS artifacts are signed via Apple codesign + notarization.
-# Windows artifacts will be signed via a separate authority.
 
 on:
   workflow_run:
-    workflows: ["AppImage"]
+    workflows: ["AppImage", "Windows Installer"]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -44,7 +43,8 @@ jobs:
         run: |
           mkdir -p artifacts
           gh release download "${{ steps.tag.outputs.tag }}" \
-            --dir artifacts --pattern '*.AppImage'
+            --dir artifacts --pattern '*.AppImage' \
+            --pattern '*.exe' --pattern '*.zip'
 
       - name: Generate source archive
         run: |
@@ -70,7 +70,7 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         working-directory: artifacts
         run: |
-          for file in *.AppImage *.tar.gz; do
+          for file in *.AppImage *.exe *.zip *.tar.gz; do
             [ -f "$file" ] || continue
             gpg --batch --yes --pinentry-mode loopback \
               --passphrase "$GPG_PASSPHRASE" \
