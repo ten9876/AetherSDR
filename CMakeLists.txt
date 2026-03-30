@@ -215,6 +215,7 @@ set(CORE_SOURCES
     src/core/NvidiaBnrFilter.cpp
     src/core/RADEEngine.cpp
     src/core/LogManager.cpp
+    src/core/ShortcutManager.cpp
     src/core/SupportBundle.cpp
     src/core/SerialPortController.cpp
     src/core/FlexControlManager.cpp
@@ -279,6 +280,8 @@ set(GUI_SOURCES
     src/gui/AntennaGeniusApplet.cpp
     src/gui/TitleBar.cpp
     src/gui/SupportDialog.cpp
+    src/gui/KeyboardMapWidget.cpp
+    src/gui/ShortcutDialog.cpp
 )
 
 set(ALL_SOURCES
