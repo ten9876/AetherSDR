@@ -3874,15 +3874,31 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
         tx->setFrequency(rxFreq);
     });
 
-    // Split toggle — per-widget, slice-aware
+    // Split toggle — per-widget, slice-aware (#328)
     connect(w, &VfoWidget::splitToggled, this, [this, sliceId]() {
         if (!m_splitActive) {
             // Entering split: this slice becomes RX, create a new TX slice
             if (m_radioModel.slices().size() >= m_radioModel.maxSlices())
                 return;
+            auto* rxSlice = m_radioModel.slice(sliceId);
+            if (!rxSlice) return;
+
+            // Create TX slice on the SAME pan as the RX slice
+            QString panId = rxSlice->panId();
+            if (panId.isEmpty())
+                panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
+
+            // CW split: offset 1 kHz up (convention). Other modes: 5 kHz up.
+            const QString mode = rxSlice->mode();
+            bool isCw = mode == "CW" || mode == "CWL";
+            double offsetMhz = isCw ? 0.001 : 0.005;
+            double txFreq = rxSlice->frequency() + offsetMhz;
+
             m_splitActive = true;
             m_splitRxSliceId = sliceId;
-            m_radioModel.addSlice();
+            m_radioModel.sendCommand(
+                QString("slice create pan=%1 freq=%2")
+                    .arg(panId).arg(txFreq, 0, 'f', 6));
         } else if (sliceId == m_splitRxSliceId) {
             // Clicking SPLIT on the RX VFO again → disable split, destroy TX slice
             disableSplit();
