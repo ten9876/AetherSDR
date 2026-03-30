@@ -58,6 +58,7 @@ public:
     void setRecordOn(bool on);
     void setPlayOn(bool on);
     void setPlayEnabled(bool enabled);
+    void beginDirectEntry();
     QLabel* freqLabel() const { return m_freqLabel; }
 
 #ifdef HAVE_RADE
