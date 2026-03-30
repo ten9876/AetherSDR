@@ -1913,18 +1913,101 @@ void MainWindow::buildMenuBar()
         dlg->show();
     });
 
-    auto* tuneInhibitAct = settingsMenu->addAction("Inhibit amplifier during TUNE");
-    tuneInhibitAct->setCheckable(true);
-    tuneInhibitAct->setChecked(
-        AppSettings::instance().value("TuneInhibitAmp", "False").toString() == "True");
-    tuneInhibitAct->setToolTip(
-        "Temporarily disable ACC TX output during TUNE to protect external amplifiers.\n"
-        "ACC TX is automatically restored when TUNE completes.");
-    connect(tuneInhibitAct, &QAction::toggled, this, [](bool on) {
-        auto& s = AppSettings::instance();
-        s.setValue("TuneInhibitAmp", on ? "True" : "False");
-        s.save();
+    // Inhibit during TUNE submenu — user selects which TX outputs to suppress
+    auto* tuneInhibitMenu = settingsMenu->addMenu("Inhibit during TUNE");
+    tuneInhibitMenu->setToolTip(
+        "Select which TX outputs to suppress during TUNE to protect external amplifiers.\n"
+        "Selected outputs are disabled before TUNE starts and restored when TUNE completes.\n"
+        "Leave TX3 unchecked if it controls receive preamp protection.");
+
+    auto& settings = AppSettings::instance();
+    struct InhibitDef { const char* label; const char* key; };
+    static const InhibitDef inhibitDefs[] = {
+        {"None",   "TuneInhibitNone"},
+        {"ACC TX", "TuneInhibitAccTx"},
+        {"TX1",    "TuneInhibitTx1"},
+        {"TX2",    "TuneInhibitTx2"},
+        {"TX3",    "TuneInhibitTx3"},
+    };
+
+    // "None" is checked when no other output is selected; unchecking an
+    // output re-evaluates None automatically.
+    QAction* noneAct = nullptr;
+    QVector<QAction*> outputActs;
+
+    for (const auto& def : inhibitDefs) {
+        auto* act = tuneInhibitMenu->addAction(def.label);
+        act->setCheckable(true);
+        bool on = settings.value(def.key, "False").toString() == "True";
+        act->setChecked(on);
+
+        if (QString(def.label) == "None") {
+            noneAct = act;
+        } else {
+            outputActs.append(act);
+        }
+    }
+
+    // Migrate old TuneInhibitAmp → TuneInhibitAccTx
+    if (settings.value("TuneInhibitAmp", "").toString() == "True"
+        && settings.value("TuneInhibitAccTx", "").toString().isEmpty()) {
+        settings.setValue("TuneInhibitAccTx", "True");
+        settings.setValue("TuneInhibitNone", "False");
+        outputActs[0]->setChecked(true);  // ACC TX
+        if (noneAct) noneAct->setChecked(false);
+        settings.save();
+    }
+
+    // If no outputs selected, check None
+    bool anyOutput = false;
+    for (auto* a : outputActs) anyOutput |= a->isChecked();
+    if (noneAct && !anyOutput) noneAct->setChecked(true);
+
+    auto syncNone = [noneAct, outputActs]() {
+        bool anyOn = false;
+        for (auto* a : outputActs) anyOn |= a->isChecked();
+        if (noneAct) {
+            QSignalBlocker b(noneAct);
+            noneAct->setChecked(!anyOn);
+        }
+    };
+
+    // "None" unchecks all outputs
+    connect(noneAct, &QAction::toggled, this, [noneAct, outputActs, &settings](bool on) {
+        if (on) {
+            for (auto* a : outputActs) {
+                QSignalBlocker b(a);
+                a->setChecked(false);
+            }
+            settings.setValue("TuneInhibitAccTx", "False");
+            settings.setValue("TuneInhibitTx1", "False");
+            settings.setValue("TuneInhibitTx2", "False");
+            settings.setValue("TuneInhibitTx3", "False");
+            settings.setValue("TuneInhibitNone", "True");
+            settings.save();
+        } else {
+            // Don't allow unchecking None directly — it's auto-managed
+            QSignalBlocker b(noneAct);
+            bool anyOn = false;
+            for (auto* a : outputActs) anyOn |= a->isChecked();
+            if (!anyOn) noneAct->setChecked(true);
+        }
     });
+
+    // Each output toggle saves and syncs None
+    for (int i = 0; i < outputActs.size(); ++i) {
+        connect(outputActs[i], &QAction::toggled, this,
+                [i, syncNone, noneAct, &settings](bool on) {
+            static const char* keys[] = {"TuneInhibitAccTx", "TuneInhibitTx1",
+                                         "TuneInhibitTx2", "TuneInhibitTx3"};
+            settings.setValue(keys[i], on ? "True" : "False");
+            if (on) {
+                settings.setValue("TuneInhibitNone", "False");
+            }
+            syncNone();
+            settings.save();
+        });
+    }
 
     settingsMenu->addSeparator();
 
