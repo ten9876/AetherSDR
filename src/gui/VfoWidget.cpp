@@ -162,7 +162,9 @@ static const QString kModeBtn =
 
 static const QString kSliderStyle =
     "QSlider::groove:horizontal { background: #1a2a3a; height: 4px; border-radius: 2px; }"
-    "QSlider::handle:horizontal { background: #c8d8e8; width: 12px; margin: -4px 0; border-radius: 6px; }";
+    "QSlider::handle:horizontal { background: #c8d8e8; width: 12px; margin: -4px 0; border-radius: 6px; }"
+    "QSlider::groove:vertical { background: #1a2a3a; width: 4px; border-radius: 2px; }"
+    "QSlider::handle:vertical { background: #c8d8e8; height: 12px; margin: 0 -4px; border-radius: 6px; }";
 
 static const QString kLabelStyle =
     "QLabel { background: transparent; border: none; color: #8aa8c0; font-size: 13px; }";
@@ -1962,6 +1964,11 @@ void VfoWidget::setSlice(SliceModel* slice)
         QSignalBlocker sb(m_daxCmb);
         m_daxCmb->setCurrentIndex(ch);
         m_updatingFromModel = false;
+    });
+    connect(m_slice, &SliceModel::lockedChanged, this, [this](bool locked) {
+        QSignalBlocker b(m_lockVfoBtn);
+        m_lockVfoBtn->setChecked(locked);
+        m_lockVfoBtn->setText(locked ? "\xF0\x9F\x94\x92" : "\xF0\x9F\x94\x93");
     });
 
     syncFromSlice();

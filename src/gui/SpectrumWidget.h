@@ -102,9 +102,11 @@ public:
     int  rfGainValue() const { return m_rfGainValue; }
     void setWnbActive(bool on) { m_wnbActive = on; update(); }
     void setRfGain(int gain) { m_rfGainValue = gain; update(); }
-    void setShowBandPlan(bool on) { m_showBandPlan = on; update(); }
+    void setShowBandPlan(bool on) { m_bandPlanFontSize = on ? 6 : 0; update(); }
+    void setBandPlanFontSize(int pt) { m_bandPlanFontSize = pt; update(); }
     void setSingleClickTune(bool on) { m_singleClickTune = on; }
-    bool showBandPlan() const { return m_showBandPlan; }
+    bool showBandPlan() const { return m_bandPlanFontSize > 0; }
+    int  bandPlanFontSize() const { return m_bandPlanFontSize; }
 
     // ── Display control setters ───────────────────────────────────────────
     // FFT controls (save to AppSettings on each change)
@@ -310,6 +312,7 @@ private:
     // Tuning step size for click-snap and wheel scroll (Hz)
     int m_stepHz{100};
     int m_scrollAccum{0};   // trackpad pixel scroll accumulator (macOS)
+    int m_angleAccum{0};    // mouse wheel angle accumulator (#390)
 
     // ── FFT display controls (radio-side via "display pan set") ──────────
     int   m_panIndex{0};             // per-pan settings index (0, 1, 2, 3)
@@ -373,7 +376,7 @@ private:
     // On-screen indicators (WNB, RF Gain)
     bool m_wnbActive{false};
     int  m_rfGainValue{0};
-    bool m_showBandPlan{true};
+    int  m_bandPlanFontSize{6};  // 0 = off
     bool m_singleClickTune{false};
     QPoint m_clickPressPos;        // for single-click-to-tune drag threshold
     bool m_showTxInWaterfall{false};  // default matches radio default (off)

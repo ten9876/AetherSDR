@@ -108,7 +108,12 @@ void SpectrumWidget::loadSettings()
     m_wfBlackLevel   = s.value(settingsKey("DisplayWfBlackLevel"), "15").toInt();
     m_wfAutoBlack    = s.value(settingsKey("DisplayWfAutoBlack"), "True").toString() == "True";
     m_wfLineDuration = s.value(settingsKey("DisplayWfLineDuration"), "100").toInt();
-    m_showBandPlan   = s.value("ShowBandPlan", "True").toString() == "True";
+    // Migrate old ShowBandPlan bool → BandPlanFontSize int
+    if (s.value("BandPlanFontSize").toString().isEmpty()) {
+        m_bandPlanFontSize = s.value("ShowBandPlan", "True").toString() == "True" ? 6 : 0;
+    } else {
+        m_bandPlanFontSize = s.value("BandPlanFontSize", "6").toInt();
+    }
     m_singleClickTune = s.value("SingleClickTune", "False").toString() == "True";
 
     // Sync overlay menu sliders with restored settings
@@ -1299,7 +1304,12 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
         steps = m_scrollAccum / 15;
         m_scrollAccum -= steps * 15;
     } else {
-        steps = ev->angleDelta().y() / 120;
+        // Standard mouse wheel: angleDelta is in 1/8° units, one notch = 120.
+        // Some desktops (KDE Plasma, Cinnamon) send high-resolution deltas
+        // (e.g. 960 per notch). Accumulate and divide to normalize. (#390)
+        m_angleAccum += ev->angleDelta().y();
+        steps = m_angleAccum / 120;
+        m_angleAccum -= steps * 120;
     }
     if (steps == 0) { ev->ignore(); return; }
 
@@ -1478,7 +1488,7 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
 
     drawGrid(p, specRect);
     drawSpectrum(p, specRect);
-    if (m_showBandPlan) drawBandPlan(p, specRect);
+    if (m_bandPlanFontSize > 0) drawBandPlan(p, specRect);
     drawDbmScale(p, specRect);
 
     // Draggable divider bar
@@ -1720,7 +1730,7 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
 {
     const double startMhz = m_centerMhz - m_bandwidthMhz / 2.0;
     const double endMhz   = m_centerMhz + m_bandwidthMhz / 2.0;
-    const int bandH = 8;
+    const int bandH = m_bandPlanFontSize + 4;  // scale strip height with font
     const int bandY = specRect.bottom() - bandH + 1;
 
     for (int i = 0; i < kBandPlanCount; ++i) {
@@ -1750,7 +1760,7 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
         // Label: mode + lowest license class allowed
         if (x2 - x1 > 20) {
             QFont f = p.font();
-            f.setPointSize(6);
+            f.setPointSize(m_bandPlanFontSize);
             f.setBold(true);
             p.setFont(f);
 

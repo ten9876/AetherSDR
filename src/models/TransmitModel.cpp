@@ -50,6 +50,10 @@ void TransmitModel::applyTransmitStatus(const QMap<QString, QString>& kvs)
         bool v = kvs["tune"] == "1";
         if (m_tune != v) { m_tune = v; changed = true; tuneChanged_ = true; }
     }
+    if (kvs.contains("mox")) {
+        bool v = kvs["mox"] == "1";
+        if (m_mox != v) { m_mox = v; changed = true; }
+    }
 
     // ── Mic / monitor / processor keys ──────────────────────────────────────
     bool micChanged = false;

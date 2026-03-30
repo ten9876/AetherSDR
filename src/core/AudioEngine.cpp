@@ -203,7 +203,6 @@ void AudioEngine::generateWisdom(std::function<void(int,int,const std::string&)>
 void AudioEngine::setNr2Enabled(bool on)
 {
     if (m_nr2Enabled == on) return;
-    m_nr2Enabled = on;
     if (on) {
         // Disable RN2/BNR if on — they're mutually exclusive
         if (m_rn2Enabled) setRn2Enabled(false);
@@ -217,11 +216,15 @@ void AudioEngine::setNr2Enabled(bool on)
         if (m_nr2->hasPlanFailed()) {
             qCWarning(lcAudio) << "AudioEngine: NR2 FFTW plan creation failed — disabling";
             m_nr2.reset();
-            m_nr2Enabled = false;
             emit nr2EnabledChanged(false);
             return;
         }
+        // Set flag AFTER object is fully constructed — feedAudioData checks
+        // both m_nr2Enabled and m_nr2, and audio can arrive during
+        // setBnrEnabled(false) above if it processes events.
+        m_nr2Enabled = true;
     } else {
+        m_nr2Enabled = false;
         m_nr2.reset();
     }
     qCDebug(lcAudio) << "AudioEngine: NR2" << (on ? "enabled" : "disabled");
@@ -231,20 +234,21 @@ void AudioEngine::setNr2Enabled(bool on)
 void AudioEngine::setRn2Enabled(bool on)
 {
     if (m_rn2Enabled == on) return;
-    m_rn2Enabled = on;
     if (on) {
+        // Disable NR2/BNR first — they're mutually exclusive
+        if (m_nr2Enabled) setNr2Enabled(false);
+        if (m_bnrEnabled) setBnrEnabled(false);
         m_rn2 = std::make_unique<RNNoiseFilter>();
         if (!m_rn2->isValid()) {
             qCWarning(lcAudio) << "AudioEngine: RN2 rnnoise_create() failed — disabling";
             m_rn2.reset();
-            m_rn2Enabled = false;
             emit rn2EnabledChanged(false);
             return;
         }
-        // Disable NR2/BNR if on — they're mutually exclusive
-        if (m_nr2Enabled) setNr2Enabled(false);
-        if (m_bnrEnabled) setBnrEnabled(false);
+        // Set flag AFTER object is fully constructed
+        m_rn2Enabled = true;
     } else {
+        m_rn2Enabled = false;
         m_rn2.reset();
     }
     qCDebug(lcAudio) << "AudioEngine: RN2 (RNNoise)" << (on ? "enabled" : "disabled");
@@ -256,7 +260,6 @@ void AudioEngine::setRn2Enabled(bool on)
 void AudioEngine::setBnrEnabled(bool on)
 {
     if (m_bnrEnabled == on) return;
-    m_bnrEnabled = on;
     if (on) {
         // Mutual exclusion with NR2 and RN2
         if (m_nr2Enabled) setNr2Enabled(false);
@@ -273,6 +276,8 @@ void AudioEngine::setBnrEnabled(bool on)
         m_bnrDown = std::make_unique<Resampler>(48000, 24000, 16384);
         m_bnrOutBuf.clear();
         m_bnrPrimed = false;
+        // Set flag AFTER objects are fully constructed
+        m_bnrEnabled = true;
 
         // Try connecting — if the container is still booting, retry with a timer.
         if (!m_bnr->connectToServer(m_bnrAddress)) {
@@ -305,6 +310,7 @@ void AudioEngine::setBnrEnabled(bool on)
             retryTimer->start();
         }
     } else {
+        m_bnrEnabled = false;
         if (m_bnr) m_bnr->disconnect();
         m_bnr.reset();
         m_bnrUp.reset();

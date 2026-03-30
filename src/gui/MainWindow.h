@@ -134,6 +134,8 @@ private:
 #ifdef HAVE_SERIALPORT
     SerialPortController m_serialPort;
     FlexControlManager   m_flexControl;
+    QTimer               m_flexCoalesceTimer;
+    int                  m_flexPendingSteps{0};
 #endif
 #ifdef HAVE_MIDI
     MidiControlManager   m_midiControl;

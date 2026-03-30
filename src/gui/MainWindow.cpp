@@ -1054,17 +1054,29 @@ MainWindow::MainWindow(QWidget* parent)
     });
 
     // ── FlexControl tuning knob ─────────────────────────────────────────
-    connect(&m_flexControl, &FlexControlManager::tuneSteps,
-            this, [this](int steps) {
+    // Coalesce rapid encoder steps into a single command every 20ms.
+    // Without this, each step sends a separate TCP command, flooding the
+    // radio and causing the UI to lag behind the knob.
+    m_flexCoalesceTimer.setSingleShot(true);
+    m_flexCoalesceTimer.setInterval(20);
+    connect(&m_flexCoalesceTimer, &QTimer::timeout, this, [this]() {
+        if (m_flexPendingSteps == 0) return;
         auto* s = activeSlice();
-        if (!s || s->isLocked()) return;
+        if (!s || s->isLocked()) { m_flexPendingSteps = 0; return; }
         int stepHz = spectrum() ? spectrum()->stepSize() : 100;
-        double newMhz = s->frequency() + steps * stepHz / 1e6;
+        double newMhz = s->frequency() + m_flexPendingSteps * stepHz / 1e6;
+        m_flexPendingSteps = 0;
         QString panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
         if (!panId.isEmpty())
             m_radioModel.sendCommand(
                 QString("slice m %1 pan=%2").arg(newMhz, 0, 'f', 6).arg(panId));
         if (spectrum()) spectrum()->setVfoFrequency(newMhz);
+    });
+    connect(&m_flexControl, &FlexControlManager::tuneSteps,
+            this, [this](int steps) {
+        m_flexPendingSteps += steps;
+        if (!m_flexCoalesceTimer.isActive())
+            m_flexCoalesceTimer.start();
     });
 
     connect(&m_flexControl, &FlexControlManager::buttonPressed,
@@ -1600,7 +1612,22 @@ void MainWindow::buildMenuBar()
         toggleConnectionDialog();
     });
 
-    settingsMenu->addAction("FlexControl...");
+#ifdef HAVE_SERIALPORT
+    auto* flexControlAction = settingsMenu->addAction("FlexControl...");
+    connect(flexControlAction, &QAction::triggered, this, [this] {
+        auto* dlg = new RadioSetupDialog(&m_radioModel, &m_audio, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        if (auto* tabs = dlg->findChild<QTabWidget*>()) {
+            for (int i = 0; i < tabs->count(); ++i) {
+                if (tabs->tabText(i) == "Serial") {
+                    tabs->setCurrentIndex(i);
+                    break;
+                }
+            }
+        }
+        dlg->show();
+    });
+#endif
     auto* networkAction = settingsMenu->addAction("Network...");
     connect(networkAction, &QAction::triggered, this, [this] {
         NetworkDiagnosticsDialog dlg(&m_radioModel, this);
@@ -1900,6 +1927,9 @@ void MainWindow::buildMenuBar()
         if (!action->isSeparator() && action != radioSetup && action != chooseRadio
             && action != networkAction && action != memoryAction && action != spotsAction
             && action != usbCablesAction
+#ifdef HAVE_SERIALPORT
+            && action != flexControlAction
+#endif
 #ifdef HAVE_MIDI
             && action != midiAction
 #endif
@@ -1960,15 +1990,25 @@ void MainWindow::buildMenuBar()
     });
     viewMenu->addSeparator();
 
-    auto* bandPlanAct = viewMenu->addAction("Band Plan Overlay");
-    bandPlanAct->setCheckable(true);
-    bandPlanAct->setChecked(
-        AppSettings::instance().value("ShowBandPlan", "True").toString() == "True");
-    connect(bandPlanAct, &QAction::toggled, this, [this](bool on) {
-        for (auto* a : m_panStack->allApplets()) a->spectrumWidget()->setShowBandPlan(on);
-        AppSettings::instance().setValue("ShowBandPlan", on ? "True" : "False");
-        AppSettings::instance().save();
-    });
+    // Band Plan submenu — Off / Small / Medium / Large / Huge
+    auto* bandPlanMenu = viewMenu->addMenu("Band Plan");
+    int savedBpSize = AppSettings::instance().value("BandPlanFontSize", "").toInt();
+    if (savedBpSize == 0 && AppSettings::instance().value("ShowBandPlan", "True").toString() == "True")
+        savedBpSize = 6;  // migrate old boolean setting
+    auto* bpGroup = new QActionGroup(bandPlanMenu);
+    struct BpOption { const char* label; int pt; };
+    for (auto [label, pt] : {BpOption{"Off", 0}, {"Small", 6}, {"Medium", 10}, {"Large", 12}, {"Huge", 16}}) {
+        auto* act = bandPlanMenu->addAction(label);
+        act->setCheckable(true);
+        act->setChecked(pt == savedBpSize);
+        bpGroup->addAction(act);
+        connect(act, &QAction::triggered, this, [this, pt] {
+            for (auto* a : m_panStack->allApplets())
+                a->spectrumWidget()->setBandPlanFontSize(pt);
+            AppSettings::instance().setValue("BandPlanFontSize", QString::number(pt));
+            AppSettings::instance().save();
+        });
+    }
 
     auto* singleClickTuneAct = viewMenu->addAction("Single-Click to Tune");
     singleClickTuneAct->setCheckable(true);
@@ -3262,13 +3302,16 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     });
 
     // ── TNF signals ──────────────────────────────────────────────────────
+    // QPointer guards against dangling sw when a pan is removed (#381)
+    QPointer<SpectrumWidget> swGuard(sw);
     auto* tnf = m_radioModel.tnfModel();
-    auto rebuildTnfMarkers = [this, sw]() {
+    auto rebuildTnfMarkers = [this, swGuard]() {
+        if (!swGuard) return;
         auto* t = m_radioModel.tnfModel();
         QVector<SpectrumWidget::TnfMarker> markers;
         for (const auto& e : t->tnfs())
             markers.append({e.id, e.freqMhz, e.widthHz, e.depthDb, e.permanent});
-        sw->setTnfMarkers(markers);
+        swGuard->setTnfMarkers(markers);
     };
     connect(tnf, &TnfModel::tnfChanged,  this, rebuildTnfMarkers);
     connect(tnf, &TnfModel::tnfRemoved,  this, rebuildTnfMarkers);
@@ -3297,7 +3340,6 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 
     // ── Spot markers ─────────────────────────────────────────────────────
     auto* spots = m_radioModel.spotModel();
-    QPointer<SpectrumWidget> swGuard(sw);
     auto rebuildSpots = [this, swGuard]() {
         if (!swGuard) return;  // widget destroyed (layout change)
         auto* s = m_radioModel.spotModel();
@@ -3490,6 +3532,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         if (m_radioModel.slices().size() < m_radioModel.maxSlices())
             m_radioModel.addSliceOnPan(panId);
     });
+    // Disconnect first to avoid duplicate sends on re-wire (#381)
+    disconnect(menu, &SpectrumOverlayMenu::addTnfClicked, this, nullptr);
     connect(menu, &SpectrumOverlayMenu::addTnfClicked,
             this, [this]() {
         auto* s = activeSlice();
