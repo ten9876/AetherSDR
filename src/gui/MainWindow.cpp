@@ -50,6 +50,7 @@
 #include <QIcon>
 #include <QKeyEvent>
 #include <QPixmap>
+#include <QWidgetAction>
 #include <QPainter>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -1913,17 +1914,9 @@ void MainWindow::buildMenuBar()
         dlg->show();
     });
 
-    // Inhibit during TUNE submenu — user selects which TX outputs to suppress
-    // Keep menu open on click so users can multi-select without reopening.
-    auto* tuneInhibitMenu = new QMenu("Inhibit during TUNE", settingsMenu);
-    connect(tuneInhibitMenu, &QMenu::triggered, this, [tuneInhibitMenu](QAction*) {
-        tuneInhibitMenu->show();
-    });
-    settingsMenu->addMenu(tuneInhibitMenu);
-    tuneInhibitMenu->setToolTip(
-        "Select which TX outputs to suppress during TUNE to protect external amplifiers.\n"
-        "Selected outputs are disabled before TUNE starts and restored when TUNE completes.\n"
-        "Leave TX3 unchecked if it controls receive preamp protection.");
+    // Inhibit during TUNE submenu — user selects which TX outputs to suppress.
+    // Uses QWidgetAction with QCheckBox so the menu stays open for multi-select.
+    auto* tuneInhibitMenu = settingsMenu->addMenu("Inhibit during TUNE");
 
     auto& settings = AppSettings::instance();
     struct InhibitDef { const char* label; const char* key; };
@@ -1935,22 +1928,27 @@ void MainWindow::buildMenuBar()
         {"TX3",    "TuneInhibitTx3"},
     };
 
-    // "None" is checked when no other output is selected; unchecking an
-    // output re-evaluates None automatically.
-    QAction* noneAct = nullptr;
-    QVector<QAction*> outputActs;
+    QCheckBox* noneCb = nullptr;
+    QVector<QCheckBox*> outputCbs;
 
     for (const auto& def : inhibitDefs) {
-        auto* act = tuneInhibitMenu->addAction(def.label);
-        act->setCheckable(true);
+        auto* cb = new QCheckBox(def.label);
+        cb->setStyleSheet(
+            "QCheckBox { color: #c8d8e8; padding: 4px 12px; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; }"
+            "QCheckBox::indicator:unchecked { border: 1px solid #506070; background: #1a2a3a; border-radius: 2px; }"
+            "QCheckBox::indicator:checked { border: 1px solid #00b4d8; background: #00b4d8; border-radius: 2px; }");
         bool on = settings.value(def.key, "False").toString() == "True";
-        act->setChecked(on);
+        cb->setChecked(on);
 
-        if (QString(def.label) == "None") {
-            noneAct = act;
-        } else {
-            outputActs.append(act);
-        }
+        auto* wa = new QWidgetAction(tuneInhibitMenu);
+        wa->setDefaultWidget(cb);
+        tuneInhibitMenu->addAction(wa);
+
+        if (QString(def.label) == "None")
+            noneCb = cb;
+        else
+            outputCbs.append(cb);
     }
 
     // Migrate old TuneInhibitAmp → TuneInhibitAccTx
@@ -1958,31 +1956,31 @@ void MainWindow::buildMenuBar()
         && settings.value("TuneInhibitAccTx", "").toString().isEmpty()) {
         settings.setValue("TuneInhibitAccTx", "True");
         settings.setValue("TuneInhibitNone", "False");
-        outputActs[0]->setChecked(true);  // ACC TX
-        if (noneAct) noneAct->setChecked(false);
+        outputCbs[0]->setChecked(true);  // ACC TX
+        if (noneCb) noneCb->setChecked(false);
         settings.save();
     }
 
     // If no outputs selected, check None
     bool anyOutput = false;
-    for (auto* a : outputActs) anyOutput |= a->isChecked();
-    if (noneAct && !anyOutput) noneAct->setChecked(true);
+    for (auto* cb : outputCbs) anyOutput |= cb->isChecked();
+    if (noneCb && !anyOutput) noneCb->setChecked(true);
 
-    auto syncNone = [noneAct, outputActs]() {
+    auto syncNone = [noneCb, outputCbs]() {
         bool anyOn = false;
-        for (auto* a : outputActs) anyOn |= a->isChecked();
-        if (noneAct) {
-            QSignalBlocker b(noneAct);
-            noneAct->setChecked(!anyOn);
+        for (auto* cb : outputCbs) anyOn |= cb->isChecked();
+        if (noneCb) {
+            QSignalBlocker b(noneCb);
+            noneCb->setChecked(!anyOn);
         }
     };
 
     // "None" unchecks all outputs
-    connect(noneAct, &QAction::toggled, this, [noneAct, outputActs, &settings](bool on) {
+    connect(noneCb, &QCheckBox::toggled, this, [noneCb, outputCbs, &settings](bool on) {
         if (on) {
-            for (auto* a : outputActs) {
-                QSignalBlocker b(a);
-                a->setChecked(false);
+            for (auto* cb : outputCbs) {
+                QSignalBlocker b(cb);
+                cb->setChecked(false);
             }
             settings.setValue("TuneInhibitAccTx", "False");
             settings.setValue("TuneInhibitTx1", "False");
@@ -1991,24 +1989,22 @@ void MainWindow::buildMenuBar()
             settings.setValue("TuneInhibitNone", "True");
             settings.save();
         } else {
-            // Don't allow unchecking None directly — it's auto-managed
-            QSignalBlocker b(noneAct);
+            QSignalBlocker b(noneCb);
             bool anyOn = false;
-            for (auto* a : outputActs) anyOn |= a->isChecked();
-            if (!anyOn) noneAct->setChecked(true);
+            for (auto* cb : outputCbs) anyOn |= cb->isChecked();
+            if (!anyOn) noneCb->setChecked(true);
         }
     });
 
     // Each output toggle saves and syncs None
-    for (int i = 0; i < outputActs.size(); ++i) {
-        connect(outputActs[i], &QAction::toggled, this,
-                [i, syncNone, noneAct, &settings](bool on) {
+    for (int i = 0; i < outputCbs.size(); ++i) {
+        connect(outputCbs[i], &QCheckBox::toggled, this,
+                [i, syncNone, &settings](bool on) {
             static const char* keys[] = {"TuneInhibitAccTx", "TuneInhibitTx1",
                                          "TuneInhibitTx2", "TuneInhibitTx3"};
             settings.setValue(keys[i], on ? "True" : "False");
-            if (on) {
+            if (on)
                 settings.setValue("TuneInhibitNone", "False");
-            }
             syncNone();
             settings.save();
         });
