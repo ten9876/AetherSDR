@@ -3,6 +3,66 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.12] — 2026-03-29
+
+### New Features
+
+**GPG Release Signing (#397, #398)**
+- Linux AppImage and source archives are GPG-signed with detached `.asc` signatures
+- SHA256SUMS.txt generated and signed for each release
+- macOS artifacts signed via Apple codesign + notarization (unchanged)
+- Public key published at `docs/RELEASE-SIGNING-KEY.pub.asc` and keys.openpgp.org
+- Verification guide at `docs/VERIFYING-RELEASES.md`
+
+**Commit Signing**
+- All commits to `main` require GPG signatures (branch protection enforced)
+- Contributor setup guide in CONTRIBUTING.md
+
+**Configurable Band Plan Size (#406)**
+- View → Band Plan submenu: Off, Small (6pt), Medium (10pt), Large (12pt), Huge (16pt)
+- Strip height scales with font size
+- Replaces the previous on/off checkbox
+
+### Bug Fixes
+
+**NR2/RN2/BNR Crash on DSP Mode Switch**
+- SEGV in SpectralNR::process() when switching from BNR to NR2
+- Root cause: enabled flag was set before the DSP object was constructed; audio arriving during the transition called process() on a null object
+- Fix: set enabled flag AFTER construction succeeds; clear flag BEFORE destruction
+
+**FlexControl UI Lag (#379)**
+- Each encoder step sent a separate TCP command, flooding the radio
+- Fix: coalesce rapid encoder steps into a single command every 20ms
+
+**FlexControl Menu Stub (#380)**
+- Settings → FlexControl showed "not implemented"
+- Fix: wired to open Radio Setup dialog on the Serial tab
+
+**TNF Crash on +TNF Click (#381)**
+- SIGBUS on macOS when clicking +TNF after a panadapter layout change
+- Root cause: rebuildTnfMarkers lambda captured raw SpectrumWidget pointer that became dangling when the pan was removed
+- Fix: capture QPointer instead; also fixed duplicate `tnf create` commands per click
+
+**FlexControl ToggleMox/ToggleTune Stuck in TX (#382)**
+- Pressing the FlexControl button a second time didn't toggle TX off
+- Root cause: `applyTransmitStatus()` never parsed `mox=` from radio status, so `isMox()` always returned false
+- Fix: parse `mox=` key in transmit status updates
+
+**VFO Lock Icon Not Updating (#384)**
+- Lock icon on VFO overlay didn't update when toggled via FlexControl or RxApplet
+- Root cause: VfoWidget::setSlice() connected 30+ SliceModel signals but was missing `lockedChanged`
+- Fix: added the missing signal connection
+
+**Mouse Wheel 8x Step on KDE/Cinnamon (#390, #405)**
+- Tuning steps were 8x the selected step size on Linux Mint, Cinnamon, and KDE Plasma
+- Root cause: these desktops send high-resolution angleDelta (960 per notch instead of 120)
+- Fix: accumulate angleDelta and normalize to 120 units per step
+
+**ESC Gain Slider Black Thumb (#394)**
+- ESC gain slider thumb was invisible (black) on macOS and Windows
+- Root cause: kSliderStyle only defined horizontal handle rules; ESC gain slider is vertical
+- Fix: added vertical groove and handle QSS rules
+
 ## [v0.7.11] — 2026-03-29
 
 

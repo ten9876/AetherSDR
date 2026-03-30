@@ -33,7 +33,7 @@ cmake --build build -j$(nproc)
 
 Dependencies (Arch): `qt6-base qt6-multimedia cmake ninja pkgconf autoconf automake libtool`
 
-Current version: **0.7.11** (set in both `CMakeLists.txt` and `README.md`).
+Current version: **0.7.12** (set in both `CMakeLists.txt` and `README.md`).
 
 ---
 
@@ -972,6 +972,31 @@ and panadapter. The radio assigns these to our `client_handle`.
   destruction to prevent use-after-free (found via ASAN).
 - **Spot label deconfliction**: proper stacking across all levels
   before overflow to cluster badges.
+- **GPG release signing**: sign-release.yml workflow signs Linux
+  AppImage and source archives with detached .asc signatures.
+  SHA256SUMS.txt included. macOS uses Apple codesign. (#397, #398)
+- **Commit signing enforced**: branch protection requires GPG-signed
+  commits. CONTRIBUTING.md documents setup. Ed25519 keys.
+- **NR2/RN2/BNR DSP switch crash fix**: enabled flag now set AFTER
+  object construction to prevent SEGV when audio arrives during
+  mode switch (e.g. BNR→NR2).
+- **FlexControl coalescing**: rapid encoder steps batched into single
+  TCP command every 20ms, eliminating UI lag (#379)
+- **FlexControl menu wired**: Settings → FlexControl opens Radio
+  Setup Serial tab instead of "not implemented" (#380)
+- **TNF crash fix**: QPointer guards dangling SpectrumWidget pointer
+  in rebuildTnfMarkers lambda on pan removal. Duplicate tnf create
+  commands fixed via disconnect-before-connect (#381)
+- **ToggleMox/ToggleTune fix**: parse `mox=` from radio transmit
+  status so isMox() returns correct state for FlexControl toggle (#382)
+- **VFO lock icon sync**: connect lockedChanged in VfoWidget::setSlice
+  so lock icon updates from any source (#384)
+- **KDE/Cinnamon scroll fix**: accumulate angleDelta to normalize
+  high-resolution scroll deltas across desktop environments (#390, #405)
+- **ESC gain slider fix**: added vertical handle/groove QSS rules
+  to kSliderStyle so thumb renders grey not black (#394)
+- **Configurable band plan size**: View → Band Plan submenu with
+  Off/Small(6pt)/Medium(10pt)/Large(12pt)/Huge(16pt) (#406)
 
 ## What's NOT Yet Implemented
 
