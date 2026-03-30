@@ -363,6 +363,8 @@ private:
     // Filter edge drag state
     enum class FilterEdge { None, Low, High };
     FilterEdge m_draggingFilter{FilterEdge::None};
+    // VFO passband drag state (#404)
+    bool m_draggingVfo{false};
     // dBm scale strip drag state
     static constexpr int DBM_STRIP_W = 36;  // width of the dBm scale strip
     static constexpr int DBM_ARROW_H = 14;  // height of each arrow button

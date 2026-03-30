@@ -846,6 +846,16 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
             ev->accept();
             return;
         }
+
+        // Click inside the filter passband → start VFO drag (#404)
+        const int left = std::min(loX, hiX);
+        const int right = std::max(loX, hiX);
+        if (mx > left + GRAB && mx < right - GRAB) {
+            m_draggingVfo = true;
+            setCursor(Qt::SizeHorCursor);
+            ev->accept();
+            return;
+        }
     }
 
     // Click in FFT area → start pan drag (tune on double-click only)
@@ -944,6 +954,14 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         }
         update();
         emit filterChangeRequested(ao->filterLowHz, ao->filterHighHz);
+        ev->accept();
+        return;
+    }
+
+    if (m_draggingVfo) {
+        const int mx = static_cast<int>(ev->position().x());
+        const double mhz = snapToStep(xToMhz(mx), m_stepHz);
+        emit frequencyClicked(mhz);
         ev->accept();
         return;
     }
@@ -1118,6 +1136,12 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
     }
     if (m_draggingBandwidth) {
         m_draggingBandwidth = false;
+        setCursor(Qt::CrossCursor);
+        ev->accept();
+        return;
+    }
+    if (m_draggingVfo) {
+        m_draggingVfo = false;
         setCursor(Qt::CrossCursor);
         ev->accept();
         return;
