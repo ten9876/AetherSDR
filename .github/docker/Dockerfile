@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     git \
     patch \
+    curl \
     qt6-base-dev \
     qt6-multimedia-dev \
     qt6-websockets-dev \
