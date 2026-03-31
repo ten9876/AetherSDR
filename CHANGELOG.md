@@ -3,7 +3,7 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [v0.7.15] — 2026-03-30
+## [v0.7.15] — 2026-03-31
 
 ### Digital-Friendly Minimal Mode
 
