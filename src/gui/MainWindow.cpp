@@ -126,6 +126,25 @@ MainWindow::MainWindow(QWidget* parent)
     buildUI();
     registerShortcutActions();
 
+    // DXCC spot coloring (#330)
+    m_dxccProvider.loadCtyDat(":/cty.dat");
+    {
+        auto& s = AppSettings::instance();
+        m_dxccProvider.setEnabled(s.value("IsDxccColoringEnabled", "False").toString() == "True");
+        m_dxccProvider.colorNewDxcc = QColor(s.value("DxccColorNewEntity", "#FF3030").toString());
+        m_dxccProvider.colorNewBand = QColor(s.value("DxccColorNewBand", "#FF8C00").toString());
+        m_dxccProvider.colorNewMode = QColor(s.value("DxccColorNewMode", "#FFD700").toString());
+        m_dxccProvider.colorWorked  = QColor(s.value("DxccColorWorked", "#606060").toString());
+        const QString adifPath = s.value("DxccAdifFilePath", "").toString();
+        if (!adifPath.isEmpty()) {
+            m_dxccProvider.importAdifFile(adifPath);
+            if (s.value("DxccAutoReloadAdif", "False").toString() == "True")
+                m_dxccProvider.setAutoReload(true, adifPath);
+        }
+    }
+    connect(&m_dxccProvider, &DxccColorProvider::importFinished,
+            this, [this](int, int) { emit m_radioModel.spotModel()->spotsCleared(); });
+
     // Install event filter on the application to intercept Space PTT
     // before child widgets (buttons, combos) consume the key event.
     qApp->installEventFilter(this);
@@ -1788,7 +1807,7 @@ void MainWindow::buildMenuBar()
 #ifdef HAVE_WEBSOCKETS
                             m_freedvClient,
 #endif
-                            &m_radioModel, this);
+                            &m_radioModel, &m_dxccProvider, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         m_spotHubDialog = dlg;
         dlg->setTotalSpots(m_radioModel.spotModel()->spots().size());
@@ -3592,11 +3611,14 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         auto* s = m_radioModel.spotModel();
         QVector<SpectrumWidget::SpotMarker> markers;
         for (const auto& spot : s->spots()) {
-            QDateTime ts = spot.timestamp;
-            if (!ts.isValid() || ts.toMSecsSinceEpoch() <= 0)
-                ts = QDateTime::fromMSecsSinceEpoch(spot.addedMs, Qt::UTC);
+            qint64 tsMs = (spot.timestamp.isValid() && spot.timestamp.toMSecsSinceEpoch() > 0)
+                ? spot.timestamp.toMSecsSinceEpoch()
+                : spot.addedMs;
+            QColor dxccCol;
+            if (m_dxccProvider.isEnabled())
+                dxccCol = m_dxccProvider.colorForSpot(spot.callsign, spot.rxFreqMhz, spot.mode);
             markers.append({spot.index, spot.callsign, spot.rxFreqMhz, spot.color, spot.mode,
-                            spot.source, spot.spotterCallsign, spot.comment, ts});
+                            dxccCol, spot.source, spot.spotterCallsign, spot.comment, tsMs});
         }
         swGuard->setSpotMarkers(markers);
     };

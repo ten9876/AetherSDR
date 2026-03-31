@@ -26,6 +26,7 @@
 #endif
 #include "core/ShortcutManager.h"
 #include "core/TgxlConnection.h"
+#include "core/DxccColorProvider.h"
 
 #include <QMainWindow>
 #include <QSplitter>
@@ -110,6 +111,7 @@ private:
     // Core objects
     RadioDiscovery    m_discovery;
     RadioModel        m_radioModel;
+    DxccColorProvider m_dxccProvider;
     AudioEngine       m_audio;
     BandSettings      m_bandSettings;
     // 4-channel CAT: each channel (A-D) binds to a slice index (0-3)

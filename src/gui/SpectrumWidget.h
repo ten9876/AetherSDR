@@ -185,10 +185,11 @@ public:
         double freqMhz;
         QString color;       // #AARRGGBB or empty for default
         QString mode;
+        QColor  dxccColor;   // DXCC-aware color from DxccColorProvider (#330)
         QString source;
         QString spotterCallsign;
         QString comment;
-        QDateTime timestamp;
+        qint64  timestampMs{0};
     };
     void setSpotMarkers(const QVector<SpotMarker>& markers);
 

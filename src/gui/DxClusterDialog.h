@@ -6,6 +6,7 @@
 #include <QSet>
 #include <QVector>
 #include "core/DxClusterClient.h"
+#include "core/DxccColorProvider.h"
 #include "core/WsjtxClient.h"
 #include "core/PotaClient.h"
 #ifdef HAVE_WEBSOCKETS
@@ -82,7 +83,9 @@ public:
 #ifdef HAVE_WEBSOCKETS
                              FreeDvClient* freedvClient,
 #endif
-                             RadioModel* radioModel, QWidget* parent = nullptr);
+                             RadioModel* radioModel,
+                             DxccColorProvider* dxccProvider,
+                             QWidget* parent = nullptr);
 
     void updateStatus();
     void setTotalSpots(int count);
@@ -189,7 +192,9 @@ private:
     BandFilterProxy*       m_proxyModel;
 
     // Display tab
-    QLabel*         m_totalSpotsLabel{nullptr};
+    QLabel*            m_totalSpotsLabel{nullptr};
+    QLabel*            m_dxccStatsLabel{nullptr};
+    DxccColorProvider* m_dxccProvider{nullptr};
 };
 
 } // namespace AetherSDR
