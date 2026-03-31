@@ -407,7 +407,7 @@ private:
     int   m_wfBlankerRingIdx{0};
     int   m_wfBlankerRingCount{0};
     qint64 m_wfBlankerLastFireMs{0};     // timestamp of most recent blanked row
-    QVector<float> m_wfLastGoodRow;      // last non-blanked scanline (Interpolate mode)
+    QVector<QRgb> m_wfLastGoodRow;       // last non-blanked scanline (Interpolate mode)
     int  m_bandPlanFontSize{6};  // 0 = off
     BandPlanManager* m_bandPlanMgr{nullptr};
     bool m_singleClickTune{false};
