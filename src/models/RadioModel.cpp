@@ -138,6 +138,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
     m_version = info.version;
     // Populate client station map from discovery data
     m_clientStations.clear();
+    m_clientInfoMap.clear();
     for (int i = 0; i < info.guiClientHandles.size(); ++i) {
         quint32 h = info.guiClientHandles[i].toUInt(nullptr, 16);
         QString station = (i < info.guiClientStations.size())
@@ -995,6 +996,7 @@ void RadioModel::onDisconnected()
     m_activePanId.clear();
     m_ownedSliceIds.clear();
     m_clientStations.clear();
+    m_clientInfoMap.clear();
     emit otherClientsChanged(0, {});
     emit connectionStateChanged(false);
 
@@ -1312,6 +1314,8 @@ quint32 RadioModel::clientHandle() const
     return m_connection.clientHandle();
 }
 
+quint32 RadioModel::ourClientHandle() const { return clientHandle(); }
+
 void RadioModel::emitOtherClientsChanged()
 {
     quint32 ours = clientHandle();
@@ -1346,10 +1350,14 @@ void RadioModel::onStatusReceived(const QString& object,
 
             if (action == "disconnected") {
                 m_clientStations.remove(handle);
+                m_clientInfoMap.remove(handle);
                 emitOtherClientsChanged();
             } else if (action == "connected" || kvs.contains("connected")) {
-                QString station = kvs.value("station", kvs.value("program", "Unknown"));
+                QString program = kvs.value("program", "Unknown");
+                QString station = kvs.value("station", program);
+                bool ptt = kvs.value("local_ptt", "0") == "1";
                 m_clientStations[handle] = station;
+                m_clientInfoMap[handle] = {station, program, ptt};
                 emitOtherClientsChanged();
             }
         }
@@ -1418,6 +1426,17 @@ void RadioModel::onStatusReceived(const QString& object,
     static const QRegularExpression sliceRe(R"(^slice\s+(\d+)$)");
     const auto sliceMatch = sliceRe.match(object);
     if (sliceMatch.hasMatch()) {
+        // Extract per-client TX info for multiFLEX dashboard before
+        // handleSliceStatus filters out other clients' slices
+        if (kvs.contains("client_handle") && kvs.value("tx") == "1") {
+            quint32 ch = kvs["client_handle"].toUInt(nullptr, 16);
+            auto it = m_clientInfoMap.find(ch);
+            if (it != m_clientInfoMap.end()) {
+                it->txAntenna = kvs.value("txant");
+                if (kvs.contains("RF_frequency"))
+                    it->txFreqMhz = kvs["RF_frequency"].toDouble();
+            }
+        }
         const bool removed = kvs.value("in_use") == "0";
         handleSliceStatus(sliceMatch.captured(1).toInt(), kvs, removed);
         return;

@@ -282,6 +282,7 @@ set(GUI_SOURCES
     src/gui/SupportDialog.cpp
     src/gui/KeyboardMapWidget.cpp
     src/gui/ShortcutDialog.cpp
+    src/gui/MultiFlexDialog.cpp
 )
 
 set(ALL_SOURCES

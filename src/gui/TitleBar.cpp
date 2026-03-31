@@ -25,7 +25,6 @@ TitleBar::TitleBar(QWidget* parent)
     m_hbox->setSpacing(6);
 
     // ── Left: menu bar will be inserted here via setMenuBar() ───────────────
-    // (placeholder — addStretch pushes center/right into place)
     m_hbox->addStretch(1);
 
     // ── Heartbeat indicator ─────────────────────────────────────────────────
@@ -79,8 +78,6 @@ TitleBar::TitleBar(QWidget* parent)
         "font-weight: bold; border-radius: 3px; padding: 2px 8px; }");
     m_otherTxLabel->setVisible(false);
     m_hbox->addWidget(m_otherTxLabel);
-
-    m_hbox->addSpacing(8);
 
     // ── PC Audio + Master Vol + HP Vol ──────────────────────────────────────
     auto& s = AppSettings::instance();
@@ -193,12 +190,25 @@ TitleBar::TitleBar(QWidget* parent)
 
     m_hbox->addSpacing(12);
 
+    // ── Minimal Mode button ─────────────────────────────────────────────────
+    m_minimalBtn = new QPushButton("\xe2\x86\x99");  // ↙ U+2199
+    m_minimalBtn->setFixedSize(28, 28);
+    m_minimalBtn->setToolTip("Minimal Mode (Ctrl+M)");
+    m_minimalBtn->setStyleSheet(
+        "QPushButton { background: #1a2a3a; color: #c8d8e8; border: 1px solid #304050; "
+        "border-radius: 4px; font-size: 18px; padding: 0; }"
+        "QPushButton:hover { background: #203040; color: #00b4d8; border-color: #00b4d8; }");
+    connect(m_minimalBtn, &QPushButton::clicked, this, &TitleBar::minimalModeRequested);
+    m_hbox->addWidget(m_minimalBtn);
+
     // ── Feature Request button ──────────────────────────────────────────────
-    auto* featureBtn = new QPushButton("\xF0\x9F\x92\xA1 Feature Request");  // 💡
-    featureBtn->setFixedHeight(24);
+    m_featureBtn = new QPushButton("\xF0\x9F\x92\xA1");  // 💡
+    auto* featureBtn = m_featureBtn;
+    featureBtn->setFixedSize(28, 28);
+    featureBtn->setToolTip("Submit a feature request");
     featureBtn->setStyleSheet(
         "QPushButton { background: #3a2a00; color: #ffd060; border: 1px solid #806020; "
-        "border-radius: 4px; font-size: 12px; font-weight: bold; padding: 2px 10px; }"
+        "border-radius: 4px; font-size: 20px; padding: 0; }"
         "QPushButton:hover { background: #504000; color: #ffe080; }");
     connect(featureBtn, &QPushButton::clicked, this, &TitleBar::showFeatureRequestDialog);
     m_hbox->addWidget(featureBtn);
@@ -214,6 +224,7 @@ void TitleBar::setMenuBar(QMenuBar* mb)
         "QMenu { background: #0f0f1a; color: #c8d8e8; border: 1px solid #304050; }"
         "QMenu::item:selected { background: #0070c0; }");
     mb->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+    m_menuBar = mb;
     // Insert at position 0 (before the first stretch)
     m_hbox->insertWidget(0, mb);
 }
@@ -358,6 +369,27 @@ void TitleBar::onHeartbeatLost()
     if (m_missedBeats >= 3 && !m_heartbeatAlarmTimer->isActive()) {
         m_heartbeatOffTimer->stop();
         m_heartbeatAlarmTimer->start();
+    }
+}
+
+void TitleBar::setMinimalMode(bool on)
+{
+    // Hide everything except heartbeat, logo, ↗/↙ button, and 💡
+    if (m_menuBar) m_menuBar->setVisible(!on);
+    m_pcBtn->setVisible(!on);
+    m_speakerBtn->setVisible(!on);
+    m_headphoneBtn->setVisible(!on);
+    m_masterSlider->setVisible(!on);
+    m_hpSlider->setVisible(!on);
+    m_masterLabel->setVisible(!on);
+    m_hpLabel->setVisible(!on);
+    // Don't touch m_otherTxLabel or m_mfLabel — their visibility is
+    // managed by setOtherClientTx() and setMultiFlexStatus() respectively
+
+    // Swap icon and tooltip
+    if (m_minimalBtn) {
+        m_minimalBtn->setText(on ? "\xe2\x86\x97" : "\xe2\x86\x99");  // ↗ or ↙
+        m_minimalBtn->setToolTip(on ? "Restore Full Mode (Ctrl+M)" : "Minimal Mode (Ctrl+M)");
     }
 }
 

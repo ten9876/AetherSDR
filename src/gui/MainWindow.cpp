@@ -30,6 +30,7 @@
 #include "ProfileManagerDialog.h"
 #include "SupportDialog.h"
 #include "ShortcutDialog.h"
+#include "MultiFlexDialog.h"
 #include "models/SliceModel.h"
 #include "models/MeterModel.h"
 #include "models/TunerModel.h"
@@ -121,6 +122,23 @@ MainWindow::MainWindow(QWidget* parent)
     // Install event filter on the application to intercept Space PTT
     // before child widgets (buttons, combos) consume the key event.
     qApp->installEventFilter(this);
+
+    // Ctrl+M toggle — must be a QShortcut on MainWindow, not a menu action,
+    // because the menu bar is hidden in minimal mode.
+    auto* minimalShortcut = new QShortcut(QKeySequence("Ctrl+M"), this);
+    connect(minimalShortcut, &QShortcut::activated, this, [this]() {
+        bool next = !m_minimalMode;
+        // Sync the menu action (with blocker to avoid double-toggle)
+        if (m_minimalModeAction) {
+            QSignalBlocker b(m_minimalModeAction);
+            m_minimalModeAction->setChecked(next);
+        }
+        toggleMinimalMode(next);
+    });
+
+    // Restore minimal mode if it was active on last exit
+    if (AppSettings::instance().value("MinimalModeEnabled", "False").toString() == "True")
+        toggleMinimalMode(true);
 
     // ── Wire up discovery ──────────────────────────────────────────────────
     connect(&m_discovery, &RadioDiscovery::radioDiscovered,
@@ -1801,7 +1819,11 @@ void MainWindow::buildMenuBar()
         connect(dlg, &QDialog::finished, this, refreshSpots);  // refresh on close
         dlg->show();
     });
-    settingsMenu->addAction("multiFLEX...");
+    auto* multiFlexAction = settingsMenu->addAction("multiFLEX...");
+    connect(multiFlexAction, &QAction::triggered, this, [this] {
+        MultiFlexDialog dlg(&m_radioModel, this);
+        dlg.exec();
+    });
     auto* txBandAct = settingsMenu->addAction("TX Band Settings...");
     connect(txBandAct, &QAction::triggered, this, [this] {
         if (!m_radioModel.isConnected()) {
@@ -2070,6 +2092,7 @@ void MainWindow::buildMenuBar()
 #ifdef HAVE_MIDI
             && action != midiAction
 #endif
+            && action != multiFlexAction
             && action != autoRigctlAction && action != autoCatAction
             && action != autoDaxAction && action != lowLatencyDaxTxAction) {
             connect(action, &QAction::triggered, this, [this, action] {
@@ -2181,6 +2204,15 @@ void MainWindow::buildMenuBar()
     });
 
     viewMenu->addSeparator();
+    m_minimalModeAction = viewMenu->addAction("Minimal Mode");
+    m_minimalModeAction->setCheckable(true);
+    m_minimalModeAction->setShortcut(QKeySequence("Ctrl+M"));
+    m_minimalModeAction->setChecked(
+        AppSettings::instance().value("MinimalModeEnabled", "False").toString() == "True");
+    connect(m_minimalModeAction, &QAction::toggled, this, [this](bool on) {
+        toggleMinimalMode(on);
+    });
+
     m_keyboardShortcutsEnabled = AppSettings::instance()
         .value("KeyboardShortcutsEnabled", "False").toString() == "True";
     auto* kbAct = viewMenu->addAction("Keyboard Shortcuts");
@@ -2259,6 +2291,13 @@ void MainWindow::buildUI()
     m_titleBar = new TitleBar(this);
     // Embed the menu bar into the title bar (left side)
     m_titleBar->setMenuBar(menuBar());
+    connect(m_titleBar, &TitleBar::minimalModeRequested, this, [this]() {
+        toggleMinimalMode(!m_minimalMode);
+        if (m_minimalModeAction) {
+            QSignalBlocker b(m_minimalModeAction);
+            m_minimalModeAction->setChecked(m_minimalMode);
+        }
+    });
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
     m_splitter->setHandleWidth(0);
@@ -4145,6 +4184,83 @@ SpectrumWidget* MainWindow::spectrum() const
 {
     return m_panStack ? m_panStack->activeSpectrum()
                       : (m_panApplet ? m_panApplet->spectrumWidget() : nullptr);
+}
+
+void MainWindow::toggleMinimalMode(bool on)
+{
+    m_minimalMode = on;
+    auto& s = AppSettings::instance();
+
+    if (on) {
+        // Save full-mode geometry
+        s.setValue("FullModeGeometry", saveGeometry().toBase64());
+
+        // Save splitter sizes for restore
+        s.setValue("MinimalModeSplitterSizes",
+            QString::fromLatin1(m_splitter->saveState().toBase64()));
+
+        // Suspend spectrum rendering to save CPU
+        if (m_panStack) {
+            for (auto* a : m_panStack->allApplets())
+                a->spectrumWidget()->setUpdatesEnabled(false);
+        }
+
+        // Hide the splitter (contains spectrum + applet panel) and reparent
+        // the applet panel directly into the central layout
+        m_splitter->hide();
+        m_appletPanel->setParent(centralWidget());
+        centralWidget()->layout()->addWidget(m_appletPanel);
+        m_appletPanel->show();
+
+        // Strip title bar to heartbeat + logo + restore/feature buttons
+        m_titleBar->setMinimalMode(true);
+        statusBar()->hide();
+
+        // Force window to applet width
+        setMinimumSize(0, 0);
+        setFixedWidth(260);
+
+        QByteArray geom = QByteArray::fromBase64(
+            s.value("MinimalModeGeometry", "").toByteArray());
+        if (!geom.isEmpty())
+            restoreGeometry(geom);
+
+    } else {
+        // Save minimal geometry
+        s.setValue("MinimalModeGeometry", saveGeometry().toBase64());
+
+        // Reparent applet panel back into the splitter and restore layout
+        m_splitter->addWidget(m_appletPanel);
+        m_appletPanel->show();
+        QByteArray splitterState = QByteArray::fromBase64(
+            s.value("MinimalModeSplitterSizes", "").toByteArray());
+        if (!splitterState.isEmpty())
+            m_splitter->restoreState(splitterState);
+        m_splitter->show();
+
+        // Resume spectrum rendering
+        if (m_panStack) {
+            for (auto* a : m_panStack->allApplets())
+                a->spectrumWidget()->setUpdatesEnabled(true);
+        }
+
+        // Release fixed width and restore minimum size
+        setFixedWidth(QWIDGETSIZE_MAX);
+        setMinimumSize(1024, 600);
+
+        // Restore title bar and status bar
+        m_titleBar->setMinimalMode(false);
+        statusBar()->show();
+
+        // Restore full geometry
+        QByteArray geom = QByteArray::fromBase64(
+            s.value("FullModeGeometry", "").toByteArray());
+        if (!geom.isEmpty())
+            restoreGeometry(geom);
+    }
+
+    s.setValue("MinimalModeEnabled", on ? "True" : "False");
+    s.save();
 }
 
 SpectrumWidget* MainWindow::spectrumForSlice(SliceModel* s) const

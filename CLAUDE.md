@@ -37,6 +37,48 @@ Current version: **0.7.12** (set in both `CMakeLists.txt` and `README.md`).
 
 ---
 
+## CI/CD Workflow
+
+### CI (GitHub Actions)
+
+CI uses a Docker container (`ghcr.io/ten9876/aethersdr-ci:latest`) with all
+build dependencies pre-installed. Build time is ~3.5 minutes consistently.
+
+**When adding a new system dependency:**
+1. Add the package to `.github/docker/Dockerfile`
+2. Push the Dockerfile change — `docker-ci-image.yml` triggers automatically
+3. Wait for the image to build (~3 min) before the next CI run can use it
+
+### Git Aliases
+
+**`git ship`** — Squashes all local commits ahead of origin/main into one,
+creates a PR branch, pushes, opens a PR with auto-squash-merge enabled.
+Use this to batch multiple commits into a single PR.
+
+```bash
+# Accumulate work locally, then ship once:
+git commit -m "Fix A"
+git commit -m "Fix B"
+git ship   # squashes both into one PR
+```
+
+**`git release <version> [notes]`** — Triggers the release workflow which
+bumps version in CMakeLists.txt/README.md/CLAUDE.md, creates a PR,
+auto-merges, waits, then tags. Supports X.Y.Z and X.Y.Z.P versions.
+
+```bash
+git release 0.7.13 "Bug fixes and performance improvements"
+```
+
+### Branch Protection
+
+- All commits to `main` require GPG signatures
+- CI build must pass before merge
+- Branches auto-delete after PR merge
+- Enable "Automatically delete head branches" in repo settings
+
+---
+
 ## Architecture Overview
 
 ```
@@ -186,6 +228,18 @@ first `=` sign.
   switching as a side effect, even though the client didn't request it
 - `radio set full_duplex_enabled` — accepted (R|0) but no status echo
 - `audio_level` is the status key for AF gain (not `audio_gain`)
+- `cw key immediate` returns `0x50001000` — **not supported** on fw v4.1.5.
+  Must use netcw UDP stream (`stream create netcw`) for CW keying
+- `transmit set break_in=1` returns `0x5000002D` — correct command is
+  `cw break_in 1` (per FlexLib Radio.cs CWBreakIn property)
+- The radio **never sends `mox=` in transmit status messages**. Do NOT use
+  `isMox()` for TX state detection — it always returns false. Use
+  `isTransmitting()` instead, which tracks the interlock state machine
+  (READY → PTT_REQUESTED → TRANSMITTING → UNKEY_REQUESTED → READY)
+- Three separate tune command paths all need interlock inhibit:
+  `transmit tune 1` (barefoot), `tgxl autotune` (TGXL external tuner),
+  `atu start` (internal ATU). Each goes through a different `commandReady`
+  handler in RadioModel
 
 ---
 

@@ -95,6 +95,7 @@ private:
     void wireVfoWidget(VfoWidget* w, SliceModel* s);
     void enableNr2WithWisdom();  // Wisdom-gated NR2 enable (shared by VFO + overlay)
     void registerShortcutActions();
+    void toggleMinimalMode(bool on);
     void updateKeyerAvailability(const QString& mode);
     void applyPanLayout(const QString& layoutId);
     void createPansSequentially(const QString& layoutId, int total,
@@ -218,6 +219,8 @@ private:
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     bool m_keyboardShortcutsEnabled{false}; // global enable for keyboard shortcuts (View menu)
     bool m_spacePttActive{false};          // true while Space is held for PTT
+    bool m_minimalMode{false};             // true when spectrum is hidden (#208)
+    QAction* m_minimalModeAction{nullptr};
     ShortcutManager m_shortcutManager;
 
 #ifdef HAVE_RADE

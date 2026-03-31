@@ -27,6 +27,7 @@ public:
     void setMultiFlexStatus(int clientCount, const QStringList& names);
     void onHeartbeat();     // Call when a discovery packet arrives
     void onHeartbeatLost(); // Call when radio lost from discovery
+    void setMinimalMode(bool on);
 
 signals:
     void pcAudioToggled(bool on);
@@ -34,10 +35,12 @@ signals:
     void headphoneVolumeChanged(int pct);
     void lineoutMuteChanged(bool muted);
     void headphoneMuteChanged(bool muted);
+    void minimalModeRequested();
 
 private:
     void showFeatureRequestDialog();
     QHBoxLayout* m_hbox{nullptr};
+    QMenuBar*    m_menuBar{nullptr};
     QLabel*      m_otherTxLabel{nullptr};
     QLabel*      m_mfLabel{nullptr};
     QPushButton* m_pcBtn{nullptr};
@@ -47,6 +50,9 @@ private:
     QSlider*     m_hpSlider{nullptr};
     QLabel*      m_masterLabel{nullptr};
     QLabel*      m_hpLabel{nullptr};
+
+    QPushButton* m_minimalBtn{nullptr};
+    QPushButton* m_featureBtn{nullptr};
 
     // Heartbeat indicator
     QLabel*      m_heartbeat{nullptr};

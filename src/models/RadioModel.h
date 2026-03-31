@@ -171,6 +171,18 @@ public:
     QString staticGateway()   const { return m_staticGateway; }
     bool    remoteOnEnabled() const { return m_remoteOnEnabled; }
     bool    multiFlexEnabled() const { return m_multiFlexEnabled; }
+    const QMap<quint32, QString>& clientStations() const { return m_clientStations; }
+    quint32 txClientHandle() const { return m_txClientHandle; }
+    quint32 ourClientHandle() const;
+
+    struct ClientInfo {
+        QString station;
+        QString program;
+        bool localPtt{false};
+        QString txAntenna;
+        double txFreqMhz{0};
+    };
+    const QMap<quint32, ClientInfo>& clientInfoMap() const { return m_clientInfoMap; }
     void    setRemoteOnEnabled(bool on);
     void    setMultiFlexEnabled(bool on);
     // Panadapter access (delegates to active pan)
@@ -481,7 +493,8 @@ private:
     bool               m_fullDuplex{false};
     int                m_rttyMarkDefault{2125};
     quint32            m_txClientHandle{0};  // handle of the client that owns TX
-    QMap<quint32, QString> m_clientStations; // handle → station name (from client connected status)
+    QMap<quint32, ClientInfo> m_clientInfoMap; // handle → full client info
+    QMap<quint32, QString> m_clientStations;   // handle → station name (legacy, kept in sync)
 
     RadioInfo m_lastInfo;               // stored for auto-reconnect
     bool      m_intentionalDisconnect{false};
