@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
+        <file alias="cty.dat">cty.dat</file>
         <file alias="icon.png">docs/logo-circle.png</file>
     </qresource>
 </RCC>

@@ -220,6 +220,10 @@ set(CORE_SOURCES
     src/core/SerialPortController.cpp
     src/core/FlexControlManager.cpp
     src/core/OpusCodec.cpp
+    src/core/CtyDatParser.cpp
+    src/core/AdifParser.cpp
+    src/core/DxccWorkedStatus.cpp
+    src/core/DxccColorProvider.cpp
 )
 
 if(APPLE)
@@ -457,6 +461,7 @@ endif()
 if(FFTW3_FOUND)
     target_compile_definitions(AetherSDR PRIVATE HAVE_FFTW3)
     target_include_directories(AetherSDR PRIVATE ${FFTW3_INCLUDE_DIRS})
+    target_link_directories(AetherSDR PRIVATE ${FFTW3_LIBRARY_DIRS})
     target_link_libraries(AetherSDR PRIVATE ${FFTW3_LIBRARIES})
     # Copy DLL to build dir on Windows
     if(WIN32 AND FFTW3_DLL)

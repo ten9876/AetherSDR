@@ -22,6 +22,8 @@
 #include <QColorDialog>
 #include <QFile>
 #include <QRegularExpression>
+#include <QFileDialog>
+#include <QFileInfo>
 
 namespace AetherSDR {
 
@@ -170,13 +172,15 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
 #ifdef HAVE_WEBSOCKETS
                                    FreeDvClient* freedvClient,
 #endif
-                                   RadioModel* radioModel, QWidget* parent)
+                                   RadioModel* radioModel,
+                                   DxccColorProvider* dxccProvider,
+                                   QWidget* parent)
     : QDialog(parent), m_client(clusterClient), m_rbnClient(rbnClient),
       m_wsjtxClient(wsjtxClient), m_potaClient(potaClient),
 #ifdef HAVE_WEBSOCKETS
       m_freedvClient(freedvClient),
 #endif
-      m_radioModel(radioModel)
+      m_radioModel(radioModel), m_dxccProvider(dxccProvider)
 {
     setWindowTitle("SpotHub");
     setMinimumSize(620, 500);
@@ -1741,6 +1745,142 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
     grid->addWidget(m_totalSpotsLabel, row++, 1);
 
     layout->addLayout(grid);
+
+    // ── DXCC Coloring section ────────────────────────────────────────────
+    {
+        auto* dxccTitle = new QLabel("DXCC Coloring");
+        dxccTitle->setAlignment(Qt::AlignCenter);
+        dxccTitle->setStyleSheet(
+            "QLabel { font-size: 13px; font-weight: bold; color: #80b0d0; "
+            "border-top: 1px solid #304050; padding-top: 8px; margin-top: 6px; }");
+        layout->addWidget(dxccTitle);
+
+        auto* dxccGrid = new QGridLayout;
+        dxccGrid->setColumnStretch(1, 1);
+        int drow = 0;
+
+        bool dxccEnabled = m_dxccProvider ? m_dxccProvider->isEnabled() : false;
+        auto* dxccToggle = new QPushButton(dxccEnabled ? "Enabled" : "Disabled");
+        dxccToggle->setCheckable(true);
+        dxccToggle->setChecked(dxccEnabled);
+        dxccToggle->setFixedWidth(80);
+        dxccToggle->setStyleSheet(
+            "QPushButton { background: #206030; color: white; border: 1px solid #305040; padding: 3px; }"
+            "QPushButton:!checked { background: #603020; }");
+        connect(dxccToggle, &QPushButton::toggled, this, [this, dxccToggle, save](bool on) {
+            dxccToggle->setText(on ? "Enabled" : "Disabled");
+            save("IsDxccColoringEnabled", on ? "True" : "False");
+            if (m_dxccProvider) m_dxccProvider->setEnabled(on);
+        });
+        dxccGrid->addWidget(new QLabel("DXCC Colors:"), drow, 0);
+        dxccGrid->addWidget(dxccToggle, drow++, 1, Qt::AlignLeft);
+
+        // ADIF file picker
+        const QString savedAdif = AppSettings::instance().value("DxccAdifFilePath", "").toString();
+        auto* adifPathLabel = new QLabel(savedAdif.isEmpty() ? "(none)" : QFileInfo(savedAdif).fileName());
+        adifPathLabel->setStyleSheet("QLabel { color: #90a8b8; font-size: 11px; }");
+        adifPathLabel->setMaximumWidth(200);
+        auto* browseBtn = new QPushButton("Browse\xe2\x80\xa6");
+        browseBtn->setFixedWidth(70);
+        auto* adifRow = new QHBoxLayout;
+        adifRow->addWidget(adifPathLabel);
+        adifRow->addWidget(browseBtn);
+        adifRow->addStretch();
+        dxccGrid->addWidget(new QLabel("Log File (ADIF):"), drow, 0);
+        dxccGrid->addLayout(adifRow, drow++, 1);
+
+        // Stats label
+        m_dxccStatsLabel = new QLabel(m_dxccProvider && m_dxccProvider->qsoCount() > 0
+            ? QString("%1 QSOs / %2 entities").arg(m_dxccProvider->qsoCount()).arg(m_dxccProvider->entityCount())
+            : "(no log loaded)");
+        m_dxccStatsLabel->setStyleSheet("QLabel { color: #90c890; font-size: 11px; }");
+        dxccGrid->addWidget(new QLabel("Imported:"), drow, 0);
+        dxccGrid->addWidget(m_dxccStatsLabel, drow++, 1);
+
+        // Colour swatches
+        auto* swatchRow = new QHBoxLayout;
+        struct SwatchDef { const char* tip; QColor* colPtr; const char* key; };
+        SwatchDef swatches[] = {
+            { "New DXCC", m_dxccProvider ? &m_dxccProvider->colorNewDxcc : nullptr, "DxccColorNewEntity" },
+            { "New Band",  m_dxccProvider ? &m_dxccProvider->colorNewBand  : nullptr, "DxccColorNewBand"   },
+            { "New Mode",  m_dxccProvider ? &m_dxccProvider->colorNewMode  : nullptr, "DxccColorNewMode"   },
+            { "Worked",    m_dxccProvider ? &m_dxccProvider->colorWorked   : nullptr, "DxccColorWorked"    },
+        };
+        for (const auto& sw : swatches) {
+            auto* col = new QVBoxLayout;
+            auto* lbl = new QLabel(sw.tip);
+            lbl->setAlignment(Qt::AlignCenter);
+            lbl->setStyleSheet("QLabel { color: #809090; font-size: 10px; }");
+            auto* btn = new QPushButton;
+            btn->setFixedSize(28, 22);
+            const QColor initCol = sw.colPtr ? *sw.colPtr : QColor(Qt::gray);
+            updateSwatch(btn, initCol);
+            const QString key = sw.key;
+            QColor* colPtr = sw.colPtr;
+            connect(btn, &QPushButton::clicked, this, [this, btn, key, colPtr, updateSwatch, save]() {
+                const QColor cur = colPtr ? *colPtr : QColor(Qt::gray);
+                QColor c = QColorDialog::getColor(cur, this, "Pick Colour");
+                if (!c.isValid()) return;
+                if (colPtr) *colPtr = c;
+                updateSwatch(btn, c);
+                save(key, c.name());
+            });
+            col->addWidget(lbl);
+            col->addWidget(btn, 0, Qt::AlignCenter);
+            swatchRow->addLayout(col);
+        }
+        swatchRow->addStretch();
+        dxccGrid->addWidget(new QLabel("Colors:"), drow, 0);
+        dxccGrid->addLayout(swatchRow, drow++, 1);
+
+        layout->addLayout(dxccGrid);
+
+        // Auto-reload toggle
+        bool autoReloadEnabled = AppSettings::instance().value("DxccAutoReloadAdif", "False").toString() == "True";
+        auto* autoReloadToggle = new QPushButton(autoReloadEnabled ? "Enabled" : "Disabled");
+        autoReloadToggle->setCheckable(true);
+        autoReloadToggle->setChecked(autoReloadEnabled);
+        autoReloadToggle->setFixedWidth(80);
+        autoReloadToggle->setStyleSheet(
+            "QPushButton:checked { background: #2a6a2a; } QPushButton:!checked { background: #5a2a2a; }");
+        connect(autoReloadToggle, &QPushButton::toggled, this, [this, autoReloadToggle, save](bool on) {
+            autoReloadToggle->setText(on ? "Enabled" : "Disabled");
+            save("DxccAutoReloadAdif", on ? "True" : "False");
+            if (m_dxccProvider) {
+                const QString path = AppSettings::instance().value("DxccAdifFilePath", "").toString();
+                m_dxccProvider->setAutoReload(on, path);
+            }
+        });
+        dxccGrid->addWidget(new QLabel("Auto-Reload Log:"), drow, 0);
+        dxccGrid->addWidget(autoReloadToggle, drow++, 1, Qt::AlignLeft);
+
+        // Wire browse button
+        connect(browseBtn, &QPushButton::clicked, this, [this, adifPathLabel, save](bool) {
+            const QString path = QFileDialog::getOpenFileName(
+                this, "Select ADIF Log File", QDir::homePath(),
+                "ADIF Log Files (*.adi *.adif);;All Files (*)");
+            if (path.isEmpty()) return;
+            adifPathLabel->setText(QFileInfo(path).fileName());
+            save("DxccAdifFilePath", path);
+            if (m_dxccProvider) {
+                if (m_dxccStatsLabel) m_dxccStatsLabel->setText("Importing\xe2\x80\xa6");
+                m_dxccProvider->importAdifFile(path);
+                const bool autoReload = AppSettings::instance().value("DxccAutoReloadAdif","False").toString() == "True";
+                m_dxccProvider->setAutoReload(autoReload, path);
+            }
+        });
+
+        // Update stats when import finishes
+        if (m_dxccProvider) {
+            connect(m_dxccProvider, &DxccColorProvider::importFinished,
+                    this, [this](int qsos, int entities) {
+                if (m_dxccStatsLabel)
+                    m_dxccStatsLabel->setText(
+                        QString("%1 QSOs / %2 entities").arg(qsos).arg(entities));
+            });
+        }
+    }
+
     layout->addStretch();
 
     // ── Clear All Spots button ──────────────────────────────────────────

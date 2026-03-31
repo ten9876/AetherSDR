@@ -6,7 +6,6 @@
 #include <QMap>
 #include <QImage>
 #include <QColor>
-#include <QDateTime>
 
 namespace AetherSDR {
 
@@ -184,10 +183,11 @@ public:
         double freqMhz;
         QString color;       // #AARRGGBB or empty for default
         QString mode;
+        QColor  dxccColor;
         QString source;
         QString spotterCallsign;
         QString comment;
-        QDateTime timestamp;
+        qint64  timestampMs{0};
     };
     void setSpotMarkers(const QVector<SpotMarker>& markers);
 

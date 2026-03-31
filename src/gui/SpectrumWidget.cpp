@@ -2,6 +2,7 @@
 #include "SpectrumOverlayMenu.h"
 #include "VfoWidget.h"
 #include "SliceColors.h"
+#include <QDateTime>
 
 #include <QPainter>
 #include <QPainterPath>
@@ -1054,9 +1055,9 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
                                     tip += QString("<br>Spotter: %1").arg(sm.spotterCallsign);
                                 if (!sm.comment.isEmpty())
                                     tip += QString("<br>%1").arg(sm.comment);
-                                if (sm.timestamp.isValid() && sm.timestamp.toMSecsSinceEpoch() > 0)
+                                if (sm.timestampMs > 0)
                                     tip += QString("<br>Spotted: %1 UTC").arg(
-                                        sm.timestamp.toUTC().toString("yyyy-MM-dd HH:mm:ss"));
+                                        QDateTime::fromMSecsSinceEpoch(sm.timestampMs, Qt::UTC).toString("yyyy-MM-dd HH:mm:ss"));
                                 QToolTip::showText(ev->globalPosition().toPoint(), tip, this);
                             }
                             spotHover = true;
@@ -1922,10 +1923,12 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
         const int x = mhzToX(spot.freqMhz);
         if (x < 0 || x > width()) continue;
 
-        // Color: override uses m_spotColor, otherwise use spot-provided or default cyan
+        // Color: override uses m_spotColor, otherwise use DXCC/spot-provided or default cyan
         QColor col(0x00, 0xb4, 0xd8);  // default cyan
         if (m_spotOverrideColors) {
             col = m_spotColor;
+        } else if (spot.dxccColor.isValid()) {
+            col = spot.dxccColor;
         } else if (!spot.color.isEmpty() && spot.color.startsWith('#')) {
             QColor parsed(spot.color);
             if (parsed.isValid()) col = parsed;
