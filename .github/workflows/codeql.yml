@@ -33,7 +33,18 @@ jobs:
       - name: Build
         run: |
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
-          cmake --build build --target build_opus -j$(nproc)
+          if [ -d /opt/opus-cache/opus-src ]; then
+            echo "Using pre-built Opus from Docker image cache"
+            mkdir -p build/build_opus-prefix/src/build_opus
+            cp -a /opt/opus-cache/opus-src/* build/build_opus-prefix/src/build_opus/
+            mkdir -p build/build_opus-prefix/src/build_opus-stamp
+            for step in mkdir download verify extract update patch configure build install done; do
+              touch "build/build_opus-prefix/src/build_opus-stamp/build_opus-$step"
+            done
+          else
+            echo "No Opus cache found — will build from source"
+            cmake --build build --target build_opus -j$(nproc)
+          fi
           cmake --build build -j$(nproc)
 
       - name: Perform CodeQL Analysis

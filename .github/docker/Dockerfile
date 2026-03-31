@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     patch \
     curl \
     make \
+    python3 \
     qt6-base-dev \
     qt6-multimedia-dev \
     qt6-websockets-dev \
@@ -26,3 +27,17 @@ RUN apt-get update && apt-get install -y \
     libtool \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Pre-build Opus with OSCE/DRED support to avoid media.xiph.org dependency
+# at CI time. The neural net model is downloaded once here and baked into
+# the image. CI workflows copy from /opt/opus-cache/ instead of building.
+RUN mkdir -p /tmp/opus-build && cd /tmp/opus-build \
+    && curl -L -o opus.zip https://github.com/xiph/opus/archive/940d4e5af64351ca8ba8390df3f555484c567fbb.zip \
+    && mkdir src && cd src && python3 -c "import zipfile; zipfile.ZipFile('/tmp/opus-build/opus.zip').extractall()" \
+    && mv opus-*/* . && rmdir opus-* \
+    && ./autogen.sh \
+    && ./configure --with-pic --enable-osce --enable-dred --disable-shared --disable-doc --disable-extra-programs \
+    && make -j$(nproc) \
+    && mkdir -p /opt/opus-cache \
+    && cp -a . /opt/opus-cache/opus-src \
+    && cd / && rm -rf /tmp/opus-build

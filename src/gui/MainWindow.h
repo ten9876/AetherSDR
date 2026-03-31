@@ -43,6 +43,7 @@ class PanadapterApplet;
 class PanadapterStack;
 class AppletPanel;
 class BandPlanManager;
+class WhatsNewDialog;
 class CwxPanel;
 class DvkPanel;
 #ifdef HAVE_RADE
@@ -165,6 +166,7 @@ private:
     // Modeless dialogs
     QPointer<QDialog> m_spotHubDialog;
     QPointer<QDialog> m_radioSetupDialog;
+    QPointer<WhatsNewDialog> m_whatsNewDialog;
 #ifdef HAVE_MIDI
     QPointer<QDialog> m_midiDialog;
 #endif

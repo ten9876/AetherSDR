@@ -14,17 +14,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Cache Opus build
-        uses: actions/cache@v4
-        with:
-          path: build/build_opus-prefix
-          key: opus-${{ hashFiles('third_party/radae/cmake/BuildOpus.cmake') }}
-
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
-      - name: Build Opus (RADE dependency)
-        run: cmake --build build --target build_opus -j$(nproc)
+      - name: Restore pre-built Opus from Docker image
+        run: |
+          if [ -d /opt/opus-cache/opus-src ]; then
+            echo "Using pre-built Opus from Docker image cache"
+            mkdir -p build/build_opus-prefix/src/build_opus
+            cp -a /opt/opus-cache/opus-src/* build/build_opus-prefix/src/build_opus/
+            mkdir -p build/build_opus-prefix/src/build_opus-stamp
+            for step in mkdir download verify extract update patch configure build install done; do
+              touch "build/build_opus-prefix/src/build_opus-stamp/build_opus-$step"
+            done
+          else
+            echo "No Opus cache found — will build from source"
+            cmake --build build --target build_opus -j$(nproc)
+          fi
 
       - name: Build
         run: cmake --build build -j$(nproc)

@@ -285,6 +285,7 @@ set(GUI_SOURCES
     src/gui/KeyboardMapWidget.cpp
     src/gui/ShortcutDialog.cpp
     src/gui/MultiFlexDialog.cpp
+    src/gui/WhatsNewDialog.cpp
 )
 
 set(ALL_SOURCES
@@ -292,6 +293,7 @@ set(ALL_SOURCES
     ${CORE_SOURCES}
     ${MODEL_SOURCES}
     ${GUI_SOURCES}
+    src/generated/WhatsNewData.cpp
 )
 
 # Bundled RNNoise (Mozilla/Xiph BSD-3) — client-side neural noise suppression

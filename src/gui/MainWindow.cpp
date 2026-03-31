@@ -31,6 +31,7 @@
 #include "SupportDialog.h"
 #include "ShortcutDialog.h"
 #include "MultiFlexDialog.h"
+#include "WhatsNewDialog.h"
 #include "models/SliceModel.h"
 #include "models/MeterModel.h"
 #include "models/BandPlanManager.h"
@@ -1416,6 +1417,18 @@ MainWindow::MainWindow(QWidget* parent)
     if (lastSerial.isEmpty()) {
         QTimer::singleShot(500, this, [this]() { toggleConnectionDialog(); });
     }
+
+    // What's New dialog — show on version change (#483)
+    QTimer::singleShot(600, this, [this]() {
+        auto& settings = AppSettings::instance();
+        QString lastSeen = settings.value("LastSeenVersion").toString();
+        QString current = QCoreApplication::applicationVersion();
+        if (lastSeen == current) return;
+        settings.setValue("LastSeenVersion", current);
+        settings.save();
+        m_whatsNewDialog = new WhatsNewDialog(lastSeen, current, this);
+        m_whatsNewDialog->show();
+    });
 }
 
 MainWindow::~MainWindow()
@@ -2282,6 +2295,14 @@ void MainWindow::buildMenuBar()
         SupportDialog dlg(this);
         dlg.setRadioModel(&m_radioModel);
         dlg.exec();
+    });
+    helpMenu->addAction("What's New...", this, [this]() {
+        if (m_whatsNewDialog) {
+            m_whatsNewDialog->raise();
+            m_whatsNewDialog->activateWindow();
+            return;
+        }
+        m_whatsNewDialog = WhatsNewDialog::showAll(this);
     });
     helpMenu->addSeparator();
     helpMenu->addAction("About AetherSDR", this, [this]{
