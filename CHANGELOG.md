@@ -3,6 +3,57 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.16] — 2026-03-31
+
+### World-First TGXL Relay Control & Global Band Plans
+
+AetherSDR v0.7.16 brings manual control of the 4O3A Tuner Genius XL Pi
+network — a world first for any SDR client — and makes the spectrum overlay
+useful for operators worldwide with selectable IARU band plans.
+
+### New Features
+
+**Manual TGXL Pi Network Relay Control (#469)**
+- Scroll over the C1, L, or C2 relay bars in the Tuner applet to adjust
+  relay positions one step at a time
+- AetherSDR auto-connects directly to the TGXL on TCP port 9010
+- Real-time relay updates with ~3ms round-trip
+- Cursor changes to ↕ when hovering over scrollable relay bars
+- Protocol reverse-engineered from the 4O3A TGXL management app
+- First SDR client to support manual TGXL relay control
+
+**Selectable IARU Band Plans (#425)**
+- View → Band Plan now includes a region selector:
+  ARRL (US), IARU Region 1, Region 2, Region 3
+- Region 1: Europe, Africa, Middle East (80m stops at 3.800, 40m at 7.200)
+- Region 2: Americas (80m to 4.000, 40m to 7.300)
+- Region 3: Asia-Pacific, Oceania (80m to 3.900, 40m to 7.200)
+- Each plan includes segment allocations and spot frequency markers
+- Plan selection persists across restarts
+- Band plan data loaded from bundled JSON resources
+
+**multiFLEX Dashboard (#56)**
+- Settings → multiFLEX opens a live station dashboard
+- Per-client: station name, program, TX antenna, TX frequency
+- LOCAL PTT status, enable/disable toggle
+
+### Bug Fixes & Improvements
+
+**Default MTU reduced to 1450 (#470)**
+- VITA-49 FFT/waterfall packets are 1436 bytes at MTU 1500, exceeding most
+  VPN/SD-WAN tunnel MTUs (WireGuard 1420, OpenVPN 1400)
+- Confirmed fix by user on Cisco Meraki SD-WAN
+- Adjustable in Radio Setup → Network → Advanced
+
+**FFTW thread safety for NR2 (#467)**
+- Added mutex to serialize all FFTW plan creation/destruction
+- Prevents potential crashes when switching DSP modes or regenerating wisdom
+- `fftw_execute()` left unlocked (thread-safe per FFTW spec)
+
+**Removed broken release.yml workflow**
+- GitHub Actions release workflow removed (GITHUB_TOKEN PRs can't trigger CI)
+- Ship/release now handled locally via Claude using gh CLI and GPG-signed tags
+
 ## [v0.7.15] — 2026-03-30
 
 ### Digital-Friendly Minimal Mode
