@@ -3,6 +3,41 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.15] — 2026-03-30
+
+### Digital-Friendly Minimal Mode
+
+AetherSDR v0.7.15 introduces **Minimal Mode** — a streamlined, ultra-compact
+interface designed for digital mode operators who want AetherSDR running
+alongside WSJT-X, fldigi, or other companion software without dominating
+screen real estate.
+
+### New Features
+
+**Minimal Mode (#208)**
+- Ctrl+M or ↙ button in the title bar collapses AetherSDR to a 260px-wide
+  applet-only strip — just your VFO, RX controls, TX controls, and meters
+- Spectrum, waterfall, and status bar are hidden; title bar goes compact
+- ↗ button restores full mode instantly with splitter sizes preserved
+- All applets remain available and fully functional
+- Perfect for digital mode operation: park AetherSDR on one side of the screen
+  while your decoder fills the rest
+
+**multiFLEX Dashboard (#56)**
+- Settings → multiFLEX opens a live dashboard showing all connected stations
+- Per-client display: station name, program, TX antenna, TX frequency
+- LOCAL PTT status with checkmarks and "Enable Local PTT" button
+- multiFLEX enable/disable toggle
+- Real-time updates via client status subscriptions
+
+### Infrastructure
+
+**CI/CD Pipeline**
+- Docker-based CI builds in ~3.5 minutes (down from 3–19 min variable)
+- CodeQL analysis runs in parallel without blocking merge
+- `git ship` squashes local commits into single auto-merge PR
+- `git release` automates version bump, changelog PR, tag, and release
+
 ## [v0.7.12] — 2026-03-29
 
 ### New Features
