@@ -3071,6 +3071,16 @@ void MainWindow::onSliceAdded(SliceModel* s)
     spectrumForSlice(s)->setShowTxInWaterfall(
         m_radioModel.transmitModel()->showTxInWaterfall());
 
+    // NB Waterfall Blanker: feed NB state changes to this slice's spectrum widget (#277)
+    {
+        auto updateNbState = [this, s]() {
+            if (auto* sw = spectrumForSlice(s))
+                sw->setNbActive(s->nbOn());
+        };
+        connect(s, &SliceModel::nbChanged, this, [updateNbState](bool) { updateNbState(); });
+        updateNbState();  // set initial state
+    }
+
     // Connect slice state changes → spectrum overlay updates
     connect(s, &SliceModel::frequencyChanged, this, [this, s](double mhz) {
         m_updatingFromModel = true;
@@ -3698,6 +3708,15 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             this, [this, sw](bool on) {
         sw->setWfAutoBlack(on);
     });
+    // NB Waterfall Blanker (#277) — pure client-side, no radio commands needed
+    connect(menu, &SpectrumOverlayMenu::wfBlankerEnabledChanged,
+            sw, &SpectrumWidget::setWfBlankerEnabled);
+    connect(menu, &SpectrumOverlayMenu::wfBlankerModeChanged,
+            sw, &SpectrumWidget::setWfBlankerMode);
+    connect(menu, &SpectrumOverlayMenu::wfBlankerThresholdChanged,
+            sw, &SpectrumWidget::setWfBlankerThreshold);
+    connect(menu, &SpectrumOverlayMenu::wfBlankerAutoWithWnbChanged,
+            sw, &SpectrumWidget::setWfBlankerAutoWithWnb);
     connect(menu, &SpectrumOverlayMenu::wfLineDurationChanged,
             this, [this, applet, sw](int ms) {
         sw->setWfLineDuration(ms);

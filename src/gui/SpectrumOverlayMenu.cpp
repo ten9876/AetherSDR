@@ -968,13 +968,95 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         emit wfLineDurationChanged(v + 70);  // map 1-30 → 71-100
     });
 
+    // ── NB Waterfall Blanker section (#277) ──────────────────────────────
+    {
+        auto* sep2 = new QFrame;
+        sep2->setFrameShape(QFrame::HLine);
+        sep2->setStyleSheet("QFrame { color: #304050; border: none; }");
+        sep2->setFixedHeight(2);
+        grid->addWidget(sep2, row, 0, 1, 4);
+        ++row;
+
+        // Row: "NB WF:" label | On/Off toggle | Fill/Interp combo | WNB auto btn
+        auto* blankLbl = new QLabel("NB WF:");
+        blankLbl->setStyleSheet(labelStyle);
+        blankLbl->setToolTip("NB Waterfall Blanking — suppresses impulse stripes when NB/NB2 is on");
+        grid->addWidget(blankLbl, row, 0);
+
+        m_wfBlankerBtn = new QPushButton("Off");
+        m_wfBlankerBtn->setCheckable(true);
+        m_wfBlankerBtn->setChecked(false);
+        m_wfBlankerBtn->setFixedSize(36, 18);
+        m_wfBlankerBtn->setStyleSheet(btnStyle);
+        m_wfBlankerBtn->setToolTip("Enable waterfall impulse blanking (requires NB or NB2)");
+        grid->addWidget(m_wfBlankerBtn, row, 1);
+
+        m_wfBlankerModeCombo = new QComboBox;
+        m_wfBlankerModeCombo->addItem("Fill");
+        m_wfBlankerModeCombo->addItem("Interp");
+        m_wfBlankerModeCombo->setToolTip("Fill: noise-floor colour | Interp: blend from previous good row");
+        m_wfBlankerModeCombo->setStyleSheet(
+            "QComboBox { background: #1a2a3a; color: #c8d8e8; border: 1px solid #205070;"
+            " border-radius: 3px; font-size: 9px; padding: 1px 2px; min-width: 48px; }"
+            "QComboBox::drop-down { border: none; }"
+            "QComboBox QAbstractItemView { background: #1a2a3a; color: #c8d8e8; }");
+        grid->addWidget(m_wfBlankerModeCombo, row, 2);
+
+        m_wfBlankerAutoWnbBtn = new QPushButton("WNB");
+        m_wfBlankerAutoWnbBtn->setCheckable(true);
+        m_wfBlankerAutoWnbBtn->setChecked(false);
+        m_wfBlankerAutoWnbBtn->setFixedSize(36, 18);
+        m_wfBlankerAutoWnbBtn->setStyleSheet(btnStyle);
+        m_wfBlankerAutoWnbBtn->setToolTip("Auto-enable blanking whenever WNB is active");
+        grid->addWidget(m_wfBlankerAutoWnbBtn, row, 3);
+        ++row;
+
+        // Row: "Threshold:" label | — | slider | value
+        auto* threshLbl = new QLabel("Threshold:");
+        threshLbl->setStyleSheet(labelStyle);
+        threshLbl->setToolTip("Impulse detection multiplier (1.05–2.0x baseline)");
+        grid->addWidget(threshLbl, row, 0);
+
+        m_wfBlankerThreshSlider = new QSlider(Qt::Horizontal);
+        // Slider 5–95 maps to threshold 1.05–1.95
+        m_wfBlankerThreshSlider->setRange(5, 95);
+        m_wfBlankerThreshSlider->setValue(15);  // default 1.15
+        m_wfBlankerThreshSlider->setStyleSheet(sliderStyle);
+        grid->addWidget(m_wfBlankerThreshSlider, row, 2);
+
+        m_wfBlankerThreshLabel = new QLabel("1.15");
+        m_wfBlankerThreshLabel->setStyleSheet(valStyle);
+        m_wfBlankerThreshLabel->setFixedWidth(28);
+        m_wfBlankerThreshLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        grid->addWidget(m_wfBlankerThreshLabel, row, 3);
+        ++row;
+
+        connect(m_wfBlankerBtn, &QPushButton::toggled, this, [this](bool on) {
+            m_wfBlankerBtn->setText(on ? "On" : "Off");
+            emit wfBlankerEnabledChanged(on);
+        });
+        connect(m_wfBlankerModeCombo,
+                QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int idx) { emit wfBlankerModeChanged(idx); });
+        connect(m_wfBlankerThreshSlider, &QSlider::valueChanged, this, [this](int v) {
+            float t = 1.0f + v / 100.0f;  // 5 → 1.05, 95 → 1.95
+            m_wfBlankerThreshLabel->setText(QString::number(t, 'f', 2));
+            emit wfBlankerThresholdChanged(t);
+        });
+        connect(m_wfBlankerAutoWnbBtn, &QPushButton::toggled, this, [this](bool on) {
+            emit wfBlankerAutoWithWnbChanged(on);
+        });
+    }
+
     m_displayPanel->adjustSize();
 }
 
 void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
                                                bool weightedAvg, const QColor& fillColor,
                                                int gain, int black, bool autoBlack, int rate,
-                                               int floorPos, bool floorEnable)
+                                               int floorPos, bool floorEnable,
+                                               bool blankerEnabled, int blankerMode,
+                                               float blankerThreshold, bool blankerAutoWnb)
 {
     if (!m_avgSlider) return;  // panel not built yet
 
@@ -1009,6 +1091,20 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
         m_floorEnableBtn->setChecked(floorEnable);
         m_floorEnableBtn->setText(floorEnable ? "On" : "Off");
         m_floorSlider->setEnabled(floorEnable);
+    }
+
+    // NB Waterfall Blanker (#277)
+    if (m_wfBlankerBtn) {
+        QSignalBlocker bb1(m_wfBlankerBtn), bb2(m_wfBlankerModeCombo),
+                       bb3(m_wfBlankerThreshSlider), bb4(m_wfBlankerAutoWnbBtn);
+        m_wfBlankerBtn->setChecked(blankerEnabled);
+        m_wfBlankerBtn->setText(blankerEnabled ? "On" : "Off");
+        m_wfBlankerModeCombo->setCurrentIndex(std::clamp(blankerMode, 0, 1));
+        int sliderVal = static_cast<int>((blankerThreshold - 1.0f) * 100.0f);
+        m_wfBlankerThreshSlider->setValue(std::clamp(sliderVal, 5, 95));
+        m_wfBlankerThreshLabel->setText(
+            QString::number(std::clamp(blankerThreshold, 1.05f, 1.95f), 'f', 2));
+        m_wfBlankerAutoWnbBtn->setChecked(blankerAutoWnb);
     }
 }
 
