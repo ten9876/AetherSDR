@@ -86,6 +86,12 @@ private:
     void buildUI();
     void buildMenuBar();
     void applyDarkTheme();
+
+    // Audio thread helpers — invoke AudioEngine methods on the worker thread (#502)
+    void audioStartRx();
+    void audioStopRx();
+    void audioStartTx(const QHostAddress& addr, quint16 port);
+    void audioStopTx();
     SliceModel* activeSlice() const;
     SpectrumWidget* spectrum() const;
     void setActiveSlice(int sliceId);
@@ -112,7 +118,8 @@ private:
     RadioDiscovery    m_discovery;
     RadioModel        m_radioModel;
     DxccColorProvider m_dxccProvider;
-    AudioEngine       m_audio;
+    AudioEngine*      m_audio{nullptr};
+    QThread*          m_audioThread{nullptr};
     BandSettings      m_bandSettings;
     // 4-channel CAT: each channel (A-D) binds to a slice index (0-3)
     static constexpr int kCatChannels = 4;

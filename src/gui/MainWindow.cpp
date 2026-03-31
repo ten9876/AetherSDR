@@ -118,6 +118,14 @@ MainWindow::MainWindow(QWidget* parent)
 
     applyDarkTheme();
 
+    // Audio worker thread (#502) — AudioEngine runs on its own thread so
+    // audio processing never competes with paintEvent for main thread CPU.
+    m_audioThread = new QThread(this);
+    m_audioThread->setObjectName("AudioEngine");
+    m_audio = new AudioEngine;  // no parent — will be moved to thread
+    m_audio->moveToThread(m_audioThread);
+    m_audioThread->start();
+
     // Band plan manager — must be created before buildMenuBar() which references it
     m_bandPlanMgr = new BandPlanManager(this);
     m_bandPlanMgr->loadPlans();
@@ -250,9 +258,11 @@ MainWindow::MainWindow(QWidget* parent)
             // Not yet bound — start WAN early to get a port
             const quint16 radioUdpPort = static_cast<quint16>(
                 info.publicUdpPort > 0 ? info.publicUdpPort : 4993);
-            m_radioModel.panStream()->startWan(
-                QHostAddress(info.publicIp), radioUdpPort);
-            udpPort = m_radioModel.panStream()->localPort();
+            auto* ps = m_radioModel.panStream();
+            QMetaObject::invokeMethod(ps, [ps, info, radioUdpPort]() {
+                ps->startWan(QHostAddress(info.publicIp), radioUdpPort);
+            }, Qt::BlockingQueuedConnection);
+            udpPort = ps->localPort();
         }
         qDebug() << "MainWindow: pre-bound UDP port" << udpPort << "for WAN hole punch";
         m_smartLink.requestConnect(info.serial, udpPort);
@@ -496,37 +506,33 @@ MainWindow::MainWindow(QWidget* parent)
     // stream — that would open a QAudioSource and an unregistered UDP
     // socket, wasting resources and corrupting the shared packet counter.
     // Route TX VITA-49 packets through the registered UDP socket
-    connect(&m_audio, &AudioEngine::txPacketReady,
+    connect(m_audio, &AudioEngine::txPacketReady,
             m_radioModel.panStream(), &PanadapterStream::sendToRadio);
 
     connect(&m_radioModel, &RadioModel::txAudioStreamReady,
             this, [this](quint32 streamId) {
-        m_audio.setTxStreamId(streamId);
+        m_audio->setTxStreamId(streamId);
         // TX audio on remote_audio_tx always requires Opus (radio enforces compression=OPUS)
-        m_audio.setOpusTxEnabled(true);
+        m_audio->setOpusTxEnabled(true);
         qDebug() << "MainWindow: DAX TX stream ID set to" << Qt::hex << streamId;
         // Start PC audio TX if mic_selection is PC
         if (m_radioModel.transmitModel()->micSelection() == "PC") {
-            m_audio.startTxStream(
-                m_radioModel.connection()->radioAddress(),
-                4991);
+            audioStartTx(m_radioModel.connection()->radioAddress(), 4991);
         }
     });
     connect(&m_radioModel, &RadioModel::remoteTxStreamReady,
             this, [this](quint32 streamId) {
-        m_audio.setRemoteTxStreamId(streamId);
+        m_audio->setRemoteTxStreamId(streamId);
         // Restore PC mic gain from client-side settings (radio has no
         // hardware gain stage for PC input — client-authoritative)
         if (m_radioModel.transmitModel()->micSelection() == "PC") {
             int gain = AppSettings::instance().value("PcMicGain", 100).toInt();
-            m_audio.setPcMicGain(gain);
+            m_audio->setPcMicGain(gain);
         }
         qDebug() << "MainWindow: remote audio TX stream ID set to" << Qt::hex << streamId;
         // Ensure mic TX stream is running for VOX monitoring
-        if (!m_audio.isTxStreaming()) {
-            m_audio.startTxStream(
-                m_radioModel.connection()->radioAddress(),
-                4991);
+        if (!m_audio->isTxStreaming()) {
+            audioStartTx(m_radioModel.connection()->radioAddress(), 4991);
         }
     });
     // Start/stop PC audio TX when mic_selection changes
@@ -535,24 +541,22 @@ MainWindow::MainWindow(QWidget* parent)
         if (m_radioModel.transmitModel()->micSelection() == "PC") {
             // Restore PC mic gain from client-side settings
             int gain = AppSettings::instance().value("PcMicGain", 100).toInt();
-            m_audio.setPcMicGain(gain);
+            m_audio->setPcMicGain(gain);
             // Only start if TX stream ID is already assigned (avoid streamId=0)
-            if (!m_audio.isTxStreaming() && m_audio.txStreamId() != 0) {
-                m_audio.startTxStream(
-                    m_radioModel.connection()->radioAddress(),
-                    4991);
+            if (!m_audio->isTxStreaming() && m_audio->txStreamId() != 0) {
+                audioStartTx(m_radioModel.connection()->radioAddress(), 4991);
             }
         } else {
             // Reset to full gain — radio handles hardware mic gain
-            m_audio.setPcMicGain(100);
-            m_audio.stopTxStream();
+            m_audio->setPcMicGain(100);
+            audioStopTx();
         }
     });
     // Sync PC mic gain directly from slider (radio ignores mic_level for PC input)
     connect(m_appletPanel->phoneCwApplet(), &PhoneCwApplet::micLevelChanged,
             this, [this](int level) {
         if (m_radioModel.transmitModel()->micSelection() == "PC") {
-            m_audio.setPcMicGain(level);
+            m_audio->setPcMicGain(level);
             auto& s = AppSettings::instance();
             s.setValue("PcMicGain", level);
             s.save();
@@ -572,7 +576,7 @@ MainWindow::MainWindow(QWidget* parent)
             m_panApplet->spectrumWidget()->setTransmitting(tx);
         // Keep TX audio source strictly aligned with the local MOX edge for all
         // modes (SSB + DAX). Waiting for interlock introduces audible lag.
-        m_audio.setTransmitting(tx);
+        m_audio->setTransmitting(tx);
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
         if (m_daxBridge)
             m_daxBridge->setTransmitting(tx);
@@ -591,7 +595,7 @@ MainWindow::MainWindow(QWidget* parent)
 #ifdef HAVE_RADE
         if (m_radeSliceId >= 0 && m_radeEngine && m_radeEngine->isActive()) {
             if (!tx) {
-                m_audio.setRadeMode(false);
+                m_audio->setRadeMode(false);
                 m_radeEngine->resetTx();
             }
         }
@@ -607,7 +611,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel, &RadioModel::txAudioGateChanged,
             this, [this](bool tx) {
         if (!tx) {
-            m_audio.setTransmitting(false);
+            m_audio->setTransmitting(false);
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
             if (m_daxBridge)
                 m_daxBridge->setTransmitting(false);
@@ -859,7 +863,7 @@ MainWindow::MainWindow(QWidget* parent)
     // by PanadapterStream. It strips the header from IF-Data packets and emits
     // audioDataReady(); we feed that directly to the QAudioSink.
     connect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
-            &m_audio, &AudioEngine::feedAudioData);
+            m_audio, &AudioEngine::feedAudioData);
 
     // ── BNR container autostart ─────────────────────────────────────────
 #ifdef HAVE_BNR
@@ -927,9 +931,9 @@ MainWindow::MainWindow(QWidget* parent)
             }
         }
     };
-    connect(&m_audio, &AudioEngine::nr2EnabledChanged, this, syncNr2);
-    connect(&m_audio, &AudioEngine::rn2EnabledChanged, this, syncRn2);
-    connect(&m_audio, &AudioEngine::bnrEnabledChanged, this, syncBnr);
+    connect(m_audio, &AudioEngine::nr2EnabledChanged, this, syncNr2);
+    connect(m_audio, &AudioEngine::rn2EnabledChanged, this, syncRn2);
+    connect(m_audio, &AudioEngine::bnrEnabledChanged, this, syncBnr);
     // NR2/RN2 overlay sync is wired in wirePanadapter()
     // RxApplet NR button 3-state cycle → NR2 enable/disable (#329)
     connect(m_appletPanel->rxApplet(), &RxApplet::nr2CycleToggled,
@@ -937,10 +941,10 @@ MainWindow::MainWindow(QWidget* parent)
         if (on)
             enableNr2WithWisdom();
         else
-            m_audio.setNr2Enabled(false);
+            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
     });
     // Sync RxApplet NR button visual when NR2 state changes
-    connect(&m_audio, &AudioEngine::nr2EnabledChanged,
+    connect(m_audio, &AudioEngine::nr2EnabledChanged,
             this, [this](bool on) {
         auto* rx = m_appletPanel->rxApplet();
         if (on) {
@@ -955,10 +959,10 @@ MainWindow::MainWindow(QWidget* parent)
     // ── RxApplet RNN 3-state cycle → RN2 enable/disable ────────────────────
     connect(m_appletPanel->rxApplet(), &RxApplet::rn2CycleToggled,
             this, [this](bool on) {
-        m_audio.setRn2Enabled(on);
+        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setRn2Enabled(on); });
     });
     // Sync RxApplet RNN button visual when RN2 state changes
-    connect(&m_audio, &AudioEngine::rn2EnabledChanged,
+    connect(m_audio, &AudioEngine::rn2EnabledChanged,
             this, [this](bool on) {
         auto* rx = m_appletPanel->rxApplet();
         if (on) {
@@ -1005,7 +1009,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_titleBar, &TitleBar::masterVolumeChanged, this, [this](int pct) {
         bool pcAudio = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
         if (pcAudio)
-            m_audio.setRxVolume(pct / 100.0f);
+            m_audio->setRxVolume(pct / 100.0f);
         else
             m_radioModel.setLineoutGain(pct);
         auto& s = AppSettings::instance();
@@ -1015,7 +1019,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_titleBar, &TitleBar::headphoneVolumeChanged,
             &m_radioModel, &RadioModel::setHeadphoneGain);
     connect(m_titleBar, &TitleBar::lineoutMuteChanged, this, [this](bool muted) {
-        m_audio.setMuted(muted);
+        m_audio->setMuted(muted);
         m_radioModel.sendCommand(QString("mixer lineout mute %1").arg(muted ? 1 : 0));
     });
     connect(m_titleBar, &TitleBar::headphoneMuteChanged, this, [this](bool muted) {
@@ -1035,7 +1039,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Apply saved master volume
     int savedMasterVol = AppSettings::instance().value("MasterVolume", "100").toInt();
-    m_audio.setRxVolume(savedMasterVol / 100.0f);
+    m_audio->setRxVolume(savedMasterVol / 100.0f);
 
     // ── S-Meter: MeterModel → SMeterWidget (active slice only) ─────────────
     connect(m_radioModel.meterModel(), &MeterModel::sLevelChanged,
@@ -1194,7 +1198,7 @@ MainWindow::MainWindow(QWidget* parent)
             bool tuning = m_radioModel.transmitModel()->isTuning();
             m_radioModel.sendCommand(QString("transmit tune %1").arg(tuning ? 0 : 1));
         } else if (actionName == "ToggleMute") {
-            m_audio.setMuted(!m_audio.isMuted());
+            m_audio->setMuted(!m_audio->isMuted());
         } else if (actionName == "ToggleLock") {
             if (auto* s = activeSlice()) s->setLocked(!s->isLocked());
         } else if (actionName == "NextSlice") {
@@ -1273,7 +1277,7 @@ MainWindow::MainWindow(QWidget* parent)
     {
         auto* heldLevel = new float(-150.0f);  // persists across calls
         auto* heldPeak  = new float(-150.0f);
-        connect(&m_audio, &AudioEngine::pcMicLevelChanged,
+        connect(m_audio, &AudioEngine::pcMicLevelChanged,
                 this, [this, heldLevel, heldPeak](float peakDb, float avgDb) {
             if (m_radioModel.transmitModel()->micSelection() != "PC") return;
             constexpr float kDecayPerUpdate = 1.0f;  // ~20 dB/sec at 20 updates/sec
@@ -1318,7 +1322,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_appletPanel->catApplet()->setRadioModel(&m_radioModel);
     m_appletPanel->catApplet()->setRigctlServers(m_rigctlServers, kCatChannels);
     m_appletPanel->catApplet()->setRigctlPtys(m_rigctlPtys, kCatChannels);
-    m_appletPanel->catApplet()->setAudioEngine(&m_audio);
+    m_appletPanel->catApplet()->setAudioEngine(m_audio);
 
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
     // DAX enable button in CatApplet → start/stop DAX bridge
@@ -1456,14 +1460,20 @@ MainWindow::~MainWindow()
     if (m_radeSliceId >= 0)
         deactivateRADE();
 #endif
-    // Stop audio processing before members are destroyed.
-    // PanadapterStream may still deliver packets on its UDP thread —
-    // stopping the stream and disconnecting signals prevents
-    // use-after-free in NR2/RN2 during destruction.
-    m_audio.setNr2Enabled(false);
-    m_audio.setRn2Enabled(false);
-    m_audio.stopRxStream();
-    m_audio.stopTxStream();
+    // Stop audio processing on the worker thread before destruction (#502).
+    // Use BlockingQueuedConnection to ensure completion before we proceed.
+    if (m_audio && m_audioThread->isRunning()) {
+        QMetaObject::invokeMethod(m_audio, [this]() {
+            m_audio->setNr2Enabled(false);
+            m_audio->setRn2Enabled(false);
+            m_audio->setBnrEnabled(false);
+            m_audio->stopRxStream();
+            m_audio->stopTxStream();
+        }, Qt::BlockingQueuedConnection);
+    }
+    m_audioThread->quit();
+    m_audioThread->wait();
+    delete m_audio;
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
@@ -1483,14 +1493,14 @@ void MainWindow::closeEvent(QCloseEvent* event)
     }
 
     // Save client-side DSP state before destructor disables them
-    s.setValue("ClientNr2Enabled", m_audio.nr2Enabled() ? "True" : "False");
-    s.setValue("ClientRn2Enabled", m_audio.rn2Enabled() ? "True" : "False");
+    s.setValue("ClientNr2Enabled", m_audio->nr2Enabled() ? "True" : "False");
+    s.setValue("ClientRn2Enabled", m_audio->rn2Enabled() ? "True" : "False");
     // BNR not persisted — requires manual enable each session
 
     s.save();
     m_discovery.stopListening();
     m_radioModel.disconnectFromRadio();
-    m_audio.stopRxStream();
+    audioStopRx();
 
     // Stop spot client worker thread
     if (m_spotThread) {
@@ -1669,6 +1679,31 @@ void MainWindow::toggleConnectionDialog()
     m_connPanel->raise();
 }
 
+// ─── Audio thread helpers (#502) ─────────────────────────────────────────────
+// These invoke AudioEngine methods on the audio worker thread.
+
+void MainWindow::audioStartRx()
+{
+    QMetaObject::invokeMethod(m_audio, &AudioEngine::startRxStream);
+}
+
+void MainWindow::audioStopRx()
+{
+    QMetaObject::invokeMethod(m_audio, &AudioEngine::stopRxStream);
+}
+
+void MainWindow::audioStartTx(const QHostAddress& addr, quint16 port)
+{
+    QMetaObject::invokeMethod(m_audio, [this, addr, port]() {
+        m_audio->startTxStream(addr, port);
+    });
+}
+
+void MainWindow::audioStopTx()
+{
+    QMetaObject::invokeMethod(m_audio, &AudioEngine::stopTxStream);
+}
+
 // ─── UI Construction ──────────────────────────────────────────────────────────
 
 void MainWindow::buildMenuBar()
@@ -1691,7 +1726,7 @@ void MainWindow::buildMenuBar()
         // Snapshot compression setting before dialog opens
         QString prevComp = m_radioModel.audioCompressionParam();
 
-        auto* dlg = new RadioSetupDialog(&m_radioModel, &m_audio, this);
+        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         m_radioSetupDialog = dlg;
         connect(dlg, &QDialog::finished, this, [this, prevComp]() {
@@ -1743,7 +1778,7 @@ void MainWindow::buildMenuBar()
 #ifdef HAVE_SERIALPORT
     auto* flexControlAction = settingsMenu->addAction("FlexControl...");
     connect(flexControlAction, &QAction::triggered, this, [this] {
-        auto* dlg = new RadioSetupDialog(&m_radioModel, &m_audio, this);
+        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         if (auto* tabs = dlg->findChild<QTabWidget*>()) {
             for (int i = 0; i < tabs->count(); ++i) {
@@ -1768,7 +1803,7 @@ void MainWindow::buildMenuBar()
     });
     auto* usbCablesAction = settingsMenu->addAction("USB Cables...");
     connect(usbCablesAction, &QAction::triggered, this, [this] {
-        auto* dlg = new RadioSetupDialog(&m_radioModel, &m_audio, this);
+        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         // Switch to the USB Cables tab
         if (auto* tabs = dlg->findChild<QTabWidget*>()) {
@@ -2129,8 +2164,8 @@ void MainWindow::buildMenuBar()
         auto& s = AppSettings::instance();
         s.setValue("DaxTxLowLatency", on ? "True" : "False");
         s.save();
-        m_audio.setDaxTxUseRadioRoute(!on);
-        m_audio.clearTxAccumulators();
+        m_audio->setDaxTxUseRadioRoute(!on);
+        m_audio->clearTxAccumulators();
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
         if (m_daxBridge)
             m_radioModel.sendCommand(QString("transmit set dax=%1").arg(on ? 0 : 1));
@@ -2786,7 +2821,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
             if (auto* vfo = spectrum()->vfoWidget())
                 vfo->setDiversityAllowed(divAllowed);
         }
-        m_audio.startRxStream();
+        audioStartRx();
         // TX audio stream will start when the radio assigns a stream ID
         // Auto-hide the connection dialog on successful connect
         m_connPanel->hide();
@@ -2917,8 +2952,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
         stopDax();
 #endif
-        m_audio.stopRxStream();
-        m_audio.stopTxStream();
+        audioStopRx();
+        audioStopTx();
 
         // Show reconnect dialog on unexpected disconnect (only one at a time)
         if (!m_userDisconnected && !m_reconnectDlg) {
@@ -3000,7 +3035,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
             if (settings.value("ClientNr2Enabled", "False").toString() == "True")
                 enableNr2WithWisdom();
             else if (settings.value("ClientRn2Enabled", "False").toString() == "True")
-                m_audio.setRn2Enabled(true);
+                QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setRn2Enabled(true); });
             // BNR not auto-restored — requires manual enable each session
 
             // Deferred CW decoder restart after profile load (#305).
@@ -3039,13 +3074,13 @@ void MainWindow::onSliceAdded(SliceModel* s)
                 break;
             }
         }
-        m_audio.setDaxTxMode(isDigital);
+        m_audio->setDaxTxMode(isDigital);
 #ifdef HAVE_RADE
         // RADE mode should only route mic→RADEEngine when the TX slice IS
         // the RADE slice.  Otherwise a RADE slice running on a non-TX slice
         // would hijack voice TX on the actual TX slice.
         if (m_radeSliceId >= 0 && m_radeEngine && m_radeEngine->isActive())
-            m_audio.setRadeMode(txSliceId == m_radeSliceId);
+            m_audio->setRadeMode(txSliceId == m_radeSliceId);
 #endif
     };
     connect(s, &SliceModel::modeChanged, this, updateDaxTxMode);
@@ -3878,8 +3913,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 settings.setValue(pfx + "ANFT", s->anftOn() ? "True" : "False");
                 settings.setValue(pfx + "APF",  s->apfOn()  ? "True" : "False");
                 // Client-side DSP
-                settings.setValue(pfx + "NR2",  m_audio.nr2Enabled() ? "True" : "False");
-                settings.setValue(pfx + "RN2",  m_audio.rn2Enabled() ? "True" : "False");
+                settings.setValue(pfx + "NR2",  m_audio->nr2Enabled() ? "True" : "False");
+                settings.setValue(pfx + "RN2",  m_audio->rn2Enabled() ? "True" : "False");
                 // BNR not persisted per-band — requires manual enable
                 // AGC
                 settings.setValue(pfx + "AgcMode",      s->agcMode());
@@ -3966,8 +4001,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             bool nr2Saved = settings.value(pfx + "NR2", "False").toString() == "True";
             bool rn2Saved = settings.value(pfx + "RN2", "False").toString() == "True";
             // BNR not restored per-band
-            if (nr2Saved != m_audio.nr2Enabled()) m_audio.setNr2Enabled(nr2Saved);
-            if (rn2Saved != m_audio.rn2Enabled()) m_audio.setRn2Enabled(rn2Saved);
+            if (nr2Saved != m_audio->nr2Enabled()) QMetaObject::invokeMethod(m_audio, [this, nr2Saved]() { m_audio->setNr2Enabled(nr2Saved); });
+            if (rn2Saved != m_audio->rn2Enabled()) QMetaObject::invokeMethod(m_audio, [this, rn2Saved]() { m_audio->setRn2Enabled(rn2Saved); });
 
             // AGC
             QString agcMode = settings.value(pfx + "AgcMode", "").toString();
@@ -4061,31 +4096,31 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     connect(menu, &SpectrumOverlayMenu::nr2Toggled,
             this, [this](bool on) {
         if (on) {
-            m_audio.setRn2Enabled(false);
+            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setRn2Enabled(false); });
             enableNr2WithWisdom();
         } else {
-            m_audio.setNr2Enabled(false);
+            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
         }
         // VFO button sync happens via AudioEngine::nr2EnabledChanged signal
     });
     connect(menu, &SpectrumOverlayMenu::rn2Toggled,
             this, [this](bool on) {
         if (on) {
-            m_audio.setNr2Enabled(false);
-            m_audio.setRn2Enabled(true);
+            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
+            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setRn2Enabled(true); });
         } else {
-            m_audio.setRn2Enabled(false);
+            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setRn2Enabled(false); });
         }
         // VFO button sync happens via AudioEngine::rn2EnabledChanged signal
     });
     connect(menu, &SpectrumOverlayMenu::bnrToggled,
             this, [this](bool on) {
-        m_audio.setBnrEnabled(on);
+        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setBnrEnabled(on); });
         // VFO button sync happens via AudioEngine::bnrEnabledChanged signal
     });
     connect(menu, &SpectrumOverlayMenu::bnrIntensityChanged,
             this, [this](float ratio) {
-        m_audio.setBnrIntensity(ratio);
+        m_audio->setBnrIntensity(ratio);
     });
 }
 
@@ -4176,16 +4211,16 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
 
     // NR2 toggle with FFTW wisdom generation — wired once per VFO, never disconnected
     connect(w, &VfoWidget::nr2Toggled, this, [this](bool on) {
-        if (!on) { m_audio.setNr2Enabled(false); return; }
+        if (!on) { QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); }); return; }
         enableNr2WithWisdom();
     });
 
     // RN2 toggle
     connect(w, &VfoWidget::rn2Toggled, this, [this](bool on) {
-        m_audio.setRn2Enabled(on);
+        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setRn2Enabled(on); });
     });
     connect(w, &VfoWidget::bnrToggled, this, [this](bool on) {
-        m_audio.setBnrEnabled(on);
+        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setBnrEnabled(on); });
     });
 
 #ifdef HAVE_RADE
@@ -4256,12 +4291,12 @@ void MainWindow::enableNr2WithWisdom()
                 dlg->close();
                 dlg->deleteLater();
                 thread->deleteLater();
-                m_audio.setNr2Enabled(true);
+                QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(true); });
             });
         });
         thread->start();
     } else {
-        m_audio.setNr2Enabled(true);
+        QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(true); });
     }
 }
 
@@ -4588,8 +4623,8 @@ void MainWindow::registerShortcutActions()
         QKeySequence(), [this]() {
             auto* s = activeSlice();
             if (!s) return;
-            if (m_audio.nr2Enabled()) {
-                m_audio.setNr2Enabled(false);
+            if (m_audio->nr2Enabled()) {
+                QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
             } else if (s->nrOn()) {
                 s->setNr(false);
                 enableNr2WithWisdom();
@@ -4922,13 +4957,13 @@ void MainWindow::activateRADE(int sliceId)
 
     // Only route mic→RADE when the RADE slice IS the TX slice.
     // If another slice is TX (e.g. USB voice), leave its audio path alone.
-    m_audio.setRadeMode(s->isTxSlice());
+    m_audio->setRadeMode(s->isTxSlice());
 
     // TX path: mic -> RADEEngine (worker) -> sendModemTxAudio (main)
-    connect(&m_audio, &AudioEngine::txRawPcmReady,
+    connect(m_audio, &AudioEngine::txRawPcmReady,
             m_radeEngine, &RADEEngine::feedTxAudio, Qt::QueuedConnection);
     connect(m_radeEngine, &RADEEngine::txModemReady,
-            &m_audio, &AudioEngine::sendModemTxAudio, Qt::QueuedConnection);
+            m_audio, &AudioEngine::sendModemTxAudio, Qt::QueuedConnection);
 
     // RX path: DAX RX audio -> RADEEngine (worker) -> decoded speech -> speaker (main)
     // Filter by the RADE slice's DAX channel so other slices' DAX audio is ignored.
@@ -4941,12 +4976,11 @@ void MainWindow::activateRADE(int sliceId)
             m_radeEngine->feedRxAudio(channel, pcm);
     }, Qt::QueuedConnection);
     connect(m_radeEngine, &RADEEngine::rxSpeechReady,
-            &m_audio, &AudioEngine::feedDecodedSpeech, Qt::QueuedConnection);
+            m_audio, &AudioEngine::feedDecodedSpeech, Qt::QueuedConnection);
 
     // Start mic capture if not already running
-    if (!m_audio.isTxStreaming()) {
-        m_audio.startTxStream(
-            m_radioModel.connection()->radioAddress(), 4991);
+    if (!m_audio->isTxStreaming()) {
+        audioStartTx(m_radioModel.connection()->radioAddress(), 4991);
     }
 
     // RADE status indicator in VFO widget
@@ -4975,18 +5009,18 @@ void MainWindow::deactivateRADE()
     if (auto* vfo = spectrum()->vfoWidget())
         vfo->setRadeActive(false);
 
-    m_audio.setRadeMode(false);
-    m_audio.clearTxAccumulators();  // flush stale RADE modem data
+    m_audio->setRadeMode(false);
+    m_audio->clearTxAccumulators();  // flush stale RADE modem data
 
     if (m_radeEngine) {
-        disconnect(&m_audio, &AudioEngine::txRawPcmReady,
+        disconnect(m_audio, &AudioEngine::txRawPcmReady,
                    m_radeEngine, nullptr);
         disconnect(m_radeEngine, &RADEEngine::txModemReady,
-                   &m_audio, nullptr);
+                   m_audio, nullptr);
         disconnect(m_radioModel.panStream(), &PanadapterStream::daxAudioReady,
                    m_radeEngine, nullptr);
         disconnect(m_radeEngine, &RADEEngine::rxSpeechReady,
-                   &m_audio, nullptr);
+                   m_audio, nullptr);
         // Stop on the worker thread, then shut down the thread
         QMetaObject::invokeMethod(m_radeEngine, &RADEEngine::stop,
                                   Qt::BlockingQueuedConnection);
@@ -5107,9 +5141,9 @@ void MainWindow::startDax()
     // AudioEngine chooses packet format/routing based on DaxTxLowLatency.
     connect(m_daxBridge, &DaxBridge::txAudioReady,
             this, [this](const QByteArray& pcm) {
-        if (m_audio.isRadeMode()) return;
-        if (!m_audio.isDaxTxMode()) return;
-        m_audio.feedDaxTxAudio(pcm);
+        if (m_audio->isRadeMode()) return;
+        if (!m_audio->isDaxTxMode()) return;
+        QMetaObject::invokeMethod(m_audio, [this, pcm]() { m_audio->feedDaxTxAudio(pcm); });
     });
 
     // Save current TX routing state before forcing PC audio source.
@@ -5118,7 +5152,7 @@ void MainWindow::startDax()
 
     const bool lowLatencyRoute =
         AppSettings::instance().value("DaxTxLowLatency", "False").toString() == "True";
-    m_audio.setDaxTxUseRadioRoute(!lowLatencyRoute);
+    m_audio->setDaxTxUseRadioRoute(!lowLatencyRoute);
     m_radioModel.sendCommand("transmit set mic_selection=PC");
     m_radioModel.sendCommand(QString("transmit set dax=%1").arg(lowLatencyRoute ? 0 : 1));
 
@@ -5132,8 +5166,8 @@ void MainWindow::stopDax()
 {
     if (!m_daxBridge) return;
 
-    m_audio.setDaxTxMode(false);
-    m_audio.clearTxAccumulators();
+    m_audio->setDaxTxMode(false);
+    m_audio->clearTxAccumulators();
 
     disconnect(m_radioModel.panStream(), &PanadapterStream::daxAudioReady,
                m_daxBridge, nullptr);
@@ -5199,8 +5233,8 @@ void MainWindow::registerMidiParams()
         [this]() -> float { auto* s = activeSlice(); return s && s->squelchOn() ? 1 : 0; });
 
     reg("rx.mute", "Audio Mute", "RX", P::Toggle, 0, 1,
-        [this](float v) { m_audio.setMuted(v > 0.5f); },
-        [this]() -> float { return m_audio.isMuted() ? 1 : 0; });
+        [this](float v) { m_audio->setMuted(v > 0.5f); },
+        [this]() -> float { return m_audio->isMuted() ? 1 : 0; });
 
     reg("rx.tuneLock", "Tune Lock", "RX", P::Toggle, 0, 1,
         [this](float v) { if (auto* s = activeSlice()) s->setLocked(v > 0.5f); },
@@ -5215,12 +5249,12 @@ void MainWindow::registerMidiParams()
         [this]() -> float { auto* s = activeSlice(); return s && s->xitOn() ? 1 : 0; });
 
     reg("rx.nr2Enable", "NR2 (Spectral)", "RX", P::Toggle, 0, 1,
-        [this](float v) { m_audio.setNr2Enabled(v > 0.5f); },
-        [this]() -> float { return m_audio.nr2Enabled() ? 1 : 0; });
+        [this](float v) { QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2Enabled(v > 0.5f); }); },
+        [this]() -> float { return m_audio->nr2Enabled() ? 1 : 0; });
 
     reg("rx.rn2Enable", "RN2 (RNNoise)", "RX", P::Toggle, 0, 1,
-        [this](float v) { m_audio.setRn2Enabled(v > 0.5f); },
-        [this]() -> float { return m_audio.rn2Enabled() ? 1 : 0; });
+        [this](float v) { QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setRn2Enabled(v > 0.5f); }); },
+        [this]() -> float { return m_audio->rn2Enabled() ? 1 : 0; });
 
     reg("rx.stepUp", "Step Size Up", "RX", P::Trigger, 0, 1,
         [this](float) { if (auto* rx = m_appletPanel->rxApplet()) rx->cycleStepUp(); });
@@ -5364,8 +5398,8 @@ void MainWindow::registerMidiParams()
         [this]() -> float { return m_radioModel.headphoneGain(); });
 
     reg("global.masterMute", "Master Mute", "Global", P::Toggle, 0, 1,
-        [this](float v) { m_audio.setMuted(v > 0.5f); },
-        [this]() -> float { return m_audio.isMuted() ? 1 : 0; });
+        [this](float v) { m_audio->setMuted(v > 0.5f); },
+        [this]() -> float { return m_audio->isMuted() ? 1 : 0; });
 
     reg("global.txButton", "TX Button", "Global", P::Toggle, 0, 1,
         [this](float v) { m_radioModel.setTransmit(v > 0.5f); },

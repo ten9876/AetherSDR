@@ -9,6 +9,7 @@
 #include <QUdpSocket>
 #include <QTimer>
 #include <atomic>
+#include <mutex>
 #include <QBuffer>
 #include <QByteArray>
 #include <QElapsedTimer>
@@ -49,12 +50,13 @@ public:
     ~AudioEngine() override;
 
     // Open the QAudioSink. Must be called once when connected.
-    bool startRxStream();
-    void stopRxStream();
+    // Q_INVOKABLE: must run on the audio worker thread (#502)
+    Q_INVOKABLE bool startRxStream();
+    Q_INVOKABLE void stopRxStream();
 
     // TX (microphone) – capture audio and send VITA-49 packets to radio
-    bool startTxStream(const QHostAddress& radioAddress, quint16 radioPort);
-    void stopTxStream();
+    Q_INVOKABLE bool startTxStream(const QHostAddress& radioAddress, quint16 radioPort);
+    Q_INVOKABLE void stopTxStream();
 
     // Set the DAX TX stream ID (from radio's response to "stream create type=dax_tx")
     void setTxStreamId(quint32 id) { m_txStreamId = id; }
@@ -62,19 +64,19 @@ public:
     // Set the remote audio TX stream ID (for voice TX and VOX monitoring)
     void setRemoteTxStreamId(quint32 id) { m_remoteTxStreamId = id; }
 
-    float rxVolume() const  { return m_rxVolume; }
+    float rxVolume() const  { return m_rxVolume.load(); }
     void  setRxVolume(float v);
 
-    bool isMuted() const       { return m_muted; }
+    bool isMuted() const       { return m_muted.load(); }
     void setMuted(bool m);
     bool isTxStreaming() const { return m_audioSource != nullptr; }
 
     // Client-side PC mic gain (0-100 → 0.0-1.0, applied before Opus encoding)
-    void setPcMicGain(int level) { m_pcMicGain = qBound(0, level, 100) / 100.0f; }
+    void setPcMicGain(int level) { m_pcMicGain.store(qBound(0, level, 100) / 100.0f); }
 
     // Opus TX encoding for SmartLink compressed audio
-    void setOpusTxEnabled(bool on) { m_opusTxEnabled = on; }
-    bool isOpusTxEnabled() const { return m_opusTxEnabled; }
+    void setOpusTxEnabled(bool on) { m_opusTxEnabled.store(on); }
+    bool isOpusTxEnabled() const { return m_opusTxEnabled.load(); }
 
     // RADE digital voice mode
     void setRadeMode(bool on);
@@ -85,29 +87,30 @@ public:
 
     // DAX TX: VirtualAudioBridge feeds float32 PCM for VITA-49 TX
     void setDaxTxMode(bool on);
-    bool isDaxTxMode() const { return m_daxTxMode; }
+    bool isDaxTxMode() const { return m_daxTxMode.load(); }
     // true: radio DAX TX route (transmit dax=1, PCC 0x0123 int16 mono)
     // false: low-latency PC mic route (transmit dax=0, PCC 0x03E3 float32 stereo)
     void setDaxTxUseRadioRoute(bool on);
-    bool daxTxUseRadioRoute() const { return m_daxTxUseRadioRoute; }
+    bool daxTxUseRadioRoute() const { return m_daxTxUseRadioRoute.load(); }
     void setTransmitting(bool tx);
     void clearTxAccumulators() { m_txAccumulator.clear(); m_txFloatAccumulator.clear(); m_daxPreTxBuffer.clear(); }
-    void feedDaxTxAudio(const QByteArray& float32pcm);
+    Q_INVOKABLE void feedDaxTxAudio(const QByteArray& float32pcm);
 
     // Plays RADE decoded speech (int16 stereo 24kHz) bypassing m_radeMode block
     void feedDecodedSpeech(const QByteArray& pcm);
 
     // Client-side NR2 (spectral noise reduction)
-    void setNr2Enabled(bool on);
-    bool nr2Enabled() const { return m_nr2Enabled; }
+    // Q_INVOKABLE: called from main thread, runs on audio worker thread (#502)
+    Q_INVOKABLE void setNr2Enabled(bool on);
+    bool nr2Enabled() const { return m_nr2Enabled.load(); }
 
     // Client-side RN2 (RNNoise neural noise suppression)
-    void setRn2Enabled(bool on);
-    bool rn2Enabled() const { return m_rn2Enabled; }
+    Q_INVOKABLE void setRn2Enabled(bool on);
+    bool rn2Enabled() const { return m_rn2Enabled.load(); }
 
     // Client-side BNR (NVIDIA NIM GPU noise removal)
-    void setBnrEnabled(bool on);
-    bool bnrEnabled() const { return m_bnrEnabled; }
+    Q_INVOKABLE void setBnrEnabled(bool on);
+    bool bnrEnabled() const { return m_bnrEnabled.load(); }
     void setBnrAddress(const QString& addr);
     QString bnrAddress() const { return m_bnrAddress; }
     void setBnrIntensity(float ratio);
@@ -176,11 +179,11 @@ private:
     QByteArray    m_txFloatAccumulator;  // accumulate float32 PCM for RADE modem TX
     QByteArray    m_daxPreTxBuffer;      // short rolling pre-TX buffer for low-latency DAX mode
     std::atomic<bool> m_radeMode{false}; // RADE digital voice mode active (atomic: cross-thread)
-    float         m_pcMicGain{1.0f};     // client-side PC mic gain (0.0-1.0)
-    bool          m_daxTxMode{false};    // DAX TX mode: VirtualAudioBridge handles TX
-    bool          m_daxTxUseRadioRoute{false}; // false = low-latency route (dax=0)
-    bool          m_transmitting{false}; // true when radio is in TX (MOX on)
-    bool          m_opusTxEnabled{false}; // Opus TX encoding for SmartLink
+    std::atomic<float> m_pcMicGain{1.0f};     // client-side PC mic gain (0.0-1.0)
+    std::atomic<bool>  m_daxTxMode{false};    // DAX TX mode: VirtualAudioBridge handles TX
+    std::atomic<bool>  m_daxTxUseRadioRoute{false}; // false = low-latency route (dax=0)
+    std::atomic<bool>  m_transmitting{false}; // true when radio is in TX (MOX on)
+    std::atomic<bool>  m_opusTxEnabled{false}; // Opus TX encoding for SmartLink
     std::unique_ptr<class OpusCodec> m_opusTxCodec; // lazy-init on first TX with Opus
     QByteArray    m_opusTxAccumulator;  // accumulate stereo samples for Opus frame
     QVector<QByteArray> m_opusTxQueue;  // pacing queue for even 10ms packet delivery
@@ -194,25 +197,29 @@ private:
 
     QAudioDevice m_outputDevice;
     QAudioDevice m_inputDevice;
-    float m_rxVolume{1.0f};
-    bool  m_muted{false};
+    std::atomic<float> m_rxVolume{1.0f};
+    std::atomic<bool>  m_muted{false};
     bool  m_resampleTo48k{false};      // RX: upsample 24kHz → 48kHz output
     std::unique_ptr<Resampler> m_rxResampler;  // 24k stereo → 48k stereo (lazy init)
     bool  m_txDownsampleFrom48k{false}; // TX: downsample 48kHz → 24kHz input
 
+    // DSP lifecycle mutex: held during feedAudioData() DSP section AND
+    // during enable/disable to prevent use-after-free (#502)
+    std::recursive_mutex m_dspMutex;
+
     // Client-side NR2 (spectral)
     std::unique_ptr<SpectralNR> m_nr2;
-    bool m_nr2Enabled{false};
+    std::atomic<bool> m_nr2Enabled{false};
 
     // Client-side RN2 (RNNoise)
     std::unique_ptr<RNNoiseFilter> m_rn2;
-    bool m_rn2Enabled{false};
+    std::atomic<bool> m_rn2Enabled{false};
 
     // Client-side BNR (NVIDIA NIM)
     std::unique_ptr<NvidiaBnrFilter> m_bnr;
     std::unique_ptr<Resampler> m_bnrUp;    // 24k→48k mono
     std::unique_ptr<Resampler> m_bnrDown;  // 48k→24k mono
-    bool m_bnrEnabled{false};
+    std::atomic<bool> m_bnrEnabled{false};
     QString m_bnrAddress{"localhost:8001"};
     QByteArray m_bnrOutBuf;  // jitter buffer: denoised 24kHz stereo int16
     bool m_bnrPrimed{false}; // true after enough denoised data accumulated

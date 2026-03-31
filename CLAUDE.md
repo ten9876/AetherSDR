@@ -160,28 +160,133 @@ src/
     └── SliceColors.h       — Per-slice color assignments
 ```
 
-### Data Flow
+### Data Pipelines
+
+All pipelines currently run on the main Qt event loop thread unless noted.
 
 ```
-UDP bcast (4992)  →  RadioDiscovery  →  ConnectionPanel (GUI)
-TCP (4992)        →  RadioConnection →  RadioModel → SliceModel → GUI
-UDP VITA-49 (4991)→  PanadapterStream
-                       ├── PCC 0x8003 (FFT bins)      → SpectrumWidget.updateSpectrum()
-                       ├── PCC 0x8004 (waterfall tiles)→ SpectrumWidget.updateWaterfallRow()
-                       ├── PCC 0x8002 (meter data)     → MeterModel.updateValues()
-                       ├── PCC 0x03E3 (audio float32)  → AudioEngine.feedAudioData()
-                       │                                  ├── NR2 → SpectralNR.process()
-                       │                                  ├── RN2 → RNNoiseFilter.process()
-                       │                                  └── CW  → CwDecoder.feedAudio()
-                       ├── PCC 0x0123 (DAX audio int16)→ PipeWireAudioBridge.feedDaxAudio()
-                       └── PCC 0x0123 (audio int16)    → AudioEngine.feedAudioData()
+┌─────────────────────────────────────────────────────────────────────┐
+│                          NETWORK LAYER                              │
+│                                                                     │
+│  Radio UDP 4992 ──→ RadioDiscovery ──→ ConnectionPanel (GUI)        │
+│  Radio TCP 4992 ──→ RadioConnection ──→ RadioModel (status/cmd)     │
+│  Radio UDP 4991 ──→ PanadapterStream (VITA-49 demux by PCC)        │
+│  TGXL  TCP 9010 ──→ TgxlConnection ──→ TunerModel (relay control)  │
+│  WAN   TLS 4992 ──→ WanConnection ──→ RadioModel (same as TCP)     │
+│  WAN   UDP 4993 ──→ PanadapterStream (same as UDP 4991)            │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                    ┌─────────┴─────────┐
+                    │  PanadapterStream  │
+                    │  (VITA-49 demux)   │
+                    └──┬──┬──┬──┬──┬────┘
+                       │  │  │  │  │
+    ┌──────────────────┘  │  │  │  └──────────────────┐
+    ▼                     ▼  │  ▼                     ▼
+┌────────┐         ┌────────┐│┌────────┐        ┌──────────┐
+│PCC 8003│         │PCC 8004│││PCC 8002│        │PCC 03E3/ │
+│FFT bins│         │WF tiles│││ meters │        │0123 audio│
+└───┬────┘         └───┬────┘│└───┬────┘        └────┬─────┘
+    │                  │     │    │                   │
+    ▼                  ▼     │    ▼                   ▼
+SpectrumWidget   SpectrumWidget  MeterModel     AudioEngine
+.updateSpectrum  .updateWfRow    .updateValues   .feedAudioData
+    │                  │     │    │                   │
+    │ (ring buffer)    │     │    ├─→ SMeterWidget    ├─→ NR2 (SpectralNR)
+    │                  │     │    ├─→ TxApplet        ├─→ RN2 (RNNoiseFilter)
+    ▼                  ▼     │    ├─→ TunerApplet     ├─→ BNR (NvidiaBnrFilter)
+  paintEvent()    paintEvent │    └─→ StatusBar       ├─→ CwDecoder
+  (~70% CPU)                 │                        ▼
+                             │                   QAudioSink
+                             │                   (speakers)
+                             │
+                      ┌──────┴──────┐
+                      │ DAX streams │
+                      └──────┬──────┘
+                      ┌──────┴──────┐
+                      │PCC 03E3/0123│
+                      │(DAX stream) │
+                      └──────┬──────┘
+                             ▼
+                     PipeWireAudioBridge ──→ Virtual Audio Devices
+                     (PulseAudio pipes)     (WSJT-X, fldigi, etc.)
 
-TX Audio:
-  QAudioSource (mic) → AudioEngine.onTxAudioReady()
-                        ├── Voice mode → VITA-49 float32 → radio
-                        ├── DAX mode   → PipeWireAudioBridge → feedDaxTxAudio()
-                        └── RADE mode  → RADEEngine.feedTxAudio() → modem → radio
+TX AUDIO PIPELINE:
+  QAudioSource (mic) ──→ AudioEngine.onTxAudioReady()
+                              │
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+         Voice mode      DAX TX mode      RADE mode
+              │               │               │
+              ▼               ▼               ▼
+         Opus encode    DaxBridge.feed    RADEEngine.feed
+              │               │               │
+              ▼               ▼               ▼
+         VITA-49 pkt    VITA-49 pkt      OFDM modem
+              │               │               │
+              └───────┬───────┘               │
+                      ▼                       ▼
+              PanadapterStream         VITA-49 pkt
+              .sendToRadio()                  │
+              (QUdpSocket)                    ▼
+                      │               PanadapterStream
+                      ▼               .sendToRadio()
+                 Radio UDP 4991
+
+TCP COMMAND PIPELINE (bidirectional):
+  GUI widget ──→ SliceModel.setXxx() ──→ emit commandReady("slice ...")
+                 TransmitModel          ──→ emit commandReady("xmit ...")
+                 TunerModel             ──→ emit commandReady("tgxl ...")
+                 EqualizerModel         ──→ emit commandReady("eq ...")
+                 TnfModel               ──→ emit commandReady("tnf ...")
+                        │
+                        ▼
+                 RadioModel.sendCmd(cmd)
+                        │
+              ┌─────────┴─────────┐
+              ▼                   ▼
+        RadioConnection     WanConnection
+        (TCP 4992)          (TLS 4992)
+              │                   │
+              ▼                   ▼
+        QTcpSocket          QSslSocket
+              │                   │
+              └─────────┬─────────┘
+                        ▼
+                      Radio
+
+  Radio ──→ "S<handle>|<object> key=val ..."
+              │
+              ▼
+        RadioModel.onStatusReceived()
+              │
+              ├─→ SliceModel.applyStatus()      ──→ GUI signals
+              ├─→ PanadapterModel.applyStatus()  ──→ SpectrumWidget
+              ├─→ TransmitModel.applyStatus()    ──→ TxApplet
+              ├─→ TunerModel.applyStatus()       ──→ TunerApplet
+              ├─→ EqualizerModel.applyStatus()   ──→ EqApplet
+              ├─→ MeterModel.registerMeter()     ──→ meter definitions
+              └─→ Multi-Flex client tracking     ──→ TitleBar badge
+
+EXTERNAL CONTROL PIPELINES:
+  FlexControl (USB serial) ──→ FlexControlManager ──→ MainWindow ──→ slice tune
+  MIDI (RtMidi)            ──→ MidiControlManager  ──→ parameter setters
+  SerialPort (PTT/CW)     ──→ SerialPortController ──→ RadioModel TX/CW
+  TGXL (TCP 9010)          ──→ TgxlConnection      ──→ TunerModel relay adjust
+
+SPOT PIPELINES (worker threads):
+  DX Cluster (telnet)  ─┐
+  RBN (telnet)         ─┤
+  WSJT-X (UDP mcast)  ─┼──→ SpotModel (batched 1/sec) ──→ SpectrumWidget spots
+  POTA (HTTP polling)  ─┤     + DxccColorProvider (ADIF lookup)
+  FreeDV (WebSocket)   ─┘
 ```
+
+**Threading status (current):**
+- Main thread: PanadapterStream, AudioEngine, all GUI, RadioConnection
+- Worker threads: spot sources, DAX IQ, RADE, BNR gRPC, FFTW wisdom
+- **Known issue:** AudioEngine competes with paintEvent for main thread CPU,
+  causing audio artifacts on lower-end machines when paintEvent takes >10ms
 
 ---
 

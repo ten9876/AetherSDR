@@ -7,6 +7,8 @@
 #include <QMap>
 #include <QSet>
 #include <QTimer>
+#include <QMutex>
+#include <QMutexLocker>
 
 namespace AetherSDR {
 
@@ -39,11 +41,10 @@ public:
 
     // Bind a local UDP port (OS-chosen) and register it with the radio.
     // conn must remain valid for the lifetime of this stream.
-    bool start(RadioConnection* conn);
+    // Q_INVOKABLE: must run on the network worker thread (#502)
+    Q_INVOKABLE bool start(RadioConnection* conn);
     // Start for WAN: use explicit radio address and UDP port.
-    // After calling startWan(), call startWanUdpRegister() once the client
-    // handle is known (after TLS + wan validate handshake).
-    bool startWan(const QHostAddress& radioAddr, quint16 radioUdpPort);
+    Q_INVOKABLE bool startWan(const QHostAddress& radioAddr, quint16 radioUdpPort);
 
     // Begin WAN UDP registration: sends "client udp_register handle=0x<handle>"
     // via UDP every 50ms until VITA-49 packets arrive, then switches to
@@ -166,6 +167,9 @@ private:
         int  totalCount{0};
     };
 
+    // Mutex guards stream ID sets, dBm ranges, yPixels, and DAX/IQ maps.
+    // Written from main thread (RadioModel), read from network worker thread (#502).
+    mutable QMutex  m_streamMutex;
     QSet<quint32>   m_knownPanStreams;     // registered pan stream IDs
     QSet<quint32>   m_knownWfStreams;     // registered wf stream IDs
     QUdpSocket      m_socket;
