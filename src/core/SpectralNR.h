@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -52,6 +53,10 @@ public:
                                WisdomProgressCb progress = nullptr);
 
 private:
+    // FFTW plan creation/destruction is NOT thread-safe. This mutex guards
+    // all fftw_plan_*, fftw_destroy_plan, and wisdom import/export calls.
+    // fftw_execute() is thread-safe and does not need the lock. (#467)
+    static std::mutex s_fftwMutex;
     // FFT parameters
     int m_fftSize;
     int m_hopSize;          // fftSize / 2  (50 % overlap)

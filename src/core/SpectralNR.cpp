@@ -9,6 +9,8 @@
 
 namespace AetherSDR {
 
+std::mutex SpectralNR::s_fftwMutex;
+
 // ─── Construction / Reset ──────────────────────────────────────────────────────
 
 SpectralNR::SpectralNR(int fftSize, int sampleRate)
@@ -47,10 +49,14 @@ SpectralNR::SpectralNR(int fftSize, int sampleRate)
     // Create plans — uses wisdom if available for optimal performance.
     // FFTW_MEASURE is used here: fast enough for size 256 even without
     // prior wisdom, and will use wisdom when it's been generated.
-    m_planFwd = fftw_plan_dft_r2c_1d(fftSize, m_fftIn.data(),
-                                      m_fftOut, FFTW_MEASURE);
-    m_planRev = fftw_plan_dft_c2r_1d(fftSize, m_ifftIn,
-                                      m_ifftOut.data(), FFTW_MEASURE);
+    // Lock: FFTW plan creation is NOT thread-safe (#467)
+    {
+        std::lock_guard<std::mutex> lock(s_fftwMutex);
+        m_planFwd = fftw_plan_dft_r2c_1d(fftSize, m_fftIn.data(),
+                                          m_fftOut, FFTW_MEASURE);
+        m_planRev = fftw_plan_dft_c2r_1d(fftSize, m_ifftIn,
+                                          m_ifftOut.data(), FFTW_MEASURE);
+    }
     if (!m_planFwd || !m_planRev) {
         qCWarning(lcDsp) << "SpectralNR: FFTW plan creation failed — NR2 will not function";
         m_planFailed = true;
@@ -94,8 +100,11 @@ SpectralNR::SpectralNR(int fftSize, int sampleRate)
 SpectralNR::~SpectralNR()
 {
 #ifdef HAVE_FFTW3
-    if (m_planFwd) fftw_destroy_plan(m_planFwd);
-    if (m_planRev) fftw_destroy_plan(m_planRev);
+    {
+        std::lock_guard<std::mutex> lock(s_fftwMutex);
+        if (m_planFwd) fftw_destroy_plan(m_planFwd);
+        if (m_planRev) fftw_destroy_plan(m_planRev);
+    }
     if (m_fftOut)  fftw_free(m_fftOut);
     if (m_ifftIn)  fftw_free(m_ifftIn);
 #endif
@@ -167,9 +176,13 @@ bool SpectralNR::generateWisdom(const std::string& directory,
         wisdomFile += '/';
     wisdomFile += "aethersdr_fftw_wisdom";
 
+    // Lock: FFTW wisdom import is NOT thread-safe (#467)
     // Try to load our own wisdom file first
-    if (fftw_import_wisdom_from_filename(wisdomFile.c_str())) {
-        return false;  // wisdom loaded from file — no generation needed
+    {
+        std::lock_guard<std::mutex> lock(s_fftwMutex);
+        if (fftw_import_wisdom_from_filename(wisdomFile.c_str())) {
+            return false;  // wisdom loaded from file — no generation needed
+        }
     }
 
     // Try to import Thetis/WDSP wisdom (compatible FFTW3 format)
@@ -182,6 +195,7 @@ bool SpectralNR::generateWisdom(const std::string& directory,
             std::string thetisWisdom = std::string(appData)
                 + "\\OpenHPSDR\\Thetis-x64\\wdspWisdom00";
             free(appData);
+            std::lock_guard<std::mutex> lock(s_fftwMutex);
             if (fftw_import_wisdom_from_filename(thetisWisdom.c_str())) {
                 // Save as our own so we don't depend on Thetis in future
                 fftw_export_wisdom_to_filename(wisdomFile.c_str());
@@ -205,10 +219,14 @@ bool SpectralNR::generateWisdom(const std::string& directory,
     int step = 0;
 
     for (int psize = 64; psize <= maxSize; psize *= 2) {
+        // Lock per-plan to avoid holding the mutex for minutes while still
+        // preventing concurrent plan creation (#467)
+
         // 1. Complex forward
         if (progress) progress(step, totalSteps,
             "Computing COMPLEX FORWARD FFT size " + std::to_string(psize) + "...");
-        {   fftw_plan p = fftw_plan_dft_1d(psize, cbuf, cbuf,
+        {   std::lock_guard<std::mutex> lock(s_fftwMutex);
+            fftw_plan p = fftw_plan_dft_1d(psize, cbuf, cbuf,
                                             FFTW_FORWARD, FFTW_PATIENT);
             if (p) fftw_destroy_plan(p);
         }
@@ -217,7 +235,8 @@ bool SpectralNR::generateWisdom(const std::string& directory,
         // 2. Complex backward (same size)
         if (progress) progress(step, totalSteps,
             "Computing COMPLEX BACKWARD FFT size " + std::to_string(psize) + "...");
-        {   fftw_plan p = fftw_plan_dft_1d(psize, cbuf, cbuf,
+        {   std::lock_guard<std::mutex> lock(s_fftwMutex);
+            fftw_plan p = fftw_plan_dft_1d(psize, cbuf, cbuf,
                                             FFTW_BACKWARD, FFTW_PATIENT);
             if (p) fftw_destroy_plan(p);
         }
@@ -226,7 +245,8 @@ bool SpectralNR::generateWisdom(const std::string& directory,
         // 3. Real-to-complex forward
         if (progress) progress(step, totalSteps,
             "Computing REAL-TO-COMPLEX FFT size " + std::to_string(psize) + "...");
-        {   fftw_plan p = fftw_plan_dft_r2c_1d(psize, rbuf, cbuf, FFTW_PATIENT);
+        {   std::lock_guard<std::mutex> lock(s_fftwMutex);
+            fftw_plan p = fftw_plan_dft_r2c_1d(psize, rbuf, cbuf, FFTW_PATIENT);
             if (p) fftw_destroy_plan(p);
         }
         if (progress) progress(++step, totalSteps, "");
@@ -234,13 +254,17 @@ bool SpectralNR::generateWisdom(const std::string& directory,
         // 4. Complex-to-real inverse
         if (progress) progress(step, totalSteps,
             "Computing COMPLEX-TO-REAL FFT size " + std::to_string(psize) + "...");
-        {   fftw_plan p = fftw_plan_dft_c2r_1d(psize, cbuf, rbuf, FFTW_PATIENT);
+        {   std::lock_guard<std::mutex> lock(s_fftwMutex);
+            fftw_plan p = fftw_plan_dft_c2r_1d(psize, cbuf, rbuf, FFTW_PATIENT);
             if (p) fftw_destroy_plan(p);
         }
         if (progress) progress(++step, totalSteps, "");
     }
 
-    fftw_export_wisdom_to_filename(wisdomFile.c_str());
+    {
+        std::lock_guard<std::mutex> lock(s_fftwMutex);
+        fftw_export_wisdom_to_filename(wisdomFile.c_str());
+    }
     fftw_free(rbuf);
     fftw_free(cbuf);
     return true;  // wisdom was generated
