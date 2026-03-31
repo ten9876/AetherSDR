@@ -26,6 +26,7 @@ Q_LOGGING_CATEGORY(lcTuner,      "aether.tuner",       QtWarningMsg)
 Q_LOGGING_CATEGORY(lcGui,        "aether.gui",         QtWarningMsg)
 Q_LOGGING_CATEGORY(lcDxCluster,  "aether.dxcluster",   QtWarningMsg)
 Q_LOGGING_CATEGORY(lcRbn,        "aether.rbn",         QtWarningMsg)
+Q_LOGGING_CATEGORY(lcPerf,       "aether.perf",        QtWarningMsg)
 
 LogManager::LogManager()
 {
@@ -48,6 +49,7 @@ LogManager::LogManager()
         {"aether.gui",        "GUI",          "Window, applets, dialogs"},
         {"aether.dxcluster",  "DX Cluster",   "DX cluster telnet connection and spot parsing"},
         {"aether.rbn",        "RBN",          "Reverse Beacon Network connection and spots"},
+        {"aether.perf",       "Performance",  "Render timing and CPU profiling data"},
     };
 
     // QLoggingCategory objects are defined above via Q_LOGGING_CATEGORY macros.
