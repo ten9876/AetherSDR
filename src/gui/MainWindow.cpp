@@ -33,6 +33,7 @@
 #include "MultiFlexDialog.h"
 #include "models/SliceModel.h"
 #include "models/MeterModel.h"
+#include "models/BandPlanManager.h"
 #include "models/TunerModel.h"
 #include "models/TransmitModel.h"
 #include "models/EqualizerModel.h"
@@ -115,6 +116,11 @@ MainWindow::MainWindow(QWidget* parent)
     resize(1400, 800);
 
     applyDarkTheme();
+
+    // Band plan manager — must be created before buildMenuBar() which references it
+    m_bandPlanMgr = new BandPlanManager(this);
+    m_bandPlanMgr->loadPlans();
+
     buildMenuBar();
     buildUI();
     registerShortcutActions();
@@ -1040,6 +1046,24 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_radioModel.tunerModel(), &TunerModel::presenceChanged,
             this, [this](bool present) {
         m_tgxlIndicator->setVisible(present);
+        // Auto-connect/disconnect direct TGXL connection for manual relay control (#469)
+        if (present) {
+            QString ip = m_radioModel.tunerModel()->tgxlIp();
+            if (!ip.isEmpty() && !m_tgxlConn.isConnected()) {
+                m_tgxlConn.connectToTgxl(ip);
+            }
+        } else {
+            m_tgxlConn.disconnect();
+        }
+    });
+    // Wire TgxlConnection to TunerModel
+    m_radioModel.tunerModel()->setDirectConnection(&m_tgxlConn);
+    // Also attempt connection when TGXL IP arrives (may come after presence)
+    connect(m_radioModel.tunerModel(), &TunerModel::stateChanged, this, [this]() {
+        auto* tuner = m_radioModel.tunerModel();
+        if (tuner->isPresent() && !tuner->tgxlIp().isEmpty() && !m_tgxlConn.isConnected()) {
+            m_tgxlConn.connectToTgxl(tuner->tgxlIp());
+        }
     });
 
     // Switch Fwd Power gauge scale based on radio max power and amplifier presence.
@@ -2170,6 +2194,20 @@ void MainWindow::buildMenuBar()
         });
     }
 
+    // Band plan region selector (#425)
+    bandPlanMenu->addSeparator();
+    auto* planGroup = new QActionGroup(bandPlanMenu);
+    const QString activePlan = m_bandPlanMgr->activePlanName();
+    for (const auto& name : m_bandPlanMgr->availablePlans()) {
+        auto* act = bandPlanMenu->addAction(name);
+        act->setCheckable(true);
+        act->setChecked(name == activePlan);
+        planGroup->addAction(act);
+        connect(act, &QAction::triggered, this, [this, name] {
+            m_bandPlanMgr->setActivePlan(name);
+        });
+    }
+
     auto* singleClickTuneAct = viewMenu->addAction("Single-Click to Tune");
     singleClickTuneAct->setCheckable(true);
     singleClickTuneAct->setChecked(
@@ -2831,6 +2869,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_stationLabel->setText("N0CALL");
         m_tnfIndicator->setStyleSheet("QLabel { color: #404858; font-weight: bold; font-size: 24px; }");
         m_tgxlIndicator->setVisible(false);
+        m_tgxlConn.disconnect();
         m_pgxlIndicator->setVisible(false);
         m_txIndicator->setStyleSheet("QLabel { color: rgba(255,255,255,128); font-weight: bold; font-size: 21px; }");
         m_txIndicator->setText("TX");
@@ -3435,6 +3474,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 {
     auto* sw = applet->spectrumWidget();
     auto* menu = sw->overlayMenu();
+
+    // Wire band plan manager to this spectrum widget
+    sw->setBandPlanManager(m_bandPlanMgr);
 
     // Set panId on the overlay menu so +RX routes to the correct pan
     menu->setPanId(applet->panId());

@@ -505,9 +505,9 @@ QWidget* RadioSetupDialog::buildNetworkTab()
         grid->addWidget(new QLabel("Network MTU:"), 1, 0);
         auto* mtuSpin = new QSpinBox;
         mtuSpin->setRange(576, 9000);
-        mtuSpin->setValue(AppSettings::instance().value("NetworkMtu", "1500").toInt());
+        mtuSpin->setValue(AppSettings::instance().value("NetworkMtu", "1450").toInt());
         mtuSpin->setSuffix(" bytes");
-        mtuSpin->setToolTip("Maximum Transmission Unit for VITA-49 UDP packets. Default: 1500.");
+        mtuSpin->setToolTip("Maximum Transmission Unit for VITA-49 UDP packets.\nDefault: 1450 (compatible with most VPN/SD-WAN tunnels).");
         connect(mtuSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val) {
             m_model->sendCommand(
                 QString("client set enforce_network_mtu=1 network_mtu=%1").arg(val));

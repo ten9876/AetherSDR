@@ -1,4 +1,5 @@
 #include "TunerModel.h"
+#include "core/TgxlConnection.h"
 #include "core/LogManager.h"
 
 #include <QDebug>
@@ -59,7 +60,10 @@ void TunerModel::applyStatus(const QMap<QString, QString>& kvs)
             int v = val.toInt();
             if (m_relayL != v) { m_relayL = v; changed = true; }
         }
-        // nickname, version, ant, dhcp, ip, netmask, gateway, ptta, pttb
+        else if (key == "ip") {
+            if (m_tgxlIp != val) { m_tgxlIp = val; changed = true; }
+        }
+        // nickname, version, ant, dhcp, netmask, gateway, ptta, pttb
         // are informational — ignore for now.
     }
 
@@ -100,6 +104,59 @@ void TunerModel::autoTune()
     const QString cmd = "tgxl autotune handle=" + m_handle;
     qCDebug(lcTuner) << "TunerModel:" << cmd;
     emit commandReady(cmd);
+}
+
+// ── Direct TGXL connection (port 9010) ──────────────────────────────────────
+
+void TunerModel::setDirectConnection(TgxlConnection* conn)
+{
+    if (m_directConn == conn) return;
+    if (m_directConn) {
+        disconnect(m_directConn, nullptr, this, nullptr);
+    }
+    m_directConn = conn;
+    if (m_directConn) {
+        connect(m_directConn, &TgxlConnection::connected, this, [this]() {
+            qCDebug(lcTuner) << "TunerModel: direct TGXL connection established";
+            emit directConnectionChanged(true);
+        });
+        connect(m_directConn, &TgxlConnection::disconnected, this, [this]() {
+            qCDebug(lcTuner) << "TunerModel: direct TGXL connection lost";
+            emit directConnectionChanged(false);
+        });
+        // Update relay values from direct state pushes
+        connect(m_directConn, &TgxlConnection::stateUpdated, this,
+                [this](const QMap<QString, QString>& kvs) {
+            bool changed = false;
+            if (kvs.contains("relayC1")) {
+                int v = kvs.value("relayC1").toInt();
+                if (m_relayC1 != v) { m_relayC1 = v; changed = true; }
+            }
+            if (kvs.contains("relayL")) {
+                int v = kvs.value("relayL").toInt();
+                if (m_relayL != v) { m_relayL = v; changed = true; }
+            }
+            if (kvs.contains("relayC2")) {
+                int v = kvs.value("relayC2").toInt();
+                if (m_relayC2 != v) { m_relayC2 = v; changed = true; }
+            }
+            if (changed) emit stateChanged();
+        });
+    }
+}
+
+bool TunerModel::hasDirectConnection() const
+{
+    return m_directConn && m_directConn->isConnected();
+}
+
+void TunerModel::adjustRelay(int relay, int direction)
+{
+    if (!m_directConn || !m_directConn->isConnected()) {
+        qCDebug(lcTuner) << "TunerModel::adjustRelay: no direct connection";
+        return;
+    }
+    m_directConn->adjustRelay(relay, direction);
 }
 
 } // namespace AetherSDR

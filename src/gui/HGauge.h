@@ -2,6 +2,7 @@
 
 #include <QPainter>
 #include <QWidget>
+#include <QWheelEvent>
 #include <QVector>
 #include <cmath>
 #include <limits>
@@ -168,14 +169,18 @@ private:
 };
 
 // ── RelayBar: horizontal bar for relay position (0–255) ───────────────────────
+// Supports mousewheel scrolling for manual relay adjustment (#469).
 
 class RelayBar : public QWidget {
+    Q_OBJECT
+
 public:
     RelayBar(const QString& label, QWidget* parent = nullptr)
         : QWidget(parent), m_label(label)
     {
         setFixedHeight(18);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        setToolTip("Scroll to adjust relay position");
     }
 
     void setValue(int v) {
@@ -184,7 +189,27 @@ public:
         update();
     }
 
+    void setScrollEnabled(bool on) {
+        m_scrollEnabled = on;
+        setCursor(on ? Qt::SizeVerCursor : Qt::ArrowCursor);
+    }
+
+signals:
+    void relayAdjusted(int direction);  // +1 scroll up, -1 scroll down
+
 protected:
+    void wheelEvent(QWheelEvent* e) override {
+        if (!m_scrollEnabled) {
+            QWidget::wheelEvent(e);
+            return;
+        }
+        m_angleAccum += e->angleDelta().y();
+        constexpr int step = 120;
+        while (m_angleAccum >= step)  { m_angleAccum -= step; emit relayAdjusted(+1); }
+        while (m_angleAccum <= -step) { m_angleAccum += step; emit relayAdjusted(-1); }
+        e->accept();
+    }
+
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
@@ -227,6 +252,8 @@ protected:
 private:
     QString m_label;
     int m_value{0};
+    bool m_scrollEnabled{false};
+    int m_angleAccum{0};
 };
 
 } // namespace AetherSDR

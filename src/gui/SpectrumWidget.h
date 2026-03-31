@@ -104,6 +104,7 @@ public:
     void setRfGain(int gain) { m_rfGainValue = gain; update(); }
     void setShowBandPlan(bool on) { m_bandPlanFontSize = on ? 6 : 0; update(); }
     void setBandPlanFontSize(int pt) { m_bandPlanFontSize = pt; update(); }
+    void setBandPlanManager(class BandPlanManager* mgr);
     void setSingleClickTune(bool on) { m_singleClickTune = on; }
     bool showBandPlan() const { return m_bandPlanFontSize > 0; }
     int  bandPlanFontSize() const { return m_bandPlanFontSize; }
@@ -379,6 +380,7 @@ private:
     bool m_wnbActive{false};
     int  m_rfGainValue{0};
     int  m_bandPlanFontSize{6};  // 0 = off
+    BandPlanManager* m_bandPlanMgr{nullptr};
     bool m_singleClickTune{false};
     QPoint m_clickPressPos;        // for single-click-to-tune drag threshold
     bool m_showTxInWaterfall{false};  // default matches radio default (off)

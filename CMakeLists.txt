@@ -194,6 +194,7 @@ set(CORE_SOURCES
     src/core/AppSettings.cpp
     src/core/RadioDiscovery.cpp
     src/core/RadioConnection.cpp
+    src/core/TgxlConnection.cpp
     src/core/CommandParser.cpp
     src/core/AudioEngine.cpp
     src/core/SpectralNR.cpp
@@ -245,6 +246,7 @@ set(MODEL_SOURCES
     src/models/CwxModel.cpp
     src/models/DvkModel.cpp
     src/models/BandSettings.cpp
+    src/models/BandPlanManager.cpp
     src/models/AntennaGeniusModel.cpp
 )
 

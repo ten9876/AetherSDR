@@ -22,7 +22,7 @@
 #include <QDesktopServices>
 #include <QUrl>
 #include "core/AppSettings.h"
-#include "models/BandPlan.h"
+#include "models/BandPlanManager.h"
 #include "models/BandDefs.h"
 #include <QDateTime>
 #include <cmath>
@@ -155,6 +155,12 @@ void SpectrumWidget::setActiveVfoWidget(int sliceId)
 }
 
 // ── Display control setters (save to AppSettings on each change) ──────────────
+
+void SpectrumWidget::setBandPlanManager(BandPlanManager* mgr) {
+    m_bandPlanMgr = mgr;
+    if (mgr)
+        connect(mgr, &BandPlanManager::planChanged, this, QOverload<>::of(&QWidget::update));
+}
 
 void SpectrumWidget::setFftAverage(int frames) {
     m_fftAverage = frames;
@@ -1087,13 +1093,14 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
     const int bandBarTop = specH2 - 8;
     if (y >= bandBarTop && y <= specH2) {
         const int mx2 = static_cast<int>(ev->position().x());
-        for (int i = 0; i < kBandSpotCount; ++i) {
-            const int sx = mhzToX(kBandSpots[i].freqMhz);
+        const auto& spots = m_bandPlanMgr ? m_bandPlanMgr->spots() : QVector<BandPlanManager::Spot>{};
+        for (const auto& spot : spots) {
+            const int sx = mhzToX(spot.freqMhz);
             if (std::abs(mx2 - sx) <= 5) {
                 QToolTip::showText(ev->globalPosition().toPoint(),
                     QString("%1 MHz — %2")
-                        .arg(kBandSpots[i].freqMhz, 0, 'f', 3)
-                        .arg(kBandSpots[i].tooltip),
+                        .arg(spot.freqMhz, 0, 'f', 3)
+                        .arg(spot.label),
                     this);
                 return;
             }
@@ -1757,9 +1764,9 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
     const int bandH = m_bandPlanFontSize + 4;  // scale strip height with font
     const int bandY = specRect.bottom() - bandH + 1;
 
-    for (int i = 0; i < kBandPlanCount; ++i) {
-        const auto& seg = kBandPlan[i];
-
+    const auto& segments = m_bandPlanMgr ? m_bandPlanMgr->segments()
+                                         : QVector<BandPlanManager::Segment>{};
+    for (const auto& seg : segments) {
         if (seg.highMhz <= startMhz || seg.lowMhz >= endMhz) continue;
 
         const int x1 = mhzToX(std::max(seg.lowMhz, startMhz));
@@ -1767,15 +1774,16 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
         if (x2 <= x1) continue;
 
         // License class contrast: Extra-only = dim, wider access = brighter
-        const QString lic(seg.license);
+        const QString& lic = seg.license;
         int alpha = 150;
         if (lic == "E")          alpha = 50;
         else if (lic == "E,G")   alpha = 100;
         else if (lic.contains("T")) alpha = 150;
-        else if (lic.isEmpty())  alpha = 130; // beacons
+        else if (lic.isEmpty())  alpha = 130; // beacons / no class info
 
-        p.fillRect(x1, bandY, x2 - x1, bandH,
-                   QColor(seg.r, seg.g, seg.b, alpha));
+        QColor fill = seg.color;
+        fill.setAlpha(alpha);
+        p.fillRect(x1, bandY, x2 - x1, bandH, fill);
 
         // Draw separator lines between adjacent segments
         p.setPen(QColor(0x0f, 0x0f, 0x1a, 200));
@@ -1805,11 +1813,12 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
     }
 
     // Draw single-frequency spot markers (white circles)
+    const auto& spots = m_bandPlanMgr ? m_bandPlanMgr->spots()
+                                       : QVector<BandPlanManager::Spot>{};
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setPen(Qt::NoPen);
     p.setBrush(Qt::white);
-    for (int i = 0; i < kBandSpotCount; ++i) {
-        const auto& spot = kBandSpots[i];
+    for (const auto& spot : spots) {
         if (spot.freqMhz < startMhz || spot.freqMhz > endMhz) continue;
         const int sx = mhzToX(spot.freqMhz);
         p.drawEllipse(QPoint(sx, bandY + bandH / 2), 4, 4);

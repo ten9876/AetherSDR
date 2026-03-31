@@ -25,6 +25,7 @@
 #include "core/MidiControlManager.h"
 #endif
 #include "core/ShortcutManager.h"
+#include "core/TgxlConnection.h"
 
 #include <QMainWindow>
 #include <QSplitter>
@@ -41,6 +42,7 @@ class SpectrumWidget;
 class PanadapterApplet;
 class PanadapterStack;
 class AppletPanel;
+class BandPlanManager;
 class CwxPanel;
 class DvkPanel;
 #ifdef HAVE_RADE
@@ -116,6 +118,8 @@ private:
     SmartLinkClient   m_smartLink;
     WanConnection     m_wanConnection;
     AntennaGeniusModel m_antennaGenius;
+    TgxlConnection    m_tgxlConn;        // direct TCP 9010 to TGXL for manual relay control
+    BandPlanManager*  m_bandPlanMgr{nullptr};
     CwDecoder         m_cwDecoder;
     DxClusterClient*   m_dxCluster{nullptr};
     DxClusterClient*   m_rbnClient{nullptr};

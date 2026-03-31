@@ -116,6 +116,14 @@ void TunerApplet::buildUI()
         if (m_model) m_model->autoTune();
     });
 
+    // Manual relay adjustment via mousewheel scroll (#469)
+    connect(static_cast<RelayBar*>(m_c1Bar), &RelayBar::relayAdjusted, this,
+            [this](int dir) { if (m_model) m_model->adjustRelay(0, dir); });
+    connect(static_cast<RelayBar*>(m_lBar), &RelayBar::relayAdjusted, this,
+            [this](int dir) { if (m_model) m_model->adjustRelay(1, dir); });
+    connect(static_cast<RelayBar*>(m_c2Bar), &RelayBar::relayAdjusted, this,
+            [this](int dir) { if (m_model) m_model->adjustRelay(2, dir); });
+
     // OPERATE button: cycle through OPERATE → BYPASS → STANDBY → OPERATE
     connect(m_operateBtn, &QPushButton::clicked, this,
             &TunerApplet::cycleOperateState);
@@ -129,6 +137,16 @@ void TunerApplet::setTunerModel(TunerModel* model)
 
     // State changes → refresh UI
     connect(m_model, &TunerModel::stateChanged, this, &TunerApplet::syncFromModel);
+
+    // Enable relay bar scrolling when direct TGXL connection is active (#469)
+    auto updateScrollEnabled = [this]() {
+        bool on = m_model && m_model->hasDirectConnection();
+        static_cast<RelayBar*>(m_c1Bar)->setScrollEnabled(on);
+        static_cast<RelayBar*>(m_lBar)->setScrollEnabled(on);
+        static_cast<RelayBar*>(m_c2Bar)->setScrollEnabled(on);
+    };
+    connect(m_model, &TunerModel::directConnectionChanged, this, updateScrollEnabled);
+    updateScrollEnabled();
 
     // Tuning state changes → red button + SWR result flash
     connect(m_model, &TunerModel::tuningChanged, this, [this](bool tuning) {
@@ -236,3 +254,6 @@ void TunerApplet::updateMeters(float fwdPower, float swr)
 }
 
 } // namespace AetherSDR
+
+// RelayBar has Q_OBJECT in a header-only class — include MOC output here
+#include "moc_HGauge.cpp"

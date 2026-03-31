@@ -2,4 +2,10 @@
     <qresource prefix="/">
         <file alias="icon.png">docs/logo-circle.png</file>
     </qresource>
+    <qresource prefix="/bandplans">
+        <file alias="arrl-us.json">resources/bandplans/arrl-us.json</file>
+        <file alias="iaru-region1.json">resources/bandplans/iaru-region1.json</file>
+        <file alias="iaru-region2.json">resources/bandplans/iaru-region2.json</file>
+        <file alias="iaru-region3.json">resources/bandplans/iaru-region3.json</file>
+    </qresource>
 </RCC>
