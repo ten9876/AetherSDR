@@ -51,11 +51,12 @@ jobs:
 
       - name: Create portable ZIP
         run: |
-          Compress-Archive -Path deploy\* -DestinationPath "AetherSDR-${{ github.ref_name }}-Windows-x64-portable.zip"
+          $safeName = "${{ github.ref_name }}" -replace '/', '-'
+          Compress-Archive -Path deploy\* -DestinationPath "AetherSDR-$safeName-Windows-x64-portable.zip"
 
       - name: Create installer (Inno Setup)
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $version = "${{ github.ref_name }}" -replace '^v', '' -replace '/', '-'
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAPP_VERSION=$version packaging\windows\installer.iss
 
       - name: Upload artifacts
