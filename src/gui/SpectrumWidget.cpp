@@ -109,6 +109,12 @@ void SpectrumWidget::loadSettings()
     m_wfBlackLevel   = s.value(settingsKey("DisplayWfBlackLevel"), "15").toInt();
     m_wfAutoBlack    = s.value(settingsKey("DisplayWfAutoBlack"), "True").toString() == "True";
     m_wfLineDuration = s.value(settingsKey("DisplayWfLineDuration"), "100").toInt();
+    // NB Waterfall Blanker settings (#277)
+    m_wfBlankerEnabled     = s.value(settingsKey("WaterfallBlankingEnabled"),    "False").toString() == "True";
+    m_wfBlankerMode        = s.value(settingsKey("WaterfallBlankingMode"),       "0").toInt();
+    m_wfBlankerThreshold   = std::clamp(
+        s.value(settingsKey("WaterfallBlankingThreshold"), "1.15").toFloat(), 1.05f, 2.0f);
+    m_wfBlankerAutoWithWnb = s.value(settingsKey("WaterfallBlankingAutoWithWNB"), "False").toString() == "True";
     // Migrate old ShowBandPlan bool → BandPlanFontSize int
     if (s.value("BandPlanFontSize").toString().isEmpty()) {
         m_bandPlanFontSize = s.value("ShowBandPlan", "True").toString() == "True" ? 6 : 0;
@@ -121,7 +127,9 @@ void SpectrumWidget::loadSettings()
     if (m_overlayMenu)
         m_overlayMenu->syncDisplaySettings(m_fftAverage, m_fftFps,
             static_cast<int>(m_fftFillAlpha * 100), m_fftWeightedAvg, m_fftFillColor,
-            m_wfColorGain, m_wfBlackLevel, m_wfAutoBlack, m_wfLineDuration);
+            m_wfColorGain, m_wfBlackLevel, m_wfAutoBlack, m_wfLineDuration,
+            m_noiseFloorPosition, m_noiseFloorEnable,
+            m_wfBlankerEnabled, m_wfBlankerMode, m_wfBlankerThreshold, m_wfBlankerAutoWithWnb);
 }
 
 VfoWidget* SpectrumWidget::addVfoWidget(int sliceId)
@@ -230,6 +238,66 @@ void SpectrumWidget::resetWfTimeScale() {
     m_wfPrevTimecodeMs = 0;
     m_wfCalibrationCount = 0;
     m_wfTimeScaleLocked = false;
+}
+
+// ── NB Waterfall Blanker setters (#277) ──────────────────────────────────────
+
+void SpectrumWidget::setWnbActive(bool on)
+{
+    m_wnbActive = on;
+    // Auto-enable blanker in lockstep with WNB when that option is set
+    if (m_wfBlankerAutoWithWnb)
+        m_wfBlankerEnabled = on;
+    update();
+}
+
+void SpectrumWidget::setNbActive(bool on)
+{
+    m_nbActive = on;
+    if (!on) {
+        // Clear ring buffer so baseline re-warms from scratch on NB re-enable
+        m_wfBlankerRingCount = 0;
+        m_wfBlankerRingIdx   = 0;
+        m_wfBlankerLastFireMs = 0;
+    }
+}
+
+void SpectrumWidget::setWfBlankerEnabled(bool on)
+{
+    m_wfBlankerEnabled = on;
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("WaterfallBlankingEnabled"), on ? "True" : "False");
+    s.save();
+    if (!on) {
+        m_wfBlankerRingCount  = 0;
+        m_wfBlankerRingIdx    = 0;
+        m_wfBlankerLastFireMs = 0;
+    }
+}
+
+void SpectrumWidget::setWfBlankerMode(int mode)
+{
+    m_wfBlankerMode = mode;
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("WaterfallBlankingMode"), QString::number(mode));
+    s.save();
+}
+
+void SpectrumWidget::setWfBlankerThreshold(float t)
+{
+    m_wfBlankerThreshold = std::clamp(t, 1.05f, 2.0f);
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("WaterfallBlankingThreshold"),
+               QString::number(m_wfBlankerThreshold, 'f', 2));
+    s.save();
+}
+
+void SpectrumWidget::setWfBlankerAutoWithWnb(bool on)
+{
+    m_wfBlankerAutoWithWnb = on;
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("WaterfallBlankingAutoWithWNB"), on ? "True" : "False");
+    s.save();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -535,6 +603,60 @@ void SpectrumWidget::updateWaterfallRow(const QVector<float>& binsIntensity,
                 scanline[x] = intensityToRgb(i0 + frac * (i1 - i0));
             }
         }
+    }
+
+    // ── NB Waterfall Blanking (#277) ─────────────────────────────────────
+    // Client-side per-row impulse suppression. Active when NB/NB2 is on and
+    // the user has enabled the blanker. Pure post-processing on tile data —
+    // no protocol changes required.
+    if (m_wfBlankerEnabled && m_nbActive) {
+        // Compute mean intensity for this row from raw (pre-colourmap) bins
+        float rowSum = 0.0f;
+        const int binCount = binsIntensity.size();
+        for (int i = 0; i < binCount; ++i)
+            rowSum += binsIntensity[i];
+        const float rowMean = (binCount > 0) ? (rowSum / binCount) : 0.0f;
+
+        // Compute rolling baseline from the preceding N rows (excludes current)
+        float baseline = 0.0f;
+        for (int i = 0; i < m_wfBlankerRingCount; ++i)
+            baseline += m_wfBlankerRing[i];
+        if (m_wfBlankerRingCount > 0)
+            baseline /= m_wfBlankerRingCount;
+
+        // Detect impulse once ring buffer has enough history (≥8 rows)
+        if (m_wfBlankerRingCount >= 8 && baseline > 0.0f
+                && rowMean > baseline * m_wfBlankerThreshold) {
+            // Impulse detected — blank this row
+            m_wfBlankerLastFireMs = QDateTime::currentMSecsSinceEpoch();
+            if (m_wfBlankerMode == 0) {
+                // Fill mode: replace row with noise-floor colour
+                const QRgb floorColor = intensityToRgb(baseline);
+                std::fill(scanline.begin(), scanline.end(), floorColor);
+            } else {
+                // Interpolate mode: replace with last good row
+                if (m_wfLastGoodRow.size() == destWidth) {
+                    scanline = m_wfLastGoodRow;
+                } else {
+                    const QRgb floorColor = intensityToRgb(baseline);
+                    std::fill(scanline.begin(), scanline.end(), floorColor);
+                }
+            }
+            // Add clamped value to ring buffer to limit baseline contamination
+            m_wfBlankerRing[m_wfBlankerRingIdx] = std::min(rowMean, baseline * 1.05f);
+        } else {
+            // Good row — save it and record its mean in the ring buffer
+            m_wfLastGoodRow = scanline;
+            m_wfBlankerRing[m_wfBlankerRingIdx] = rowMean;
+        }
+
+        m_wfBlankerRingIdx = (m_wfBlankerRingIdx + 1) % WF_BLANKER_N;
+        if (m_wfBlankerRingCount < WF_BLANKER_N)
+            ++m_wfBlankerRingCount;
+    } else if (!m_wfBlankerEnabled && m_wfBlankerRingCount > 0) {
+        // Blanker was just disabled — clear ring buffer so next enable starts fresh
+        m_wfBlankerRingCount = 0;
+        m_wfBlankerRingIdx   = 0;
     }
 
     // Interpolate between previous and current scanlines for smooth gradient.
@@ -1648,6 +1770,29 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
             x -= ww;
             p.drawText(x, topY, "WNB");
         }
+    }
+
+    // ── NB Waterfall Blanker activity indicator (#277) ────────────────────
+    // "WF●" shown when the blanker is armed (NB on + blanker enabled).
+    // Lights up bright cyan within 300 ms of firing; otherwise dim.
+    if (m_wfBlankerEnabled && m_nbActive) {
+        QFont indFont = p.font();
+        indFont.setPointSize(18);
+        indFont.setBold(true);
+        p.setFont(indFont);
+        const QFontMetrics fm(indFont);
+        const int rightEdge = specRect.right() - DBM_STRIP_W - 6;
+        const int topY      = specRect.top() + fm.ascent() + 2;
+        const int row2Y     = topY + fm.height();  // second indicator row
+
+        const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_wfBlankerLastFireMs;
+        if (elapsed < 300) {
+            p.setPen(QColor(0, 180, 216, 230));  // bright cyan — recently fired
+        } else {
+            p.setPen(QColor(255, 255, 255, 60));  // dim — armed but quiet
+        }
+        const QString label = QString("WF\u25CF");  // "WF●"
+        p.drawText(rightEdge - fm.horizontalAdvance(label), row2Y, label);
     }
 }
 

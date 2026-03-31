@@ -34,7 +34,9 @@ public:
     void syncDisplaySettings(int avg, int fps, int fillPct, bool weightedAvg,
                              const QColor& fillColor, int gain, int black,
                              bool autoBlack, int rate,
-                             int floorPos = 75, bool floorEnable = false);
+                             int floorPos = 75, bool floorEnable = false,
+                             bool blankerEnabled = false, int blankerMode = 0,
+                             float blankerThreshold = 1.15f, bool blankerAutoWnb = false);
 
     // Set the panadapter ID this overlay belongs to (for +RX routing).
     void setPanId(const QString& id) { m_panId = id; }
@@ -80,6 +82,11 @@ signals:
     void wfLineDurationChanged(int ms);
     void noiseFloorPositionChanged(int pos);
     void noiseFloorEnableChanged(bool on);
+    // NB Waterfall Blanker (#277)
+    void wfBlankerEnabledChanged(bool on);
+    void wfBlankerModeChanged(int mode);
+    void wfBlankerThresholdChanged(float t);
+    void wfBlankerAutoWithWnbChanged(bool on);
     // Emitted when user selects a band from the sub-panel.
     void bandSelected(const QString& bandName, double freqMhz, const QString& mode);
     // Emitted when WNB toggle changes.
@@ -166,6 +173,13 @@ private:
     QSlider*     m_floorSlider{nullptr};
     QLabel*      m_floorLabel{nullptr};
     QPushButton* m_floorEnableBtn{nullptr};
+
+    // NB Waterfall Blanker controls (#277)
+    QPushButton* m_wfBlankerBtn{nullptr};
+    QComboBox*   m_wfBlankerModeCombo{nullptr};
+    QSlider*     m_wfBlankerThreshSlider{nullptr};
+    QLabel*      m_wfBlankerThreshLabel{nullptr};
+    QPushButton* m_wfBlankerAutoWnbBtn{nullptr};
 
     QStringList  m_antList;
     SliceModel*  m_slice{nullptr};

@@ -100,8 +100,22 @@ public:
     // WNB and RF gain state for on-screen indicators.
     bool wnbActive()   const { return m_wnbActive; }
     int  rfGainValue() const { return m_rfGainValue; }
-    void setWnbActive(bool on) { m_wnbActive = on; update(); }
+    void setWnbActive(bool on);  // defined in .cpp — also handles WNB auto-blanker
     void setRfGain(int gain) { m_rfGainValue = gain; update(); }
+
+    // ── NB Waterfall Blanker (#277) ───────────────────────────────────────
+    // Client-side impulse suppression: blanks bright waterfall rows when
+    // NB/NB2 is enabled. Pure post-processing on tile data, no protocol changes.
+    void setNbActive(bool on);           // call when slice NB or NB2 state changes
+    void setWfBlankerEnabled(bool on);   // user toggle (persisted in AppSettings)
+    void setWfBlankerMode(int mode);     // 0=Fill (noise-floor colour), 1=Interpolate
+    void setWfBlankerThreshold(float t); // impulse multiplier 1.05–2.0 (default 1.15)
+    void setWfBlankerAutoWithWnb(bool on); // auto-enable blanker whenever WNB is on
+    bool  wfBlankerEnabled()      const { return m_wfBlankerEnabled; }
+    int   wfBlankerMode()         const { return m_wfBlankerMode; }
+    float wfBlankerThreshold()    const { return m_wfBlankerThreshold; }
+    bool  wfBlankerAutoWithWnb()  const { return m_wfBlankerAutoWithWnb; }
+
     void setShowBandPlan(bool on) { m_bandPlanFontSize = on ? 6 : 0; update(); }
     void setBandPlanFontSize(int pt) { m_bandPlanFontSize = pt; update(); }
     void setBandPlanManager(class BandPlanManager* mgr);
@@ -380,6 +394,20 @@ private:
     // On-screen indicators (WNB, RF Gain)
     bool m_wnbActive{false};
     int  m_rfGainValue{0};
+
+    // ── NB Waterfall Blanker (#277) ────────────────────────────────────────
+    bool  m_nbActive{false};              // NB or NB2 on for the active slice
+    bool  m_wfBlankerEnabled{false};      // user toggle
+    int   m_wfBlankerMode{0};            // 0=Fill, 1=Interpolate
+    float m_wfBlankerThreshold{1.15f};   // impulse multiplier vs rolling baseline
+    bool  m_wfBlankerAutoWithWnb{false}; // auto-enable with WNB
+    // Rolling ring buffer for per-row mean intensity (N=32 rows of history)
+    static constexpr int WF_BLANKER_N = 32;
+    float m_wfBlankerRing[WF_BLANKER_N]{};
+    int   m_wfBlankerRingIdx{0};
+    int   m_wfBlankerRingCount{0};
+    qint64 m_wfBlankerLastFireMs{0};     // timestamp of most recent blanked row
+    QVector<float> m_wfLastGoodRow;      // last non-blanked scanline (Interpolate mode)
     int  m_bandPlanFontSize{6};  // 0 = off
     BandPlanManager* m_bandPlanMgr{nullptr};
     bool m_singleClickTune{false};
