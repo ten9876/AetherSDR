@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /tmp/opus-build && cd /tmp/opus-build \
     && curl -L -o opus.zip https://github.com/xiph/opus/archive/940d4e5af64351ca8ba8390df3f555484c567fbb.zip \
     && mkdir src && cd src && python3 -c "import zipfile; zipfile.ZipFile('/tmp/opus-build/opus.zip').extractall()" \
-    && mv opus-*/* . && rmdir opus-*
+    && mv opus-940d4e5*/* . && rm -rf opus-940d4e5*
 
 # Step 2: Pre-download neural net model from our GitHub mirror
 RUN cd /tmp/opus-build/src \
