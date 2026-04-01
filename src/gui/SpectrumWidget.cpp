@@ -43,6 +43,10 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     setCursor(Qt::CrossCursor);
     setMouseTracking(true);
 
+    // GPU rendering infrastructure in place, disabled until debugged (#502)
+    m_gpuRenderer = nullptr;
+    m_useGpuRendering = false;
+
     // Floating overlay menu (child widget, stays on top)
     m_overlayMenu = new SpectrumOverlayMenu(this);
     m_overlayMenu->raise();
@@ -369,6 +373,10 @@ void SpectrumWidget::setSliceInfo(int sliceId, bool isTxSlice)
 
 void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
 {
+    // Forward to GPU renderer (#502)
+    if (m_gpuRenderer && m_useGpuRendering)
+        m_gpuRenderer->updateSpectrum(binsDbm);
+
     if (m_smoothed.size() != binsDbm.size())
         m_smoothed = binsDbm;
     else {
@@ -440,7 +448,13 @@ void SpectrumWidget::updateWaterfallRow(const QVector<float>& binsIntensity,
                                         quint32 timecode)
 {
     // Native waterfall tiles carry intensity values (int16/128.0f, ~96-120 on HF).
-    if (binsIntensity.isEmpty() || m_waterfall.isNull()) return;
+    if (binsIntensity.isEmpty()) return;
+
+    // Forward to GPU renderer (#502)
+    if (m_gpuRenderer && m_useGpuRendering)
+        m_gpuRenderer->pushWaterfallRow(binsIntensity);
+
+    if (m_waterfall.isNull()) return;
 
     // Freeze waterfall during TX if show-tx-in-waterfall is off and this pan
     // contains the TX slice. Non-TX pans keep scrolling in multi-pan.
@@ -1371,6 +1385,17 @@ void SpectrumWidget::resizeEvent(QResizeEvent* ev)
         m_wfWriteRow = 0;
     }
 
+    // Position GPU renderer to cover FFT + waterfall area
+    if (m_gpuRenderer && m_useGpuRendering) {
+        const int specH = static_cast<int>(contentH * m_spectrumFrac);
+        const int wfY = specH + DIVIDER_H + FREQ_SCALE_H;
+        // GPU renderer covers both FFT (top) and waterfall (bottom)
+        m_gpuRenderer->setGeometry(0, 0, width(), wfY + wfHeight);
+        m_gpuRenderer->setSpectrumFraction(m_spectrumFrac);
+        m_gpuRenderer->setDbmRange(m_refLevel - m_dynamicRange, m_refLevel);
+        m_gpuRenderer->show();
+    }
+
     positionZoomButtons();
 }
 
@@ -1522,25 +1547,56 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
     const QRect scaleRect(0, scaleY,  width(), FREQ_SCALE_H);
     const QRect wfRect   (0, wfY,     width(), wfH);
 
-    p.fillRect(specRect, QColor(0x0a, 0x0a, 0x14));
+    if (m_useGpuRendering && m_gpuRenderer) {
+        // GPU handles FFT + waterfall. Overlays rendered to QImage → GPU texture.
+        // The GPU renderer child widget covers the FFT+waterfall area.
+        // We render overlays to a transparent QImage and pass it to the GPU renderer.
+        const QSize gpuSize = m_gpuRenderer->size();
+        if (gpuSize.width() > 0 && gpuSize.height() > 0) {
+            QImage overlay(gpuSize, QImage::Format_RGBA8888_Premultiplied);
+            overlay.fill(Qt::transparent);
+            QPainter op(&overlay);
+            op.setRenderHint(QPainter::Antialiasing, false);
 
-    drawGrid(p, specRect);
-    drawSpectrum(p, specRect);
-    if (m_bandPlanFontSize > 0) drawBandPlan(p, specRect);
-    drawDbmScale(p, specRect);
+            // Draw overlays into the QImage (coordinates relative to GPU widget)
+            drawGrid(op, specRect);
+            if (m_bandPlanFontSize > 0) drawBandPlan(op, specRect);
+            drawDbmScale(op, specRect);
+            drawTnfMarkers(op, specRect, wfRect);
+            if (m_showSpots) drawSpotMarkers(op, specRect);
+            drawSliceMarkers(op, specRect, wfRect);
+            drawOffScreenSlices(op, specRect);
+            drawTimeScale(op, wfRect);
 
-    // Draggable divider bar
-    p.fillRect(divRect, QColor(0x18, 0x28, 0x38));
-    p.setPen(QColor(m_draggingDivider ? 0x00b4d8 : 0x304050));
-    p.drawLine(divRect.left(), divRect.center().y(), divRect.right(), divRect.center().y());
+            op.end();
+            m_gpuRenderer->setOverlayImage(overlay);
+        }
 
-    drawFreqScale(p, scaleRect);
-    drawWaterfall(p, wfRect);
-    drawTimeScale(p, wfRect);
-    drawTnfMarkers(p, specRect, wfRect);
-    if (m_showSpots) drawSpotMarkers(p, specRect);
-    drawSliceMarkers(p, specRect, wfRect);
-    drawOffScreenSlices(p, specRect);
+        // Draw chrome (divider + freq scale) via regular QPainter — outside GPU area
+        p.fillRect(divRect, QColor(0x18, 0x28, 0x38));
+        p.setPen(QColor(m_draggingDivider ? 0x00b4d8 : 0x304050));
+        p.drawLine(divRect.left(), divRect.center().y(), divRect.right(), divRect.center().y());
+        drawFreqScale(p, scaleRect);
+    } else {
+        // Software fallback: full QPainter rendering
+        p.fillRect(specRect, QColor(0x0a, 0x0a, 0x14));
+        drawGrid(p, specRect);
+        drawSpectrum(p, specRect);
+        if (m_bandPlanFontSize > 0) drawBandPlan(p, specRect);
+        drawDbmScale(p, specRect);
+
+        p.fillRect(divRect, QColor(0x18, 0x28, 0x38));
+        p.setPen(QColor(m_draggingDivider ? 0x00b4d8 : 0x304050));
+        p.drawLine(divRect.left(), divRect.center().y(), divRect.right(), divRect.center().y());
+
+        drawFreqScale(p, scaleRect);
+        drawWaterfall(p, wfRect);
+        drawTimeScale(p, wfRect);
+        drawTnfMarkers(p, specRect, wfRect);
+        if (m_showSpots) drawSpotMarkers(p, specRect);
+        drawSliceMarkers(p, specRect, wfRect);
+        drawOffScreenSlices(p, specRect);
+    }
 
     // Reposition all VFO widgets — deconflict flags so they fly away from each other
     // Split pairs always face each other: RX←  →TX
