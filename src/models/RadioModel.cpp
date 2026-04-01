@@ -1089,9 +1089,9 @@ void RadioModel::startNetworkMonitor()
     m_lastPingRtt = 0;
     m_pingMissCount = 0;
 
-    // Use RadioConnection's socket-level RTT measurement instead of our own
-    // stopwatch. The connection measures RTT at readyRead time (before event
-    // loop dispatch), avoiding inflated values from main thread UI processing.
+    // RTT is read from kernel TCP_INFO (smoothed RTT from TCP ACK timing),
+    // completely independent of Qt event loop buffering. Falls back to
+    // QElapsedTimer stopwatch if the platform kernel call is unavailable.
     connect(m_connection, &RadioConnection::pingRttMeasured, this, [this](int ms) {
         m_pingMissCount = 0;
         m_lastPingRtt = ms;
@@ -1227,6 +1227,16 @@ int RadioModel::packetTotalCount() const
 qint64 RadioModel::rxBytes() const
 {
     return m_panStream->totalRxBytes();
+}
+
+qint64 RadioModel::txBytes() const
+{
+    return m_panStream->totalTxBytes();
+}
+
+PanadapterStream::CategoryStats RadioModel::categoryStats(PanadapterStream::StreamCategory cat) const
+{
+    return m_panStream->categoryStats(cat);
 }
 
 void RadioModel::handleMemoryStatus(int index, const QMap<QString, QString>& kvs)

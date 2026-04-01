@@ -265,19 +265,6 @@ void PanadapterStream::processDatagram(const QByteArray& data)
                  << "trailer=" << hasTrailer;
     }
 
-    // Track packet sequence for network quality monitoring.
-    // VITA-49 packet count is a 4-bit field (bits 19:16 of word0).
-    // Key by stream ID (not PCC) because each stream has its own sequence counter.
-    const int seq = (word0 >> 16) & 0x0F;
-    auto& stats = m_streamStats[streamId];
-    stats.totalCount++;
-    if (stats.lastSeq >= 0) {
-        const int expected = (stats.lastSeq + 1) & 0x0F;
-        if (seq != expected)
-            stats.errorCount++;
-    }
-    stats.lastSeq = seq;
-
     // Check if this stream ID is a DAX stream — route separately
     // Lock for stream ID lookups (written from main thread) (#502)
     int daxChannel = -1, iqChannel = -1;
@@ -290,6 +277,37 @@ void PanadapterStream::processDatagram(const QByteArray& data)
             iqChannel = m_iqStreamIds[streamId];
         isPan = m_knownPanStreams.isEmpty() || m_knownPanStreams.contains(streamId);
         isWf  = m_knownWfStreams.isEmpty() || m_knownWfStreams.contains(streamId);
+    }
+
+    // Determine category for per-stream-type stats (#455)
+    StreamCategory cat = CatCount;  // CatCount = uncategorized
+    if (daxChannel >= 0 || iqChannel >= 0)
+        cat = CatDAX;
+    else if (pcc == PCC_IF_NARROW || pcc == PCC_IF_NARROW_REDUCED || pcc == PCC_OPUS)
+        cat = CatAudio;
+    else if (pcc == PCC_FFT && isPan)
+        cat = CatFFT;
+    else if (pcc == PCC_WATERFALL && isWf)
+        cat = CatWaterfall;
+    else if (pcc == PCC_METER)
+        cat = CatMeter;
+
+    // Per-category byte/packet/sequence tracking.
+    // Only track owned/routed streams — skip uncategorized packets. (#455)
+    if (cat != CatCount) {
+        m_catStats[cat].bytes += data.size();
+        m_catStats[cat].packets++;
+        const int seq = (word0 >> 16) & 0x0F;
+        auto& stats = m_streamStats[streamId];
+        stats.totalCount++;
+        if (stats.lastSeq >= 0) {
+            const int expected = (stats.lastSeq + 1) & 0x0F;
+            if (seq != expected) {
+                stats.errorCount++;
+                m_catStats[cat].errors++;
+            }
+        }
+        stats.lastSeq = seq;
     }
 
     if (daxChannel >= 0) {
@@ -699,6 +717,12 @@ void PanadapterStream::unregisterDaxStream(quint32 streamId)
     qCDebug(lcVita49) << "PanadapterStream: unregistered DAX stream" << Qt::hex << streamId;
 }
 
+QList<quint32> PanadapterStream::daxStreamIds() const
+{
+    QMutexLocker lock(&m_streamMutex);
+    return m_daxStreamIds.keys();
+}
+
 void PanadapterStream::registerIqStream(quint32 streamId, int channel)
 {
     QMutexLocker lock(&m_streamMutex);
@@ -723,6 +747,7 @@ void PanadapterStream::sendToRadio(const QByteArray& packet)
         return;
     }
     const qint64 sent = m_socket.writeDatagram(packet, m_radioAddress, m_radioPort);
+    if (sent > 0) m_totalTxBytes += sent;
     static int txCount = 0;
     ++txCount;
     if (txCount <= 5 || txCount % 1000 == 0) {

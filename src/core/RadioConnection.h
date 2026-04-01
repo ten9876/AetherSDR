@@ -71,6 +71,7 @@ private slots:
 private:
     void processLine(const QString& line);
     void setState(ConnectionState s);
+    int  kernelRttMs() const;   // read smoothed RTT from kernel TCP_INFO
 
     QTcpSocket*  m_socket{nullptr};
     QByteArray   m_readBuffer;
@@ -79,7 +80,7 @@ private:
     std::atomic<ConnectionState> m_state{ConnectionState::Disconnected};
     std::atomic<quint32> m_handle{0};
     quint32 m_lastPingSeq{0};
-    QElapsedTimer m_pingStopwatch;
+    QElapsedTimer m_pingStopwatch;  // fallback when kernel TCP_INFO unavailable
 
     QHostAddress m_radioAddr;   // cached for cross-thread reads
     quint16      m_localPort{0};

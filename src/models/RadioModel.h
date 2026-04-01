@@ -530,7 +530,6 @@ private:
     static constexpr int PING_MISS_DISCONNECT = 5; // force disconnect after 5 missed pings (~5s)
 
     // Network diagnostics — byte counters for rate calculation
-    qint64        m_txBytes{0};          // total TCP bytes sent
 
 public:
     // Network diagnostics getters
@@ -540,8 +539,10 @@ public:
     int     packetDropCount()  const;
     int     packetTotalCount() const;
     qint64  rxBytes()          const;
-    qint64  txBytes()          const { return m_txBytes; }
-    void    addTxBytes(qint64 n) { m_txBytes += n; }
+    qint64  txBytes()          const;
+
+    // Per-category stream stats (Audio, FFT, Waterfall, Meter, DAX)
+    PanadapterStream::CategoryStats categoryStats(PanadapterStream::StreamCategory cat) const;
 };
 
 } // namespace AetherSDR

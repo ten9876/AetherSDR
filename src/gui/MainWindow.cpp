@@ -5230,6 +5230,13 @@ void MainWindow::stopDax()
     disconnect(m_daxBridge, &DaxBridge::txAudioReady,
                this, nullptr);
 
+    // Remove DAX RX streams from radio and unregister from PanadapterStream
+    const auto daxIds = m_radioModel.panStream()->daxStreamIds();
+    for (quint32 id : daxIds) {
+        m_radioModel.sendCommand(QString("stream remove 0x%1").arg(id, 0, 16));
+        m_radioModel.panStream()->unregisterDaxStream(id);
+    }
+
     // Restore previous DAX TX routing state.
     m_radioModel.sendCommand(QString("transmit set dax=%1").arg(m_savedDaxEnabled ? 1 : 0));
 

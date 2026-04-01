@@ -3,6 +3,50 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.17.1] — 2026-04-01
+
+### Accurate Network Diagnostics
+
+AetherSDR v0.7.17.1 replaces application-layer RTT measurement with kernel
+TCP stack timing, adds per-stream network diagnostics, and fixes DAX
+stream lifecycle management.
+
+### Improvements
+
+**Kernel TCP_INFO RTT (#455)**
+- RTT now read from the kernel's TCP congestion control (TCP_INFO),
+  completely immune to Qt event loop delays
+- Linux: `getsockopt(TCP_INFO)` → `tcpi_rtt`
+- macOS: `getsockopt(TCP_CONNECTION_INFO)` → `tcpi_srtt`
+- Windows: `WSAIoctl(SIO_TCP_INFO)` → `RttUs`
+- Falls back to QElapsedTimer stopwatch if kernel call unavailable
+- Fixes inflated RTT (40–200ms) that correlated with waterfall load
+
+**Per-stream Network Diagnostics (#455)**
+- Network Diagnostics dialog now shows per-stream-type rates:
+  Audio, FFT, Waterfall, Meters, DAX
+- Per-stream packet loss tracking with sequence error counts
+- TX byte counter wired to actual UDP sends
+- Total RX from raw socket byte counter
+- Matches SmartSDR's reported RX rate (77 kbps on Opus)
+
+**Packet loss accuracy (#455)**
+- Sequence tracking moved after ownership filter — no longer counts
+  other clients' streams in Multi-Flex mode
+- Meter broadcast packets excluded (unreliable sequence counter)
+- Eliminates false 28% packet loss reports
+
+**DAX stream cleanup**
+- Disabling DAX now sends `stream remove` to the radio and unregisters
+  streams from PanadapterStream
+- Previously DAX streams persisted until app restart
+
+**Socket write flush**
+- `flush()` after `write()` in RadioConnection ensures ping and
+  command packets are sent immediately, not buffered by Qt
+
+---
+
 ## [v0.7.17] — 2026-04-01
 
 ### Network & Input Responsiveness

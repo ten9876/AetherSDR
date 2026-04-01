@@ -1,6 +1,19 @@
 #include "RadioConnection.h"
 #include "LogManager.h"
 
+#ifdef Q_OS_LINUX
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#elif defined(Q_OS_MACOS)
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#elif defined(Q_OS_WIN)
+#include <winsock2.h>
+#include <mstcpip.h>
+#endif
+
 namespace AetherSDR {
 
 static constexpr int HEARTBEAT_INTERVAL_MS = 30000;
@@ -62,11 +75,12 @@ void RadioConnection::writeCommand(quint32 seq, const QString& command)
     const QByteArray data = CommandParser::buildCommand(seq, command);
     if (command.startsWith("ping")) {
         m_lastPingSeq = seq;
-        m_pingStopwatch.restart();
+        m_pingStopwatch.restart();  // fallback timer in case TCP_INFO unavailable
     } else {
         qCDebug(lcConnection) << "TX:" << data.trimmed();
     }
     m_socket->write(data);
+    m_socket->flush();   // force immediate kernel send for keepalive reliability
 }
 
 void RadioConnection::onSocketConnected()
@@ -75,6 +89,7 @@ void RadioConnection::onSocketConnected()
     m_socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
     m_radioAddr = m_socket->peerAddress();
     m_localPort = m_socket->localPort();
+    qDebug() << "RTT method:" << (kernelRttMs() >= 0 ? "kernel TCP_INFO" : "QElapsedTimer fallback");
 }
 
 void RadioConnection::onSocketDisconnected()
@@ -118,7 +133,10 @@ void RadioConnection::processLine(const QString& line)
     if (m_lastPingSeq && line.startsWith("R")) {
         isPingReply = line.startsWith(QString("R%1|").arg(m_lastPingSeq));
         if (isPingReply) {
-            emit pingRttMeasured(static_cast<int>(m_pingStopwatch.elapsed()));
+            int rtt = kernelRttMs();
+            if (rtt < 0)
+                rtt = static_cast<int>(m_pingStopwatch.elapsed());  // fallback
+            emit pingRttMeasured(rtt);
             m_lastPingSeq = 0;
         }
     }
@@ -148,6 +166,39 @@ void RadioConnection::processLine(const QString& line)
     default:
         break;
     }
+}
+
+// ─── Kernel-level TCP RTT ────────────────────────────────────────────────────
+// Read the smoothed RTT maintained by the kernel's TCP congestion control.
+// This is measured from TCP ACK round-trips at the kernel level, completely
+// independent of Qt event loop buffering or application-layer timing.
+
+int RadioConnection::kernelRttMs() const
+{
+    if (!m_socket) return -1;
+    const auto fd = m_socket->socketDescriptor();
+    if (fd == -1) return -1;
+
+#ifdef Q_OS_LINUX
+    struct tcp_info info{};
+    socklen_t len = sizeof(info);
+    if (getsockopt(static_cast<int>(fd), IPPROTO_TCP, TCP_INFO, &info, &len) == 0)
+        return static_cast<int>(info.tcpi_rtt / 1000);  // µs → ms
+#elif defined(Q_OS_MACOS)
+    struct tcp_connection_info info{};
+    socklen_t len = sizeof(info);
+    if (getsockopt(static_cast<int>(fd), IPPROTO_TCP, TCP_CONNECTION_INFO, &info, &len) == 0)
+        return static_cast<int>(info.tcpi_srtt);  // already ms on macOS
+#elif defined(Q_OS_WIN)
+    TCP_INFO_v0 info{};
+    DWORD infoLen = sizeof(info);
+    DWORD version = 0;
+    if (WSAIoctl(static_cast<SOCKET>(fd), SIO_TCP_INFO, &version, sizeof(version),
+                 &info, sizeof(info), &infoLen, nullptr, nullptr) == 0)
+        return static_cast<int>(info.RttUs / 1000);  // µs → ms
+#endif
+
+    return -1;  // unsupported platform or call failed
 }
 
 void RadioConnection::setState(ConnectionState s)

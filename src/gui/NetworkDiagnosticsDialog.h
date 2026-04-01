@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/PanadapterStream.h"
+
 #include <QDialog>
 #include <QLabel>
 #include <QTimer>
@@ -27,8 +29,25 @@ private:
     QLabel* m_txRateLabel;
     QLabel* m_droppedLabel;
 
+    // Per-category rate labels
+    QLabel* m_audioRateLabel;
+    QLabel* m_fftRateLabel;
+    QLabel* m_wfRateLabel;
+    QLabel* m_meterRateLabel;
+    QLabel* m_daxRateLabel;
+
+    // Per-category drop labels
+    QLabel* m_audioDropLabel;
+    QLabel* m_fftDropLabel;
+    QLabel* m_wfDropLabel;
+    QLabel* m_meterDropLabel;
+    QLabel* m_daxDropLabel;
+
     qint64 m_lastRxBytes{0};
     qint64 m_lastTxBytes{0};
+
+    // Per-category byte snapshots for rate calculation
+    qint64 m_lastCatBytes[PanadapterStream::CatCount]{};
 };
 
 } // namespace AetherSDR
