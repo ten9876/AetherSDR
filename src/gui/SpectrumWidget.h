@@ -8,6 +8,11 @@
 #include <QColor>
 #include <QDateTime>
 
+// GpuSpectrumRenderer requires Qt 6.6+ (QRhiWidget)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+#include "GpuSpectrumRenderer.h"
+#endif
+
 namespace AetherSDR {
 
 class SpectrumOverlayMenu;
@@ -383,6 +388,12 @@ private:
     int  m_rfGainValue{0};
     int  m_bandPlanFontSize{6};  // 0 = off
     BandPlanManager* m_bandPlanMgr{nullptr};
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+    GpuSpectrumRenderer* m_gpuRenderer{nullptr};
+    bool m_useGpuRendering{false};  // toggle for GPU vs QPainter fallback
+#else
+    bool m_useGpuRendering{false};  // Qt < 6.6: no QRhiWidget, always QPainter
+#endif
     bool m_singleClickTune{false};
     QPoint m_clickPressPos;        // for single-click-to-tune drag threshold
     bool m_showTxInWaterfall{false};  // default matches radio default (off)
