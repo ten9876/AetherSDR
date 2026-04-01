@@ -3741,6 +3741,11 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             m_radioModel.sendCommand(
                 QString("display panafall set %1 line_duration=%2").arg(pan->waterfallId()).arg(ms));
     });
+    // NB Waterfall Blanker (#277)
+    connect(menu, &SpectrumOverlayMenu::wfBlankerEnabledChanged,
+            sw, &SpectrumWidget::setWfBlankerEnabled);
+    connect(menu, &SpectrumOverlayMenu::wfBlankerThresholdChanged,
+            sw, &SpectrumWidget::setWfBlankerThreshold);
 
     // ── Click-to-tune ────────────────────────────────────────────────────
     // Uses "slice m <freq> pan=<panId>" (matches SmartSDR protocol).

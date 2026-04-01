@@ -107,6 +107,14 @@ public:
     int  rfGainValue() const { return m_rfGainValue; }
     void setWnbActive(bool on) { m_wnbActive = on; update(); }
     void setRfGain(int gain) { m_rfGainValue = gain; update(); }
+
+    // NB Waterfall Blanker (#277) — client-side impulse suppression
+    void setWfBlankerEnabled(bool on);
+    void setWfBlankerThreshold(float t);
+    void setWfBlankerMode(int mode);  // 0=Fill, 1=Interpolate
+    bool  wfBlankerEnabled()   const { return m_wfBlankerEnabled; }
+    float wfBlankerThreshold() const { return m_wfBlankerThreshold; }
+    int   wfBlankerMode()      const { return m_wfBlankerMode; }
     void setShowBandPlan(bool on) { m_bandPlanFontSize = on ? 6 : 0; update(); }
     void setBandPlanFontSize(int pt) { m_bandPlanFontSize = pt; update(); }
     void setBandPlanManager(class BandPlanManager* mgr);
@@ -386,6 +394,16 @@ private:
     // On-screen indicators (WNB, RF Gain)
     bool m_wnbActive{false};
     int  m_rfGainValue{0};
+
+    // NB Waterfall Blanker (#277)
+    bool  m_wfBlankerEnabled{false};
+    int   m_wfBlankerMode{0};            // 0=Fill, 1=Interpolate
+    float m_wfBlankerThreshold{1.15f};   // impulse multiplier vs rolling baseline
+    static constexpr int WF_BLANKER_N = 32;
+    float m_wfBlankerRing[WF_BLANKER_N]{};
+    int   m_wfBlankerRingIdx{0};
+    int   m_wfBlankerRingCount{0};
+    QVector<QRgb> m_wfLastGoodRow;
     int  m_bandPlanFontSize{6};  // 0 = off
     BandPlanManager* m_bandPlanMgr{nullptr};
 #if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)

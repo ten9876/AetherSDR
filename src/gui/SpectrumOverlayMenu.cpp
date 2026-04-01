@@ -968,6 +968,27 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         emit wfLineDurationChanged(v + 70);  // map 1-30 → 71-100
     });
 
+    // NB Waterfall Blanker (#277) — uses same grid layout as other controls
+    makeRow("NB Blank:", 5, 95, 15, m_wfBlankerThreshSlider, m_wfBlankerThreshLabel);
+    m_wfBlankerBtn = new QPushButton("Off");
+    m_wfBlankerBtn->setCheckable(true);
+    m_wfBlankerBtn->setChecked(false);
+    m_wfBlankerBtn->setFixedSize(36, 18);
+    m_wfBlankerBtn->setStyleSheet(btnStyle);
+    m_wfBlankerBtn->setToolTip("Suppress impulse noise stripes in waterfall");
+    // Replace the label cell with the toggle button
+    grid->addWidget(m_wfBlankerBtn, row - 1, 1);
+
+    connect(m_wfBlankerBtn, &QPushButton::toggled, this, [this](bool on) {
+        m_wfBlankerBtn->setText(on ? "On" : "Off");
+        emit wfBlankerEnabledChanged(on);
+    });
+    connect(m_wfBlankerThreshSlider, &QSlider::valueChanged, this, [this](int v) {
+        float t = 1.0f + v / 100.0f;
+        m_wfBlankerThreshLabel->setText(QString::number(t, 'f', 2));
+        emit wfBlankerThresholdChanged(t);
+    });
+
     m_displayPanel->adjustSize();
 }
 

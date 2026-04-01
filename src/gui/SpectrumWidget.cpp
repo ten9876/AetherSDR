@@ -117,6 +117,11 @@ void SpectrumWidget::loadSettings()
     m_wfBlackLevel   = s.value(settingsKey("DisplayWfBlackLevel"), "15").toInt();
     m_wfAutoBlack    = s.value(settingsKey("DisplayWfAutoBlack"), "True").toString() == "True";
     m_wfLineDuration = s.value(settingsKey("DisplayWfLineDuration"), "100").toInt();
+    // NB Waterfall Blanker (#277)
+    m_wfBlankerEnabled   = s.value(settingsKey("WaterfallBlankingEnabled"), "False").toString() == "True";
+    m_wfBlankerMode      = s.value(settingsKey("WaterfallBlankingMode"), "0").toInt();
+    m_wfBlankerThreshold = std::clamp(
+        s.value(settingsKey("WaterfallBlankingThreshold"), "1.15").toFloat(), 1.05f, 2.0f);
     // Migrate old ShowBandPlan bool → BandPlanFontSize int
     if (s.value("BandPlanFontSize").toString().isEmpty()) {
         m_bandPlanFontSize = s.value("ShowBandPlan", "True").toString() == "True" ? 6 : 0;
@@ -230,6 +235,37 @@ void SpectrumWidget::setWfLineDuration(int ms) {
     s.save();
     // Re-calibrate the time scale for the new rate
     resetWfTimeScale();
+}
+
+// ── NB Waterfall Blanker setters (#277) ──────────────────────────────────────
+
+void SpectrumWidget::setWfBlankerEnabled(bool on)
+{
+    m_wfBlankerEnabled = on;
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("WaterfallBlankingEnabled"), on ? "True" : "False");
+    s.save();
+    if (!on) {
+        m_wfBlankerRingCount = 0;
+        m_wfBlankerRingIdx = 0;
+    }
+}
+
+void SpectrumWidget::setWfBlankerThreshold(float t)
+{
+    m_wfBlankerThreshold = std::clamp(t, 1.05f, 2.0f);
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("WaterfallBlankingThreshold"),
+              QString::number(m_wfBlankerThreshold, 'f', 2));
+    s.save();
+}
+
+void SpectrumWidget::setWfBlankerMode(int mode)
+{
+    m_wfBlankerMode = qBound(0, mode, 1);
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("WaterfallBlankingMode"), QString::number(m_wfBlankerMode));
+    s.save();
 }
 
 void SpectrumWidget::resetWfTimeScale() {
@@ -557,6 +593,42 @@ void SpectrumWidget::updateWaterfallRow(const QVector<float>& binsIntensity,
                 scanline[x] = intensityToRgb(i0 + frac * (i1 - i0));
             }
         }
+    }
+
+    // NB Waterfall Blanker (#277) — suppress impulse rows
+    if (m_wfBlankerEnabled) {
+        float rowSum = 0.0f;
+        const int binCount = binsIntensity.size();
+        for (int i = 0; i < binCount; ++i)
+            rowSum += binsIntensity[i];
+        const float rowMean = (binCount > 0) ? (rowSum / binCount) : 0.0f;
+
+        // Compute rolling baseline
+        float baseline = 0.0f;
+        for (int i = 0; i < m_wfBlankerRingCount; ++i)
+            baseline += m_wfBlankerRing[i];
+        if (m_wfBlankerRingCount > 0)
+            baseline /= m_wfBlankerRingCount;
+
+        // Detect impulse (need ≥8 rows of history)
+        if (m_wfBlankerRingCount >= 8 && baseline > 0.0f
+                && rowMean > baseline * m_wfBlankerThreshold) {
+            // Impulse detected — replace with last good row (interpolate)
+            if (m_wfLastGoodRow.size() == destWidth) {
+                scanline = m_wfLastGoodRow;
+            } else {
+                // No previous good row yet — fill with noise floor color
+                const QRgb floorColor = intensityToRgb(baseline);
+                std::fill(scanline.begin(), scanline.end(), floorColor);
+            }
+            m_wfBlankerRing[m_wfBlankerRingIdx] = std::min(rowMean, baseline * 1.05f);
+        } else {
+            m_wfLastGoodRow = scanline;
+            m_wfBlankerRing[m_wfBlankerRingIdx] = rowMean;
+        }
+        m_wfBlankerRingIdx = (m_wfBlankerRingIdx + 1) % WF_BLANKER_N;
+        if (m_wfBlankerRingCount < WF_BLANKER_N)
+            ++m_wfBlankerRingCount;
     }
 
     // Write rows into ring buffer (no memmove)

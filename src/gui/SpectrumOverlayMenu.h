@@ -88,6 +88,9 @@ signals:
     void wnbLevelChanged(int level);
     // Emitted when RF gain slider changes (panadapter-level).
     void rfGainChanged(int gain);
+    // NB Waterfall Blanker (#277)
+    void wfBlankerEnabledChanged(bool on);
+    void wfBlankerThresholdChanged(float threshold);
 
 private:
     QString m_panId;
@@ -163,6 +166,10 @@ private:
     QPushButton* m_autoBlackBtn{nullptr};
     QSlider*     m_rateSlider{nullptr};
     QLabel*      m_rateLabel{nullptr};
+    // NB Waterfall Blanker (#277)
+    QPushButton* m_wfBlankerBtn{nullptr};
+    QSlider*     m_wfBlankerThreshSlider{nullptr};
+    QLabel*      m_wfBlankerThreshLabel{nullptr};
     QSlider*     m_floorSlider{nullptr};
     QLabel*      m_floorLabel{nullptr};
     QPushButton* m_floorEnableBtn{nullptr};
