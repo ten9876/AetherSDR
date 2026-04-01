@@ -26,6 +26,8 @@
 #include "models/BandDefs.h"
 #include <QDateTime>
 #include <QTimeZone>
+#include <QElapsedTimer>
+#include "core/LogManager.h"
 #include <cmath>
 #include <cstring>
 
@@ -575,11 +577,9 @@ void SpectrumWidget::updateWaterfallRow(const QVector<float>& binsIntensity,
     if (h <= 1) return;
     rowsToPush = std::min(rowsToPush, h - 1);
 
-    // Scroll waterfall down
+    // Ring buffer: write new row at m_wfWriteRow, no memmove (#391)
     uchar* bits = m_waterfall.bits();
     const qsizetype bpl = m_waterfall.bytesPerLine();
-    std::memmove(bits + rowsToPush * bpl, bits,
-                 static_cast<size_t>(bpl) * (h - rowsToPush));
 
     // Render the tile row into a temporary scanline.
     // Per FlexRadio community guidance: tiles extend BEYOND the panadapter edges.
@@ -605,6 +605,7 @@ void SpectrumWidget::updateWaterfallRow(const QVector<float>& binsIntensity,
         }
     }
 
+<<<<<<< feature/issue-277-clean
     // ── NB Waterfall Blanking (#277) ─────────────────────────────────────
     // Client-side per-row impulse suppression. Active when NB/NB2 is on and
     // the user has enabled the blanker. Pure post-processing on tile data —
@@ -661,9 +662,13 @@ void SpectrumWidget::updateWaterfallRow(const QVector<float>& binsIntensity,
 
     // Interpolate between previous and current scanlines for smooth gradient.
     // Row 0 (newest) = current scanline, row rowsToPush-1 (oldest) = previous.
+=======
+    // Write rows into ring buffer (no memmove)
+>>>>>>> main
     const bool canInterp = (m_prevTileScanline.size() == destWidth && rowsToPush > 1);
     for (int r = 0; r < rowsToPush; ++r) {
-        auto* row = reinterpret_cast<QRgb*>(bits + r * bpl);
+        m_wfWriteRow = (m_wfWriteRow - 1 + h) % h;
+        auto* row = reinterpret_cast<QRgb*>(bits + m_wfWriteRow * bpl);
         if (canInterp) {
             // t=0 at row 0 (current), t=1 at last row (previous)
             const float t = static_cast<float>(r) / rowsToPush;
@@ -1025,6 +1030,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
             if (!m_waterfall.isNull())
                 newWf = m_waterfall.scaled(width(), wfHeight, Qt::IgnoreAspectRatio, Qt::FastTransformation);
             m_waterfall = std::move(newWf);
+            m_wfWriteRow = 0;
         }
         update();
         ev->accept();
@@ -1489,6 +1495,7 @@ void SpectrumWidget::resizeEvent(QResizeEvent* ev)
         if (!m_waterfall.isNull())
             newWf = m_waterfall.scaled(width(), wfHeight, Qt::IgnoreAspectRatio, Qt::FastTransformation);
         m_waterfall = newWf;
+        m_wfWriteRow = 0;
     }
 
     positionZoomButtons();
@@ -1599,11 +1606,12 @@ void SpectrumWidget::pushWaterfallRow(const QVector<float>& bins, int destWidth,
     const int h = m_waterfall.height();
     if (h <= 1) return;
 
+    // Ring buffer: write new row at m_wfWriteRow, no memmove (#391)
     uchar* bits = m_waterfall.bits();
     const qsizetype bpl = m_waterfall.bytesPerLine();
-    std::memmove(bits + bpl, bits, static_cast<size_t>(bpl) * (h - 1));
 
-    auto* row = reinterpret_cast<QRgb*>(bits);
+    m_wfWriteRow = (m_wfWriteRow - 1 + h) % h;
+    auto* row = reinterpret_cast<QRgb*>(bits + m_wfWriteRow * bpl);
 
     Q_UNUSED(tileLowMhz);
     Q_UNUSED(tileHighMhz);
@@ -1620,6 +1628,9 @@ void SpectrumWidget::pushWaterfallRow(const QVector<float>& bins, int destWidth,
 void SpectrumWidget::paintEvent(QPaintEvent*)
 {
     if (width() <= 0 || height() <= FREQ_SCALE_H + DIVIDER_H + 2) return;
+
+    QElapsedTimer frameTimer;
+    frameTimer.start();
 
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, false);
@@ -1772,6 +1783,7 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
         }
     }
 
+<<<<<<< feature/issue-277-clean
     // ── NB Waterfall Blanker activity indicator (#277) ────────────────────
     // "WF●" shown when the blanker is armed (NB on + blanker enabled).
     // Lights up bright cyan within 300 ms of firing; otherwise dim.
@@ -1794,6 +1806,9 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
         const QString label = QString("WF\u25CF");  // "WF●"
         p.drawText(rightEdge - fm.horizontalAdvance(label), row2Y, label);
     }
+=======
+    qCDebug(lcPerf) << "paintEvent:" << static_cast<int>(frameTimer.elapsed()) << "ms";
+>>>>>>> main
 }
 
 // ─── Grid ─────────────────────────────────────────────────────────────────────
@@ -1898,7 +1913,33 @@ void SpectrumWidget::drawWaterfall(QPainter& p, const QRect& r)
         p.fillRect(r, Qt::black);
         return;
     }
-    p.drawImage(r, m_waterfall);
+
+    // Ring buffer rendering: m_wfWriteRow is the newest row.
+    // Draw in two halves: [writeRow..end] then [0..writeRow)
+    const int h = m_waterfall.height();
+    const int topRows = h - m_wfWriteRow;  // rows from writeRow to bottom of image
+    const int botRows = m_wfWriteRow;       // rows from top of image to writeRow
+
+    if (topRows >= h) {
+        // writeRow == 0, no split needed
+        p.drawImage(r, m_waterfall);
+    } else {
+        const double scale = static_cast<double>(r.height()) / h;
+        const int topH = static_cast<int>(topRows * scale);
+        const int botH = r.height() - topH;
+
+        // Top part: newest rows (from writeRow to end of image)
+        p.drawImage(QRect(r.x(), r.y(), r.width(), topH),
+                    m_waterfall,
+                    QRect(0, m_wfWriteRow, m_waterfall.width(), topRows));
+
+        // Bottom part: older rows (from start of image to writeRow)
+        if (botRows > 0 && botH > 0) {
+            p.drawImage(QRect(r.x(), r.y() + topH, r.width(), botH),
+                        m_waterfall,
+                        QRect(0, 0, m_waterfall.width(), botRows));
+        }
+    }
 }
 
 // ─── Band plan overlay (bottom 8px of FFT area) ─────────────────────────────

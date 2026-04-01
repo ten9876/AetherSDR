@@ -14,6 +14,13 @@ namespace AetherSDR {
 RadioModel::RadioModel(QObject* parent)
     : QObject(parent)
 {
+    // PanadapterStream runs on its own network thread (#502)
+    m_networkThread = new QThread(this);
+    m_networkThread->setObjectName("PanadapterStream");
+    m_panStream = new PanadapterStream;  // no parent — will be moved to thread
+    m_panStream->moveToThread(m_networkThread);
+    m_networkThread->start();
+
     connect(&m_connection, &RadioConnection::statusReceived,
             this, &RadioModel::onStatusReceived);
     connect(&m_connection, &RadioConnection::messageReceived,
@@ -27,8 +34,8 @@ RadioModel::RadioModel(QObject* parent)
     connect(&m_connection, &RadioConnection::versionReceived,
             this, &RadioModel::onVersionReceived);
 
-    // Forward VITA-49 meter packets to MeterModel
-    connect(&m_panStream, &PanadapterStream::meterDataReady,
+    // Forward VITA-49 meter packets to MeterModel (cross-thread, auto-queued)
+    connect(m_panStream, &PanadapterStream::meterDataReady,
             &m_meterModel, &MeterModel::updateValues);
 
     // Forward tuner commands to the radio — route through tune inhibit check
@@ -109,8 +116,17 @@ RadioModel::~RadioModel()
     // which emits disconnected(), firing slots that access already-destroyed
     // members (XVTR map, slice models, etc.) — use-after-free under ASAN.
     QObject::disconnect(&m_connection, nullptr, this, nullptr);
-    QObject::disconnect(&m_panStream, nullptr, this, nullptr);
+    QObject::disconnect(m_panStream, nullptr, this, nullptr);
     m_connection.disconnectFromRadio();
+
+    // Stop network thread (#502)
+    if (m_panStream) {
+        QMetaObject::invokeMethod(m_panStream, &PanadapterStream::stop,
+                                  Qt::BlockingQueuedConnection);
+    }
+    m_networkThread->quit();
+    m_networkThread->wait();
+    delete m_panStream;
 }
 
 bool RadioModel::isConnected() const
@@ -310,16 +326,16 @@ void RadioModel::sendNetCwCommand(const QString& baseCmd)
 
     // Redundant sends via UDP: 0ms, 5ms, 10ms, 15ms
     // Radio deduplicates by index — processes first arrival, ignores repeats
-    m_panStream.sendToRadio(packet);
+    m_panStream->sendToRadio(packet);
 
     QTimer::singleShot(5, this, [this, packet]() {
-        m_panStream.sendToRadio(packet);
+        m_panStream->sendToRadio(packet);
     });
     QTimer::singleShot(10, this, [this, packet]() {
-        m_panStream.sendToRadio(packet);
+        m_panStream->sendToRadio(packet);
     });
     QTimer::singleShot(15, this, [this, packet]() {
-        m_panStream.sendToRadio(packet);
+        m_panStream->sendToRadio(packet);
     });
 
     // TCP fallback — guarantees delivery if all UDP packets are lost
@@ -650,21 +666,29 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
             }
         });
 
-        if (!m_panStream.isRunning()) {
-            if (m_wanConn)
-                m_panStream.startWan(QHostAddress(m_wanPublicIp), m_wanUdpPort);
-            else
-                m_panStream.start(&m_connection);  // also sends one-byte UDP registration
+        if (!m_panStream->isRunning()) {
+            // Start on network thread (socket must be created there) (#502)
+            if (m_wanConn) {
+                QMetaObject::invokeMethod(m_panStream, [this]() {
+                    m_panStream->startWan(QHostAddress(m_wanPublicIp), m_wanUdpPort);
+                }, Qt::BlockingQueuedConnection);
+            } else {
+                QMetaObject::invokeMethod(m_panStream, [this]() {
+                    m_panStream->start(&m_connection);
+                }, Qt::BlockingQueuedConnection);
+            }
         }
 
         // On WAN: use "client udp_register" via UDP (not TCP "client udpport").
         // The radio only accepts udp_register on WAN connections.
         if (m_wanConn) {
-            m_panStream.startWanUdpRegister(clientHandle());
+            QMetaObject::invokeMethod(m_panStream, [this]() {
+                m_panStream->startWanUdpRegister(clientHandle());
+            });
             qCDebug(lcProtocol) << "RadioModel: WAN — started UDP registration via udp_register";
         }
 
-        const quint16 udpPort = m_panStream.localPort();
+        const quint16 udpPort = m_panStream->localPort();
         sendCmd(
             QString("client udpport %1").arg(udpPort),
             [this, udpPort](int code2, const QString&) {
@@ -988,8 +1012,8 @@ void RadioModel::onDisconnected()
     m_headphoneGain = 50;
 
     stopNetworkMonitor();
-    m_panStream.stop();
-    m_panStream.clearRegisteredStreams();
+    m_panStream->stop();
+    m_panStream->clearRegisteredStreams();
     // Clean up panadapter models
     qDeleteAll(m_panadapters);
     m_panadapters.clear();
@@ -1077,7 +1101,7 @@ void RadioModel::stopNetworkMonitor()
 void RadioModel::evaluateNetworkQuality()
 {
     // Check for new packet errors since last evaluation
-    const int currentErrors = m_panStream.packetErrorCount();
+    const int currentErrors = m_panStream->packetErrorCount();
     const bool packetLost = (currentErrors > m_lastErrorCount);
     m_lastErrorCount = currentErrors;
 
@@ -1166,17 +1190,17 @@ QString RadioModel::networkQuality() const
 
 int RadioModel::packetDropCount() const
 {
-    return m_panStream.packetErrorCount();
+    return m_panStream->packetErrorCount();
 }
 
 int RadioModel::packetTotalCount() const
 {
-    return m_panStream.packetTotalCount();
+    return m_panStream->packetTotalCount();
 }
 
 qint64 RadioModel::rxBytes() const
 {
-    return m_panStream.totalRxBytes();
+    return m_panStream->totalRxBytes();
 }
 
 void RadioModel::handleMemoryStatus(int index, const QMap<QString, QString>& kvs)
@@ -1486,8 +1510,8 @@ void RadioModel::onStatusReceived(const QString& object,
             if (kvs.contains("removed") || object.endsWith("removed")) {
                 auto* pan = m_panadapters.take(panId);
                 if (pan) {
-                    m_panStream.unregisterPanStream(pan->panStreamId());
-                    m_panStream.unregisterWfStream(pan->wfStreamId());
+                    m_panStream->unregisterPanStream(pan->panStreamId());
+                    m_panStream->unregisterWfStream(pan->wfStreamId());
                     qCDebug(lcProtocol) << "RadioModel: panadapter removed" << panId;
                     emit panadapterRemoved(panId);
                     pan->deleteLater();
@@ -2121,7 +2145,7 @@ void RadioModel::handlePanadapterStatus(const QString& panId, const QMap<QString
         const float minDbm = kvs.value("min_dbm", "-130").toFloat();
         const float maxDbm = kvs.value("max_dbm", "-20").toFloat();
         if (pan) {
-            m_panStream.setDbmRange(pan->panStreamId(), minDbm, maxDbm);
+            m_panStream->setDbmRange(pan->panStreamId(), minDbm, maxDbm);
         }
         emit panadapterLevelChanged(minDbm, maxDbm);
     }
@@ -2132,7 +2156,7 @@ void RadioModel::handlePanadapterStatus(const QString& panId, const QMap<QString
     if (kvs.contains("y_pixels") && pan) {
         int yPix = kvs["y_pixels"].toInt();
         if (yPix > 0)
-            m_panStream.setYPixels(pan->panStreamId(), yPix);
+            m_panStream->setYPixels(pan->panStreamId(), yPix);
     }
     if ((kvs.contains("x_pixels") || kvs.contains("y_pixels")) && pan) {
         int xPix = kvs.value("x_pixels", "0").toInt();
@@ -2161,9 +2185,9 @@ void RadioModel::updateStreamFilters()
     // Register all known pan/wf stream IDs with PanadapterStream
     for (auto* pan : m_panadapters) {
         if (pan->panStreamId())
-            m_panStream.registerPanStream(pan->panStreamId());
+            m_panStream->registerPanStream(pan->panStreamId());
         if (pan->wfStreamId())
-            m_panStream.registerWfStream(pan->wfStreamId());
+            m_panStream->registerWfStream(pan->wfStreamId());
     }
 }
 

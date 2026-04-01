@@ -168,18 +168,21 @@ void PanadapterStream::stop()
 
 void PanadapterStream::registerPanStream(quint32 streamId)
 {
+    QMutexLocker lock(&m_streamMutex);
     m_knownPanStreams.insert(streamId);
     qCDebug(lcVita49) << "PanadapterStream: registered pan stream 0x" + QString::number(streamId, 16);
 }
 
 void PanadapterStream::registerWfStream(quint32 streamId)
 {
+    QMutexLocker lock(&m_streamMutex);
     m_knownWfStreams.insert(streamId);
     qCDebug(lcVita49) << "PanadapterStream: registered wf stream 0x" + QString::number(streamId, 16);
 }
 
 void PanadapterStream::unregisterPanStream(quint32 streamId)
 {
+    QMutexLocker lock(&m_streamMutex);
     m_knownPanStreams.remove(streamId);
     m_frames.remove(streamId);
     m_dbmRanges.remove(streamId);
@@ -187,11 +190,13 @@ void PanadapterStream::unregisterPanStream(quint32 streamId)
 
 void PanadapterStream::unregisterWfStream(quint32 streamId)
 {
+    QMutexLocker lock(&m_streamMutex);
     m_knownWfStreams.remove(streamId);
 }
 
 void PanadapterStream::clearRegisteredStreams()
 {
+    QMutexLocker lock(&m_streamMutex);
     m_knownPanStreams.clear();
     m_knownWfStreams.clear();
     m_frames.clear();
@@ -201,6 +206,7 @@ void PanadapterStream::clearRegisteredStreams()
 
 void PanadapterStream::setDbmRange(quint32 streamId, float minDbm, float maxDbm)
 {
+    QMutexLocker lock(&m_streamMutex);
     m_dbmRanges[streamId] = {minDbm, maxDbm};
     qCDebug(lcVita49) << "PanadapterStream: dBm range for 0x" + QString::number(streamId, 16)
              << minDbm << "->" << maxDbm;
@@ -208,6 +214,7 @@ void PanadapterStream::setDbmRange(quint32 streamId, float minDbm, float maxDbm)
 
 void PanadapterStream::setYPixels(quint32 streamId, int yPixels)
 {
+    QMutexLocker lock(&m_streamMutex);
     m_yPixels[streamId] = yPixels;
 }
 
@@ -272,8 +279,21 @@ void PanadapterStream::processDatagram(const QByteArray& data)
     stats.lastSeq = seq;
 
     // Check if this stream ID is a DAX stream — route separately
-    if (m_daxStreamIds.contains(streamId)) {
-        int channel = m_daxStreamIds[streamId];
+    // Lock for stream ID lookups (written from main thread) (#502)
+    int daxChannel = -1, iqChannel = -1;
+    bool isPan = false, isWf = false;
+    {
+        QMutexLocker lock(&m_streamMutex);
+        if (m_daxStreamIds.contains(streamId))
+            daxChannel = m_daxStreamIds[streamId];
+        if (m_iqStreamIds.contains(streamId))
+            iqChannel = m_iqStreamIds[streamId];
+        isPan = m_knownPanStreams.isEmpty() || m_knownPanStreams.contains(streamId);
+        isWf  = m_knownWfStreams.isEmpty() || m_knownWfStreams.contains(streamId);
+    }
+
+    if (daxChannel >= 0) {
+        int channel = daxChannel;
         QByteArray pcm;
         if (pcc == PCC_IF_NARROW) {
             const int payloadStart = VITA49_HEADER_BYTES;
@@ -310,7 +330,7 @@ void PanadapterStream::processDatagram(const QByteArray& data)
     }
 
     // Check if this stream ID is a DAX IQ stream — route to worker thread
-    if (m_iqStreamIds.contains(streamId)) {
+    if (iqChannel >= 0) {
         static constexpr quint16 PCC_IQ_24K  = 0x02E3;
         static constexpr quint16 PCC_IQ_48K  = 0x02E4;
         static constexpr quint16 PCC_IQ_96K  = 0x02E5;
@@ -323,7 +343,7 @@ void PanadapterStream::processDatagram(const QByteArray& data)
         case PCC_IQ_192K: rate = 192000; break;
         default: return;
         }
-        int channel = m_iqStreamIds[streamId];
+        int channel = iqChannel;
         const int payloadStart = VITA49_HEADER_BYTES;
         const int payloadBytes = data.size() - payloadStart - (hasTrailer ? 4 : 0);
         if (payloadBytes < 8) return;
@@ -344,13 +364,11 @@ void PanadapterStream::processDatagram(const QByteArray& data)
         decodeOpusAudio(raw, data.size(), hasTrailer);
         return;
     case PCC_FFT:
-        if (!m_knownPanStreams.isEmpty() && !m_knownPanStreams.contains(streamId))
-            return;
+        if (!isPan) return;
         decodeFFT(raw, data.size(), hasTrailer, streamId);
         return;
     case PCC_WATERFALL:
-        if (!m_knownWfStreams.isEmpty() && !m_knownWfStreams.contains(streamId))
-            return;
+        if (!isWf) return;
         decodeWaterfallTile(raw, data.size(), hasTrailer, streamId);
         return;
     case PCC_METER:
@@ -403,12 +421,19 @@ void PanadapterStream::decodeFFT(const uchar* raw, int totalBytes, bool hasTrail
     if (!frame.isComplete()) return;
 
     // Convert to dBm using per-stream range
-    auto [minDbm, maxDbm] = m_dbmRanges.value(streamId, {-130.0f, -40.0f});
+    QPair<float,float> dbmRange;
+    int yPixVal;
+    {
+        QMutexLocker lock(&m_streamMutex);
+        dbmRange = m_dbmRanges.value(streamId, {-130.0f, -40.0f});
+        yPixVal = m_yPixels.value(streamId, 700);
+    }
+    auto [minDbm, maxDbm] = dbmRange;
     const float range = maxDbm - minDbm;
     const int   count = frame.buf.size();
     QVector<float> bins(count);
 
-    const float yPix = static_cast<float>(m_yPixels.value(streamId, 700));
+    const float yPix = static_cast<float>(yPixVal);
     for (int i = 0; i < count; ++i)
         bins[i] = maxDbm - (static_cast<float>(frame.buf[i]) / (yPix - 1.0f)) * range;
 
@@ -662,24 +687,28 @@ int PanadapterStream::packetTotalCount() const
 
 void PanadapterStream::registerDaxStream(quint32 streamId, int channel)
 {
+    QMutexLocker lock(&m_streamMutex);
     m_daxStreamIds[streamId] = channel;
     qCDebug(lcVita49) << "PanadapterStream: registered DAX stream" << Qt::hex << streamId << "-> channel" << channel;
 }
 
 void PanadapterStream::unregisterDaxStream(quint32 streamId)
 {
+    QMutexLocker lock(&m_streamMutex);
     m_daxStreamIds.remove(streamId);
     qCDebug(lcVita49) << "PanadapterStream: unregistered DAX stream" << Qt::hex << streamId;
 }
 
 void PanadapterStream::registerIqStream(quint32 streamId, int channel)
 {
+    QMutexLocker lock(&m_streamMutex);
     m_iqStreamIds[streamId] = channel;
     qCDebug(lcVita49) << "PanadapterStream: registered IQ stream" << Qt::hex << streamId << "-> channel" << channel;
 }
 
 void PanadapterStream::unregisterIqStream(quint32 streamId)
 {
+    QMutexLocker lock(&m_streamMutex);
     m_iqStreamIds.remove(streamId);
     qCDebug(lcVita49) << "PanadapterStream: unregistered IQ stream" << Qt::hex << streamId;
 }

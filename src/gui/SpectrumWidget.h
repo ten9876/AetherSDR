@@ -351,6 +351,7 @@ private:
 
     // Scrolling waterfall image (Format_RGB32)
     QImage m_waterfall;
+    int    m_wfWriteRow{0};  // ring buffer: next row to write (newest at top)
 
     // True once we receive native waterfall tile data (PCC 0x8004).
     // When set, updateSpectrum() skips pushing FFT rows to the waterfall

@@ -3,6 +3,7 @@
 #include "core/RadioConnection.h"
 #include "core/WanConnection.h"
 #include "core/PanadapterStream.h"
+#include <QThread>
 #include "SliceModel.h"
 #include "MeterModel.h"
 #include "PanadapterModel.h"
@@ -71,7 +72,7 @@ public:
 
     // Access the underlying connection and panadapter stream
     RadioConnection*  connection()  { return &m_connection; }
-    PanadapterStream* panStream()   { return &m_panStream; }
+    PanadapterStream* panStream()   { return m_panStream; }
     MeterModel*       meterModel()  { return &m_meterModel; }
     TunerModel*       tunerModel()  { return &m_tunerModel; }
     TransmitModel*    transmitModel() { return &m_transmitModel; }
@@ -328,8 +329,9 @@ private:
                             const QString& mode    = "USB",
                             const QString& antenna = "ANT1");
 
-    RadioConnection  m_connection;
-    PanadapterStream m_panStream;
+    RadioConnection   m_connection;
+    PanadapterStream* m_panStream{nullptr};
+    QThread*          m_networkThread{nullptr};
     MeterModel       m_meterModel;
     TunerModel       m_tunerModel;
     TransmitModel    m_transmitModel;
