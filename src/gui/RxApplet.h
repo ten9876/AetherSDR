@@ -137,15 +137,19 @@ private:
     static constexpr const char* AGC_MODES[4] = {"off", "slow", "med", "fast"};
     QComboBox*   m_agcCombo{nullptr};
     QSlider*     m_agcTSlider{nullptr};
+    QLabel*      m_agcTLabel{nullptr};
 
     // AF gain + audio pan
     QPushButton* m_muteBtn{nullptr};
     QSlider*     m_afSlider{nullptr};
+    QLabel*      m_afLabel{nullptr};
     QSlider*     m_panSlider{nullptr};
+    QLabel*      m_panLabel{nullptr};
 
     // Squelch
     QPushButton* m_sqlBtn{nullptr};
     QSlider*     m_sqlSlider{nullptr};
+    QLabel*      m_sqlLabel{nullptr};
     bool         m_savedSquelchOn{false};
 
     // DSP

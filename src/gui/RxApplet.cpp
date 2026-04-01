@@ -799,7 +799,14 @@ void RxApplet::buildUI()
         m_afSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_afSlider, 1);
 
+        m_afLabel = new QLabel("70");
+        m_afLabel->setFixedWidth(22);
+        m_afLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_afLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 10px; }");
+        row->addWidget(m_afLabel);
+
         connect(m_afSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_afLabel->setText(QString::number(v));
             if (m_slice) m_slice->setAudioGain(v);
             emit afGainChanged(v);
         });
@@ -825,7 +832,16 @@ void RxApplet::buildUI()
         rLbl->setStyleSheet(kDimLabelStyle);
         row->addWidget(rLbl);
 
+        m_panLabel = new QLabel("C");
+        m_panLabel->setFixedWidth(26);
+        m_panLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_panLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 10px; }");
+        row->addWidget(m_panLabel);
+
         connect(m_panSlider, &QSlider::valueChanged, this, [this](int v) {
+            if (v == 50)     m_panLabel->setText("C");
+            else if (v < 50) m_panLabel->setText(QString("L%1").arg(50 - v));
+            else             m_panLabel->setText(QString("R%1").arg(v - 50));
             if (m_slice) m_slice->setAudioPan(v);
         });
         rightCol->addLayout(row);
@@ -847,10 +863,17 @@ void RxApplet::buildUI()
         m_sqlSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_sqlSlider, 1);
 
+        m_sqlLabel = new QLabel("20");
+        m_sqlLabel->setFixedWidth(22);
+        m_sqlLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_sqlLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 10px; }");
+        row->addWidget(m_sqlLabel);
+
         connect(m_sqlBtn, &QPushButton::toggled, this, [this](bool on) {
             if (m_slice) m_slice->setSquelch(on, m_sqlSlider->value());
         });
         connect(m_sqlSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_sqlLabel->setText(QString::number(v));
             if (m_slice && m_sqlBtn->isChecked())
                 m_slice->setSquelch(true, v);
         });
@@ -883,7 +906,14 @@ void RxApplet::buildUI()
         m_agcTSlider->setStyleSheet(kSliderStyle);
         agcRow->addWidget(m_agcTSlider, 1);
 
+        m_agcTLabel = new QLabel("65");
+        m_agcTLabel->setFixedWidth(22);
+        m_agcTLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        m_agcTLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 10px; }");
+        agcRow->addWidget(m_agcTLabel);
+
         connect(m_agcTSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_agcTLabel->setText(QString::number(v));
             if (m_slice) m_slice->setAgcThreshold(v);
         });
         rightCol->addWidget(m_agcContainer);
@@ -1088,6 +1118,7 @@ void RxApplet::setAfGain(int pct)
 {
     QSignalBlocker b(m_afSlider);
     m_afSlider->setValue(pct);
+    m_afLabel->setText(QString::number(pct));
 }
 
 // ─── Slice wiring ─────────────────────────────────────────────────────────────
@@ -1265,10 +1296,12 @@ void RxApplet::connectSlice(SliceModel* s)
     {
         QSignalBlocker b(m_agcTSlider);
         m_agcTSlider->setValue(s->agcThreshold());
+        m_agcTLabel->setText(QString::number(s->agcThreshold()));
     }
     connect(s, &SliceModel::agcThresholdChanged, this, [this](int v) {
         QSignalBlocker b(m_agcTSlider);
         m_agcTSlider->setValue(v);
+        m_agcTLabel->setText(QString::number(v));
     });
 
     // Audio mute
@@ -1290,11 +1323,18 @@ void RxApplet::connectSlice(SliceModel* s)
     // Audio pan
     {
         QSignalBlocker b(m_panSlider);
-        m_panSlider->setValue(s->audioPan());
+        int pan = s->audioPan();
+        m_panSlider->setValue(pan);
+        if (pan == 50)      m_panLabel->setText("C");
+        else if (pan < 50)  m_panLabel->setText(QString("L%1").arg(50 - pan));
+        else                m_panLabel->setText(QString("R%1").arg(pan - 50));
     }
     connect(s, &SliceModel::audioPanChanged, this, [this](int v) {
         QSignalBlocker b(m_panSlider);
         m_panSlider->setValue(v);
+        if (v == 50)     m_panLabel->setText("C");
+        else if (v < 50) m_panLabel->setText(QString("L%1").arg(50 - v));
+        else             m_panLabel->setText(QString("R%1").arg(v - 50));
     });
 
     // Squelch
@@ -1302,15 +1342,20 @@ void RxApplet::connectSlice(SliceModel* s)
         QSignalBlocker b1(m_sqlBtn), b2(m_sqlSlider);
         m_sqlBtn->setChecked(s->squelchOn());
         m_sqlSlider->setValue(s->squelchLevel());
+        m_sqlLabel->setText(QString::number(s->squelchLevel()));
     }
     // AF gain → radio's per-slice audio_level
     {
         QSignalBlocker sb(m_afSlider);
-        m_afSlider->setValue(static_cast<int>(s->audioGain()));
+        int af = static_cast<int>(s->audioGain());
+        m_afSlider->setValue(af);
+        m_afLabel->setText(QString::number(af));
     }
     connect(s, &SliceModel::audioGainChanged, this, [this](float g) {
         QSignalBlocker sb(m_afSlider);
-        m_afSlider->setValue(static_cast<int>(g));
+        int af = static_cast<int>(g);
+        m_afSlider->setValue(af);
+        m_afLabel->setText(QString::number(af));
     });
 
     connect(s, &SliceModel::squelchChanged, this, [this](bool on, int level) {
@@ -1318,6 +1363,7 @@ void RxApplet::connectSlice(SliceModel* s)
         if (m_sqlBtn->isEnabled())
             m_sqlBtn->setChecked(on);
         m_sqlSlider->setValue(level);
+        m_sqlLabel->setText(QString::number(level));
     });
 
     // DSP toggles
