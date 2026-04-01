@@ -42,8 +42,17 @@ jobs:
               touch "build/build_opus-prefix/src/build_opus-stamp/build_opus-$step"
             done
           else
-            echo "No Opus cache found — will build from source"
-            cmake --build build --target build_opus -j$(nproc)
+            echo "No Opus cache found — building from source with GitHub-hosted model"
+            cmake --build build --target build_opus -j$(nproc) || {
+              echo "Opus build failed — pre-downloading model from GitHub mirror"
+              cd build/build_opus-prefix/src/build_opus
+              curl -L -o opus_data-4ed9445b96698bad25d852e912b41495ddfa30c8dbc8a55f9cde5826ed793453.tar.gz \
+                https://github.com/ten9876/AetherSDR/releases/download/v0.7.16/opus_data-4ed9445b96698bad25d852e912b41495ddfa30c8dbc8a55f9cde5826ed793453.tar.gz
+              ./autogen.sh
+              ./configure --with-pic --enable-osce --enable-dred --disable-shared --disable-doc --disable-extra-programs
+              make -j$(nproc)
+              cd -
+            }
           fi
           cmake --build build -j$(nproc)
 

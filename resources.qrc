@@ -3,6 +3,14 @@
         <file alias="icon.png">docs/logo-circle.png</file>
         <file alias="cty.dat">cty.dat</file>
     </qresource>
+    <qresource prefix="/shaders">
+        <file alias="waterfall.vert.qsb">resources/shaders/waterfall.vert.qsb</file>
+        <file alias="waterfall.frag.qsb">resources/shaders/waterfall.frag.qsb</file>
+        <file alias="spectrum.vert.qsb">resources/shaders/spectrum.vert.qsb</file>
+        <file alias="spectrum.frag.qsb">resources/shaders/spectrum.frag.qsb</file>
+        <file alias="overlay.vert.qsb">resources/shaders/overlay.vert.qsb</file>
+        <file alias="overlay.frag.qsb">resources/shaders/overlay.frag.qsb</file>
+    </qresource>
     <qresource prefix="/bandplans">
         <file alias="arrl-us.json">resources/bandplans/arrl-us.json</file>
         <file alias="iaru-region1.json">resources/bandplans/iaru-region1.json</file>

@@ -29,12 +29,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-build Opus with OSCE/DRED support to avoid media.xiph.org dependency
-# at CI time. The neural net model is downloaded once here and baked into
-# the image. CI workflows copy from /opt/opus-cache/ instead of building.
+# at CI time. The neural net model is pre-downloaded from our GitHub release
+# (mirrored from xiph.org) and placed where autogen.sh expects it, so it
+# skips the network download entirely. (#473)
 RUN mkdir -p /tmp/opus-build && cd /tmp/opus-build \
     && curl -L -o opus.zip https://github.com/xiph/opus/archive/940d4e5af64351ca8ba8390df3f555484c567fbb.zip \
     && mkdir src && cd src && python3 -c "import zipfile; zipfile.ZipFile('/tmp/opus-build/opus.zip').extractall()" \
     && mv opus-*/* . && rmdir opus-* \
+    && curl -L -o opus_data-4ed9445b96698bad25d852e912b41495ddfa30c8dbc8a55f9cde5826ed793453.tar.gz \
+       https://github.com/ten9876/AetherSDR/releases/download/v0.7.16/opus_data-4ed9445b96698bad25d852e912b41495ddfa30c8dbc8a55f9cde5826ed793453.tar.gz \
     && ./autogen.sh \
     && ./configure --with-pic --enable-osce --enable-dred --disable-shared --disable-doc --disable-extra-programs \
     && make -j$(nproc) \
