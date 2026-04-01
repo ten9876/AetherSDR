@@ -15,10 +15,13 @@ endif()
 # Qt6 components
 find_package(Qt6 REQUIRED COMPONENTS
     Core
+    Gui
     Widgets
     Network
     Multimedia
 )
+# QRhi GPU rendering requires private Gui headers (#502)
+find_package(Qt6 QUIET COMPONENTS GuiPrivate)
 find_package(Qt6 QUIET COMPONENTS SerialPort)
 if(Qt6SerialPort_FOUND)
     message(STATUS "Qt6::SerialPort found — serial PTT/CW support enabled")
@@ -290,6 +293,7 @@ set(GUI_SOURCES
     src/gui/ShortcutDialog.cpp
     src/gui/MultiFlexDialog.cpp
     src/gui/WhatsNewDialog.cpp
+    src/gui/GpuSpectrumRenderer.cpp
 )
 
 set(ALL_SOURCES
@@ -419,10 +423,14 @@ target_include_directories(AetherSDR PRIVATE
 
 target_link_libraries(AetherSDR PRIVATE
     Qt6::Core
+    Qt6::Gui
     Qt6::Widgets
     Qt6::Network
     Qt6::Multimedia
 )
+if(Qt6GuiPrivate_FOUND)
+    target_link_libraries(AetherSDR PRIVATE Qt6::GuiPrivate)
+endif()
 
 if(Qt6SerialPort_FOUND)
     target_compile_definitions(AetherSDR PRIVATE HAVE_SERIALPORT)
