@@ -151,7 +151,7 @@ MainWindow::MainWindow(QWidget* parent)
         }
     }
     connect(&m_dxccProvider, &DxccColorProvider::importFinished,
-            this, [this](int, int) { emit m_radioModel.spotModel()->spotsCleared(); });
+            this, [this](int, int) { emit m_radioModel.spotModel().spotsCleared(); });
 
     // Install event filter on the application to intercept Space PTT
     // before child widgets (buttons, combos) consume the key event.
@@ -516,8 +516,8 @@ MainWindow::MainWindow(QWidget* parent)
         m_audio->setOpusTxEnabled(true);
         qDebug() << "MainWindow: DAX TX stream ID set to" << Qt::hex << streamId;
         // Start PC audio TX if mic_selection is PC
-        if (m_radioModel.transmitModel()->micSelection() == "PC") {
-            audioStartTx(m_radioModel.connection()->radioAddress(), 4991);
+        if (m_radioModel.transmitModel().micSelection() == "PC") {
+            audioStartTx(m_radioModel.radioAddress(), 4991);
         }
     });
     connect(&m_radioModel, &RadioModel::remoteTxStreamReady,
@@ -525,26 +525,26 @@ MainWindow::MainWindow(QWidget* parent)
         m_audio->setRemoteTxStreamId(streamId);
         // Restore PC mic gain from client-side settings (radio has no
         // hardware gain stage for PC input — client-authoritative)
-        if (m_radioModel.transmitModel()->micSelection() == "PC") {
+        if (m_radioModel.transmitModel().micSelection() == "PC") {
             int gain = AppSettings::instance().value("PcMicGain", 100).toInt();
             m_audio->setPcMicGain(gain);
         }
         qDebug() << "MainWindow: remote audio TX stream ID set to" << Qt::hex << streamId;
         // Ensure mic TX stream is running for VOX monitoring
         if (!m_audio->isTxStreaming()) {
-            audioStartTx(m_radioModel.connection()->radioAddress(), 4991);
+            audioStartTx(m_radioModel.radioAddress(), 4991);
         }
     });
     // Start/stop PC audio TX when mic_selection changes
-    connect(m_radioModel.transmitModel(), &TransmitModel::micStateChanged,
+    connect(&m_radioModel.transmitModel(), &TransmitModel::micStateChanged,
             this, [this]() {
-        if (m_radioModel.transmitModel()->micSelection() == "PC") {
+        if (m_radioModel.transmitModel().micSelection() == "PC") {
             // Restore PC mic gain from client-side settings
             int gain = AppSettings::instance().value("PcMicGain", 100).toInt();
             m_audio->setPcMicGain(gain);
             // Only start if TX stream ID is already assigned (avoid streamId=0)
             if (!m_audio->isTxStreaming() && m_audio->txStreamId() != 0) {
-                audioStartTx(m_radioModel.connection()->radioAddress(), 4991);
+                audioStartTx(m_radioModel.radioAddress(), 4991);
             }
         } else {
             // Reset to full gain — radio handles hardware mic gain
@@ -555,7 +555,7 @@ MainWindow::MainWindow(QWidget* parent)
     // Sync PC mic gain directly from slider (radio ignores mic_level for PC input)
     connect(m_appletPanel->phoneCwApplet(), &PhoneCwApplet::micLevelChanged,
             this, [this](int level) {
-        if (m_radioModel.transmitModel()->micSelection() == "PC") {
+        if (m_radioModel.transmitModel().micSelection() == "PC") {
             m_audio->setPcMicGain(level);
             auto& s = AppSettings::instance();
             s.setValue("PcMicGain", level);
@@ -564,7 +564,7 @@ MainWindow::MainWindow(QWidget* parent)
     });
 
     // TX/RX transition → waterfall tile source switching
-    connect(m_radioModel.transmitModel(), &TransmitModel::moxChanged,
+    connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
             this, [this](bool tx) {
         // Set transmitting on ALL spectrums (multi-pan aware).
         // Each spectrum's m_hasTxSlice flag determines whether it freezes.
@@ -621,7 +621,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Sync show-TX-in-waterfall setting to all spectrum widgets
     auto syncShowTxWf = [this]() {
-        bool show = m_radioModel.transmitModel()->showTxInWaterfall();
+        bool show = m_radioModel.transmitModel().showTxInWaterfall();
         for (auto* pan : m_radioModel.panadapters()) {
             if (auto* sw = m_panStack ? m_panStack->spectrum(pan->panId()) : nullptr)
                 sw->setShowTxInWaterfall(show);
@@ -629,7 +629,7 @@ MainWindow::MainWindow(QWidget* parent)
         if (!m_panStack && m_panApplet)
             m_panApplet->spectrumWidget()->setShowTxInWaterfall(show);
     };
-    connect(m_radioModel.transmitModel(), &TransmitModel::stateChanged,
+    connect(&m_radioModel.transmitModel(), &TransmitModel::stateChanged,
             this, syncShowTxWf);
 
     // ── Panadapter stream → spectrum widget ───────────────────────────────
@@ -1042,37 +1042,37 @@ MainWindow::MainWindow(QWidget* parent)
     m_audio->setRxVolume(savedMasterVol / 100.0f);
 
     // ── S-Meter: MeterModel → SMeterWidget (active slice only) ─────────────
-    connect(m_radioModel.meterModel(), &MeterModel::sLevelChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::sLevelChanged,
             this, [this](int sliceIndex, float dbm) {
         if (sliceIndex == m_activeSliceId)
             m_appletPanel->sMeterWidget()->setLevel(dbm);
     });
-    connect(m_radioModel.meterModel(), &MeterModel::txMetersChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::txMetersChanged,
             m_appletPanel->sMeterWidget(), &SMeterWidget::setTxMeters);
-    connect(m_radioModel.meterModel(), &MeterModel::micMetersChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::micMetersChanged,
             m_appletPanel->sMeterWidget(), &SMeterWidget::setMicMeters);
-    connect(m_radioModel.transmitModel(), &TransmitModel::moxChanged,
+    connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
             m_appletPanel->sMeterWidget(), &SMeterWidget::setTransmitting);
 
     // ── Tuner: MeterModel TX meters → TunerApplet gauges ────────────────
     // Use TGXL-specific meters when available (disambiguated from PGXL by handle)
-    connect(m_radioModel.meterModel(), &MeterModel::tgxlMetersChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::tgxlMetersChanged,
             m_appletPanel->tunerApplet(), &TunerApplet::updateMeters);
     // Fallback: TX meters for radios without TGXL AMP meters
-    connect(m_radioModel.meterModel(), &MeterModel::txMetersChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::txMetersChanged,
             m_appletPanel->tunerApplet(), &TunerApplet::updateMeters);
-    m_appletPanel->tunerApplet()->setTunerModel(m_radioModel.tunerModel());
-    m_appletPanel->tunerApplet()->setMeterModel(m_radioModel.meterModel());
+    m_appletPanel->tunerApplet()->setTunerModel(&m_radioModel.tunerModel());
+    m_appletPanel->tunerApplet()->setMeterModel(&m_radioModel.meterModel());
 
     // Show/hide TUNE button + applet based on TGXL presence
-    connect(m_radioModel.tunerModel(), &TunerModel::presenceChanged,
+    connect(&m_radioModel.tunerModel(), &TunerModel::presenceChanged,
             m_appletPanel, &AppletPanel::setTunerVisible);
-    connect(m_radioModel.tunerModel(), &TunerModel::presenceChanged,
+    connect(&m_radioModel.tunerModel(), &TunerModel::presenceChanged,
             this, [this](bool present) {
         m_tgxlIndicator->setVisible(present);
         // Auto-connect/disconnect direct TGXL connection for manual relay control (#469)
         if (present) {
-            QString ip = m_radioModel.tunerModel()->tgxlIp();
+            QString ip = m_radioModel.tunerModel().tgxlIp();
             if (!ip.isEmpty() && !m_tgxlConn.isConnected()) {
                 m_tgxlConn.connectToTgxl(ip);
             }
@@ -1081,10 +1081,10 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
     // Wire TgxlConnection to TunerModel
-    m_radioModel.tunerModel()->setDirectConnection(&m_tgxlConn);
+    m_radioModel.tunerModel().setDirectConnection(&m_tgxlConn);
     // Also attempt connection when TGXL IP arrives (may come after presence)
-    connect(m_radioModel.tunerModel(), &TunerModel::stateChanged, this, [this]() {
-        auto* tuner = m_radioModel.tunerModel();
+    connect(&m_radioModel.tunerModel(), &TunerModel::stateChanged, this, [this]() {
+        auto* tuner = &m_radioModel.tunerModel();
         if (tuner->isPresent() && !tuner->tgxlIp().isEmpty() && !m_tgxlConn.isConnected()) {
             m_tgxlConn.connectToTgxl(tuner->tgxlIp());
         }
@@ -1093,7 +1093,7 @@ MainWindow::MainWindow(QWidget* parent)
     // Switch Fwd Power gauge scale based on radio max power and amplifier presence.
     // All three power gauges (TxApplet, TunerApplet, SMeterWidget) update together.
     auto updatePowerScale = [this]() {
-        int maxW = m_radioModel.transmitModel()->maxPowerLevel();
+        int maxW = m_radioModel.transmitModel().maxPowerLevel();
         bool hasAmp = m_radioModel.hasAmplifier();
         m_appletPanel->txApplet()->setPowerScale(maxW, hasAmp);
         m_appletPanel->tunerApplet()->setPowerScale(maxW, hasAmp);
@@ -1104,7 +1104,7 @@ MainWindow::MainWindow(QWidget* parent)
         m_pgxlIndicator->setVisible(present);
         m_appletPanel->setAmpVisible(present);
     });
-    connect(m_radioModel.meterModel(), &MeterModel::ampMetersChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::ampMetersChanged,
             this, [this](float fwdPwr, float swr, float temp) {
         m_appletPanel->ampApplet()->setFwdPower(fwdPwr);
         m_appletPanel->ampApplet()->setSwr(swr);
@@ -1113,20 +1113,20 @@ MainWindow::MainWindow(QWidget* parent)
         if (m_radioModel.hasAmplifier())
             m_appletPanel->sMeterWidget()->setTxMeters(fwdPwr, swr);
     });
-    connect(m_radioModel.transmitModel(), &TransmitModel::maxPowerLevelChanged,
+    connect(&m_radioModel.transmitModel(), &TransmitModel::maxPowerLevelChanged,
             this, updatePowerScale);
 
     // ── TX applet: meters + model ───────────────────────────────────────────
-    connect(m_radioModel.meterModel(), &MeterModel::txMetersChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::txMetersChanged,
             m_appletPanel->txApplet(), &TxApplet::updateMeters);
-    m_appletPanel->txApplet()->setTransmitModel(m_radioModel.transmitModel());
-    m_appletPanel->txApplet()->setTunerModel(m_radioModel.tunerModel());
-    m_appletPanel->rxApplet()->setTransmitModel(m_radioModel.transmitModel());
+    m_appletPanel->txApplet()->setTransmitModel(&m_radioModel.transmitModel());
+    m_appletPanel->txApplet()->setTunerModel(&m_radioModel.tunerModel());
+    m_appletPanel->rxApplet()->setTransmitModel(&m_radioModel.transmitModel());
 
     // Hide APD row on radios that don't support it
-    connect(m_radioModel.transmitModel(), &TransmitModel::apdStateChanged, this, [this]() {
+    connect(&m_radioModel.transmitModel(), &TransmitModel::apdStateChanged, this, [this]() {
         m_appletPanel->txApplet()->setApdVisible(
-            m_radioModel.transmitModel()->apdConfigurable());
+            m_radioModel.transmitModel().apdConfigurable());
     });
 
     // ── Serial port PTT/CW keying ───────────────────────────────────────
@@ -1193,9 +1193,9 @@ MainWindow::MainWindow(QWidget* parent)
         } else if (actionName == "StepDown") {
             if (auto* rx = m_appletPanel->rxApplet()) rx->cycleStepDown();
         } else if (actionName == "ToggleMox") {
-            m_radioModel.setTransmit(!m_radioModel.transmitModel()->isTransmitting());
+            m_radioModel.setTransmit(!m_radioModel.transmitModel().isTransmitting());
         } else if (actionName == "ToggleTune") {
-            bool tuning = m_radioModel.transmitModel()->isTuning();
+            bool tuning = m_radioModel.transmitModel().isTuning();
             m_radioModel.sendCommand(QString("transmit tune %1").arg(tuning ? 0 : 1));
         } else if (actionName == "ToggleMute") {
             m_audio->setMuted(!m_audio->isMuted());
@@ -1257,20 +1257,20 @@ MainWindow::MainWindow(QWidget* parent)
     // Compression gauge: throttled to ~5fps, gated on speech_processor_enable.
     {
         auto* compThrottle = new int(0);
-        connect(m_radioModel.meterModel(), &MeterModel::micMetersChanged,
+        connect(&m_radioModel.meterModel(), &MeterModel::micMetersChanged,
                 this, [this, compThrottle](float micLevel, float compLevel, float micPeak, float compPeak) {
             // Mic level: hardware mic uses radio meters, PC uses client-side
-            if (m_radioModel.transmitModel()->micSelection() != "PC")
+            if (m_radioModel.transmitModel().micSelection() != "PC")
                 m_appletPanel->phoneCwApplet()->updateMeters(micLevel, compLevel, micPeak, 0.0f);
 
             // Compression gauge: 5fps throttle, gated on PROC, both mic paths
             if (++(*compThrottle) % 4 == 0) {
-                float comp = m_radioModel.transmitModel()->speechProcessorEnable() ? compPeak : 0.0f;
+                float comp = m_radioModel.transmitModel().speechProcessorEnable() ? compPeak : 0.0f;
                 m_appletPanel->phoneCwApplet()->updateCompression(comp);
             }
         });
     }
-    connect(m_radioModel.meterModel(), &MeterModel::alcChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::alcChanged,
             m_appletPanel->phoneCwApplet(), &PhoneCwApplet::updateAlc);
     // Client-side PC mic metering — radio CODEC meters only see hardware mics.
     // Apply VU-style ballistics: fast attack, slow decay (~20 dB/sec).
@@ -1279,7 +1279,7 @@ MainWindow::MainWindow(QWidget* parent)
         auto* heldPeak  = new float(-150.0f);
         connect(m_audio, &AudioEngine::pcMicLevelChanged,
                 this, [this, heldLevel, heldPeak](float peakDb, float avgDb) {
-            if (m_radioModel.transmitModel()->micSelection() != "PC") return;
+            if (m_radioModel.transmitModel().micSelection() != "PC") return;
             constexpr float kDecayPerUpdate = 1.0f;  // ~20 dB/sec at 20 updates/sec
             // Level: fast attack, slow decay
             if (avgDb > *heldLevel)
@@ -1294,13 +1294,13 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->phoneCwApplet()->updateMeters(*heldLevel, 0.0f, *heldPeak, 0.0f);
         });
     }
-    m_appletPanel->phoneCwApplet()->setTransmitModel(m_radioModel.transmitModel());
+    m_appletPanel->phoneCwApplet()->setTransmitModel(&m_radioModel.transmitModel());
 
     // ── PHNE applet: VOX + CW controls ──────────────────────────────────────
-    m_appletPanel->phoneApplet()->setTransmitModel(m_radioModel.transmitModel());
+    m_appletPanel->phoneApplet()->setTransmitModel(&m_radioModel.transmitModel());
 
     // ── EQ applet: graphic equalizer ─────────────────────────────────────────
-    m_appletPanel->eqApplet()->setEqualizerModel(m_radioModel.equalizerModel());
+    m_appletPanel->eqApplet()->setEqualizerModel(&m_radioModel.equalizerModel());
 
     // ── Antenna Genius applet: external 4O3A antenna switch ──────────────────
     m_appletPanel->agApplet()->setModel(&m_antennaGenius);
@@ -1349,7 +1349,7 @@ MainWindow::MainWindow(QWidget* parent)
             .arg(quality, pingMs < 1 ? "< 1 ms" : QString("%1 ms").arg(pingMs)));
     });
 
-    connect(m_radioModel.meterModel(), &MeterModel::hwTelemetryChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::hwTelemetryChanged,
             this, [this](float paTemp, float supplyVolts) {
         m_paTempLabel->setText(QString("PA %1\u00B0C").arg(paTemp, 0, 'f', 1));
         m_supplyVoltLabel->setText(QString("%1 V").arg(supplyVolts, 0, 'f', 2));
@@ -1610,7 +1610,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         return true;
     }
     if (obj == m_tnfIndicator && event->type() == QEvent::MouseButtonPress) {
-        m_radioModel.tnfModel()->setGlobalEnabled(!m_radioModel.tnfModel()->globalEnabled());
+        m_radioModel.tnfModel().setGlobalEnabled(!m_radioModel.tnfModel().globalEnabled());
         return true;
     }
     if (obj == m_fdxIndicator && event->type() == QEvent::MouseButtonPress) {
@@ -1845,7 +1845,7 @@ void MainWindow::buildMenuBar()
                             &m_radioModel, &m_dxccProvider, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         m_spotHubDialog = dlg;
-        dlg->setTotalSpots(m_radioModel.spotModel()->spots().size());
+        dlg->setTotalSpots(m_radioModel.spotModel().spots().size());
         // Live preview: refresh spots on every display settings change
         auto refreshSpots = [this]() {
             auto& s = AppSettings::instance();
@@ -1923,7 +1923,7 @@ void MainWindow::buildMenuBar()
         }
         auto* dlg = new QDialog(this);
         dlg->setWindowTitle(QString("TX Band Settings (Current TX Profile: %1)")
-            .arg(m_radioModel.transmitModel()->activeProfile()));
+            .arg(m_radioModel.transmitModel().activeProfile()));
         dlg->setMinimumSize(700, 450);
         dlg->setStyleSheet("QDialog { background: #0f0f1a; }");
         dlg->setAttribute(Qt::WA_DeleteOnClose);
@@ -2431,12 +2431,12 @@ void MainWindow::buildUI()
     m_connPanel->hide();
 
     // CWX panel — left of spectrum, hidden by default
-    m_cwxPanel = new CwxPanel(m_radioModel.cwxModel(), splitter);
+    m_cwxPanel = new CwxPanel(&m_radioModel.cwxModel(), splitter);
     splitter->addWidget(m_cwxPanel);
     m_cwxPanel->hide();
 
     // DVK panel — left of spectrum, hidden by default (mutually exclusive with CWX)
-    m_dvkPanel = new DvkPanel(m_radioModel.dvkModel(), splitter);
+    m_dvkPanel = new DvkPanel(&m_radioModel.dvkModel(), splitter);
     auto* dvkTransfer = new DvkWavTransfer(&m_radioModel, this);
     m_dvkPanel->setWavTransfer(dvkTransfer);
     splitter->addWidget(m_dvkPanel);
@@ -3104,7 +3104,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
 
     // Sync show-TX-in-waterfall on first slice
     spectrumForSlice(s)->setShowTxInWaterfall(
-        m_radioModel.transmitModel()->showTxInWaterfall());
+        m_radioModel.transmitModel().showTxInWaterfall());
 
     // Connect slice state changes → spectrum overlay updates
     connect(s, &SliceModel::frequencyChanged, this, [this, s](double mhz) {
@@ -3223,13 +3223,13 @@ void MainWindow::onSliceAdded(SliceModel* s)
 
     // Feed S-meter per-slice — only this VFO's slice level
     const int sid = s->sliceId();
-    connect(m_radioModel.meterModel(), &MeterModel::sLevelChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::sLevelChanged,
             vfo, [vfo, sid](int sliceIndex, float dbm) {
         if (sliceIndex == sid)
             vfo->setSignalLevel(dbm);
     });
     // Feed ESC meter per-slice — signal strength after ESC processing
-    connect(m_radioModel.meterModel(), &MeterModel::escLevelChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::escLevelChanged,
             vfo, [vfo, sid](int sliceIndex, float dbm) {
         if (sliceIndex == sid)
             vfo->setEscLevel(dbm);
@@ -3605,10 +3605,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     // ── TNF signals ──────────────────────────────────────────────────────
     // QPointer guards against dangling sw when a pan is removed (#381)
     QPointer<SpectrumWidget> swGuard(sw);
-    auto* tnf = m_radioModel.tnfModel();
+    auto* tnf = &m_radioModel.tnfModel();
     auto rebuildTnfMarkers = [this, swGuard]() {
         if (!swGuard) return;
-        auto* t = m_radioModel.tnfModel();
+        auto* t = &m_radioModel.tnfModel();
         QVector<SpectrumWidget::TnfMarker> markers;
         for (const auto& e : t->tnfs())
             markers.append({e.id, e.freqMhz, e.widthHz, e.depthDb, e.permanent});
@@ -3640,10 +3640,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     connect(sw, &SpectrumWidget::tnfPermanentRequested,tnf, &TnfModel::setTnfPermanent);
 
     // ── Spot markers ─────────────────────────────────────────────────────
-    auto* spots = m_radioModel.spotModel();
+    auto* spots = &m_radioModel.spotModel();
     auto rebuildSpots = [this, swGuard]() {
         if (!swGuard) return;  // widget destroyed (layout change)
-        auto* s = m_radioModel.spotModel();
+        auto* s = &m_radioModel.spotModel();
         QVector<SpectrumWidget::SpotMarker> markers;
         for (const auto& spot : s->spots()) {
             qint64 tsMs = (spot.timestamp.isValid() && spot.timestamp.toMSecsSinceEpoch() > 0)
@@ -3849,7 +3849,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         if (!s) return;
         double tnfFreq = s->frequency()
             + (s->filterLow() + s->filterHigh()) / 2.0 / 1.0e6;
-        m_radioModel.tnfModel()->createTnf(tnfFreq);
+        m_radioModel.tnfModel().createTnf(tnfFreq);
     });
 
     // ── Slice marker clicks ──────────────────────────────────────────────
@@ -4237,7 +4237,7 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     // Wire slice data into widget
     w->setSlice(s);
     w->setAntennaList(m_radioModel.antennaList());
-    w->setTransmitModel(m_radioModel.transmitModel());
+    w->setTransmitModel(&m_radioModel.transmitModel());
 }
 
 // wireActiveVfoSignals removed — NR2/RN2/RADE are now wired permanently
@@ -4523,7 +4523,7 @@ void MainWindow::registerShortcutActions()
     m_shortcutManager.registerAction("mox_toggle", "MOX Toggle", "TX",
         QKeySequence(Qt::Key_T), [this]() {
             if (!m_radioModel.isConnected()) return;
-            m_radioModel.setTransmit(!m_radioModel.transmitModel()->isTransmitting());
+            m_radioModel.setTransmit(!m_radioModel.transmitModel().isTransmitting());
         });
     // PTT (Hold) via Space is handled by the app-level event filter
     // because QShortcut has no "released" signal. Register with null
@@ -4533,7 +4533,7 @@ void MainWindow::registerShortcutActions()
     m_shortcutManager.registerAction("tune_toggle", "TUNE Toggle", "TX",
         QKeySequence(), [this]() {
             if (!m_radioModel.isConnected()) return;
-            bool tuning = m_radioModel.transmitModel()->isTuning();
+            bool tuning = m_radioModel.transmitModel().isTuning();
             m_radioModel.sendCommand(QString("transmit tune %1").arg(tuning ? 0 : 1));
         });
 
@@ -4985,7 +4985,7 @@ void MainWindow::activateRADE(int sliceId)
 
     // Start mic capture if not already running
     if (!m_audio->isTxStreaming()) {
-        audioStartTx(m_radioModel.connection()->radioAddress(), 4991);
+        audioStartTx(m_radioModel.radioAddress(), 4991);
     }
 
     // RADE status indicator in VFO widget
@@ -5098,9 +5098,9 @@ void MainWindow::startDax()
             quint32 streamId = obj.mid(7).toUInt(nullptr, 0);
             if (kvs.contains("removed")) {
                 m_radioModel.panStream()->unregisterIqStream(streamId);
-                m_radioModel.daxIqModel()->handleStreamRemoved(streamId);
+                m_radioModel.daxIqModel().handleStreamRemoved(streamId);
             } else {
-                m_radioModel.daxIqModel()->applyStreamStatus(streamId, kvs);
+                m_radioModel.daxIqModel().applyStreamStatus(streamId, kvs);
                 int ch = kvs.value("daxiq_channel").toInt();
                 if (streamId && ch >= 1 && ch <= 4)
                     m_radioModel.panStream()->registerIqStream(streamId, ch);
@@ -5110,19 +5110,19 @@ void MainWindow::startDax()
 
     // Route IQ VITA-49 packets to DaxIqModel worker thread
     connect(m_radioModel.panStream(), &PanadapterStream::iqDataReady,
-            m_radioModel.daxIqModel(), &DaxIqModel::feedRawIqPacket);
+            &m_radioModel.daxIqModel(), &DaxIqModel::feedRawIqPacket);
 
     // Wire DAX IQ level meters to DIGI applet
-    connect(m_radioModel.daxIqModel(), &DaxIqModel::iqLevelReady,
+    connect(&m_radioModel.daxIqModel(), &DaxIqModel::iqLevelReady,
             m_appletPanel->catApplet(), &CatApplet::setDaxIqLevel);
 
     // Wire DAX IQ enable/disable/rate from DIGI applet to DaxIqModel
     connect(m_appletPanel->catApplet(), &CatApplet::iqEnableRequested,
-            m_radioModel.daxIqModel(), &DaxIqModel::createStream);
+            &m_radioModel.daxIqModel(), &DaxIqModel::createStream);
     connect(m_appletPanel->catApplet(), &CatApplet::iqDisableRequested,
-            m_radioModel.daxIqModel(), &DaxIqModel::removeStream);
+            &m_radioModel.daxIqModel(), &DaxIqModel::removeStream);
     connect(m_appletPanel->catApplet(), &CatApplet::iqRateChanged,
-            m_radioModel.daxIqModel(), &DaxIqModel::setSampleRate);
+            &m_radioModel.daxIqModel(), &DaxIqModel::setSampleRate);
 
     // Wire DAX level meters
     connect(m_daxBridge, &DaxBridge::daxRxLevel,
@@ -5152,8 +5152,8 @@ void MainWindow::startDax()
     });
 
     // Save current TX routing state before forcing PC audio source.
-    m_savedMicSelection = m_radioModel.transmitModel()->micSelection();
-    m_savedDaxEnabled = m_radioModel.transmitModel()->daxOn();
+    m_savedMicSelection = m_radioModel.transmitModel().micSelection();
+    m_savedDaxEnabled = m_radioModel.transmitModel().daxOn();
 
     const bool lowLatencyRoute =
         AppSettings::instance().value("DaxTxLowLatency", "False").toString() == "True";
@@ -5285,62 +5285,62 @@ void MainWindow::registerMidiParams()
 
     // ── TX ──────────────────────────────────────────────────────────────
     reg("tx.rfPower", "RF Power", "TX", P::Slider, 0, 100,
-        [this](float v) { m_radioModel.transmitModel()->setRfPower(static_cast<int>(v)); },
-        [this]() -> float { return m_radioModel.transmitModel()->rfPower(); });
+        [this](float v) { m_radioModel.transmitModel().setRfPower(static_cast<int>(v)); },
+        [this]() -> float { return m_radioModel.transmitModel().rfPower(); });
 
     reg("tx.tunePower", "Tune Power", "TX", P::Slider, 0, 100,
-        [this](float v) { m_radioModel.transmitModel()->setTunePower(static_cast<int>(v)); },
-        [this]() -> float { return m_radioModel.transmitModel()->tunePower(); });
+        [this](float v) { m_radioModel.transmitModel().setTunePower(static_cast<int>(v)); },
+        [this]() -> float { return m_radioModel.transmitModel().tunePower(); });
 
     reg("tx.mox", "MOX", "TX", P::Toggle, 0, 1,
         [this](float v) { m_radioModel.setTransmit(v > 0.5f); },
-        [this]() -> float { return m_radioModel.transmitModel()->isMox() ? 1 : 0; });
+        [this]() -> float { return m_radioModel.transmitModel().isMox() ? 1 : 0; });
 
     reg("tx.tune", "TUNE", "TX", P::Toggle, 0, 1,
         [this](float v) {
             m_radioModel.sendCommand(QString("transmit tune %1").arg(v > 0.5f ? 1 : 0));
         },
-        [this]() -> float { return m_radioModel.transmitModel()->isTuning() ? 1 : 0; });
+        [this]() -> float { return m_radioModel.transmitModel().isTuning() ? 1 : 0; });
 
     reg("tx.atuStart", "ATU Start", "TX", P::Trigger, 0, 1,
         [this](float) { m_radioModel.sendCommand("atu start"); });
 
     // ── Phone/CW ────────────────────────────────────────────────────────
     reg("phone.micLevel", "Mic Level", "Phone/CW", P::Slider, 0, 100,
-        [this](float v) { m_radioModel.transmitModel()->setMicLevel(static_cast<int>(v)); },
-        [this]() -> float { return m_radioModel.transmitModel()->micLevel(); });
+        [this](float v) { m_radioModel.transmitModel().setMicLevel(static_cast<int>(v)); },
+        [this]() -> float { return m_radioModel.transmitModel().micLevel(); });
 
     reg("phone.monGain", "Monitor Volume", "Phone/CW", P::Slider, 0, 100,
-        [this](float v) { m_radioModel.transmitModel()->setMonGainSb(static_cast<int>(v)); },
-        [this]() -> float { return m_radioModel.transmitModel()->monGainSb(); });
+        [this](float v) { m_radioModel.transmitModel().setMonGainSb(static_cast<int>(v)); },
+        [this]() -> float { return m_radioModel.transmitModel().monGainSb(); });
 
     reg("phone.procEnable", "Speech Processor", "Phone/CW", P::Toggle, 0, 1,
-        [this](float v) { m_radioModel.transmitModel()->setSpeechProcessorEnable(v > 0.5f); },
-        [this]() -> float { return m_radioModel.transmitModel()->speechProcessorEnable() ? 1 : 0; });
+        [this](float v) { m_radioModel.transmitModel().setSpeechProcessorEnable(v > 0.5f); },
+        [this]() -> float { return m_radioModel.transmitModel().speechProcessorEnable() ? 1 : 0; });
 
     reg("phone.daxEnable", "DAX", "Phone/CW", P::Toggle, 0, 1,
-        [this](float v) { m_radioModel.transmitModel()->setDax(v > 0.5f); },
-        [this]() -> float { return m_radioModel.transmitModel()->daxOn() ? 1 : 0; });
+        [this](float v) { m_radioModel.transmitModel().setDax(v > 0.5f); },
+        [this]() -> float { return m_radioModel.transmitModel().daxOn() ? 1 : 0; });
 
     reg("phone.monEnable", "Monitor", "Phone/CW", P::Toggle, 0, 1,
-        [this](float v) { m_radioModel.transmitModel()->setSbMonitor(v > 0.5f); },
-        [this]() -> float { return m_radioModel.transmitModel()->sbMonitor() ? 1 : 0; });
+        [this](float v) { m_radioModel.transmitModel().setSbMonitor(v > 0.5f); },
+        [this]() -> float { return m_radioModel.transmitModel().sbMonitor() ? 1 : 0; });
 
     reg("phone.voxEnable", "VOX Enable", "Phone/CW", P::Toggle, 0, 1,
-        [this](float v) { m_radioModel.transmitModel()->setVoxEnable(v > 0.5f); },
-        [this]() -> float { return m_radioModel.transmitModel()->voxEnable() ? 1 : 0; });
+        [this](float v) { m_radioModel.transmitModel().setVoxEnable(v > 0.5f); },
+        [this]() -> float { return m_radioModel.transmitModel().voxEnable() ? 1 : 0; });
 
     reg("phone.voxLevel", "VOX Level", "Phone/CW", P::Slider, 0, 100,
-        [this](float v) { m_radioModel.transmitModel()->setVoxLevel(static_cast<int>(v)); },
-        [this]() -> float { return m_radioModel.transmitModel()->voxLevel(); });
+        [this](float v) { m_radioModel.transmitModel().setVoxLevel(static_cast<int>(v)); },
+        [this]() -> float { return m_radioModel.transmitModel().voxLevel(); });
 
     reg("phone.amCarrier", "AM Carrier", "Phone/CW", P::Slider, 0, 100,
-        [this](float v) { m_radioModel.transmitModel()->setAmCarrierLevel(static_cast<int>(v)); },
-        [this]() -> float { return m_radioModel.transmitModel()->amCarrierLevel(); });
+        [this](float v) { m_radioModel.transmitModel().setAmCarrierLevel(static_cast<int>(v)); },
+        [this]() -> float { return m_radioModel.transmitModel().amCarrierLevel(); });
 
     reg("cw.speed", "CW Speed", "Phone/CW", P::Slider, 5, 100,
-        [this](float v) { m_radioModel.transmitModel()->setCwSpeed(static_cast<int>(v)); },
-        [this]() -> float { return m_radioModel.transmitModel()->cwSpeed(); });
+        [this](float v) { m_radioModel.transmitModel().setCwSpeed(static_cast<int>(v)); },
+        [this]() -> float { return m_radioModel.transmitModel().cwSpeed(); });
 
     reg("cw.key", "CW Key (straight)", "Phone/CW", P::Gate, 0, 1,
         [this](float v) { m_radioModel.sendCwKey(v > 0.5f); });
@@ -5371,12 +5371,12 @@ void MainWindow::registerMidiParams()
 
     // ── EQ ──────────────────────────────────────────────────────────────
     reg("eq.txEnable", "TX EQ Enable", "EQ", P::Toggle, 0, 1,
-        [this](float v) { m_radioModel.equalizerModel()->setTxEnabled(v > 0.5f); },
-        [this]() -> float { return m_radioModel.equalizerModel()->txEnabled() ? 1 : 0; });
+        [this](float v) { m_radioModel.equalizerModel().setTxEnabled(v > 0.5f); },
+        [this]() -> float { return m_radioModel.equalizerModel().txEnabled() ? 1 : 0; });
 
     reg("eq.rxEnable", "RX EQ Enable", "EQ", P::Toggle, 0, 1,
-        [this](float v) { m_radioModel.equalizerModel()->setRxEnabled(v > 0.5f); },
-        [this]() -> float { return m_radioModel.equalizerModel()->rxEnabled() ? 1 : 0; });
+        [this](float v) { m_radioModel.equalizerModel().setRxEnabled(v > 0.5f); },
+        [this]() -> float { return m_radioModel.equalizerModel().rxEnabled() ? 1 : 0; });
 
     {
         using B = EqualizerModel::Band;
@@ -5388,8 +5388,8 @@ void MainWindow::registerMidiParams()
             B band = bands[i];
             QString id = QString("eq.band%1").arg(freqs[i]);
             reg(id.toUtf8().constData(), names[i], "EQ", P::Slider, -10, 10,
-                [this, band](float v) { m_radioModel.equalizerModel()->setTxBand(band, static_cast<int>(v)); },
-                [this, band]() -> float { return m_radioModel.equalizerModel()->txBand(band); });
+                [this, band](float v) { m_radioModel.equalizerModel().setTxBand(band, static_cast<int>(v)); },
+                [this, band]() -> float { return m_radioModel.equalizerModel().txBand(band); });
         }
     }
 
@@ -5408,7 +5408,7 @@ void MainWindow::registerMidiParams()
 
     reg("global.txButton", "TX Button", "Global", P::Toggle, 0, 1,
         [this](float v) { m_radioModel.setTransmit(v > 0.5f); },
-        [this]() -> float { return m_radioModel.transmitModel()->isMox() ? 1 : 0; });
+        [this]() -> float { return m_radioModel.transmitModel().isMox() ? 1 : 0; });
 
     reg("global.tnfEnable", "TNF Global", "Global", P::Toggle, 0, 1,
         [this](float v) { m_radioModel.sendCommand(QString("radio set tnf_enabled=%1").arg(v > 0.5f ? 1 : 0)); });

@@ -53,14 +53,14 @@ ProfileManagerDialog::ProfileManagerDialog(RadioModel* model, QWidget* parent)
 
     // Transmit tab
     m_tabs->addTab(
-        buildProfileTab("transmit", model->transmitModel()->profileList(),
-                        model->transmitModel()->activeProfile()),
+        buildProfileTab("transmit", model->transmitModel().profileList(),
+                        model->transmitModel().activeProfile()),
         "Transmit");
 
     // Microphone tab
     m_tabs->addTab(
-        buildProfileTab("mic", model->transmitModel()->micProfileList(),
-                        model->transmitModel()->activeMicProfile()),
+        buildProfileTab("mic", model->transmitModel().micProfileList(),
+                        model->transmitModel().activeMicProfile()),
         "Microphone");
 
     // Auto-Save tab
@@ -80,10 +80,10 @@ ProfileManagerDialog::ProfileManagerDialog(RadioModel* model, QWidget* parent)
     connect(model, &RadioModel::globalProfilesChanged, this, [this] {
         refreshTab("global");
     });
-    connect(model->transmitModel(), &TransmitModel::profileListChanged, this, [this] {
+    connect(&model->transmitModel(), &TransmitModel::profileListChanged, this, [this] {
         refreshTab("transmit");
     });
-    connect(model->transmitModel(), &TransmitModel::micProfileListChanged, this, [this] {
+    connect(&model->transmitModel(), &TransmitModel::micProfileListChanged, this, [this] {
         refreshTab("mic");
     });
 }
@@ -251,11 +251,11 @@ void ProfileManagerDialog::refreshTab(const QString& type)
         profiles = m_model->globalProfiles();
         active = m_model->activeGlobalProfile();
     } else if (type == "transmit") {
-        profiles = m_model->transmitModel()->profileList();
-        active = m_model->transmitModel()->activeProfile();
+        profiles = m_model->transmitModel().profileList();
+        active = m_model->transmitModel().activeProfile();
     } else if (type == "mic") {
-        profiles = m_model->transmitModel()->micProfileList();
-        active = m_model->transmitModel()->activeMicProfile();
+        profiles = m_model->transmitModel().micProfileList();
+        active = m_model->transmitModel().activeMicProfile();
     }
 
     tw.list->clear();

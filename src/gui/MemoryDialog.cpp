@@ -174,7 +174,7 @@ void MemoryDialog::onAdd()
 {
     // memory create returns the new index in the response body.
     // We then populate it from the current active slice state.
-    m_model->connection()->sendCommand("memory create",
+    m_model->sendCmdPublic("memory create",
         [this](int code, const QString& body) {
         if (code != 0) return;
         bool ok;

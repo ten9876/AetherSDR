@@ -3,25 +3,11 @@
 
 namespace AetherSDR {
 
-// The SmartSDR TCP session is maintained by the socket itself on a LAN.
-// No application-level keepalive command exists in API v1.x.
-// The timer is kept here for future use (e.g. client_set commands, meters).
 static constexpr int HEARTBEAT_INTERVAL_MS = 30000;
 
 RadioConnection::RadioConnection(QObject* parent)
     : QObject(parent)
 {
-    connect(&m_socket, &QTcpSocket::connected,
-            this, &RadioConnection::onSocketConnected);
-    connect(&m_socket, &QTcpSocket::disconnected,
-            this, &RadioConnection::onSocketDisconnected);
-    connect(&m_socket, &QTcpSocket::readyRead,
-            this, &RadioConnection::onReadyRead);
-    connect(&m_socket, &QAbstractSocket::errorOccurred,
-            this, &RadioConnection::onSocketError);
-
-    m_heartbeat.setInterval(HEARTBEAT_INTERVAL_MS);
-    connect(&m_heartbeat, &QTimer::timeout, this, &RadioConnection::onHeartbeat);
 }
 
 RadioConnection::~RadioConnection()
@@ -29,7 +15,23 @@ RadioConnection::~RadioConnection()
     disconnectFromRadio();
 }
 
-// ─── Connection management ────────────────────────────────────────────────────
+void RadioConnection::init()
+{
+    m_socket = new QTcpSocket(this);
+    m_heartbeat = new QTimer(this);
+
+    connect(m_socket, &QTcpSocket::connected,
+            this, &RadioConnection::onSocketConnected);
+    connect(m_socket, &QTcpSocket::disconnected,
+            this, &RadioConnection::onSocketDisconnected);
+    connect(m_socket, &QTcpSocket::readyRead,
+            this, &RadioConnection::onReadyRead);
+    connect(m_socket, &QAbstractSocket::errorOccurred,
+            this, &RadioConnection::onSocketError);
+
+    m_heartbeat->setInterval(HEARTBEAT_INTERVAL_MS);
+    connect(m_heartbeat, &QTimer::timeout, this, &RadioConnection::onHeartbeat);
+}
 
 void RadioConnection::connectToRadio(const RadioInfo& info)
 {
@@ -38,36 +40,24 @@ void RadioConnection::connectToRadio(const RadioInfo& info)
 
 void RadioConnection::connectToHost(const QHostAddress& address, quint16 port)
 {
-    if (m_state != ConnectionState::Disconnected) {
-        qCWarning(lcConnection) << "RadioConnection: already connected or connecting";
-        return;
-    }
+    if (m_state.load() != ConnectionState::Disconnected) return;
+    if (!m_socket) { qCWarning(lcConnection) << "RadioConnection: init() not called"; return; }
     qCDebug(lcConnection) << "RadioConnection: connecting to" << address.toString() << ":" << port;
     setState(ConnectionState::Connecting);
-    m_socket.connectToHost(address, port);
+    m_socket->connectToHost(address, port);
 }
 
 void RadioConnection::disconnectFromRadio()
 {
-    m_heartbeat.stop();
-    if (m_socket.state() != QAbstractSocket::UnconnectedState)
-        m_socket.disconnectFromHost();
-    m_pendingCallbacks.clear();
-    m_seqCounter = 1;
+    if (m_heartbeat) m_heartbeat->stop();
+    if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState)
+        m_socket->disconnectFromHost();
     m_handle = 0;
 }
 
-// ─── Command dispatch ─────────────────────────────────────────────────────────
-
-quint32 RadioConnection::sendCommand(const QString& command, ResponseCallback callback)
+void RadioConnection::writeCommand(quint32 seq, const QString& command)
 {
-    if (!isConnected()) {
-        qCWarning(lcConnection) << "RadioConnection::sendCommand: not connected";
-        return 0;
-    }
-    const quint32 seq = m_seqCounter.fetch_add(1);
-    if (callback)
-        m_pendingCallbacks.insert(seq, std::move(callback));
+    if (!isConnected() || !m_socket) return;
 
     const QByteArray data = CommandParser::buildCommand(seq, command);
     if (command.startsWith("ping")) {
@@ -76,32 +66,29 @@ quint32 RadioConnection::sendCommand(const QString& command, ResponseCallback ca
     } else {
         qCDebug(lcConnection) << "TX:" << data.trimmed();
     }
-    m_socket.write(data);
-    return seq;
+    m_socket->write(data);
 }
-
-// ─── Socket slots ─────────────────────────────────────────────────────────────
 
 void RadioConnection::onSocketConnected()
 {
     qCDebug(lcConnection) << "RadioConnection: TCP connected";
-    // Disable Nagle — send commands immediately without buffering
-    m_socket.setSocketOption(QAbstractSocket::LowDelayOption, 1);
-    // Do NOT set Connected yet — wait for V and H messages from the radio.
-    // The radio sends V<version>\n then H<handle>\n immediately after TCP accept.
+    m_socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+    m_radioAddr = m_socket->peerAddress();
+    m_localPort = m_socket->localPort();
 }
 
 void RadioConnection::onSocketDisconnected()
 {
     qCDebug(lcConnection) << "RadioConnection: TCP disconnected";
-    m_heartbeat.stop();
+    if (m_heartbeat) m_heartbeat->stop();
     setState(ConnectionState::Disconnected);
     emit disconnected();
 }
 
-void RadioConnection::onSocketError(QAbstractSocket::SocketError /*error*/)
+void RadioConnection::onSocketError(QAbstractSocket::SocketError)
 {
-    const QString msg = m_socket.errorString();
+    if (!m_socket) return;
+    const QString msg = m_socket->errorString();
     qCWarning(lcConnection) << "RadioConnection: socket error:" << msg;
     setState(ConnectionState::Error);
     emit errorOccurred(msg);
@@ -109,9 +96,8 @@ void RadioConnection::onSocketError(QAbstractSocket::SocketError /*error*/)
 
 void RadioConnection::onReadyRead()
 {
-    m_readBuffer.append(m_socket.readAll());
-
-    // Process all complete lines (\n-terminated)
+    if (!m_socket) return;
+    m_readBuffer.append(m_socket->readAll());
     int newlinePos;
     while ((newlinePos = m_readBuffer.indexOf('\n')) >= 0) {
         const QString line = QString::fromUtf8(m_readBuffer.left(newlinePos)).trimmed();
@@ -123,24 +109,15 @@ void RadioConnection::onReadyRead()
 
 void RadioConnection::onHeartbeat()
 {
-    // No-op: keepalive is not a valid command on API v1.x.
-    // If the radio requires periodic traffic (e.g. v2+ APIs), send
-    // a benign command such as "client program AetherSDR" here.
 }
-
-// ─── Line processing ──────────────────────────────────────────────────────────
 
 void RadioConnection::processLine(const QString& line)
 {
-    // Suppress noisy high-frequency messages (ping replies, GPS status)
     const bool isGps = line.contains("|gps ");
     bool isPingReply = false;
     if (m_lastPingSeq && line.startsWith("R")) {
-        // Check if this response matches the last ping sequence number
         isPingReply = line.startsWith(QString("R%1|").arg(m_lastPingSeq));
         if (isPingReply) {
-            // Measure RTT here at socket-read time, BEFORE event loop dispatch.
-            // This avoids inflated RTT from main thread UI processing delays.
             emit pingRttMeasured(static_cast<int>(m_pingStopwatch.elapsed()));
             m_lastPingSeq = 0;
         }
@@ -155,31 +132,19 @@ void RadioConnection::processLine(const QString& line)
     case MessageType::Version:
         emit versionReceived(msg.object);
         break;
-
     case MessageType::Handle:
         m_handle = msg.handle;
         qCDebug(lcConnection) << "RadioConnection: assigned handle" << QString::number(m_handle, 16);
         setState(ConnectionState::Connected);
-        m_heartbeat.start();
-        // Full command sequence (sub → client gui → udpport → slice list) is
-        // orchestrated by RadioModel::onConnected() so every command waits for
-        // its R response before the next is sent.
+        if (m_heartbeat) m_heartbeat->start();
         emit connected();
         break;
-
-    case MessageType::Response: {
-        auto it = m_pendingCallbacks.find(msg.sequence);
-        if (it != m_pendingCallbacks.end()) {
-            it.value()(msg.resultCode, msg.object);
-            m_pendingCallbacks.erase(it);
-        }
+    case MessageType::Response:
+        emit commandResponse(msg.sequence, msg.resultCode, msg.object);
         break;
-    }
-
     case MessageType::Status:
         emit statusReceived(msg.object, msg.kvs);
         break;
-
     default:
         break;
     }
@@ -187,8 +152,7 @@ void RadioConnection::processLine(const QString& line)
 
 void RadioConnection::setState(ConnectionState s)
 {
-    if (m_state == s) return;
-    m_state = s;
+    m_state.store(s);
     emit stateChanged(s);
 }
 

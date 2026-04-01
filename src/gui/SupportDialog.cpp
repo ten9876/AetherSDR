@@ -130,7 +130,7 @@ void SupportDialog::buildUI()
             radio.serial = m_radioModel->serial();
             radio.firmware = m_radioModel->version();
             radio.callsign = m_radioModel->callsign();
-            radio.ip = m_radioModel->connection()->radioAddress().toString();
+            radio.ip = m_radioModel->radioAddress().toString();
             radio.connected = true;
         }
         QString bundlePath = SupportBundle::createBundle(radio);

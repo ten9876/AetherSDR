@@ -162,56 +162,55 @@ src/
 
 ### Data Pipelines
 
-All pipelines currently run on the main Qt event loop thread unless noted.
+Three-thread architecture after Phase 1+2 migration (#502):
+- **Main thread**: GUI rendering (paintEvent), TCP command/status, user input
+- **Audio thread**: AudioEngine (RX/TX audio, NR2/RN2/BNR DSP, QAudioSink/Source)
+- **Network thread**: PanadapterStream (VITA-49 UDP parsing, FFT/waterfall/meter demux)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                          NETWORK LAYER                              │
+│                      NETWORK LAYER                                  │
 │                                                                     │
-│  Radio UDP 4992 ──→ RadioDiscovery ──→ ConnectionPanel (GUI)        │
-│  Radio TCP 4992 ──→ RadioConnection ──→ RadioModel (status/cmd)     │
-│  Radio UDP 4991 ──→ PanadapterStream (VITA-49 demux by PCC)        │
-│  TGXL  TCP 9010 ──→ TgxlConnection ──→ TunerModel (relay control)  │
-│  WAN   TLS 4992 ──→ WanConnection ──→ RadioModel (same as TCP)     │
-│  WAN   UDP 4993 ──→ PanadapterStream (same as UDP 4991)            │
+│  Radio UDP 4992 ──→ RadioDiscovery ──→ ConnectionPanel    [MAIN]    │
+│  Radio TCP 4992 ──→ RadioConnection ──→ RadioModel        [MAIN]    │
+│  Radio UDP 4991 ──→ PanadapterStream (VITA-49 demux)      [NETWORK] │
+│  TGXL  TCP 9010 ──→ TgxlConnection ──→ TunerModel        [MAIN]    │
+│  WAN   TLS 4992 ──→ WanConnection ──→ RadioModel          [MAIN]    │
+│  WAN   UDP 4993 ──→ PanadapterStream                      [NETWORK] │
 └─────────────────────────────────────────────────────────────────────┘
                               │
                     ┌─────────┴─────────┐
-                    │  PanadapterStream  │
-                    │  (VITA-49 demux)   │
+                    │  PanadapterStream  │  ◄── NETWORK THREAD
+                    │  (VITA-49 demux)   │      QMutex guards stream IDs
                     └──┬──┬──┬──┬──┬────┘
                        │  │  │  │  │
     ┌──────────────────┘  │  │  │  └──────────────────┐
-    ▼                     ▼  │  ▼                     ▼
+    ▼ [queued]            ▼  │  ▼ [queued]            ▼ [queued]
 ┌────────┐         ┌────────┐│┌────────┐        ┌──────────┐
 │PCC 8003│         │PCC 8004│││PCC 8002│        │PCC 03E3/ │
 │FFT bins│         │WF tiles│││ meters │        │0123 audio│
 └───┬────┘         └───┬────┘│└───┬────┘        └────┬─────┘
     │                  │     │    │                   │
-    ▼                  ▼     │    ▼                   ▼
+    ▼ MAIN             ▼     │    ▼ MAIN              ▼ AUDIO THREAD
 SpectrumWidget   SpectrumWidget  MeterModel     AudioEngine
 .updateSpectrum  .updateWfRow    .updateValues   .feedAudioData
     │                  │     │    │                   │
     │ (ring buffer)    │     │    ├─→ SMeterWidget    ├─→ NR2 (SpectralNR)
-    │                  │     │    ├─→ TxApplet        ├─→ RN2 (RNNoiseFilter)
+    │ + NB blanker     │     │    ├─→ TxApplet        ├─→ RN2 (RNNoiseFilter)
     ▼                  ▼     │    ├─→ TunerApplet     ├─→ BNR (NvidiaBnrFilter)
-  paintEvent()    paintEvent │    └─→ StatusBar       ├─→ CwDecoder
-  (~70% CPU)                 │                        ▼
+  paintEvent()    paintEvent │    └─→ StatusBar       ├─→ CwDecoder [MAIN]
+  (~99% CPU)                 │                        ▼
                              │                   QAudioSink
                              │                   (speakers)
                              │
                       ┌──────┴──────┐
                       │ DAX streams │
                       └──────┬──────┘
-                      ┌──────┴──────┐
-                      │PCC 03E3/0123│
-                      │(DAX stream) │
-                      └──────┬──────┘
-                             ▼
+                             ▼ MAIN
                      PipeWireAudioBridge ──→ Virtual Audio Devices
                      (PulseAudio pipes)     (WSJT-X, fldigi, etc.)
 
-TX AUDIO PIPELINE:
+TX AUDIO PIPELINE:                          ◄── AUDIO THREAD
   QAudioSource (mic) ──→ AudioEngine.onTxAudioReady()
                               │
               ┌───────────────┼───────────────┐
@@ -225,15 +224,15 @@ TX AUDIO PIPELINE:
          VITA-49 pkt    VITA-49 pkt      OFDM modem
               │               │               │
               └───────┬───────┘               │
+                      ▼ [queued to NETWORK]    ▼
+              PanadapterStream         PanadapterStream
+              .sendToRadio()           .sendToRadio()
+              (QUdpSocket)             (QUdpSocket)
+                      │                       │
                       ▼                       ▼
-              PanadapterStream         VITA-49 pkt
-              .sendToRadio()                  │
-              (QUdpSocket)                    ▼
-                      │               PanadapterStream
-                      ▼               .sendToRadio()
-                 Radio UDP 4991
+                 Radio UDP 4991          Radio UDP 4991
 
-TCP COMMAND PIPELINE (bidirectional):
+TCP COMMAND PIPELINE (bidirectional):       ◄── MAIN THREAD
   GUI widget ──→ SliceModel.setXxx() ──→ emit commandReady("slice ...")
                  TransmitModel          ──→ emit commandReady("xmit ...")
                  TunerModel             ──→ emit commandReady("tgxl ...")
@@ -258,7 +257,7 @@ TCP COMMAND PIPELINE (bidirectional):
   Radio ──→ "S<handle>|<object> key=val ..."
               │
               ▼
-        RadioModel.onStatusReceived()
+        RadioModel.onStatusReceived()       ◄── MAIN THREAD
               │
               ├─→ SliceModel.applyStatus()      ──→ GUI signals
               ├─→ PanadapterModel.applyStatus()  ──→ SpectrumWidget
@@ -268,13 +267,13 @@ TCP COMMAND PIPELINE (bidirectional):
               ├─→ MeterModel.registerMeter()     ──→ meter definitions
               └─→ Multi-Flex client tracking     ──→ TitleBar badge
 
-EXTERNAL CONTROL PIPELINES:
+EXTERNAL CONTROL PIPELINES:                 ◄── MAIN THREAD
   FlexControl (USB serial) ──→ FlexControlManager ──→ MainWindow ──→ slice tune
   MIDI (RtMidi)            ──→ MidiControlManager  ──→ parameter setters
   SerialPort (PTT/CW)     ──→ SerialPortController ──→ RadioModel TX/CW
   TGXL (TCP 9010)          ──→ TgxlConnection      ──→ TunerModel relay adjust
 
-SPOT PIPELINES (worker threads):
+SPOT PIPELINES:                             ◄── SPOT WORKER THREAD
   DX Cluster (telnet)  ─┐
   RBN (telnet)         ─┤
   WSJT-X (UDP mcast)  ─┼──→ SpotModel (batched 1/sec) ──→ SpectrumWidget spots
@@ -282,11 +281,30 @@ SPOT PIPELINES (worker threads):
   FreeDV (WebSocket)   ─┘
 ```
 
-**Threading status (current):**
-- Main thread: PanadapterStream, AudioEngine, all GUI, RadioConnection
-- Worker threads: spot sources, DAX IQ, RADE, BNR gRPC, FFTW wisdom
-- **Known issue:** AudioEngine competes with paintEvent for main thread CPU,
-  causing audio artifacts on lower-end machines when paintEvent takes >10ms
+**Thread summary:**
+
+| Thread | Components | CPU | Notes |
+|--------|-----------|-----|-------|
+| **Main** | paintEvent, RadioConnection, RadioModel, all GUI widgets, CwDecoder | ~99% | Dominated by QPainter waterfall blit |
+| **Audio** | AudioEngine, NR2/RN2/BNR DSP, QAudioSink/Source, TX encoding | ~1% | std::atomic flags, recursive_mutex for DSP lifecycle |
+| **Network** | PanadapterStream, QUdpSocket, VITA-49 parsing, FFT/WF assembly | ~0.5% | QMutex guards stream ID sets |
+| **Spot** | DxCluster, RBN, WSJT-X, POTA, FreeDV clients | ~0% | Batched 1/sec forwarding |
+| **DAX IQ** | DaxIqModel worker | ~0% | Byte-swap + pipe I/O |
+| **RADE** | RADEEngine | ~0% | Neural encoder/decoder |
+| **BNR gRPC** | NvidiaBnrFilter async I/O | ~0% | GPU container communication |
+
+**Cross-thread signals (auto-queued):**
+- Network → Main: spectrumReady, waterfallRowReady, meterDataReady, daxAudioReady
+- Network → Audio: audioDataReady
+- Audio → Network: txPacketReady (→ sendToRadio)
+- Audio → Main: levelChanged, pcMicLevelChanged, nr2/rn2/bnrEnabledChanged
+- Main → Audio: setNr2/Rn2/BnrEnabled (via QMetaObject::invokeMethod)
+- Main → Audio: startRxStream/stopRxStream (via helper methods)
+- Main → Network: registerPanStream, setDbmRange (QMutex-protected setters)
+
+**Remaining bottleneck:** Main thread at ~99% is entirely QPainter waterfall
+rendering (`p.drawImage()` blit). With waterfall closed, main thread drops to
+2-3%. GPU offload (Phase 3, #502) is the path to resolving this.
 
 ---
 

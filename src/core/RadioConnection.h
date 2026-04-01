@@ -22,54 +22,44 @@ enum class ConnectionState {
     Error
 };
 
-// Manages the TCP connection to a FlexRadio and provides the
-// command/response layer of the SmartSDR API.
-//
-// Usage:
-//   RadioConnection conn;
-//   conn.connectToRadio(radioInfo);
-//   conn.sendCommand("sub slice all");
-//   connect(&conn, &RadioConnection::statusReceived, this, &MyClass::onStatus);
+// TCP connection to a FlexRadio. Designed to live on a worker thread (#502).
+// Call init() after moveToThread() to create the socket and timer.
 class RadioConnection : public QObject {
     Q_OBJECT
-    Q_PROPERTY(ConnectionState state READ state NOTIFY stateChanged)
 
 public:
     explicit RadioConnection(QObject* parent = nullptr);
     ~RadioConnection() override;
 
-    ConnectionState state() const       { return m_state; }
+    ConnectionState state() const       { return m_state.load(); }
     quint32 clientHandle() const        { return m_handle; }
-    bool isConnected() const            { return m_state == ConnectionState::Connected; }
-    QHostAddress radioAddress() const   { return m_socket.peerAddress(); }
-    quint16      localTcpPort() const   { return m_socket.localPort(); }
+    bool isConnected() const            { return m_state.load() == ConnectionState::Connected; }
+    QHostAddress radioAddress() const   { return m_radioAddr; }
+    quint16      localTcpPort() const   { return m_localPort; }
 
-    // Connect to a discovered radio
+    using ResponseCallback = std::function<void(int resultCode, const QString& body)>;
+
+public slots:
+    void init();  // Create socket + timer on the worker thread
     void connectToRadio(const RadioInfo& info);
-    // Connect directly by address/port
     void connectToHost(const QHostAddress& address, quint16 port = 4992);
     void disconnectFromRadio();
-
-    // Send a command, returns the sequence number assigned.
-    // Optional callback is called when the R response arrives.
-    using ResponseCallback = std::function<void(int resultCode, const QString& body)>;
-    quint32 sendCommand(const QString& command,
-                        ResponseCallback callback = nullptr);
+    // Write a pre-sequenced command to the socket. Called from RadioModel
+    // via QMetaObject::invokeMethod (auto-queued to worker thread). (#502)
+    void writeCommand(quint32 seq, const QString& command);
 
 signals:
     void stateChanged(ConnectionState state);
     void connected();
     void disconnected();
     void errorOccurred(const QString& message);
-
-    // Emitted for every parsed incoming line
     void messageReceived(const ParsedMessage& msg);
-    // RTT measured at socket read time (before event loop), not callback dispatch
     void pingRttMeasured(int ms);
-
-    // Convenience signals for common message types
     void statusReceived(const QString& object, const QMap<QString, QString>& kvs);
     void versionReceived(const QString& version);
+    // Emitted when a response (R-line) is received from the radio.
+    // Callers register callbacks keyed by seq in their own maps. (#502)
+    void commandResponse(quint32 seq, int resultCode, const QString& body);
 
 private slots:
     void onSocketConnected();
@@ -82,17 +72,19 @@ private:
     void processLine(const QString& line);
     void setState(ConnectionState s);
 
-    QTcpSocket  m_socket;
-    QByteArray  m_readBuffer;
-    QTimer      m_heartbeat;
+    QTcpSocket*  m_socket{nullptr};
+    QByteArray   m_readBuffer;
+    QTimer*      m_heartbeat{nullptr};
 
-    ConnectionState m_state{ConnectionState::Disconnected};
-    quint32 m_handle{0};
-    std::atomic<quint32> m_seqCounter{1};
+    std::atomic<ConnectionState> m_state{ConnectionState::Disconnected};
+    std::atomic<quint32> m_handle{0};
     quint32 m_lastPingSeq{0};
-    QElapsedTimer m_pingStopwatch;  // RTT measured at socket read, not event loop
+    QElapsedTimer m_pingStopwatch;
 
-    QMap<quint32, ResponseCallback> m_pendingCallbacks;
+    QHostAddress m_radioAddr;   // cached for cross-thread reads
+    quint16      m_localPort{0};
+
+    // Callbacks removed — responses emitted via commandResponse signal (#502)
 };
 
 } // namespace AetherSDR

@@ -71,18 +71,19 @@ public:
     ~RadioModel() override;
 
     // Access the underlying connection and panadapter stream
-    RadioConnection*  connection()  { return &m_connection; }
+    RadioConnection*  connection()  { return m_connection; }
     PanadapterStream* panStream()   { return m_panStream; }
-    MeterModel*       meterModel()  { return &m_meterModel; }
-    TunerModel*       tunerModel()  { return &m_tunerModel; }
-    TransmitModel*    transmitModel() { return &m_transmitModel; }
-    EqualizerModel*   equalizerModel() { return &m_equalizerModel; }
-    TnfModel*         tnfModel()       { return &m_tnfModel; }
-    SpotModel*        spotModel()      { return &m_spotModel; }
-    CwxModel*         cwxModel()       { return &m_cwxModel; }
-    DvkModel*         dvkModel()       { return &m_dvkModel; }
-    UsbCableModel*    usbCableModel()  { return &m_usbCableModel; }
-    DaxIqModel*       daxIqModel()     { return &m_daxIqModel; }
+    // Sub-models owned by RadioModel (main thread). (#502)
+    MeterModel&       meterModel()       { return m_meterModel; }
+    TunerModel&       tunerModel()       { return m_tunerModel; }
+    TransmitModel&    transmitModel()    { return m_transmitModel; }
+    EqualizerModel&   equalizerModel()   { return m_equalizerModel; }
+    TnfModel&         tnfModel()         { return m_tnfModel; }
+    SpotModel&        spotModel()        { return m_spotModel; }
+    CwxModel&         cwxModel()         { return m_cwxModel; }
+    DvkModel&         dvkModel()         { return m_dvkModel; }
+    UsbCableModel&    usbCableModel()    { return m_usbCableModel; }
+    DaxIqModel&       daxIqModel()       { return m_daxIqModel; }
     bool              hasAmplifier() const { return m_hasAmplifier; }
 
     // Getters
@@ -329,9 +330,15 @@ private:
                             const QString& mode    = "USB",
                             const QString& antenna = "ANT1");
 
-    RadioConnection   m_connection;
+    RadioConnection*  m_connection{nullptr};
+    QThread*          m_connThread{nullptr};
+    // Sequence counter and callback map — owned by RadioModel on main thread.
+    // RadioConnection no longer manages callbacks. (#502)
+    std::atomic<quint32> m_seqCounter{1};
+    QMap<quint32, ResponseCallback> m_pendingCallbacks;
     PanadapterStream* m_panStream{nullptr};
     QThread*          m_networkThread{nullptr};
+    // Sub-models — value members on main thread (#502)
     MeterModel       m_meterModel;
     TunerModel       m_tunerModel;
     TransmitModel    m_transmitModel;

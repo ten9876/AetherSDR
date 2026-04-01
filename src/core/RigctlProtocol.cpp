@@ -269,7 +269,7 @@ QString RigctlProtocol::cmdSetVfo(const QString& arg)
 QString RigctlProtocol::cmdGetPtt()
 {
     if (!m_model) return rprt(-8);
-    int ptt = m_model->transmitModel()->isTransmitting() ? 1 : 0;
+    int ptt = m_model->transmitModel().isTransmitting() ? 1 : 0;
     if (m_extended)
         return QStringLiteral("get_ptt:\nPTT: %1\n").arg(ptt) + rprt(0);
     return QStringLiteral("%1\n").arg(ptt);

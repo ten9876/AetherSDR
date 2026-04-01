@@ -21,18 +21,39 @@ RadioModel::RadioModel(QObject* parent)
     m_panStream->moveToThread(m_networkThread);
     m_networkThread->start();
 
-    connect(&m_connection, &RadioConnection::statusReceived,
+    // RadioConnection runs on its own worker thread (#502) so TCP I/O
+    // (including ping RTT measurement) is never blocked by paintEvent.
+    m_connThread = new QThread(this);
+    m_connThread->setObjectName("RadioConnection");
+    m_connection = new RadioConnection;  // no parent — will be moved to thread
+    m_connection->moveToThread(m_connThread);
+    connect(m_connThread, &QThread::started, m_connection, &RadioConnection::init);
+    m_connThread->start();
+
+    // Signals from RadioConnection auto-queue to main thread (#502)
+    connect(m_connection, &RadioConnection::statusReceived,
             this, &RadioModel::onStatusReceived);
-    connect(&m_connection, &RadioConnection::messageReceived,
+    connect(m_connection, &RadioConnection::messageReceived,
             this, &RadioModel::onMessageReceived);
-    connect(&m_connection, &RadioConnection::connected,
+    connect(m_connection, &RadioConnection::connected,
             this, &RadioModel::onConnected);
-    connect(&m_connection, &RadioConnection::disconnected,
+    connect(m_connection, &RadioConnection::disconnected,
             this, &RadioModel::onDisconnected);
-    connect(&m_connection, &RadioConnection::errorOccurred,
+    connect(m_connection, &RadioConnection::errorOccurred,
             this, &RadioModel::onConnectionError);
-    connect(&m_connection, &RadioConnection::versionReceived,
+    connect(m_connection, &RadioConnection::versionReceived,
             this, &RadioModel::onVersionReceived);
+
+    // Response callbacks: RadioConnection emits commandResponse on worker thread,
+    // we dispatch to the matching callback on the main thread. (#502)
+    connect(m_connection, &RadioConnection::commandResponse,
+            this, [this](quint32 seq, int code, const QString& body) {
+        auto it = m_pendingCallbacks.find(seq);
+        if (it != m_pendingCallbacks.end()) {
+            it.value()(code, body);
+            m_pendingCallbacks.erase(it);
+        }
+    });
 
     // Forward VITA-49 meter packets to MeterModel (cross-thread, auto-queued)
     connect(m_panStream, &PanadapterStream::meterDataReady,
@@ -52,8 +73,6 @@ RadioModel::RadioModel(QObject* parent)
 
     // Forward transmit model commands to the radio
     connect(&m_transmitModel, &TransmitModel::commandReady, this, [this](const QString& cmd){
-        // Keep txRequested in sync even when command comes directly from
-        // TransmitModel (e.g. TxApplet MOX button).
         static const QRegularExpression xmitRe(R"(^xmit\s+([01])\s*$)", QRegularExpression::CaseInsensitiveOption);
         const auto match = xmitRe.match(cmd.trimmed());
         if (match.hasMatch()) {
@@ -64,8 +83,6 @@ RadioModel::RadioModel(QObject* parent)
                 emit txAudioGateChanged(false);
             }
         }
-
-        // Intercept TUNE start from internal ATU and barefoot tune paths
         if (cmd == "transmit tune 1" || cmd == "atu start")
             applyTuneInhibit();
         sendCmd(cmd);
@@ -90,18 +107,19 @@ RadioModel::RadioModel(QObject* parent)
         sendCmd(cmd);
     });
 
-    // ── Tune PA inhibit: restore TX outputs when tune completes ──
+    // Tune PA inhibit: restore TX outputs when tune completes
     connect(&m_transmitModel, &TransmitModel::tuneChanged, this, [this](bool tuning) {
-        if (!tuning && m_tuneInhibitActive && m_tuneInhibitBandId >= 0) {
+        if (!tuning && m_tuneInhibitActive && m_tuneInhibitBandId >= 0)
             restoreTuneInhibit();
-        }
     });
 
     m_reconnectTimer.setInterval(5000);
     connect(&m_reconnectTimer, &QTimer::timeout, this, [this]() {
         if (!m_intentionalDisconnect && !m_lastInfo.address.isNull()) {
             qCDebug(lcProtocol) << "RadioModel: auto-reconnecting to" << m_lastInfo.address.toString();
-            m_connection.connectToRadio(m_lastInfo);
+            QMetaObject::invokeMethod(m_connection, [this] {
+                m_connection->connectToRadio(m_lastInfo);
+            });
         } else {
             m_reconnectTimer.stop();
         }
@@ -111,13 +129,19 @@ RadioModel::RadioModel(QObject* parent)
 
 RadioModel::~RadioModel()
 {
-    // Disconnect all signals from m_connection to this BEFORE member
-    // destruction. Otherwise ~RadioConnection calls disconnectFromHost()
-    // which emits disconnected(), firing slots that access already-destroyed
-    // members (XVTR map, slice models, etc.) — use-after-free under ASAN.
-    QObject::disconnect(&m_connection, nullptr, this, nullptr);
+    // Disconnect all signals BEFORE member destruction to prevent
+    // use-after-free (ASAN). (#502)
+    QObject::disconnect(m_connection, nullptr, this, nullptr);
     QObject::disconnect(m_panStream, nullptr, this, nullptr);
-    m_connection.disconnectFromRadio();
+
+    // Stop connection thread (#502)
+    if (m_connection) {
+        QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio,
+                                  Qt::BlockingQueuedConnection);
+    }
+    m_connThread->quit();
+    m_connThread->wait();
+    delete m_connection;
 
     // Stop network thread (#502)
     if (m_panStream) {
@@ -131,7 +155,7 @@ RadioModel::~RadioModel()
 
 bool RadioModel::isConnected() const
 {
-    return m_connection.isConnected() || (m_wanConn && m_wanConn->isConnected());
+    return m_connection->isConnected() || (m_wanConn && m_wanConn->isConnected());
 }
 
 SliceModel* RadioModel::slice(int id) const
@@ -162,7 +186,9 @@ void RadioModel::connectToRadio(const RadioInfo& info)
             : (i < info.guiClientPrograms.size() ? info.guiClientPrograms[i] : "Unknown");
         m_clientStations[h] = station;
     }
-    m_connection.connectToRadio(info);
+    QMetaObject::invokeMethod(m_connection, [conn = m_connection, info] {
+        conn->connectToRadio(info);
+    });
 }
 
 void RadioModel::connectViaWan(WanConnection* wan, const QString& publicIp, quint16 udpPort)
@@ -215,7 +241,7 @@ void RadioModel::disconnectFromRadio()
         m_wanConn->disconnectFromRadio();
         m_wanConn = nullptr;
     } else {
-        m_connection.disconnectFromRadio();
+        QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
     }
 }
 
@@ -223,7 +249,7 @@ void RadioModel::forceDisconnect()
 {
     // Close TCP without setting m_intentionalDisconnect — allows auto-reconnect
     // when the radio reappears in discovery or via the repeating reconnect timer.
-    m_connection.disconnectFromRadio();
+    QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
 }
 
 void RadioModel::setTransmit(bool tx)
@@ -373,7 +399,7 @@ void RadioModel::addSlice()
     const QString cmd = QString("slice create pan=%1 freq=%2").arg(m_activePanId, freq);
 
     qCDebug(lcProtocol) << "RadioModel::addSlice:" << cmd;
-    m_connection.sendCommand(cmd, [](int code, const QString& body) {
+    sendCmd(cmd, [](int code, const QString& body) {
         if (code != 0)
             qCWarning(lcProtocol) << "RadioModel: slice create failed, code"
                        << Qt::hex << code << "body:" << body;
@@ -399,7 +425,7 @@ void RadioModel::addSliceOnPan(const QString& panId)
     const QString cmd = QString("slice create pan=%1 freq=%2").arg(panId, freq);
 
     qCDebug(lcProtocol) << "RadioModel::addSliceOnPan:" << cmd;
-    m_connection.sendCommand(cmd, [](int code, const QString& body) {
+    sendCmd(cmd, [](int code, const QString& body) {
         if (code != 0)
             qCWarning(lcProtocol) << "RadioModel: slice create failed, code"
                        << Qt::hex << code << "body:" << body;
@@ -674,7 +700,7 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                 }, Qt::BlockingQueuedConnection);
             } else {
                 QMetaObject::invokeMethod(m_panStream, [this]() {
-                    m_panStream->start(&m_connection);
+                    m_panStream->start(m_connection);
                 }, Qt::BlockingQueuedConnection);
             }
         }
@@ -1066,7 +1092,7 @@ void RadioModel::startNetworkMonitor()
     // Use RadioConnection's socket-level RTT measurement instead of our own
     // stopwatch. The connection measures RTT at readyRead time (before event
     // loop dispatch), avoiding inflated values from main thread UI processing.
-    connect(&m_connection, &RadioConnection::pingRttMeasured, this, [this](int ms) {
+    connect(m_connection, &RadioConnection::pingRttMeasured, this, [this](int ms) {
         m_pingMissCount = 0;
         m_lastPingRtt = ms;
         evaluateNetworkQuality();
@@ -1328,14 +1354,24 @@ quint32 RadioModel::sendCmd(const QString& command, ResponseCallback cb)
 {
     if (m_wanConn)
         return m_wanConn->sendCommand(command, std::move(cb));
-    return m_connection.sendCommand(command, std::move(cb));
+
+    // Allocate seq on main thread, store callback locally. (#502)
+    const quint32 seq = m_seqCounter.fetch_add(1);
+    if (cb)
+        m_pendingCallbacks.insert(seq, std::move(cb));
+
+    // Queue the socket write on the connection's worker thread.
+    QMetaObject::invokeMethod(m_connection, [conn = m_connection, seq, command] {
+        conn->writeCommand(seq, command);
+    });
+    return seq;
 }
 
 quint32 RadioModel::clientHandle() const
 {
     if (m_wanConn)
         return m_wanConn->clientHandle();
-    return m_connection.clientHandle();
+    return m_connection->clientHandle();
 }
 
 quint32 RadioModel::ourClientHandle() const { return clientHandle(); }

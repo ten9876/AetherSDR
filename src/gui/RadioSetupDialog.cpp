@@ -208,10 +208,10 @@ QWidget* RadioSetupDialog::buildRadioTab()
         grid->addWidget(m_callsignEdit, 1, 1);
 
         connect(m_nicknameEdit, &QLineEdit::editingFinished, this, [this] {
-            m_model->connection()->sendCommand("radio name " + m_nicknameEdit->text());
+            m_model->sendCommand("radio name " + m_nicknameEdit->text());
         });
         connect(m_callsignEdit, &QLineEdit::editingFinished, this, [this] {
-            m_model->connection()->sendCommand("radio callsign " + m_callsignEdit->text());
+            m_model->sendCommand("radio callsign " + m_callsignEdit->text());
         });
 
         grid->addWidget(new QLabel("Station Name:"), 1, 2);
@@ -224,7 +224,7 @@ QWidget* RadioSetupDialog::buildRadioTab()
             auto& s = AppSettings::instance();
             s.setValue("StationName", stationEdit->text());
             s.save();
-            m_model->connection()->sendCommand("client station " + stationEdit->text());
+            m_model->sendCommand("client station " + stationEdit->text());
         });
 
         for (auto* lbl : group->findChildren<QLabel*>()) {
@@ -497,7 +497,7 @@ QWidget* RadioSetupDialog::buildNetworkTab()
             "border: 1px solid #20a040; }");
         connect(enforceBtn, &QPushButton::toggled, this, [this, enforceBtn](bool on) {
             enforceBtn->setText(on ? "Enabled" : "Disabled");
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 QString("radio set enforce_private_ip_connections=%1").arg(on ? 1 : 0));
         });
         grid->addWidget(enforceBtn, 0, 1);
@@ -619,12 +619,12 @@ QGroupBox* RadioSetupDialog::buildIpConfigGroup()
     connect(applyBtn, &QPushButton::clicked, this,
             [this, dhcpBtn, staticIp, staticMask, staticGw, applyBtn] {
         if (dhcpBtn->isChecked()) {
-            m_model->connection()->sendCommand("radio static_net_params reset");
+            m_model->sendCommand("radio static_net_params reset");
             qDebug() << "RadioSetupDialog: network set to DHCP";
         } else {
             const QString cmd = QString("radio static_net_params ip=%1 gateway=%2 netmask=%3")
                 .arg(staticIp->text(), staticGw->text(), staticMask->text());
-            m_model->connection()->sendCommand(cmd);
+            m_model->sendCommand(cmd);
             qDebug() << "RadioSetupDialog: static IP applied" << cmd;
         }
         applyBtn->setEnabled(false);
@@ -694,7 +694,7 @@ QWidget* RadioSetupDialog::buildGpsTab()
 }
 QWidget* RadioSetupDialog::buildTxTab()
 {
-    auto* tx = m_model->transmitModel();
+    auto& tx = m_model->transmitModel();
     auto* page = new QWidget;
     auto* vbox = new QVBoxLayout(page);
     vbox->setSpacing(8);
@@ -727,23 +727,23 @@ QWidget* RadioSetupDialog::buildTxTab()
             return edit;
         };
 
-        addTimingField(0, 0, "ACC TX:",  tx->accTxDelay());
-        addTimingField(0, 1, "TX Delay:", tx->txDelay());
-        addTimingField(1, 0, "RCA TX1:", tx->tx1Delay());
-        addTimingField(1, 1, "Timeout(min):", tx->interlockTimeout());
-        addTimingField(2, 0, "RCA TX2:", tx->tx2Delay());
+        addTimingField(0, 0, "ACC TX:",  tx.accTxDelay());
+        addTimingField(0, 1, "TX Delay:", tx.txDelay());
+        addTimingField(1, 0, "RCA TX1:", tx.tx1Delay());
+        addTimingField(1, 1, "Timeout(min):", tx.interlockTimeout());
+        addTimingField(2, 0, "RCA TX2:", tx.tx2Delay());
 
         // TX Profile dropdown (below Timeout, right column)
         auto* profCmb = new QComboBox;
-        profCmb->addItems(tx->profileList());
-        profCmb->setCurrentText(tx->activeProfile());
+        profCmb->addItems(tx.profileList());
+        profCmb->setCurrentText(tx.activeProfile());
         AetherSDR::applyComboStyle(profCmb);
         grid->addWidget(profCmb, 2, 2, 1, 2);
         connect(profCmb, &QComboBox::currentTextChanged, this, [this](const QString& name) {
-            m_model->transmitModel()->loadProfile(name);
+            m_model->transmitModel().loadProfile(name);
         });
 
-        addTimingField(3, 0, "RCA TX3:", tx->tx3Delay());
+        addTimingField(3, 0, "RCA TX3:", tx.tx3Delay());
 
         // TX Band Settings button
         auto* bandSetBtn = new QPushButton("TX Band Settings");
@@ -756,7 +756,7 @@ QWidget* RadioSetupDialog::buildTxTab()
             // Build TX Band Settings popup
             auto* dlg = new QDialog(this);
             dlg->setWindowTitle(QString("TX Band Settings (Current TX Profile: %1)")
-                .arg(m_model->transmitModel()->activeProfile()));
+                .arg(m_model->transmitModel().activeProfile()));
             dlg->setMinimumSize(700, 450);
             dlg->setStyleSheet("QDialog { background: #0f0f1a; }");
             dlg->setAttribute(Qt::WA_DeleteOnClose);
@@ -802,7 +802,7 @@ QWidget* RadioSetupDialog::buildTxTab()
                 rfEdit->setAlignment(Qt::AlignCenter);
                 int bandId = id;
                 connect(rfEdit, &QLineEdit::editingFinished, dlg, [this, rfEdit, bandId] {
-                    m_model->connection()->sendCommand(
+                    m_model->sendCommand(
                         QString("transmit bandset %1 rfpower=%2").arg(bandId).arg(rfEdit->text()));
                 });
                 headerGrid->addWidget(rfEdit, row, col++);
@@ -813,7 +813,7 @@ QWidget* RadioSetupDialog::buildTxTab()
                 tuneEdit->setFixedWidth(50);
                 tuneEdit->setAlignment(Qt::AlignCenter);
                 connect(tuneEdit, &QLineEdit::editingFinished, dlg, [this, tuneEdit, bandId] {
-                    m_model->connection()->sendCommand(
+                    m_model->sendCommand(
                         QString("transmit bandset %1 tunepower=%2").arg(bandId).arg(tuneEdit->text()));
                 });
                 headerGrid->addWidget(tuneEdit, row, col++);
@@ -843,7 +843,7 @@ QWidget* RadioSetupDialog::buildTxTab()
                     auto cmdKey = cb.txCmd ? QString(cb.txCmd) : QString(cb.ilCmd);
                     auto prefix = cb.txCmd ? QString("transmit") : QString("interlock");
                     connect(chk, &QCheckBox::toggled, dlg, [this, bandId, prefix, cmdKey](bool on) {
-                        m_model->connection()->sendCommand(
+                        m_model->sendCommand(
                             QString("%1 bandset %2 %3=%4").arg(prefix).arg(bandId).arg(cmdKey).arg(on ? 1 : 0));
                     });
                     auto* container = new QWidget;
@@ -890,7 +890,7 @@ QWidget* RadioSetupDialog::buildTxTab()
         grid->addWidget(rcaLbl, 0, 0);
         auto* rcaCmb = new QComboBox;
         rcaCmb->addItems({"Active Low", "Active High"});
-        rcaCmb->setCurrentIndex(tx->rcaTxReqPolarity());
+        rcaCmb->setCurrentIndex(tx.rcaTxReqPolarity());
         AetherSDR::applyComboStyle(rcaCmb);
         grid->addWidget(rcaCmb, 0, 1);
 
@@ -899,7 +899,7 @@ QWidget* RadioSetupDialog::buildTxTab()
         grid->addWidget(accLbl, 0, 2);
         auto* accCmb = new QComboBox;
         accCmb->addItems({"Active Low", "Active High"});
-        accCmb->setCurrentIndex(tx->accTxReqPolarity());
+        accCmb->setCurrentIndex(tx.accTxReqPolarity());
         AetherSDR::applyComboStyle(accCmb);
         grid->addWidget(accCmb, 0, 3);
 
@@ -915,7 +915,7 @@ QWidget* RadioSetupDialog::buildTxTab()
         mpLbl->setStyleSheet(kLabelStyle);
         grid->addWidget(mpLbl, 0, 0);
         auto* mpRow = new QHBoxLayout;
-        auto* mpEdit = new QLineEdit(QString::number(tx->maxPowerLevel()));
+        auto* mpEdit = new QLineEdit(QString::number(tx.maxPowerLevel()));
         mpEdit->setStyleSheet(kEditStyle);
         mpEdit->setFixedWidth(50);
         mpRow->addWidget(mpEdit);
@@ -928,7 +928,7 @@ QWidget* RadioSetupDialog::buildTxTab()
         connect(mpEdit, &QLineEdit::editingFinished, this, [this, mpEdit] {
             int val = qBound(0, mpEdit->text().toInt(), 100);
             mpEdit->setText(QString::number(val));
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 QString("transmit set max_power_level=%1").arg(val));
         });
 
@@ -937,20 +937,20 @@ QWidget* RadioSetupDialog::buildTxTab()
         grid->addWidget(tmLbl, 1, 0);
         auto* tmCmb = new QComboBox;
         tmCmb->addItems({"Single Tone", "Two Tone"});
-        tmCmb->setCurrentText(tx->tuneMode() == "single_tone" ? "Single Tone" : "Two Tone");
+        tmCmb->setCurrentText(tx.tuneMode() == "single_tone" ? "Single Tone" : "Two Tone");
         AetherSDR::applyComboStyle(tmCmb);
         connect(tmCmb, &QComboBox::currentTextChanged, this, [this](const QString& text) {
             QString mode = (text == "Single Tone") ? "single_tone" : "two_tone";
-            m_model->connection()->sendCommand("transmit set tune_mode=" + mode);
+            m_model->sendCommand("transmit set tune_mode=" + mode);
         });
         grid->addWidget(tmCmb, 1, 1);
 
         auto* swLbl = new QLabel("Show TX in Waterfall:");
         swLbl->setStyleSheet(kLabelStyle);
         grid->addWidget(swLbl, 2, 0);
-        auto* swBtn = new QPushButton(tx->showTxInWaterfall() ? "Enabled" : "Disabled");
+        auto* swBtn = new QPushButton(tx.showTxInWaterfall() ? "Enabled" : "Disabled");
         swBtn->setCheckable(true);
-        swBtn->setChecked(tx->showTxInWaterfall());
+        swBtn->setChecked(tx.showTxInWaterfall());
         swBtn->setStyleSheet(
             "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
             "border-radius: 3px; color: #c8d8e8; font-size: 11px; font-weight: bold; "
@@ -959,7 +959,7 @@ QWidget* RadioSetupDialog::buildTxTab()
             "border: 1px solid #20a040; }");
         connect(swBtn, &QPushButton::toggled, this, [this, swBtn](bool on) {
             swBtn->setText(on ? "Enabled" : "Disabled");
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 QString("transmit set show_tx_in_waterfall=%1").arg(on ? 1 : 0));
         });
         grid->addWidget(swBtn, 2, 1);
@@ -972,7 +972,7 @@ QWidget* RadioSetupDialog::buildTxTab()
 }
 QWidget* RadioSetupDialog::buildPhoneCwTab()
 {
-    auto* tx = m_model->transmitModel();
+    auto& tx = m_model->transmitModel();
     auto* page = new QWidget;
     auto* vbox = new QVBoxLayout(page);
     vbox->setSpacing(8);
@@ -1012,14 +1012,14 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         // BIAS / +20dB row
         auto* row1 = new QHBoxLayout;
         row1->setSpacing(4);
-        auto* biasBtn = mkTogBtn("BIAS", tx->micBias());
+        auto* biasBtn = mkTogBtn("BIAS", tx.micBias());
         connect(biasBtn, &QPushButton::toggled, this, [this](bool on) {
-            m_model->connection()->sendCommand(QString("mic bias %1").arg(on ? 1 : 0));
+            m_model->sendCommand(QString("mic bias %1").arg(on ? 1 : 0));
         });
         row1->addWidget(biasBtn);
-        auto* boostBtn = mkTogBtn("+20dB", tx->micBoost());
+        auto* boostBtn = mkTogBtn("+20dB", tx.micBoost());
         connect(boostBtn, &QPushButton::toggled, this, [this](bool on) {
-            m_model->connection()->sendCommand(QString("mic boost %1").arg(on ? 1 : 0));
+            m_model->sendCommand(QString("mic boost %1").arg(on ? 1 : 0));
         });
         row1->addWidget(boostBtn);
         row1->addStretch(1);
@@ -1028,10 +1028,10 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         // Meter in RX
         auto* row2 = new QHBoxLayout;
         row2->setSpacing(4);
-        auto* metBtn = mkTogBtn("Enabled", tx->metInRx());
+        auto* metBtn = mkTogBtn("Enabled", tx.metInRx());
         connect(metBtn, &QPushButton::toggled, this, [this, metBtn](bool on) {
             metBtn->setText(on ? "Enabled" : "Disabled");
-            m_model->connection()->sendCommand(QString("transmit set met_in_rx=%1").arg(on ? 1 : 0));
+            m_model->sendCommand(QString("transmit set met_in_rx=%1").arg(on ? 1 : 0));
         });
         row2->addWidget(metBtn);
         auto* metLbl = new QLabel("Enable/Disable the Level Meter During Receive");
@@ -1054,21 +1054,21 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         auto* iamLbl = new QLabel("Iambic:");
         iamLbl->setStyleSheet(kLabelStyle);
         grid->addWidget(iamLbl, 0, 0);
-        auto* iamBtn = mkTogBtn("Enabled", tx->cwIambic());
+        auto* iamBtn = mkTogBtn("Enabled", tx.cwIambic());
         connect(iamBtn, &QPushButton::toggled, this, [this, iamBtn](bool on) {
             iamBtn->setText(on ? "Enabled" : "Disabled");
-            m_model->connection()->sendCommand(QString("cw iambic %1").arg(on ? 1 : 0));
+            m_model->sendCommand(QString("cw iambic %1").arg(on ? 1 : 0));
         });
         grid->addWidget(iamBtn, 0, 1);
-        auto* modeA = mkTogBtn("A", tx->cwIambicMode() == 0);
-        auto* modeB = mkTogBtn("B", tx->cwIambicMode() == 1);
+        auto* modeA = mkTogBtn("A", tx.cwIambicMode() == 0);
+        auto* modeB = mkTogBtn("B", tx.cwIambicMode() == 1);
         connect(modeA, &QPushButton::clicked, this, [this, modeA, modeB] {
             modeA->setChecked(true); modeB->setChecked(false);
-            m_model->connection()->sendCommand("cw mode 0");
+            m_model->sendCommand("cw mode 0");
         });
         connect(modeB, &QPushButton::clicked, this, [this, modeA, modeB] {
             modeA->setChecked(false); modeB->setChecked(true);
-            m_model->connection()->sendCommand("cw mode 1");
+            m_model->sendCommand("cw mode 1");
         });
         grid->addWidget(modeA, 0, 2);
         grid->addWidget(modeB, 0, 3);
@@ -1077,9 +1077,9 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         auto* swapLbl = new QLabel("Swap:");
         swapLbl->setStyleSheet(kLabelStyle);
         grid->addWidget(swapLbl, 0, 4);
-        auto* swapBtn = mkTogBtn("Dot/Dash", tx->cwSwapPaddles());
+        auto* swapBtn = mkTogBtn("Dot/Dash", tx.cwSwapPaddles());
         connect(swapBtn, &QPushButton::toggled, this, [this](bool on) {
-            m_model->connection()->sendCommand(QString("cw swap %1").arg(on ? 1 : 0));
+            m_model->sendCommand(QString("cw swap %1").arg(on ? 1 : 0));
         });
         grid->addWidget(swapBtn, 0, 5);
 
@@ -1087,15 +1087,15 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         auto* sbLbl = new QLabel("Sideband:");
         sbLbl->setStyleSheet(kLabelStyle);
         grid->addWidget(sbLbl, 1, 0);
-        auto* cwuBtn = mkTogBtn("CWU", !tx->cwlEnabled());
-        auto* cwlBtn = mkTogBtn("CWL", tx->cwlEnabled());
+        auto* cwuBtn = mkTogBtn("CWU", !tx.cwlEnabled());
+        auto* cwlBtn = mkTogBtn("CWL", tx.cwlEnabled());
         connect(cwuBtn, &QPushButton::clicked, this, [this, cwuBtn, cwlBtn] {
             cwuBtn->setChecked(true); cwlBtn->setChecked(false);
-            m_model->connection()->sendCommand("cw cwl_enabled 0");
+            m_model->sendCommand("cw cwl_enabled 0");
         });
         connect(cwlBtn, &QPushButton::clicked, this, [this, cwuBtn, cwlBtn] {
             cwuBtn->setChecked(false); cwlBtn->setChecked(true);
-            m_model->connection()->sendCommand("cw cwl_enabled 1");
+            m_model->sendCommand("cw cwl_enabled 1");
         });
         grid->addWidget(cwuBtn, 1, 1);
         grid->addWidget(cwlBtn, 1, 2);
@@ -1104,9 +1104,9 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         auto* cwxLbl = new QLabel("CWX:");
         cwxLbl->setStyleSheet(kLabelStyle);
         grid->addWidget(cwxLbl, 1, 4);
-        auto* syncBtn = mkTogBtn("Sync", tx->syncCwx());
+        auto* syncBtn = mkTogBtn("Sync", tx.syncCwx());
         connect(syncBtn, &QPushButton::toggled, this, [this](bool on) {
-            m_model->connection()->sendCommand(QString("cw synccwx %1").arg(on ? 1 : 0));
+            m_model->sendCommand(QString("cw synccwx %1").arg(on ? 1 : 0));
         });
         grid->addWidget(syncBtn, 1, 5);
 
@@ -1142,7 +1142,7 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         markEdit->setStyleSheet(kEditStyle);
         markEdit->setFixedWidth(60);
         connect(markEdit, &QLineEdit::editingFinished, this, [this, markEdit] {
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 "radio set rtty_mark_default=" + markEdit->text());
         });
         grid->addWidget(markEdit, 0, 1);
@@ -1266,7 +1266,7 @@ QWidget* RadioSetupDialog::buildRxTab()
         int idx = srcCmb->findData(m_model->oscSetting());
         if (idx >= 0) srcCmb->setCurrentIndex(idx);
         connect(srcCmb, &QComboBox::currentIndexChanged, this, [this, srcCmb](int i) {
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 "radio oscillator " + srcCmb->itemData(i).toString());
         });
         grid->addWidget(srcCmb, 0, 1);
@@ -1298,7 +1298,7 @@ QWidget* RadioSetupDialog::buildRxTab()
             btn->setStyleSheet(kTogStyle);
             connect(btn, &QPushButton::toggled, this, [this, btn, cmd](bool on) {
                 btn->setText(on ? "Enabled" : "Disabled");
-                m_model->connection()->sendCommand(
+                m_model->sendCommand(
                     QString("%1=%2").arg(cmd).arg(on ? 1 : 0));
             });
             grid->addWidget(btn, row, 1);
@@ -1739,12 +1739,12 @@ QWidget* RadioSetupDialog::buildFiltersTab()
 
             QString mode = QString::fromLatin1(r.modeCmd);
             connect(slider, &QSlider::valueChanged, this, [this, mode](int v) {
-                m_model->connection()->sendCommand(
+                m_model->sendCommand(
                     QString("radio filter_sharpness %1 level=%2").arg(mode).arg(v));
             });
             connect(autoBtn, &QPushButton::toggled, this, [this, slider, mode](bool on) {
                 slider->setEnabled(!on);
-                m_model->connection()->sendCommand(
+                m_model->sendCommand(
                     QString("radio filter_sharpness %1 auto_level=%2").arg(mode).arg(on ? 1 : 0));
             });
         }
@@ -1766,7 +1766,7 @@ QWidget* RadioSetupDialog::buildFiltersTab()
             "border: 2px solid #506070; border-radius: 3px; background: #0a0a18; }"
             "QCheckBox::indicator:checked { background: #0070c0; border: 2px solid #00a0e0; }");
         connect(chk, &QCheckBox::toggled, this, [this](bool on) {
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 QString("radio set low_latency_digital_modes=%1").arg(on ? 1 : 0));
         });
         hb->addWidget(chk);
@@ -1848,7 +1848,7 @@ QWidget* RadioSetupDialog::buildXvtrTab()
             "border: 1px solid #20a040; }");
         connect(rxOnlyBtn, &QPushButton::toggled, this, [this, rxOnlyBtn, idx](bool on) {
             rxOnlyBtn->setText(on ? "Enabled" : "Disabled");
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 QString("xvtr set %1 rx_only=%2").arg(idx).arg(on ? 1 : 0));
         });
         grid->addWidget(rxOnlyBtn, 3, 3);
@@ -1863,7 +1863,7 @@ QWidget* RadioSetupDialog::buildXvtrTab()
             "padding: 4px 16px; }"
             "QPushButton:hover { background: #502020; }");
         connect(removeBtn, &QPushButton::clicked, pg, [this, idx, xvtrTabs, pg] {
-            m_model->connection()->sendCommand(QString("xvtr remove %1").arg(idx));
+            m_model->sendCommand(QString("xvtr remove %1").arg(idx));
             int tabIdx = xvtrTabs->indexOf(pg);
             if (tabIdx >= 0) xvtrTabs->removeTab(tabIdx);
         });
@@ -1871,7 +1871,7 @@ QWidget* RadioSetupDialog::buildXvtrTab()
 
         // Wire editable fields
         connect(nameEdit, &QLineEdit::editingFinished, this, [this, nameEdit, idx] {
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 QString("xvtr set %1 name=%2").arg(idx).arg(nameEdit->text()));
         });
         auto updateLo = [rfEdit, ifEdit, loEdit] {
@@ -1880,25 +1880,25 @@ QWidget* RadioSetupDialog::buildXvtrTab()
             loEdit->setText(QString::number(rf - ifF, 'f', 3));
         };
         connect(rfEdit, &QLineEdit::editingFinished, this, [this, rfEdit, idx, updateLo] {
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 QString("xvtr set %1 rf_freq=%2").arg(idx).arg(rfEdit->text()));
             updateLo();
         });
         connect(ifEdit, &QLineEdit::editingFinished, this, [this, ifEdit, idx, updateLo] {
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 QString("xvtr set %1 if_freq=%2").arg(idx).arg(ifEdit->text()));
             updateLo();
         });
         connect(errEdit, &QLineEdit::editingFinished, this, [this, errEdit, idx] {
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 QString("xvtr set %1 lo_error=%2").arg(idx).arg(errEdit->text()));
         });
         connect(rxGainEdit, &QLineEdit::editingFinished, this, [this, rxGainEdit, idx] {
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 QString("xvtr set %1 rx_gain=%2").arg(idx).arg(rxGainEdit->text()));
         });
         connect(maxPwrEdit, &QLineEdit::editingFinished, this, [this, maxPwrEdit, idx] {
-            m_model->connection()->sendCommand(
+            m_model->sendCommand(
                 QString("xvtr set %1 max_power=%2").arg(idx).arg(maxPwrEdit->text()));
         });
 
@@ -1922,7 +1922,7 @@ QWidget* RadioSetupDialog::buildXvtrTab()
         "padding: 8px 20px; }"
         "QPushButton:hover { background: #203040; }");
     connect(addBtn, &QPushButton::clicked, this, [this, xvtrTabs, buildXvtrPage] {
-        m_model->connection()->sendCommand("xvtr create",
+        m_model->sendCmdPublic("xvtr create",
             [this, xvtrTabs, buildXvtrPage](int code, const QString& body) {
                 if (code != 0) return;
                 // Wait briefly for the radio's status update to arrive
@@ -1965,7 +1965,7 @@ QWidget* RadioSetupDialog::buildUsbCablesTab()
     auto* hbox = new QHBoxLayout(page);
     hbox->setSpacing(6);
 
-    auto* cableModel = m_model->usbCableModel();
+    auto* cableModel = &m_model->usbCableModel();
 
     // Style constants
     static const QString kCombo =

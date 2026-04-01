@@ -404,10 +404,10 @@ void CatApplet::setRadioModel(RadioModel* model)
         updateTxLabel();
 
         // Wire DAX IQ stream state changes → sync On/Off buttons
-        connect(model->daxIqModel(), &DaxIqModel::streamChanged, this, [this](int ch) {
+        connect(&model->daxIqModel(), &DaxIqModel::streamChanged, this, [this](int ch) {
             if (ch < 1 || ch > kChannels) return;
             int idx = ch - 1;
-            bool exists = m_model->daxIqModel()->stream(ch).exists;
+            bool exists = m_model->daxIqModel().stream(ch).exists;
             m_iqEnable[idx]->setText(exists ? "On" : "Off");
             static const QString kOn =
                 "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
@@ -419,7 +419,7 @@ void CatApplet::setRadioModel(RadioModel* model)
             if (!exists) m_iqMeter[idx]->setValue(0);
 
             // Sync rate combo from radio state
-            int rate = m_model->daxIqModel()->stream(ch).sampleRate;
+            int rate = m_model->daxIqModel().stream(ch).sampleRate;
             QSignalBlocker sb(m_iqRateCombo[idx]);
             for (int i = 0; i < m_iqRateCombo[idx]->count(); ++i) {
                 if (m_iqRateCombo[idx]->itemData(i).toInt() == rate) {
