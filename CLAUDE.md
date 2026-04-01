@@ -162,17 +162,19 @@ src/
 
 ### Data Pipelines
 
-Three-thread architecture after Phase 1+2 migration (#502):
-- **Main thread**: GUI rendering (paintEvent), TCP command/status, user input
+Five-thread architecture after #502 migration:
+- **Main thread**: GUI rendering (paintEvent), RadioModel + all sub-models, user input
+- **Connection thread**: RadioConnection (TCP 4992 I/O, ping RTT measurement)
 - **Audio thread**: AudioEngine (RX/TX audio, NR2/RN2/BNR DSP, QAudioSink/Source)
 - **Network thread**: PanadapterStream (VITA-49 UDP parsing, FFT/waterfall/meter demux)
+- **ExtControllers thread**: FlexControl, MIDI, SerialPort (USB/serial I/O, RtMidi callbacks)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      NETWORK LAYER                                  │
 │                                                                     │
 │  Radio UDP 4992 ──→ RadioDiscovery ──→ ConnectionPanel    [MAIN]    │
-│  Radio TCP 4992 ──→ RadioConnection ──→ RadioModel        [MAIN]    │
+│  Radio TCP 4992 ──→ RadioConnection ──→ RadioModel        [CONN]→[MAIN] │
 │  Radio UDP 4991 ──→ PanadapterStream (VITA-49 demux)      [NETWORK] │
 │  TGXL  TCP 9010 ──→ TgxlConnection ──→ TunerModel        [MAIN]    │
 │  WAN   TLS 4992 ──→ WanConnection ──→ RadioModel          [MAIN]    │
@@ -199,7 +201,7 @@ SpectrumWidget   SpectrumWidget  MeterModel     AudioEngine
     │ + NB blanker     │     │    ├─→ TxApplet        ├─→ RN2 (RNNoiseFilter)
     ▼                  ▼     │    ├─→ TunerApplet     ├─→ BNR (NvidiaBnrFilter)
   paintEvent()    paintEvent │    └─→ StatusBar       ├─→ CwDecoder [MAIN]
-  (~99% CPU)                 │                        ▼
+  (~98% CPU)                 │                        ▼
                              │                   QAudioSink
                              │                   (speakers)
                              │
@@ -232,32 +234,40 @@ TX AUDIO PIPELINE:                          ◄── AUDIO THREAD
                       ▼                       ▼
                  Radio UDP 4991          Radio UDP 4991
 
-TCP COMMAND PIPELINE (bidirectional):       ◄── MAIN THREAD
-  GUI widget ──→ SliceModel.setXxx() ──→ emit commandReady("slice ...")
+TCP COMMAND PIPELINE (bidirectional):
+  GUI widget ──→ SliceModel.setXxx() ──→ emit commandReady("slice ...")  [MAIN]
                  TransmitModel          ──→ emit commandReady("xmit ...")
                  TunerModel             ──→ emit commandReady("tgxl ...")
                  EqualizerModel         ──→ emit commandReady("eq ...")
                  TnfModel               ──→ emit commandReady("tnf ...")
                         │
                         ▼
-                 RadioModel.sendCmd(cmd)
-                        │
-              ┌─────────┴─────────┐
-              ▼                   ▼
-        RadioConnection     WanConnection
-        (TCP 4992)          (TLS 4992)
-              │                   │
-              ▼                   ▼
-        QTcpSocket          QSslSocket
-              │                   │
-              └─────────┬─────────┘
-                        ▼
-                      Radio
+                 RadioModel.sendCmd(cmd)                                  [MAIN]
+                   │ stores callback in m_pendingCallbacks
+                   │ allocates sequence number
+                   ▼ [QMetaObject::invokeMethod → queued to CONN thread]
+              ┌─────────────────┐
+              │ RadioConnection  │  ◄── CONNECTION THREAD
+              │ writeCommand()   │      heap-allocated, moveToThread
+              │ QTcpSocket       │      init() creates socket on thread
+              │ ping RTT timer   │      measures RTT at socket read time
+              └────────┬────────┘
+                       │
+              ┌────────┴────────┐
+              ▼                 ▼
+         QTcpSocket       WanConnection    ◄── WAN stays on MAIN (TLS)
+              │                 │
+              └────────┬────────┘
+                       ▼
+                     Radio
 
   Radio ──→ "S<handle>|<object> key=val ..."
               │
-              ▼
-        RadioModel.onStatusReceived()       ◄── MAIN THREAD
+              ▼ CONNECTION THREAD
+        RadioConnection.processLine()
+              │ emits statusReceived, commandResponse
+              ▼ [auto-queued signal to MAIN]
+        RadioModel.onStatusReceived()                                    [MAIN]
               │
               ├─→ SliceModel.applyStatus()      ──→ GUI signals
               ├─→ PanadapterModel.applyStatus()  ──→ SpectrumWidget
@@ -267,11 +277,20 @@ TCP COMMAND PIPELINE (bidirectional):       ◄── MAIN THREAD
               ├─→ MeterModel.registerMeter()     ──→ meter definitions
               └─→ Multi-Flex client tracking     ──→ TitleBar badge
 
-EXTERNAL CONTROL PIPELINES:                 ◄── MAIN THREAD
-  FlexControl (USB serial) ──→ FlexControlManager ──→ MainWindow ──→ slice tune
-  MIDI (RtMidi)            ──→ MidiControlManager  ──→ parameter setters
-  SerialPort (PTT/CW)     ──→ SerialPortController ──→ RadioModel TX/CW
-  TGXL (TCP 9010)          ──→ TgxlConnection      ──→ TunerModel relay adjust
+        RadioModel.onCommandResponse()                                   [MAIN]
+              │ looks up callback by sequence number
+              └─→ invokes callback on main thread (safe model access)
+
+EXTERNAL CONTROL PIPELINES:                 ◄── EXTCONTROLLERS THREAD
+  FlexControl (USB serial) ──→ FlexControlManager ──┐
+  MIDI (RtMidi)            ──→ MidiControlManager  ──┼─→ [auto-queued signals]
+  SerialPort (PTT/CW)     ──→ SerialPortController ──┘       │
+                                                              ▼ MAIN THREAD
+                                                     MainWindow dispatches:
+                                                       ├─→ RadioModel (tune, TX, CW)
+                                                       ├─→ SliceModel (freq, gain, DSP)
+                                                       └─→ AudioEngine (mute, mic gain)
+  TGXL (TCP 9010)          ──→ TgxlConnection      ──→ TunerModel relay adjust [MAIN]
 
 SPOT PIPELINES:                             ◄── SPOT WORKER THREAD
   DX Cluster (telnet)  ─┐
@@ -285,15 +304,19 @@ SPOT PIPELINES:                             ◄── SPOT WORKER THREAD
 
 | Thread | Components | CPU | Notes |
 |--------|-----------|-----|-------|
-| **Main** | paintEvent, RadioConnection, RadioModel, all GUI widgets, CwDecoder | ~99% | Dominated by QPainter waterfall blit |
-| **Audio** | AudioEngine, NR2/RN2/BNR DSP, QAudioSink/Source, TX encoding | ~1% | std::atomic flags, recursive_mutex for DSP lifecycle |
-| **Network** | PanadapterStream, QUdpSocket, VITA-49 parsing, FFT/WF assembly | ~0.5% | QMutex guards stream ID sets |
+| **Main** | paintEvent, RadioModel, all sub-models, all GUI widgets, CwDecoder | ~97% | Dominated by QPainter waterfall blit |
+| **Connection** | RadioConnection, QTcpSocket, ping RTT | ~0% | Heap-allocated, init() slot pattern |
+| **Audio** | AudioEngine, NR2/RN2/BNR DSP, QAudioSink/Source, TX encoding | ~1.5% | std::atomic flags, recursive_mutex for DSP lifecycle |
+| **Network** | PanadapterStream, QUdpSocket, VITA-49 parsing, FFT/WF assembly | ~0.3% | QMutex guards stream ID sets |
+| **ExtControllers** | FlexControlManager, MidiControlManager, SerialPortController | ~0% | USB serial I/O, RtMidi, poll timers |
 | **Spot** | DxCluster, RBN, WSJT-X, POTA, FreeDV clients | ~0% | Batched 1/sec forwarding |
 | **DAX IQ** | DaxIqModel worker | ~0% | Byte-swap + pipe I/O |
 | **RADE** | RADEEngine | ~0% | Neural encoder/decoder |
 | **BNR gRPC** | NvidiaBnrFilter async I/O | ~0% | GPU container communication |
 
 **Cross-thread signals (auto-queued):**
+- Connection → Main: statusReceived, messageReceived, commandResponse, pingRttMeasured
+- Main → Connection: writeCommand (via QMetaObject::invokeMethod), connectToRadio, disconnectFromRadio
 - Network → Main: spectrumReady, waterfallRowReady, meterDataReady, daxAudioReady
 - Network → Audio: audioDataReady
 - Audio → Network: txPacketReady (→ sendToRadio)
@@ -301,8 +324,16 @@ SPOT PIPELINES:                             ◄── SPOT WORKER THREAD
 - Main → Audio: setNr2/Rn2/BnrEnabled (via QMetaObject::invokeMethod)
 - Main → Audio: startRxStream/stopRxStream (via helper methods)
 - Main → Network: registerPanStream, setDbmRange (QMutex-protected setters)
+- ExtControllers → Main: tuneSteps, buttonPressed, externalPttChanged, cwKeyChanged, paramAction
+- Main → ExtControllers: setTransmitting, loadSettings, open/close (via QMetaObject::invokeMethod)
 
-**Remaining bottleneck:** Main thread at ~99% is entirely QPainter waterfall
+**Design principle:** Everything except GUI rendering and model dispatch runs
+on a dedicated worker thread. RadioModel owns all sub-models as value members
+on the main thread — GUI accesses models directly with no pointer indirection.
+Each worker thread has a single responsibility and communicates exclusively via
+auto-queued signals. The main thread handles only paintEvent + model updates.
+
+**Remaining bottleneck:** Main thread at ~98% is entirely QPainter waterfall
 rendering (`p.drawImage()` blit). With waterfall closed, main thread drops to
 2-3%. GPU offload (Phase 3, #502) is the path to resolving this.
 

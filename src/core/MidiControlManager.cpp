@@ -282,11 +282,10 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2)
 
         // For toggles: use > 0.5 threshold; for triggers: only fire on > 0.5
         if (param->type == MidiParamType::Toggle) {
-            // Toggle on each NoteOn, or CC > 63
+            // NoteOn = toggle (sentinel -1 tells MainWindow to flip current state)
+            // CC = direct threshold
             if (msgType == MidiBinding::NoteOn) {
-                // Get current value and toggle
-                float cur = param->getter ? param->getter() : 0.0f;
-                scaled = (cur > 0.5f) ? 0.0f : 1.0f;
+                scaled = -1.0f;  // sentinel: MainWindow reads getter and toggles (#502)
             } else {
                 scaled = (value > 0.5f) ? 1.0f : 0.0f;
             }
@@ -299,8 +298,9 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2)
             scaled = normValue > 0.0f ? 1.0f : 0.0f;
         }
 
-        if (param->setter)
-            param->setter(scaled);
+        // Don't call setter directly — may be on a worker thread while
+        // setters access main-thread objects. Emit signal instead. (#502)
+        emit paramAction(binding.paramId, scaled);
     }
 
     emit paramValueChanged(binding.paramId, value);

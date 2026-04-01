@@ -149,15 +149,21 @@ private:
 
     // Batched spot add commands (flushed 1/sec)
     QStringList m_spotCmdBatch;
+    // External controllers run on a dedicated worker thread (#502)
+    QThread*             m_extCtrlThread{nullptr};
 #ifdef HAVE_SERIALPORT
-    SerialPortController m_serialPort;
-    FlexControlManager   m_flexControl;
+    SerialPortController* m_serialPort{nullptr};
+    FlexControlManager*   m_flexControl{nullptr};
     QTimer               m_flexCoalesceTimer;
     int                  m_flexPendingSteps{0};
 #endif
 #ifdef HAVE_MIDI
-    MidiControlManager   m_midiControl;
+    MidiControlManager*  m_midiControl{nullptr};
     void registerMidiParams();
+    // MIDI param setters indexed by ID — called on main thread from
+    // paramAction signal (worker thread cannot call them directly). (#502)
+    QHash<QString, std::function<void(float)>> m_midiSetters;
+    QHash<QString, std::function<float()>>     m_midiGetters;
 #endif
 
     // GUI — left sidebar

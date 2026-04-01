@@ -601,7 +601,7 @@ MainWindow::MainWindow(QWidget* parent)
         }
 #endif
 #ifdef HAVE_SERIALPORT
-        m_serialPort.setTransmitting(tx);
+        QMetaObject::invokeMethod(m_serialPort, [this, tx] { m_serialPort->setTransmitting(tx); });
 #endif
     });
 
@@ -1129,26 +1129,34 @@ MainWindow::MainWindow(QWidget* parent)
             m_radioModel.transmitModel().apdConfigurable());
     });
 
-    // ── Serial port PTT/CW keying ───────────────────────────────────────
+    // ── External controllers run on a dedicated worker thread (#502) ────
+    // FlexControl, SerialPort, and MIDI controllers are created on the
+    // worker thread so their I/O (serial port, RtMidi callbacks, poll timers)
+    // never competes with paintEvent. Signals auto-queue to main thread.
+    m_extCtrlThread = new QThread(this);
+    m_extCtrlThread->setObjectName("ExtControllers");
+
 #ifdef HAVE_SERIALPORT
-    m_serialPort.loadSettings();
-    connect(&m_serialPort, &SerialPortController::externalPttChanged,
+    m_serialPort = new SerialPortController;  // no parent — moved to thread
+    m_serialPort->moveToThread(m_extCtrlThread);
+    m_flexControl = new FlexControlManager;
+    m_flexControl->moveToThread(m_extCtrlThread);
+
+    // Serial port signals (auto-queued from worker → main)
+    connect(m_serialPort, &SerialPortController::externalPttChanged,
             this, [this](bool active) {
         m_radioModel.setTransmit(active);
     });
-    connect(&m_serialPort, &SerialPortController::cwKeyChanged,
+    connect(m_serialPort, &SerialPortController::cwKeyChanged,
             this, [this](bool down) {
         m_radioModel.sendCwKey(down);
     });
-    connect(&m_serialPort, &SerialPortController::cwPaddleChanged,
+    connect(m_serialPort, &SerialPortController::cwPaddleChanged,
             this, [this](bool dit, bool dah) {
         m_radioModel.sendCwPaddle(dit, dah);
     });
 
-    // ── FlexControl tuning knob ─────────────────────────────────────────
-    // Coalesce rapid encoder steps into a single command every 20ms.
-    // Without this, each step sends a separate TCP command, flooding the
-    // radio and causing the UI to lag behind the knob.
+    // FlexControl coalesce timer stays on main thread (accesses activeSlice)
     m_flexCoalesceTimer.setSingleShot(true);
     m_flexCoalesceTimer.setInterval(20);
     connect(&m_flexCoalesceTimer, &QTimer::timeout, this, [this]() {
@@ -1164,20 +1172,18 @@ MainWindow::MainWindow(QWidget* parent)
                 QString("slice m %1 pan=%2").arg(newMhz, 0, 'f', 6).arg(panId));
         if (spectrum()) spectrum()->setVfoFrequency(newMhz);
     });
-    connect(&m_flexControl, &FlexControlManager::tuneSteps,
+    // FlexControl signals (auto-queued from worker → main)
+    connect(m_flexControl, &FlexControlManager::tuneSteps,
             this, [this](int steps) {
         m_flexPendingSteps += steps;
         if (!m_flexCoalesceTimer.isActive())
             m_flexCoalesceTimer.start();
     });
 
-    connect(&m_flexControl, &FlexControlManager::buttonPressed,
+    connect(m_flexControl, &FlexControlManager::buttonPressed,
             this, [this](int button, int action) {
-        // Look up configurable action from AppSettings
         QString key = QString("FlexControlBtn%1Action%2").arg(button).arg(action);
         auto& settings = AppSettings::instance();
-
-        // Defaults: Btn1=StepUp/StepDown, Btn2=ToggleMox/ToggleTune, Btn3=ToggleMute/ToggleLock
         static const char* defaults[3][3] = {
             {"StepUp",     "StepDown",     "None"},
             {"ToggleMox",  "ToggleTune",   "None"},
@@ -1187,7 +1193,6 @@ MainWindow::MainWindow(QWidget* parent)
                           ? defaults[button-1][action] : "None";
         QString actionName = settings.value(key, def).toString();
 
-        // Dispatch action
         if (actionName == "StepUp") {
             if (auto* rx = m_appletPanel->rxApplet()) rx->cycleStepUp();
         } else if (actionName == "StepDown") {
@@ -1208,8 +1213,7 @@ MainWindow::MainWindow(QWidget* parent)
                 for (int i = 0; i < slices.size(); ++i) {
                     if (slices[i]->sliceId() == m_activeSliceId) { idx = i; break; }
                 }
-                int next = (idx + 1) % slices.size();
-                setActiveSlice(slices[next]->sliceId());
+                setActiveSlice(slices[(idx + 1) % slices.size()]->sliceId());
             }
         } else if (actionName == "PrevSlice") {
             const auto& slices = m_radioModel.slices();
@@ -1218,36 +1222,68 @@ MainWindow::MainWindow(QWidget* parent)
                 for (int i = 0; i < slices.size(); ++i) {
                     if (slices[i]->sliceId() == m_activeSliceId) { idx = i; break; }
                 }
-                int prev = (idx - 1 + slices.size()) % slices.size();
-                setActiveSlice(slices[prev]->sliceId());
+                setActiveSlice(slices[(idx - 1 + slices.size()) % slices.size()]->sliceId());
             }
         }
     });
+#endif
 
-    // Auto-detect FlexControl on startup
-    m_flexControl.setInvertDirection(
+#ifdef HAVE_MIDI
+    m_midiControl = new MidiControlManager;
+    m_midiControl->moveToThread(m_extCtrlThread);
+
+    // Register MIDI params — setters/getters stored on MainWindow for
+    // main-thread dispatch. Param metadata still registered on the manager.
+    registerMidiParams();
+
+    // MIDI paramAction signal: dispatches setter on main thread (#502)
+    connect(m_midiControl, &MidiControlManager::paramAction,
+            this, [this](const QString& paramId, float scaledValue) {
+        auto it = m_midiSetters.find(paramId);
+        if (it == m_midiSetters.end()) return;
+        if (scaledValue == -1.0f) {
+            // Toggle sentinel: read getter, flip, call setter
+            auto git = m_midiGetters.find(paramId);
+            float cur = (git != m_midiGetters.end() && *git) ? (*git)() : 0.0f;
+            it.value()(cur > 0.5f ? 0.0f : 1.0f);
+        } else {
+            it.value()(scaledValue);
+        }
+    });
+
+    MidiSettings::instance().load();
+    auto savedBindings = MidiSettings::instance().loadBindings();
+    for (const auto& b : savedBindings)
+        m_midiControl->addBinding(b);
+#endif
+
+    // Start the external controller thread — objects are already moved
+    m_extCtrlThread->start();
+
+    // Init that must happen on the worker thread (serial port open, etc.)
+#ifdef HAVE_SERIALPORT
+    QMetaObject::invokeMethod(m_serialPort, [this] {
+        m_serialPort->loadSettings();
+    });
+    m_flexControl->setInvertDirection(
         AppSettings::instance().value("FlexControlInvertDir", "False").toString() == "True");
     if (AppSettings::instance().value("FlexControlAutoDetect", "True").toString() == "True") {
         QString fcPort = FlexControlManager::detectPort();
         if (!fcPort.isEmpty()) {
-            m_flexControl.open(fcPort);
+            QMetaObject::invokeMethod(m_flexControl, [this, fcPort] {
+                m_flexControl->open(fcPort);
+            });
         }
     }
 #endif
-
 #ifdef HAVE_MIDI
-    // ── MIDI controller ─────────────────────────────────────────────────
-    registerMidiParams();
-    MidiSettings::instance().load();
-    // Load saved bindings
-    auto savedBindings = MidiSettings::instance().loadBindings();
-    for (const auto& b : savedBindings)
-        m_midiControl.addBinding(b);
-    // Auto-connect to last device
     if (MidiSettings::instance().autoConnect()) {
         QString dev = MidiSettings::instance().lastDevice();
-        if (!dev.isEmpty())
-            m_midiControl.openPortByName(dev);
+        if (!dev.isEmpty()) {
+            QMetaObject::invokeMethod(m_midiControl, [this, dev] {
+                m_midiControl->openPortByName(dev);
+            });
+        }
     }
 #endif
 
@@ -1474,6 +1510,19 @@ MainWindow::~MainWindow()
     m_audioThread->quit();
     m_audioThread->wait();
     delete m_audio;
+
+    // Stop external controller thread (#502)
+    if (m_extCtrlThread && m_extCtrlThread->isRunning()) {
+        m_extCtrlThread->quit();
+        m_extCtrlThread->wait();
+    }
+#ifdef HAVE_SERIALPORT
+    delete m_serialPort;
+    delete m_flexControl;
+#endif
+#ifdef HAVE_MIDI
+    delete m_midiControl;
+#endif
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
@@ -1731,20 +1780,22 @@ void MainWindow::buildMenuBar()
         m_radioSetupDialog = dlg;
         connect(dlg, &QDialog::finished, this, [this, prevComp]() {
 #ifdef HAVE_SERIALPORT
-            // Re-load serial port settings if changed
-            m_serialPort.loadSettings();
+            // Re-load serial port settings if changed (on worker thread)
+            QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->loadSettings(); });
             // Re-check FlexControl open/close state
             auto& fcs = AppSettings::instance();
-            if (fcs.value("FlexControlOpen", "False").toString() == "True") {
-                if (!m_flexControl.isOpen()) {
-                    QString port = fcs.value("FlexControlPort").toString();
-                    if (!port.isEmpty()) m_flexControl.open(port);
+            bool fcOpen = fcs.value("FlexControlOpen", "False").toString() == "True";
+            QString fcPort = fcs.value("FlexControlPort").toString();
+            bool fcInvert = fcs.value("FlexControlInvertDir", "False").toString() == "True";
+            QMetaObject::invokeMethod(m_flexControl, [this, fcOpen, fcPort, fcInvert] {
+                if (fcOpen) {
+                    if (!m_flexControl->isOpen() && !fcPort.isEmpty())
+                        m_flexControl->open(fcPort);
+                } else {
+                    if (m_flexControl->isOpen()) m_flexControl->close();
                 }
-            } else {
-                if (m_flexControl.isOpen()) m_flexControl.close();
-            }
-            m_flexControl.setInvertDirection(
-                fcs.value("FlexControlInvertDir", "False").toString() == "True");
+                m_flexControl->setInvertDirection(fcInvert);
+            });
 #endif
             // Re-evaluate CW decode overlay visibility
             bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
@@ -1824,7 +1875,7 @@ void MainWindow::buildMenuBar()
             m_midiDialog->activateWindow();
             return;
         }
-        auto* dlg = new MidiMappingDialog(&m_midiControl, this);
+        auto* dlg = new MidiMappingDialog(m_midiControl, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         m_midiDialog = dlg;
         dlg->show();
@@ -5197,11 +5248,15 @@ void MainWindow::stopDax()
 void MainWindow::registerMidiParams()
 {
     using P = MidiParamType;
+    // Setters/getters stored on MainWindow for main-thread dispatch (#502).
+    // MidiControlManager gets metadata only (no lambdas that capture main-thread objects).
     auto reg = [this](const char* id, const char* name, const char* cat,
                       MidiParamType type, float lo, float hi,
                       std::function<void(float)> setter,
                       std::function<float()> getter = {}) {
-        m_midiControl.registerParam({id, name, cat, type, lo, hi, std::move(setter), std::move(getter)});
+        m_midiSetters[id] = setter;
+        if (getter) m_midiGetters[id] = getter;
+        m_midiControl->registerParam({id, name, cat, type, lo, hi, std::move(setter), std::move(getter)});
     };
 
     // ── RX ──────────────────────────────────────────────────────────────

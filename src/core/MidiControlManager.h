@@ -94,6 +94,9 @@ signals:
     void portError(const QString& error);
     void midiActivity(int channel, int msgType, int number, int value);
     void paramValueChanged(const QString& paramId, float normalizedValue);
+    // Emitted with the final scaled value for MainWindow to dispatch
+    // the setter on the main thread. (#502)
+    void paramAction(const QString& paramId, float scaledValue);
     void learnCompleted(const QString& paramId, const MidiBinding& binding);
     void learnCancelled();
 
