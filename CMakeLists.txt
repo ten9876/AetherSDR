@@ -15,10 +15,13 @@ endif()
 # Qt6 components
 find_package(Qt6 REQUIRED COMPONENTS
     Core
+    Gui
     Widgets
     Network
     Multimedia
 )
+# QRhi GPU rendering requires private Gui headers (#502)
+find_package(Qt6 QUIET COMPONENTS GuiPrivate)
 find_package(Qt6 QUIET COMPONENTS SerialPort)
 if(Qt6SerialPort_FOUND)
     message(STATUS "Qt6::SerialPort found — serial PTT/CW support enabled")
@@ -292,6 +295,14 @@ set(GUI_SOURCES
     src/gui/WhatsNewDialog.cpp
 )
 
+# QRhiWidget requires Qt 6.6+ — conditionally include GPU renderer
+if(Qt6Widgets_VERSION VERSION_GREATER_EQUAL "6.6.0")
+    list(APPEND GUI_SOURCES src/gui/GpuSpectrumRenderer.cpp)
+    message(STATUS "Qt ${Qt6Widgets_VERSION} — GPU spectrum renderer enabled (QRhiWidget)")
+else()
+    message(STATUS "Qt ${Qt6Widgets_VERSION} — GPU spectrum renderer disabled (requires Qt 6.6+)")
+endif()
+
 set(ALL_SOURCES
     src/main.cpp
     ${CORE_SOURCES}
@@ -419,10 +430,14 @@ target_include_directories(AetherSDR PRIVATE
 
 target_link_libraries(AetherSDR PRIVATE
     Qt6::Core
+    Qt6::Gui
     Qt6::Widgets
     Qt6::Network
     Qt6::Multimedia
 )
+if(Qt6GuiPrivate_FOUND)
+    target_link_libraries(AetherSDR PRIVATE Qt6::GuiPrivate)
+endif()
 
 if(Qt6SerialPort_FOUND)
     target_compile_definitions(AetherSDR PRIVATE HAVE_SERIALPORT)
