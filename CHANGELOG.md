@@ -3,6 +3,39 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.17] — 2026-04-01
+
+### Network & Input Responsiveness
+
+AetherSDR v0.7.17 moves all network and external controller I/O off the main
+thread, fixing ping RTT inflation and establishing a clean 5-thread architecture.
+
+### Improvements
+
+**RadioConnection worker thread (#502)**
+- TCP command/status I/O runs on a dedicated worker thread
+- Ping RTT now measures actual network latency, not main thread load
+- Fixes "Poor" network status despite zero packet drops
+- Response callbacks dispatched on main thread via auto-queued signals
+- All external `connection()->sendCommand()` calls routed through RadioModel
+
+**External controllers worker thread (#502)**
+- FlexControl USB tuning knob, MIDI controllers, and serial port PTT/CW
+  keying now run on a shared ExtControllers worker thread
+- USB serial I/O, RtMidi callbacks, and poll timers no longer compete
+  with GUI rendering for main thread CPU
+- MIDI parameter dispatch via signal to main thread (thread-safe)
+
+### Architecture
+
+Five-thread design: Main (GUI + models), Connection (TCP), Audio (DSP),
+Network (VITA-49 UDP), ExtControllers (FlexControl/MIDI/SerialPort).
+Each worker thread has a single responsibility and communicates via
+auto-queued Qt signals. The main thread handles only rendering and
+model dispatch.
+
+---
+
 ## [v0.7.16] — 2026-03-31
 
 ### World-First TGXL Relay Control & Global Band Plans
