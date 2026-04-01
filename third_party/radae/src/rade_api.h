@@ -37,7 +37,11 @@
 #ifndef __RADE_API__
 #define __RADE_API__
 
+#ifdef _WIN32
+#include <stddef.h>
+#else
 #include <sys/types.h>
+#endif
 
 #if IS_BUILDING_RADE_API
 #if _WIN32

@@ -11,7 +11,52 @@ set(OPUS_URL https://github.com/xiph/opus/archive/940d4e5af64351ca8ba8390df3f555
 endif (NOT DEFINED OPUS_URL)
 
 include(ExternalProject)
-if(APPLE AND BUILD_OSX_UNIVERSAL)
+
+# ── Windows: build Opus via CMake (no autotools) ─────────────────────────
+if(WIN32)
+    ExternalProject_Add(build_opus
+        DOWNLOAD_EXTRACT_TIMESTAMP NO
+        URL ${OPUS_URL}
+        PATCH_COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_DIR=<SOURCE_DIR>
+            -DRADE_DIR=${RADE_DIR}
+            -P ${RADE_DIR}/cmake/PatchOpusNnet.cmake
+        CMAKE_ARGS
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+            -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+            -DBUILD_SHARED_LIBS=OFF
+            -DOPUS_BUILD_TESTING=OFF
+            -DOPUS_BUILD_PROGRAMS=OFF
+            -DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF
+            -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF
+            -DOPUS_DRED=ON
+            -DOPUS_OSCE=ON
+        BUILD_BYPRODUCTS <BINARY_DIR>/opus${CMAKE_STATIC_LIBRARY_SUFFIX}
+                         <BINARY_DIR>/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}
+        INSTALL_COMMAND ""
+    )
+
+    ExternalProject_Get_Property(build_opus BINARY_DIR)
+    ExternalProject_Get_Property(build_opus SOURCE_DIR)
+    add_library(opus STATIC IMPORTED)
+    add_dependencies(opus build_opus)
+
+    # CMake produces opus.lib (MSVC) or libopus.a (MinGW)
+    if(MSVC)
+        set(_opus_lib "${BINARY_DIR}/opus${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    else()
+        set(_opus_lib "${BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    endif()
+    set_target_properties(opus PROPERTIES
+        IMPORTED_LOCATION "${_opus_lib}"
+        IMPORTED_IMPLIB   "${_opus_lib}"
+    )
+
+    include_directories(${SOURCE_DIR}/dnn ${SOURCE_DIR}/celt ${SOURCE_DIR}/include ${SOURCE_DIR})
+
+# ── macOS universal: build twice and lipo ────────────────────────────────
+elseif(APPLE AND BUILD_OSX_UNIVERSAL)
 # Opus ./configure doesn't behave properly when built as a universal binary;
 # build it twice and use lipo to create a universal libopus.a instead.
 ExternalProject_Add(build_opus_x86
@@ -56,7 +101,8 @@ set_target_properties(opus PROPERTIES
     IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}"
 )
 
-else(APPLE AND BUILD_OSX_UNIVERSAL)
+# ── Unix/Linux: autotools ────────────────────────────────────────────────
+else()
 ExternalProject_Add(build_opus
     DOWNLOAD_EXTRACT_TIMESTAMP NO
     BUILD_IN_SOURCE 1
@@ -79,4 +125,4 @@ set_target_properties(opus PROPERTIES
 )
 
 include_directories(${SOURCE_DIR}/dnn ${SOURCE_DIR}/celt ${SOURCE_DIR}/include ${SOURCE_DIR})
-endif(APPLE AND BUILD_OSX_UNIVERSAL)
+endif()

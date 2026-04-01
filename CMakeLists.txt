@@ -92,8 +92,13 @@ if(ENABLE_RADE AND EXISTS "${RADE_DIR}/src/rade_api.h")
         ${RADE_DIR}/src/kiss_fft.c
         ${RADE_DIR}/src/kiss_fftr.c
     )
+    if(MSVC)
+        set(RADE_WARN_FLAG "/w")
+    else()
+        set(RADE_WARN_FLAG "-w")
+    endif()
     set_source_files_properties(${RADE_SOURCES} PROPERTIES
-        COMPILE_FLAGS "-w -DIS_BUILDING_RADE_API=1 -DRADE_PYTHON_FREE=1"
+        COMPILE_FLAGS "${RADE_WARN_FLAG} -DIS_BUILDING_RADE_API=1 -DRADE_PYTHON_FREE=1"
         INCLUDE_DIRECTORIES "${RADE_DIR}/src"
     )
     set(RADE_FOUND TRUE)
@@ -479,9 +484,13 @@ if(FFTW3_FOUND)
 endif()
 
 if(RADE_FOUND)
-    target_compile_definitions(AetherSDR PRIVATE HAVE_RADE HAVE_OPUS)
+    target_compile_definitions(AetherSDR PRIVATE HAVE_RADE HAVE_OPUS IS_BUILDING_RADE_API=1)
     target_include_directories(AetherSDR PRIVATE ${RADE_DIR}/src)
-    target_link_libraries(AetherSDR PRIVATE opus m)
+    if(WIN32)
+        target_link_libraries(AetherSDR PRIVATE opus)
+    else()
+        target_link_libraries(AetherSDR PRIVATE opus m)
+    endif()
 elseif(OPUS_FOUND)
     target_compile_definitions(AetherSDR PRIVATE HAVE_OPUS)
     target_include_directories(AetherSDR PRIVATE ${OPUS_INCLUDE_DIRS})

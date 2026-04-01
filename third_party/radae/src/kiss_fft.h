@@ -34,7 +34,11 @@ extern "C" {
 #endif
 
 #ifdef FIXED_POINT
+#ifdef _WIN32
+#include <stddef.h>
+#else
 #include <sys/types.h>
+#endif
 #if (FIXED_POINT == 32)
 #define kiss_fft_scalar int32_t
 #else

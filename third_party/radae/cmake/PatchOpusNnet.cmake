@@ -1,0 +1,96 @@
+# PatchOpusNnet.cmake — Apply the RADE_EXPORT patch to Opus dnn/nnet.h
+# This replaces `patch dnn/nnet.h < opus-nnet.h.diff` for platforms without patch(1).
+# Invoked as: cmake -DSOURCE_DIR=<opus_src> -DRADE_DIR=<radae_dir> -P PatchOpusNnet.cmake
+
+set(NNET_H "${SOURCE_DIR}/dnn/nnet.h")
+file(READ "${NNET_H}" content)
+
+# 1. Add RADE_EXPORT fallback definition after #define NNET_H_
+string(REPLACE
+    "#define NNET_H_\n"
+    "#define NNET_H_\n\n#ifndef RADE_EXPORT\n#define RADE_EXPORT __attribute__((visibility(\"default\")))\n#endif /* RADE_EXPORT */\n"
+    content "${content}")
+
+# 2. Add RADE_EXPORT to function declarations
+string(REPLACE
+    "void compute_generic_dense("
+    "void RADE_EXPORT compute_generic_dense("
+    content "${content}")
+string(REPLACE
+    "void compute_generic_gru("
+    "void RADE_EXPORT compute_generic_gru("
+    content "${content}")
+string(REPLACE
+    "void compute_generic_conv1d("
+    "void RADE_EXPORT compute_generic_conv1d("
+    content "${content}")
+string(REPLACE
+    "void compute_generic_conv1d_dilation("
+    "void RADE_EXPORT compute_generic_conv1d_dilation("
+    content "${content}")
+string(REPLACE
+    "void compute_glu("
+    "void RADE_EXPORT compute_glu("
+    content "${content}")
+string(REPLACE
+    "void compute_gated_activation("
+    "void RADE_EXPORT compute_gated_activation("
+    content "${content}")
+string(REPLACE
+    "int parse_weights("
+    "int RADE_EXPORT parse_weights("
+    content "${content}")
+string(REPLACE
+    "int linear_init("
+    "int RADE_EXPORT linear_init("
+    content "${content}")
+string(REPLACE
+    "int conv2d_init("
+    "int RADE_EXPORT conv2d_init("
+    content "${content}")
+
+file(WRITE "${NNET_H}" "${content}")
+message(STATUS "Patched ${NNET_H} with RADE_EXPORT attributes")
+
+# ── Download and extract neural network model data ───────────────────────
+# The autotools build does this via autogen.sh; the CMake build needs it
+# done explicitly.  The tarball contains generated *_data.h / *_data.c files
+# (fargan_data.h, plc_data.h, lace_data.h, etc.) that carry the trained
+# neural network weights.
+set(MODEL_HASH "4ed9445b96698bad25d852e912b41495ddfa30c8dbc8a55f9cde5826ed793453")
+set(MODEL_TAR  "opus_data-${MODEL_HASH}.tar.gz")
+set(MODEL_PATH "${SOURCE_DIR}/${MODEL_TAR}")
+
+if(NOT EXISTS "${SOURCE_DIR}/dnn/fargan_data.h")
+    if(NOT EXISTS "${MODEL_PATH}")
+        message(STATUS "Downloading Opus neural network model data...")
+        file(DOWNLOAD
+            "https://media.xiph.org/opus/models/${MODEL_TAR}"
+            "${MODEL_PATH}"
+            SHOW_PROGRESS
+            STATUS download_status)
+        list(GET download_status 0 download_code)
+        if(NOT download_code EQUAL 0)
+            # Fallback: try the AetherSDR release mirror
+            message(STATUS "Primary download failed, trying mirror...")
+            file(DOWNLOAD
+                "https://github.com/ten9876/AetherSDR/releases/download/v0.7.16/${MODEL_TAR}"
+                "${MODEL_PATH}"
+                SHOW_PROGRESS
+                STATUS download_status2)
+            list(GET download_status2 0 download_code2)
+            if(NOT download_code2 EQUAL 0)
+                message(FATAL_ERROR "Failed to download Opus model data")
+            endif()
+        endif()
+    endif()
+    message(STATUS "Extracting Opus model data...")
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} -E tar xzf "${MODEL_PATH}"
+        WORKING_DIRECTORY "${SOURCE_DIR}"
+        RESULT_VARIABLE extract_result)
+    if(NOT extract_result EQUAL 0)
+        message(FATAL_ERROR "Failed to extract Opus model data")
+    endif()
+    message(STATUS "Opus model data extracted")
+endif()
