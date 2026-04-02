@@ -27,6 +27,17 @@
 #include <QMouseEvent>
 #include <cmath>
 
+// QSlider that always accepts wheel events, preventing propagation to parent
+// (e.g. SpectrumWidget frequency scroll) at min/max boundaries. (#547 BUG-002)
+class GuardedSlider : public QSlider {
+public:
+    using QSlider::QSlider;
+    void wheelEvent(QWheelEvent* ev) override {
+        QSlider::wheelEvent(ev);
+        ev->accept();  // always consume, even at boundary
+    }
+};
+
 // Horizontal level meter bar: maps a dBm value to a filled bar.
 // Range: -130 (empty) to -20 dBm (full). Color: cyan with green tint above S9.
 class LevelBar : public QWidget {
@@ -186,8 +197,24 @@ VfoWidget::VfoWidget(QWidget* parent)
 
 void VfoWidget::wheelEvent(QWheelEvent* ev)
 {
-    // Forward to parent (SpectrumWidget) for scroll-to-tune
-    ev->ignore();
+    // Scroll over the frequency display tunes by step size.
+    // Everything else in the VFO is a dead zone for wheel events.
+    if (m_freqStack && m_slice && !m_slice->isLocked()) {
+        QPoint local = m_freqStack->mapFrom(this, ev->position().toPoint());
+        if (m_freqStack->rect().contains(local)) {
+            int stepHz = m_slice->stepHz();
+            if (stepHz <= 0) { ev->accept(); return; }
+            int delta = ev->angleDelta().y();
+            int steps = qBound(-1, delta / 120, 1);
+            if (steps != 0) {
+                double newMhz = m_slice->frequency() + steps * stepHz / 1e6;
+                m_slice->setFrequency(newMhz);
+            }
+            ev->accept();
+            return;
+        }
+    }
+    ev->accept();
 }
 
 void VfoWidget::mousePressEvent(QMouseEvent* ev)
@@ -551,7 +578,7 @@ void VfoWidget::buildTabContent()
             "QPushButton:checked { background: #6a2020; color: #ff8080;"
             " border: 1px solid #a04040; }");
         gainRow->addWidget(m_muteBtn);
-        m_afGainSlider = new QSlider(Qt::Horizontal);
+        m_afGainSlider = new GuardedSlider(Qt::Horizontal);
         m_afGainSlider->setRange(0, 100);
         m_afGainSlider->setStyleSheet(kSliderStyle);
         gainRow->addWidget(m_afGainSlider, 1);
@@ -570,7 +597,7 @@ void VfoWidget::buildTabContent()
         m_sqlBtn->setFixedHeight(20);
         m_sqlBtn->setStyleSheet(kDspToggle + kDisabledBtn);
         sqlRow->addWidget(m_sqlBtn);
-        m_sqlSlider = new QSlider(Qt::Horizontal);
+        m_sqlSlider = new GuardedSlider(Qt::Horizontal);
         m_sqlSlider->setRange(0, 100);
         m_sqlSlider->setValue(20);
         m_sqlSlider->setStyleSheet(kSliderStyle);
@@ -592,7 +619,7 @@ void VfoWidget::buildTabContent()
         m_sqlBtn->setFixedWidth(60);  // match AGC combo width
         AetherSDR::applyComboStyle(m_agcCmb);
         agcRow->addWidget(m_agcCmb);
-        m_agcTSlider = new QSlider(Qt::Horizontal);
+        m_agcTSlider = new GuardedSlider(Qt::Horizontal);
         m_agcTSlider->setRange(0, 100);
         m_agcTSlider->setValue(65);
         m_agcTSlider->setStyleSheet(kSliderStyle);
@@ -650,7 +677,7 @@ void VfoWidget::buildTabContent()
         auto* phaseLbl = new QLabel("P");
         phaseLbl->setStyleSheet(kLabelStyle);
         escTopRow->addWidget(phaseLbl);
-        m_escPhaseSlider = new QSlider(Qt::Horizontal);
+        m_escPhaseSlider = new GuardedSlider(Qt::Horizontal);
         m_escPhaseSlider->setRange(0, 72);   // 0–360° in 5° steps
         m_escPhaseSlider->setValue(0);
         m_escPhaseSlider->setStyleSheet(kSliderStyle);
@@ -674,7 +701,7 @@ void VfoWidget::buildTabContent()
         m_escGainLbl->setStyleSheet(kLabelStyle);
         m_escGainLbl->setAlignment(Qt::AlignHCenter);
         gainCol->addWidget(m_escGainLbl);
-        m_escGainSlider = new QSlider(Qt::Vertical);
+        m_escGainSlider = new GuardedSlider(Qt::Vertical);
         m_escGainSlider->setRange(0, 200);   // 0.0 – 2.0
         m_escGainSlider->setValue(100);       // default 1.0
         m_escGainSlider->setStyleSheet(kSliderStyle);
@@ -846,7 +873,7 @@ void VfoWidget::buildTabContent()
             lbl->setStyleSheet(kLabelStyle);
             lbl->setFixedWidth(26);
             apfVb->addWidget(lbl);
-            m_apfSlider = new QSlider(Qt::Horizontal);
+            m_apfSlider = new GuardedSlider(Qt::Horizontal);
             m_apfSlider->setRange(0, 100);
             m_apfSlider->setValue(50);
             m_apfSlider->setStyleSheet(kSliderStyle);

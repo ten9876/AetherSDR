@@ -186,7 +186,9 @@ void ConnectionPanel::onRadioLost(const QString& serial)
 
 void ConnectionPanel::onListSelectionChanged()
 {
-    m_connectBtn->setEnabled(!m_connected && m_radioList->currentItem() != nullptr);
+    // When connected, Disconnect is always available. When disconnected,
+    // Connect requires a radio to be selected. (#561)
+    m_connectBtn->setEnabled(m_connected || m_radioList->currentItem() != nullptr);
 }
 
 void ConnectionPanel::onConnectClicked()

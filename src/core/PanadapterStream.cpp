@@ -33,6 +33,12 @@ namespace AetherSDR {
 PanadapterStream::PanadapterStream(QObject* parent)
     : QObject(parent)
 {
+    // Socket and timer connections are deferred to init() which runs
+    // on the network thread after moveToThread(). (#561)
+}
+
+void PanadapterStream::init()
+{
     connect(&m_socket, &QUdpSocket::readyRead,
             this, &PanadapterStream::onDatagramReady);
 
@@ -64,7 +70,7 @@ bool PanadapterStream::isRunning() const
 
 bool PanadapterStream::start(RadioConnection* conn)
 {
-    if (isRunning()) return true;
+    if (isRunning()) stop();  // clean up previous session before rebinding (#561)
 
     static constexpr quint16 LAN_VITA_PORT = 4991;
     bool bound = m_socket.bind(QHostAddress::AnyIPv4, LAN_VITA_PORT,
@@ -113,7 +119,7 @@ bool PanadapterStream::start(RadioConnection* conn)
 
 bool PanadapterStream::startWan(const QHostAddress& radioAddr, quint16 radioUdpPort)
 {
-    if (isRunning()) return true;
+    if (isRunning()) stop();  // clean up previous session before rebinding (#561)
 
     // For WAN: bind to any port. The actual UDP registration happens later
     // in startWanUdpRegister() once the client handle is known.

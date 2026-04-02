@@ -19,6 +19,7 @@ RadioModel::RadioModel(QObject* parent)
     m_networkThread->setObjectName("PanadapterStream");
     m_panStream = new PanadapterStream;  // no parent — will be moved to thread
     m_panStream->moveToThread(m_networkThread);
+    connect(m_networkThread, &QThread::started, m_panStream, &PanadapterStream::init);
     m_networkThread->start();
 
     // RadioConnection runs on its own worker thread (#502) so TCP I/O

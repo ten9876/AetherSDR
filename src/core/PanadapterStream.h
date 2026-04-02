@@ -39,6 +39,10 @@ public:
 
     explicit PanadapterStream(QObject* parent = nullptr);
 
+    // Initialize socket and timer connections on the network thread.
+    // Call after moveToThread() via QThread::started signal. (#561)
+    Q_INVOKABLE void init();
+
     // Bind a local UDP port (OS-chosen) and register it with the radio.
     // conn must remain valid for the lifetime of this stream.
     // Q_INVOKABLE: must run on the network worker thread (#502)

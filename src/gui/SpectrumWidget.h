@@ -323,6 +323,7 @@ private:
     int m_stepHz{100};
     int m_scrollAccum{0};   // trackpad pixel scroll accumulator (macOS)
     int m_angleAccum{0};    // mouse wheel angle accumulator (#390)
+    qint64 m_lastWheelMs{0}; // debounce: timestamp of last accepted wheel step
 
     // ── FFT display controls (radio-side via "display pan set") ──────────
     int   m_panIndex{0};             // per-pan settings index (0, 1, 2, 3)

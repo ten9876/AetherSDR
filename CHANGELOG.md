@@ -3,6 +3,35 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.17.4] — 2026-04-02
+
+### UI Polish & Stability
+
+### Bug Fixes
+
+**Disconnect button unresponsive (#561)**
+- Clicking a radio in the list while connected disabled the Disconnect button
+- One-character fix: `!m_connected &&` → `m_connected ||`
+
+**PanadapterStream thread affinity (#561)**
+- Socket/timer signal connections moved to init() on the network thread
+- Fixes "Cannot create children for a parent in a different thread" on macOS
+- Prevents duplicate socket notifiers on reconnect
+
+**Scroll wheel 8x on Linux Mint (#556)**
+- Added 50ms debounce for desktops that send multiple events per notch
+- Combined with existing ±1 clamp for inflated single events
+
+**VFO slider wheel leak (#547 BUG-002)**
+- Sliders in VFO panel no longer leak wheel events to frequency scroll
+- Scroll over frequency display tunes by step size
+- Scroll elsewhere on VFO is consumed (dead zone)
+
+**B/S zoom toggle (#547 ENH-001)**
+- B and S buttons now toggle: first press zooms, second press restores
+
+---
+
 ## [v0.7.17.3] — 2026-04-02
 
 ### Filter Widget, DSP Cleanup & Diagnostics

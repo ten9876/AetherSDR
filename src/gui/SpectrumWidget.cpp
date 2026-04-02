@@ -1419,11 +1419,20 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
     } else {
         // Standard mouse wheel: angleDelta is in 1/8° units, one notch = 120.
         // Some desktops (KDE Plasma, Cinnamon) send inflated deltas
-        // (e.g. 960 per notch). Clamp to ±1 step per event. (#504)
+        // (e.g. 960 per notch) or multiple rapid events per physical notch.
+        // Clamp to ±1 per event AND debounce within 80ms window. (#504, #556)
         m_angleAccum += ev->angleDelta().y();
         steps = m_angleAccum / 120;
         m_angleAccum -= steps * 120;
         steps = qBound(-1, steps, 1);
+        if (steps != 0) {
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - m_lastWheelMs < 50) {
+                steps = 0;  // debounce: too soon after last step
+            } else {
+                m_lastWheelMs = now;
+            }
+        }
     }
     if (steps == 0) { ev->ignore(); return; }
 
