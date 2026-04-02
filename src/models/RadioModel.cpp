@@ -1819,10 +1819,13 @@ void RadioModel::onStatusReceived(const QString& object,
             m_txClientHandle = txOwner;
             m_txOwnedByUs = (txOwner == clientHandle() || txOwner == 0);
         }
+        // Parse interlock timing fields into TransmitModel (#498)
+        m_transmitModel.applyInterlockStatus(kvs);
+
         if (kvs.contains("state")) {
             const QString state = kvs["state"].toUpper();
 
-            if (!m_txOwnedByUs || !m_txRequested) {
+            if (!m_txOwnedByUs || (!m_txRequested && !m_transmitModel.isTuning())) {
                 // Another client owns TX, or local unkey requested:
                 // force local TX/audio gate off through all interlock states.
                 m_transmitModel.setTransmitting(false);

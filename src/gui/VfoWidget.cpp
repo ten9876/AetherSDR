@@ -1448,8 +1448,9 @@ void VfoWidget::setEscLevel(float dbm)
 void VfoWidget::setAfGain(int pct)
 {
     if (m_afGainSlider) {
-        QSignalBlocker b(m_afGainSlider);
+        m_updatingFromModel = true;
         m_afGainSlider->setValue(pct);
+        m_updatingFromModel = false;
     }
 }
 
@@ -1770,23 +1771,16 @@ void VfoWidget::setSlice(SliceModel* slice)
     // Audio
     connect(m_slice, &SliceModel::audioGainChanged, this, [this](float g) {
         m_updatingFromModel = true;
-        QSignalBlocker sb(m_afGainSlider);
         m_afGainSlider->setValue(static_cast<int>(g));
         m_updatingFromModel = false;
     });
     connect(m_slice, &SliceModel::audioMuteChanged, this, [this](bool mute) {
         m_updatingFromModel = true;
-        QSignalBlocker sb(m_muteBtn);
         m_muteBtn->setChecked(mute);
-        m_muteBtn->setText(mute ? QString::fromUtf8("AF  \xF0\x9F\x94\x87")
-                                : QString::fromUtf8("AF  \xF0\x9F\x94\x8A"));
-        m_tabBtns[0]->setText(mute ? QString::fromUtf8("\xF0\x9F\x94\x87")
-                                   : QString::fromUtf8("\xF0\x9F\x94\x8A"));
         m_updatingFromModel = false;
     });
     connect(m_slice, &SliceModel::audioPanChanged, this, [this](int pan) {
         m_updatingFromModel = true;
-        QSignalBlocker sb(m_panSlider);
         m_panSlider->setValue(pan);
         m_updatingFromModel = false;
     });
@@ -1839,7 +1833,6 @@ void VfoWidget::setSlice(SliceModel* slice)
     connect(m_slice, &SliceModel::escPhaseShiftChanged, this, [this](float rad) {
         m_updatingFromModel = true;
         int deg = static_cast<int>(rad * 180.0f / M_PI) % 360;
-        QSignalBlocker sb(m_escPhaseSlider);
         m_escPhaseSlider->setValue(deg / 5);
         m_escPhaseLbl->setText(QString::number(deg) + QChar(0x00B0));
         m_phaseKnob->setPhase(rad);
@@ -1866,7 +1859,6 @@ void VfoWidget::setSlice(SliceModel* slice)
     connectDsp(&SliceModel::apfChanged, m_apfBtn);
     connect(m_slice, &SliceModel::apfLevelChanged, this, [this](int v) {
         m_updatingFromModel = true;
-        QSignalBlocker sb(m_apfSlider);
         m_apfSlider->setValue(v);
         m_apfValueLbl->setText(QString::number(v));
         m_updatingFromModel = false;
@@ -1874,7 +1866,6 @@ void VfoWidget::setSlice(SliceModel* slice)
     // Squelch
     connect(m_slice, &SliceModel::squelchChanged, this, [this](bool on, int level) {
         m_updatingFromModel = true;
-        QSignalBlocker b1(m_sqlBtn), b2(m_sqlSlider);
         if (m_sqlBtn->isEnabled())
             m_sqlBtn->setChecked(on);
         m_sqlSlider->setValue(level);
@@ -1893,7 +1884,6 @@ void VfoWidget::setSlice(SliceModel* slice)
     });
     connect(m_slice, &SliceModel::agcThresholdChanged, this, [this](int v) {
         m_updatingFromModel = true;
-        QSignalBlocker sb(m_agcTSlider);
         m_agcTSlider->setValue(v);
         m_updatingFromModel = false;
     });

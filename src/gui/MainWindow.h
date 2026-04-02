@@ -256,7 +256,6 @@ private:
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
     DaxBridge* m_daxBridge{nullptr};
     QString m_savedMicSelection;  // restore on stopDax
-    bool m_savedDaxEnabled{false}; // restore on stopDax
     void startDax();
     void stopDax();
 #endif

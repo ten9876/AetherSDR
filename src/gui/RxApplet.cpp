@@ -1715,7 +1715,9 @@ bool RxApplet::eventFilter(QObject* obj, QEvent* ev)
 
     if (obj == m_freqLabel && ev->type() == QEvent::Wheel) {
         auto* we = static_cast<QWheelEvent*>(ev);
-        const int steps = we->angleDelta().y() / 120;
+        // Clamp to ±1: KDE/Cinnamon send 960 per notch (#504)
+        const int raw = we->angleDelta().y() / 120;
+        const int steps = qBound(-1, raw, 1);
         if (steps == 0 || !m_slice) { we->ignore(); return true; }
 
         // Determine which character the cursor is over.

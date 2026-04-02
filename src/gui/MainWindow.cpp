@@ -1251,6 +1251,22 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
 
+    // MIDI relativeAction signal: coalesced step-based tuning with acceleration
+    connect(m_midiControl, &MidiControlManager::relativeAction,
+            this, [this](const QString& paramId, int steps) {
+        if (paramId == "rx.tuneKnob") {
+            auto* s = activeSlice();
+            if (!s || s->isLocked()) return;
+            int stepHz = s->stepHz();
+            if (stepHz <= 0) return;  // radio hasn't sent step yet
+            // Snap to step grid: round current freq to nearest step, then offset
+            long long curHz = static_cast<long long>(std::round(s->frequency() * 1e6));
+            long long snapped = ((curHz + stepHz / 2) / stepHz) * stepHz;
+            double newMhz = (snapped + steps * stepHz) / 1e6;
+            s->setFrequency(newMhz);
+        }
+    });
+
     MidiSettings::instance().load();
     auto savedBindings = MidiSettings::instance().loadBindings();
     for (const auto& b : savedBindings)
@@ -3126,6 +3142,11 @@ void MainWindow::onSliceAdded(SliceModel* s)
             }
         }
         m_audio->setDaxTxMode(isDigital);
+
+        // Auto-toggle radio-side DAX flag on mode change (#534).
+        // Digital modes need dax=1 for TX audio routing through DAX.
+        m_radioModel.transmitModel().setDax(isDigital);
+
 #ifdef HAVE_RADE
         // RADE mode should only route mic→RADEEngine when the TX slice IS
         // the RADE slice.  Otherwise a RADE slice running on a non-TX slice
@@ -3230,6 +3251,20 @@ void MainWindow::onSliceAdded(SliceModel* s)
 
             // Update CWX/DVK indicator availability for new mode
             updateKeyerAvailability(mode);
+
+            // Disable client-side DSP in digital modes — NR2/RN2/BNR would
+            // corrupt the data signal passing through DAX (#534)
+            bool isDigital = (mode == "DIGU" || mode == "DIGL" || mode == "RTTY");
+            if (isDigital) {
+                if (m_audio->nr2Enabled())
+                    QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
+                if (m_audio->rn2Enabled())
+                    QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setRn2Enabled(false); });
+#ifdef HAVE_BNR
+                if (m_audio->bnrEnabled())
+                    QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setBnrEnabled(false); });
+#endif
+            }
         }
     });
 
@@ -5202,20 +5237,17 @@ void MainWindow::startDax()
         QMetaObject::invokeMethod(m_audio, [this, pcm]() { m_audio->feedDaxTxAudio(pcm); });
     });
 
-    // Save current TX routing state before forcing PC audio source.
+    // Save current mic selection before forcing PC audio source.
     m_savedMicSelection = m_radioModel.transmitModel().micSelection();
-    m_savedDaxEnabled = m_radioModel.transmitModel().daxOn();
 
     const bool lowLatencyRoute =
         AppSettings::instance().value("DaxTxLowLatency", "False").toString() == "True";
     m_audio->setDaxTxUseRadioRoute(!lowLatencyRoute);
     m_radioModel.sendCommand("transmit set mic_selection=PC");
-    m_radioModel.sendCommand(QString("transmit set dax=%1").arg(lowLatencyRoute ? 0 : 1));
+    // Don't force dax=1 here — radio-side DAX flag follows mode changes
+    // via updateDaxTxMode(). Bridge up ≠ DAX TX active. (#534)
 
-    qInfo() << "MainWindow: starting DAX audio bridge (TX route:"
-            << (lowLatencyRoute ? "low-latency PC mic path, dax=0"
-                                : "radio-native DAX path, dax=1")
-            << ")";
+    qInfo() << "MainWindow: starting DAX audio bridge";
 }
 
 void MainWindow::stopDax()
@@ -5236,9 +5268,6 @@ void MainWindow::stopDax()
         m_radioModel.sendCommand(QString("stream remove 0x%1").arg(id, 0, 16));
         m_radioModel.panStream()->unregisterDaxStream(id);
     }
-
-    // Restore previous DAX TX routing state.
-    m_radioModel.sendCommand(QString("transmit set dax=%1").arg(m_savedDaxEnabled ? 1 : 0));
 
     // Restore original mic selection
     if (!m_savedMicSelection.isEmpty() && m_savedMicSelection != "PC")
@@ -5329,20 +5358,20 @@ void MainWindow::registerMidiParams()
     reg("rx.stepDown", "Step Size Down", "RX", P::Trigger, 0, 1,
         [this](float) { if (auto* rx = m_appletPanel->rxApplet()) rx->cycleStepDown(); });
 
-    reg("rx.tuneKnob", "Tune Up/Down", "RX", P::Slider, 0, 127,
+    // rx.tuneKnob: bind a relative MIDI knob for VFO tuning.
+    // Set the binding to "relative" mode in MIDI Mapping dialog.
+    // Steps are coalesced every 20ms with acceleration:
+    //   Slow spin → ½ rate (fine tuning), Fast spin → 4× (band scanning)
+    reg("rx.tuneKnob", "VFO Tune Knob", "RX", P::Slider, 0, 127,
         [this](float v) {
-            // Relative tuning: center = 64 (no change), < 64 = down, > 64 = up
+            // Absolute fallback (non-relative bindings): center=64
             auto* s = activeSlice();
             if (!s || s->isLocked()) return;
             int steps = static_cast<int>(v) - 64;
             if (steps == 0) return;
             int stepHz = spectrum() ? spectrum()->stepSize() : 100;
             double newMhz = s->frequency() + steps * stepHz / 1e6;
-            QString panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
-            if (!panId.isEmpty())
-                m_radioModel.sendCommand(
-                    QString("slice m %1 pan=%2").arg(newMhz, 0, 'f', 6).arg(panId));
-            if (spectrum()) spectrum()->setVfoFrequency(newMhz);
+            s->setFrequency(newMhz);
         });
 
     // ── TX ──────────────────────────────────────────────────────────────

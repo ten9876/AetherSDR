@@ -191,7 +191,10 @@ QString RigctlProtocol::cmdSetFreq(const QString& arg)
 
     double mhz = hz / 1e6;
     QMetaObject::invokeMethod(slice, [slice, mhz]() {
-        slice->setFrequency(mhz);
+        // Use tuneAndRecenter so the panadapter follows cross-band
+        // tunes (e.g. WSJT-X band changes). autopan=0 would leave
+        // the pan on the old band. (#536)
+        slice->tuneAndRecenter(mhz);
     }, Qt::QueuedConnection);
     return rprt(0);
 }

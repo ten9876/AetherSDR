@@ -3,6 +3,56 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.17.2] — 2026-04-01
+
+### Bug Fixes & MIDI Improvements
+
+AetherSDR v0.7.17.2 closes 6 user-reported issues, adds MIDI relative knob
+support with acceleration, and improves digital mode workflow.
+
+### Bug Fixes
+
+**rigctld cross-band tune (#536)**
+- `set_freq` now uses `tuneAndRecenter` so the panadapter follows when
+  WSJT-X or other CAT apps change bands (was using `autopan=0`)
+
+**Mouse 8x step on KDE/Cinnamon/Linux Mint (#504)**
+- Clamp scroll wheel to ±1 step per event in all scroll handlers:
+  SpectrumWidget (VFO tune), RxApplet (freq label), HGauge (TGXL relays)
+
+**Slider labels stale on connect (#544)**
+- VFO slider labels (AF Gain, SQL, AGC-T, Pan, ESC, APF) now update
+  immediately when the radio pushes status on connect
+
+**S-Meter frozen during TUNE (#491)**
+- TUNE bypassed `m_txRequested` so the interlock TRANSMITTING state was
+  rejected. S-Meter now switches to forward power during TUNE and MOX.
+  Also fixes #499 (power meter no output)
+
+**DAX auto-activate in digital modes (#534)**
+- Radio-side DAX flag (`transmit set dax=1`) auto-toggles on mode change
+  to/from DIGU/DIGL/RTTY — P/CW DAX button follows automatically
+- Client-side DSP (NR2/RN2/BNR) auto-disabled in digital modes to
+  prevent data signal corruption
+- PipeWire bridge decoupled from DAX flag — use Settings → Auto Start DAX
+  for persistent virtual audio devices
+
+**Interlock timing fields not populated (#498)**
+- RCA TX1, TX Delay, ACC TX, Timeout now show correct radio values in
+  Radio Setup → TX tab (parser existed but was never wired up)
+
+### New Features
+
+**MIDI relative knob mode**
+- Relative CC encoding support (1-63 CW, 65-127 CCW)
+- 20ms coalesce timer batches rapid steps into single radio commands
+- 3-tier acceleration: slow spin = ½ rate (fine tune), fast = 4×
+- Snap to step grid (e.g. step=500 → x.x.500, x.x+1.000)
+- Radio-authoritative step size — no default until radio sends step=
+- "Relative" checkbox in MIDI Mapping dialog, persisted in midi.settings
+
+---
+
 ## [v0.7.17.1] — 2026-04-01
 
 ### Accurate Network Diagnostics

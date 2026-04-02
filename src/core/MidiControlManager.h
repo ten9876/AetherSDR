@@ -41,6 +41,7 @@ struct MidiBinding {
     int     number{0};       // CC# or note# (0-127), ignored for PitchBend
     QString paramId;         // target parameter ID
     bool    inverted{false}; // reverse the value range
+    bool    relative{false}; // CC sends relative delta (1-63=CW, 65-127=CCW)
 
     // Unique key for hash lookup
     quint32 key() const {
@@ -97,6 +98,9 @@ signals:
     // Emitted with the final scaled value for MainWindow to dispatch
     // the setter on the main thread. (#502)
     void paramAction(const QString& paramId, float scaledValue);
+    // Emitted for relative knobs: accumulated steps with acceleration.
+    // Positive = clockwise, negative = counter-clockwise.
+    void relativeAction(const QString& paramId, int steps);
     void learnCompleted(const QString& paramId, const MidiBinding& binding);
     void learnCancelled();
 
@@ -119,6 +123,16 @@ private:
     QString m_learnParamId;
 
     QTimer* m_hotplugTimer;
+
+    // Relative knob coalescing: accumulate steps over 20ms, apply acceleration
+    struct RelativeAccum {
+        int   steps{0};
+        int   eventCount{0};     // events in this 20ms window for rate detection
+        qint64 lastEventMs{0};   // for inter-event rate measurement
+    };
+    QHash<QString, RelativeAccum> m_relativeAccum; // paramId → accum
+    QTimer* m_relativeTimer{nullptr};
+    void flushRelativeAccum();
 };
 
 } // namespace AetherSDR

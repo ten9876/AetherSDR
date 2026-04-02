@@ -116,14 +116,15 @@ MidiMappingDialog::MidiMappingDialog(MidiControlManager* manager, QWidget* paren
         auto* vbox = new QVBoxLayout(group);
 
         m_bindingTable = new QTableWidget;
-        m_bindingTable->setColumnCount(5);
-        m_bindingTable->setHorizontalHeaderLabels({"Parameter", "MIDI Source", "Channel", "Invert", ""});
+        m_bindingTable->setColumnCount(6);
+        m_bindingTable->setHorizontalHeaderLabels({"Parameter", "MIDI Source", "Channel", "Invert", "Relative", ""});
         m_bindingTable->horizontalHeader()->setStretchLastSection(false);
         m_bindingTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
         m_bindingTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
         m_bindingTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
         m_bindingTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
         m_bindingTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+        m_bindingTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
         m_bindingTable->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_bindingTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
         m_bindingTable->verticalHeader()->setVisible(false);
@@ -304,6 +305,19 @@ void MidiMappingDialog::refreshBindingTable()
         });
         m_bindingTable->setCellWidget(i, 3, invertCheck);
 
+        // Relative checkbox (CC sends delta, not absolute position)
+        auto* relCheck = new QCheckBox;
+        relCheck->setChecked(b.relative);
+        relCheck->setStyleSheet("QCheckBox { padding-left: 10px; }");
+        connect(relCheck, &QCheckBox::toggled, this, [this, i](bool on) {
+            if (i < m_manager->bindings().size()) {
+                m_manager->bindings()[i].relative = on;
+                m_manager->rebuildIndex();
+                MidiSettings::instance().saveBindings(m_manager->bindings());
+            }
+        });
+        m_bindingTable->setCellWidget(i, 4, relCheck);
+
         // Delete button
         auto* delBtn = new QPushButton("×");
         delBtn->setFixedSize(24, 24);
@@ -315,7 +329,7 @@ void MidiMappingDialog::refreshBindingTable()
             refreshBindingTable();
             MidiSettings::instance().saveBindings(m_manager->bindings());
         });
-        m_bindingTable->setCellWidget(i, 4, delBtn);
+        m_bindingTable->setCellWidget(i, 5, delBtn);
     }
 }
 
