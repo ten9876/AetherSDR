@@ -201,16 +201,11 @@ void SpectrumOverlayMenu::buildBandPanel()
             double freq = BAND_GRID[idx].freqMhz;
             QString mode = QString::fromLatin1(BAND_GRID[idx].mode);
             if (idx == 15) {
-                // XVTR button → show XVTR sub-panel
+                // XVTR button → open Radio Setup XVTR tab (#571)
                 connect(btn, &QPushButton::clicked, this, [this]() {
-                    if (m_xvtrPanel) {
-                        m_bandPanel->hide();
-                        m_bandPanelVisible = false;
-                        m_xvtrPanel->move(m_bandPanel->pos());
-                        m_xvtrPanel->show();
-                        m_xvtrPanel->raise();
-                        m_xvtrPanelVisible = true;
-                    }
+                    m_bandPanel->hide();
+                    m_bandPanelVisible = false;
+                    emit xvtrSetupRequested();
                 });
             } else if (bandName.isEmpty()) {
                 btn->setEnabled(false);
@@ -1066,7 +1061,124 @@ void SpectrumOverlayMenu::setRfGain(int gain)
 
 void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
 {
-    // Rebuild the XVTR sub-panel
+    // Remove old XVTR band buttons from main band panel
+    for (auto* btn : m_xvtrBandBtns)
+        btn->deleteLater();
+    m_xvtrBandBtns.clear();
+
+    // Rebuild the main band panel to insert XVTR bands between
+    // HF bands and utility buttons (WWV/GEN/2200/630/XVTR). (#571)
+    if (m_bandPanel) {
+        // Delete existing band panel and rebuild
+        m_bandPanel->deleteLater();
+        m_bandPanel = nullptr;
+    }
+
+    m_bandPanel = new QWidget(parentWidget());
+    m_bandPanel->setStyleSheet("QWidget { background: rgba(15, 15, 26, 220); "
+                                "border: 1px solid #304050; border-radius: 3px; }");
+    m_bandPanel->hide();
+
+    auto* grid = new QGridLayout(m_bandPanel);
+    grid->setContentsMargins(2, 2, 2, 2);
+    grid->setSpacing(2);
+
+    const QString bandBtnStyle =
+        "QPushButton { background: rgba(30, 40, 55, 220); "
+        "border: 1px solid #304050; border-radius: 3px; "
+        "color: #c8d8e8; font-size: 11px; font-weight: bold; }"
+        "QPushButton:hover { background: rgba(0, 112, 192, 180); "
+        "border: 1px solid #0090e0; }";
+
+    const QString xvtrBtnStyle =
+        "QPushButton { background: rgba(30, 40, 55, 220); "
+        "border: 1px solid #304050; border-radius: 3px; "
+        "color: #00d0ff; font-size: 11px; font-weight: bold; }"
+        "QPushButton:hover { background: rgba(0, 112, 192, 180); "
+        "border: 1px solid #0090e0; }";
+
+    // HF bands (indices 0-10)
+    constexpr int hfLayout[][3] = {
+        {0, 1, 2},      // 160, 80, 60
+        {3, 4, 5},      // 40, 30, 20
+        {6, 7, 8},      // 17, 15, 12
+        {9, 10, -1},    // 10, 6
+    };
+
+    int row = 0;
+    for (int r = 0; r < 4; ++r) {
+        for (int col = 0; col < 3; ++col) {
+            int idx = hfLayout[r][col];
+            if (idx < 0) continue;
+            auto* btn = new QPushButton(BAND_GRID[idx].label, m_bandPanel);
+            btn->setFixedSize(BAND_BTN_W, BAND_BTN_H);
+            btn->setStyleSheet(bandBtnStyle);
+            QString bandName = QString::fromLatin1(BAND_GRID[idx].bandName);
+            double freq = BAND_GRID[idx].freqMhz;
+            QString mode = QString::fromLatin1(BAND_GRID[idx].mode);
+            connect(btn, &QPushButton::clicked, this, [this, bandName, freq, mode]() {
+                emit bandSelected(bandName, freq, mode);
+            });
+            grid->addWidget(btn, row, col);
+        }
+        ++row;
+    }
+
+    // XVTR bands (inserted between HF and utility)
+    m_xvtrBandBtns.clear();
+    for (int i = 0; i < bands.size(); ++i) {
+        auto* btn = new QPushButton(bands[i].name, m_bandPanel);
+        btn->setFixedSize(BAND_BTN_W, BAND_BTN_H);
+        btn->setStyleSheet(xvtrBtnStyle);
+        const double freq = bands[i].rfFreqMhz;
+        const QString name = bands[i].name;
+        connect(btn, &QPushButton::clicked, this, [this, name, freq]() {
+            emit bandSelected(name, freq, "USB");
+            m_bandPanel->hide();
+            m_bandPanelVisible = false;
+        });
+        grid->addWidget(btn, row + i / 3, i % 3);
+        m_xvtrBandBtns.append(btn);
+    }
+    if (!bands.isEmpty())
+        row += (bands.size() + 2) / 3;  // advance past XVTR rows
+
+    // Utility buttons: WWV, GEN, 2200, 630, XVTR config
+    constexpr int utilLayout[][3] = {
+        {11, 12, -1},   // WWV, GEN
+        {13, 14, 15},   // 2200, 630, XVTR
+    };
+    for (int r = 0; r < 2; ++r) {
+        for (int col = 0; col < 3; ++col) {
+            int idx = utilLayout[r][col];
+            if (idx < 0) continue;
+            auto* btn = new QPushButton(BAND_GRID[idx].label, m_bandPanel);
+            btn->setFixedSize(BAND_BTN_W, BAND_BTN_H);
+            btn->setStyleSheet(bandBtnStyle);
+            QString bandName = QString::fromLatin1(BAND_GRID[idx].bandName);
+            double freq = BAND_GRID[idx].freqMhz;
+            QString mode = QString::fromLatin1(BAND_GRID[idx].mode);
+            if (idx == 15) {
+                connect(btn, &QPushButton::clicked, this, [this]() {
+                    m_bandPanel->hide();
+                    m_bandPanelVisible = false;
+                    emit xvtrSetupRequested();
+                });
+            } else if (bandName.isEmpty()) {
+                btn->setEnabled(false);
+            } else {
+                connect(btn, &QPushButton::clicked, this, [this, bandName, freq, mode]() {
+                    emit bandSelected(bandName, freq, mode);
+                });
+            }
+            grid->addWidget(btn, row, col);
+        }
+        ++row;
+    }
+
+    m_bandPanel->adjustSize();
+
+    // Rebuild the XVTR sub-panel (kept as fallback)
     if (m_xvtrPanel) {
         m_xvtrPanel->deleteLater();
         m_xvtrPanel = nullptr;
@@ -1078,9 +1190,9 @@ void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
     m_xvtrPanel->hide();
     m_xvtrPanel->installEventFilter(this);
 
-    auto* grid = new QGridLayout(m_xvtrPanel);
-    grid->setContentsMargins(2, 2, 2, 2);
-    grid->setSpacing(2);
+    auto* xvGrid = new QGridLayout(m_xvtrPanel);
+    xvGrid->setContentsMargins(2, 2, 2, 2);
+    xvGrid->setSpacing(2);
 
     const QString btnStyle =
         "QPushButton { background: rgba(30, 40, 55, 220); "
@@ -1113,7 +1225,7 @@ void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
             m_xvtrPanelVisible = false;
         });
 
-        grid->addWidget(btn, slot / XVTR_COLS, slot % XVTR_COLS);
+        xvGrid->addWidget(btn, slot / XVTR_COLS, slot % XVTR_COLS);
         ++slot;
     }
 
@@ -1123,7 +1235,7 @@ void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
         blank->setFixedSize(BAND_BTN_W, BAND_BTN_H);
         blank->setStyleSheet(disabledStyle);
         blank->setEnabled(false);
-        grid->addWidget(blank, slot / XVTR_COLS, slot % XVTR_COLS);
+        xvGrid->addWidget(blank, slot / XVTR_COLS, slot % XVTR_COLS);
         ++slot;
     }
 
@@ -1139,7 +1251,7 @@ void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
         m_bandPanel->raise();
         m_bandPanelVisible = true;
     });
-    grid->addWidget(hfBtn, slot / XVTR_COLS, slot % XVTR_COLS);
+    xvGrid->addWidget(hfBtn, slot / XVTR_COLS, slot % XVTR_COLS);
 
     m_xvtrPanel->adjustSize();
 }

@@ -699,6 +699,7 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
                 // Notify the radio that a spot was clicked (#341)
                 if (hr.markerIndex >= 0 && hr.markerIndex < m_spotMarkers.size())
                     emit spotTriggered(m_spotMarkers[hr.markerIndex].index);
+                m_spotClickConsumed = true;  // suppress release-to-tune (#530)
                 ev->accept();
                 return;
             }
@@ -1257,7 +1258,7 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
 
         // Single-click-to-tune: if the mouse didn't move during the
         // "pan drag", treat it as a click-to-tune instead
-        if (m_singleClickTune && ev->button() == Qt::LeftButton) {
+        if (m_singleClickTune && ev->button() == Qt::LeftButton && !m_spotClickConsumed) {
             QPoint delta = ev->position().toPoint() - m_clickPressPos;
             if (delta.manhattanLength() <= 4) {
                 const int mx = static_cast<int>(ev->position().x());
@@ -1267,12 +1268,13 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
                 }
             }
         }
+        m_spotClickConsumed = false;
         ev->accept();
         return;
     }
 
     // Single-click-to-tune in FFT area (not consumed by pan drag)
-    if (m_singleClickTune && ev->button() == Qt::LeftButton) {
+    if (m_singleClickTune && ev->button() == Qt::LeftButton && !m_spotClickConsumed) {
         QPoint delta = ev->position().toPoint() - m_clickPressPos;
         if (delta.manhattanLength() <= 4) {
             const int mx = static_cast<int>(ev->position().x());
@@ -1280,10 +1282,12 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
                 double rawMhz = xToMhz(mx);
                 emit frequencyClicked(snapToStep(rawMhz, m_stepHz));
                 ev->accept();
+                m_spotClickConsumed = false;
                 return;
             }
         }
     }
+    m_spotClickConsumed = false;
 }
 
 void SpectrumWidget::showAddSpotDialog(double freqMhz)

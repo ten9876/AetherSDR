@@ -90,6 +90,7 @@ public:
     int     accTxReqPolarity() const { return m_accTxReqPolarity; }
     int     rcaTxReqPolarity() const { return m_rcaTxReqPolarity; }
     int     maxPowerLevel()  const { return m_maxPowerLevel; }
+    void    setMaxPowerLevel(int w) { if (m_maxPowerLevel != w) { m_maxPowerLevel = w; emit maxPowerLevelChanged(w); } }
     QString tuneMode()       const { return m_tuneMode; }
     bool    showTxInWaterfall() const { return m_showTxInWaterfall; }
 

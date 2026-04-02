@@ -34,6 +34,9 @@ public:
     // Manual relay adjustment: relay 0=C1, 1=L, 2=C2; direction +1 or -1
     void adjustRelay(int relay, int direction);
 
+    // Send an arbitrary command to the TGXL (e.g. "activate ant=2")
+    quint32 sendCommand(const QString& cmd);
+
 signals:
     void connected();
     void disconnected();
@@ -49,7 +52,6 @@ private slots:
 
 private:
     void processLine(const QString& line);
-    quint32 sendCommand(const QString& cmd);
 
     QTcpSocket m_socket;
     QTimer     m_pollTimer;       // 1/sec status poll

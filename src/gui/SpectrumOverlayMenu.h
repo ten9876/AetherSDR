@@ -82,6 +82,8 @@ signals:
     void noiseFloorEnableChanged(bool on);
     // Emitted when user selects a band from the sub-panel.
     void bandSelected(const QString& bandName, double freqMhz, const QString& mode);
+    // Emitted when user clicks XVTR button to open Radio Setup XVTR tab.
+    void xvtrSetupRequested();
     // Emitted when WNB toggle changes.
     void wnbToggled(bool on);
     // Emitted when WNB level slider changes (0–100).
@@ -120,6 +122,7 @@ private:
     bool m_bandPanelVisible{false};
     QWidget* m_xvtrPanel{nullptr};
     bool m_xvtrPanelVisible{false};
+    QVector<QPushButton*> m_xvtrBandBtns;
 
     // ANT sub-panel
     QWidget*     m_antPanel{nullptr};
