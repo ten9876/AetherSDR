@@ -1039,7 +1039,9 @@ void RadioModel::onDisconnected()
     m_headphoneGain = 50;
 
     stopNetworkMonitor();
-    m_panStream->stop();
+    // stop() must run on the network thread (socket lives there). (#561)
+    QMetaObject::invokeMethod(m_panStream, &PanadapterStream::stop,
+                              Qt::BlockingQueuedConnection);
     m_panStream->clearRegisteredStreams();
     // Clean up panadapter models
     qDeleteAll(m_panadapters);
