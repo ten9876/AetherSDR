@@ -117,6 +117,16 @@ private:
     QGridLayout*            m_filterGrid{nullptr};
     QWidget*                m_filterContainer{nullptr};
 
+    // Filter Lo/Hi cut controls (arbitrary bandwidth entry)
+    QWidget*     m_filterCutContainer{nullptr};
+    QPushButton* m_filterLoDown{nullptr};
+    QLabel*      m_filterLoLabel{nullptr};
+    QPushButton* m_filterLoUp{nullptr};
+    QPushButton* m_filterHiDown{nullptr};
+    QLabel*      m_filterHiLabel{nullptr};
+    QPushButton* m_filterHiUp{nullptr};
+    static constexpr int FILTER_STEP_HZ = 50;
+
     // FM duplex/repeater controls (shown only in FM/NFM/DFM modes)
     QWidget*        m_fmContainer{nullptr};
     QComboBox*      m_toneModeCmb{nullptr};

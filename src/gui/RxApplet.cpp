@@ -491,6 +491,98 @@ void RxApplet::buildUI()
         leftCol->addWidget(m_filterContainer);
     }
 
+    // Filter Lo/Hi cut controls (arbitrary bandwidth entry)
+    {
+        m_filterCutContainer = new QWidget;
+        auto* grid = new QHBoxLayout(m_filterCutContainer);
+        grid->setContentsMargins(0, 0, 0, 0);
+        grid->setSpacing(0);
+
+        // ── Left column: Low Cut ─────────────────────────────────────
+        auto* lowCol = new QVBoxLayout;
+        lowCol->setSpacing(1);
+
+        auto* lowLbl = new QLabel("Low Cut");
+        lowLbl->setAlignment(Qt::AlignCenter);
+        lowLbl->setStyleSheet("QLabel { color: #8090a0; font-size: 10px; }");
+        lowCol->addWidget(lowLbl);
+
+        auto* lowRow = new QHBoxLayout;
+        lowRow->setSpacing(2);
+
+        m_filterLoDown = mkLeft();
+        connect(m_filterLoDown, &QPushButton::clicked, this, [this] {
+            if (!m_slice) return;
+            m_slice->setFilterWidth(m_slice->filterLow() - FILTER_STEP_HZ,
+                                    m_slice->filterHigh());
+        });
+        lowRow->addWidget(m_filterLoDown);
+
+        m_filterLoLabel = new QLabel("0");
+        m_filterLoLabel->setFixedWidth(46);
+        m_filterLoLabel->setAlignment(Qt::AlignCenter);
+        m_filterLoLabel->setStyleSheet(
+            "QLabel { font-size: 10px; color: #c8d8e8; background: #0a0a18; "
+            "border: 1px solid #1e2e3e; border-radius: 3px; padding: 1px 3px; }");
+        lowRow->addWidget(m_filterLoLabel);
+
+        m_filterLoUp = mkRight();
+        connect(m_filterLoUp, &QPushButton::clicked, this, [this] {
+            if (!m_slice) return;
+            int newLo = qMin(m_slice->filterHigh() - FILTER_STEP_HZ,
+                             m_slice->filterLow() + FILTER_STEP_HZ);
+            m_slice->setFilterWidth(newLo, m_slice->filterHigh());
+        });
+        lowRow->addWidget(m_filterLoUp);
+
+        lowCol->addLayout(lowRow);
+        grid->addLayout(lowCol);
+
+        grid->addStretch();
+
+        // ── Right column: High Cut ───────────────────────────────────
+        auto* highCol = new QVBoxLayout;
+        highCol->setSpacing(1);
+
+        auto* highLbl = new QLabel("High Cut");
+        highLbl->setAlignment(Qt::AlignCenter);
+        highLbl->setStyleSheet("QLabel { color: #8090a0; font-size: 10px; }");
+        highCol->addWidget(highLbl);
+
+        auto* highRow = new QHBoxLayout;
+        highRow->setSpacing(2);
+
+        m_filterHiDown = mkLeft();
+        connect(m_filterHiDown, &QPushButton::clicked, this, [this] {
+            if (!m_slice) return;
+            int newHi = qMax(m_slice->filterLow() + FILTER_STEP_HZ,
+                             m_slice->filterHigh() - FILTER_STEP_HZ);
+            m_slice->setFilterWidth(m_slice->filterLow(), newHi);
+        });
+        highRow->addWidget(m_filterHiDown);
+
+        m_filterHiLabel = new QLabel("2700");
+        m_filterHiLabel->setFixedWidth(46);
+        m_filterHiLabel->setAlignment(Qt::AlignCenter);
+        m_filterHiLabel->setStyleSheet(
+            "QLabel { font-size: 10px; color: #c8d8e8; background: #0a0a18; "
+            "border: 1px solid #1e2e3e; border-radius: 3px; padding: 1px 3px; }");
+        highRow->addWidget(m_filterHiLabel);
+
+        m_filterHiUp = mkRight();
+        connect(m_filterHiUp, &QPushButton::clicked, this, [this] {
+            if (!m_slice) return;
+            m_slice->setFilterWidth(m_slice->filterLow(),
+                                    m_slice->filterHigh() + FILTER_STEP_HZ);
+        });
+        highRow->addWidget(m_filterHiUp);
+
+        highCol->addLayout(highRow);
+        grid->addLayout(highCol);
+
+        leftCol->addWidget(m_filterCutContainer);
+    }
+
     // FM duplex/repeater controls (hidden by default, shown for FM modes)
     {
         m_fmContainer = new QWidget;
@@ -1250,9 +1342,13 @@ void RxApplet::connectSlice(SliceModel* s)
 
     // ── Filter ─────────────────────────────────────────────────────────────
     updateFilterButtons();
+    m_filterLoLabel->setText(QString::number(s->filterLow()));
+    m_filterHiLabel->setText(QString::number(s->filterHigh()));
     connect(s, &SliceModel::filterChanged, this, [this](int lo, int hi) {
         updateFilterButtons();
         m_filterWidthLbl->setText(formatFilterWidth(lo, hi));
+        m_filterLoLabel->setText(QString::number(lo));
+        m_filterHiLabel->setText(QString::number(hi));
     });
 
     // AGC mode
@@ -1546,6 +1642,7 @@ void RxApplet::updateModeSettings(const QString& mode)
     m_filterWidths = settings.filterWidths;
     rebuildFilterButtons();
     m_filterContainer->setVisible(!m_filterWidths.isEmpty() && !isFM);
+    m_filterCutContainer->setVisible(!isFM);
 
     // Show/hide FM vs SSB/CW controls
     m_fmContainer->setVisible(isFM);
