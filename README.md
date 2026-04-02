@@ -222,10 +222,10 @@ will be low priority until after v1.0.
 # Arch / CachyOS / Manjaro
 sudo pacman -S qt6-base qt6-multimedia cmake ninja pkgconf autoconf automake libtool
 
-# Ubuntu 24.04+ / Debian / Linux Mint
+# Ubuntu 24.04+ / Debian / Linux Mint / Elementary OS
 sudo apt install qt6-base-dev qt6-multimedia-dev cmake ninja-build pkg-config \
   autoconf automake libtool gstreamer1.0-pulseaudio gstreamer1.0-plugins-base \
-  libxkbcommon-dev
+  libxkbcommon-dev portaudio19-dev libfftw3-dev
 
 # Fedora
 sudo dnf install qt6-qtbase-devel qt6-qtmultimedia-devel cmake ninja-build \
