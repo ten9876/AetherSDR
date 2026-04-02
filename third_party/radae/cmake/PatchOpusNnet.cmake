@@ -71,17 +71,11 @@ if(NOT EXISTS "${SOURCE_DIR}/dnn/fargan_data.h")
             STATUS download_status)
         list(GET download_status 0 download_code)
         if(NOT download_code EQUAL 0)
-            # Fallback: try the AetherSDR release mirror
-            message(STATUS "Primary download failed, trying mirror...")
-            file(DOWNLOAD
-                "https://github.com/ten9876/AetherSDR/releases/download/v0.7.16/${MODEL_TAR}"
-                "${MODEL_PATH}"
-                SHOW_PROGRESS
-                STATUS download_status2)
-            list(GET download_status2 0 download_code2)
-            if(NOT download_code2 EQUAL 0)
-                message(FATAL_ERROR "Failed to download Opus model data")
-            endif()
+            message(FATAL_ERROR
+                "Failed to download Opus neural net model from media.xiph.org.\n"
+                "You can download it manually:\n"
+                "  curl -o ${MODEL_PATH} https://media.xiph.org/opus/models/${MODEL_TAR}\n"
+                "Then re-run cmake --build.")
         endif()
     endif()
     message(STATUS "Extracting Opus model data...")
