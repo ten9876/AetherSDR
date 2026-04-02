@@ -35,6 +35,8 @@ public:
     int     relayC1()   const { return m_relayC1; }
     int     relayL()    const { return m_relayL; }
     int     relayC2()   const { return m_relayC2; }
+    int     antennaA()  const { return m_antennaA; }  // 0-indexed: 0=ANT1, 1=ANT2, 2=ANT3, -1=unknown
+    bool    hasAntennaSwitch() const { return m_antennaA >= 0; }  // true once antA reported by TGXL
     bool    isPresent() const { return !m_handle.isEmpty(); }
     bool    hasDirectConnection() const;
 
@@ -55,9 +57,13 @@ public:
     void setBypass(bool on);
     void autoTune();
 
+    // Antenna switch (TGXL 3x1): ant = 1, 2, or 3 (1-indexed for command)
+    void setAntennaA(int ant);
+
 signals:
     void stateChanged();               // any property changed
     void tuningChanged(bool tuning);   // tuning started/stopped
+    void antennaAChanged(int antA);    // antenna port changed (0-indexed)
     void presenceChanged(bool present); // tuner detected / lost
     void directConnectionChanged(bool connected);
     void commandReady(const QString& cmd);
@@ -73,6 +79,7 @@ private:
     int     m_relayC1{0};
     int     m_relayL{0};
     int     m_relayC2{0};
+    int     m_antennaA{-1};   // 0-indexed antenna port (-1 = unknown)
 
     TgxlConnection* m_directConn{nullptr};
 };

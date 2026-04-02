@@ -60,7 +60,10 @@ void TunerModel::applyStatus(const QMap<QString, QString>& kvs)
             int v = val.toInt();
             if (m_relayL != v) { m_relayL = v; changed = true; }
         }
-        else if (key == "ip") {
+        else if (key == "antA") {
+            int v = val.toInt();
+            if (m_antennaA != v) { m_antennaA = v; changed = true; emit antennaAChanged(v); }
+        } else if (key == "ip") {
             if (m_tgxlIp != val) { m_tgxlIp = val; changed = true; }
         }
         // nickname, version, ant, dhcp, netmask, gateway, ptta, pttb
@@ -106,6 +109,17 @@ void TunerModel::autoTune()
     emit commandReady(cmd);
 }
 
+void TunerModel::setAntennaA(int ant)
+{
+    if (!m_directConn || !m_directConn->isConnected()) {
+        qCDebug(lcTuner) << "TunerModel::setAntennaA: no direct connection";
+        return;
+    }
+    if (ant < 1 || ant > 3) return;
+    qCDebug(lcTuner) << "TunerModel: activate ant=" << ant;
+    m_directConn->sendCommand(QString("activate ant=%1").arg(ant));
+}
+
 // ── Direct TGXL connection (port 9010) ──────────────────────────────────────
 
 void TunerModel::setDirectConnection(TgxlConnection* conn)
@@ -140,7 +154,23 @@ void TunerModel::setDirectConnection(TgxlConnection* conn)
                 int v = kvs.value("relayC2").toInt();
                 if (m_relayC2 != v) { m_relayC2 = v; changed = true; }
             }
+            if (kvs.contains("antA")) {
+                int v = kvs.value("antA").toInt();
+                if (m_antennaA != v) { m_antennaA = v; changed = true; emit antennaAChanged(v); }
+            }
             if (changed) emit stateChanged();
+        });
+        // Also parse antA from 1/sec status poll responses (pre-load on connect)
+        connect(m_directConn, &TgxlConnection::statusUpdated, this,
+                [this](const QMap<QString, QString>& kvs) {
+            if (kvs.contains("antA")) {
+                int v = kvs.value("antA").toInt();
+                if (m_antennaA != v) {
+                    m_antennaA = v;
+                    emit antennaAChanged(v);
+                    emit stateChanged();
+                }
+            }
         });
     }
 }

@@ -43,6 +43,7 @@ private:
     void buildUI();
     void syncFromModel();
     void cycleOperateState();
+    void updateAntennaButtons(int antA);
 
     TunerModel* m_model{nullptr};
     MeterModel* m_meter{nullptr};
@@ -59,6 +60,12 @@ private:
     // Buttons
     QPushButton* m_tuneBtn{nullptr};
     QPushButton* m_operateBtn{nullptr};
+
+    // Antenna switch buttons (TGXL 3x1)
+    QPushButton* m_ant1Btn{nullptr};
+    QPushButton* m_ant2Btn{nullptr};
+    QPushButton* m_ant3Btn{nullptr};
+    QWidget*     m_antContainer{nullptr};
 
     // Meter values (updated by updateMeters)
     float m_fwdPower{0.0f};
