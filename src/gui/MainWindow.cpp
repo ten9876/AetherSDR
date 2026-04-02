@@ -2915,16 +2915,20 @@ void MainWindow::onConnectionStateChanged(bool connected)
             if (m_appletPanel && m_appletPanel->catApplet())
                 m_appletPanel->catApplet()->setPtyEnabled(true);
         }
-        // Populate XVTR bands after radio status settles
-        QTimer::singleShot(2000, this, [this] {
+        // Populate XVTR bands after radio status settles, and refresh
+        // whenever XVTR config changes (add/remove/rename). (#571)
+        auto refreshXvtr = [this]() {
             if (!m_radioModel.isConnected()) return;
             QVector<SpectrumOverlayMenu::XvtrBand> xvtrBands;
             for (const auto& x : m_radioModel.xvtrList()) {
                 if (x.isValid)
                     xvtrBands.append({x.name, x.rfFreq});
             }
-            spectrum()->overlayMenu()->setXvtrBands(xvtrBands);
-        });
+            for (auto* applet : m_panStack->allApplets())
+                applet->spectrumWidget()->overlayMenu()->setXvtrBands(xvtrBands);
+        };
+        QTimer::singleShot(2000, this, refreshXvtr);
+        connect(&m_radioModel, &RadioModel::infoChanged, this, refreshXvtr);
 
         // Apply saved display settings after panadapter is created
         m_displaySettingsPushed = false;
@@ -4151,6 +4155,15 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             }
             qDebug() << "BandStack: first visit to" << bandName << "using defaults";
         }
+    });
+
+    // XVTR button → open Radio Setup XVTR tab (#571)
+    disconnect(menu, &SpectrumOverlayMenu::xvtrSetupRequested, this, nullptr);
+    connect(menu, &SpectrumOverlayMenu::xvtrSetupRequested,
+            this, [this]() {
+        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, this);
+        dlg->selectTab("XVTR");
+        dlg->show();
     });
 
     // ── WNB / RF Gain ────────────────────────────────────────────────────

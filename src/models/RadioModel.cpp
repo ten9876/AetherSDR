@@ -2089,6 +2089,16 @@ void RadioModel::handleSliceStatus(int id,
 
     s->applyStatus(kvs);
 
+    // Aurora/AU-520: max_internal_pa_power in slice status reports the true
+    // system power capability (e.g. 500W) while transmit status max_power_level
+    // only reports the exciter limit (100W). Use the higher value. (#484)
+    if (kvs.contains("max_internal_pa_power")) {
+        int internalMax = kvs["max_internal_pa_power"].toInt();
+        if (internalMax > m_transmitModel.maxPowerLevel()) {
+            m_transmitModel.setMaxPowerLevel(internalMax);
+        }
+    }
+
     // Send any queued commands (e.g. if GUI changed freq before status arrived)
     if (isConnected()) {
         for (const QString& cmd : s->drainPendingCommands())

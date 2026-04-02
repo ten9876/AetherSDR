@@ -65,6 +65,7 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio, QWidge
     auto* layout = new QVBoxLayout(this);
 
     auto* tabs = new QTabWidget;
+    m_tabs = tabs;
     tabs->setStyleSheet(
         "QTabWidget::pane { border: 1px solid #304050; background: #0f0f1a; }"
         "QTabBar::tab { background: #1a2a3a; color: #8aa8c0; "
@@ -2880,5 +2881,16 @@ QWidget* RadioSetupDialog::buildSerialTab()
     return page;
 }
 #endif
+
+void RadioSetupDialog::selectTab(const QString& tabName)
+{
+    if (!m_tabs) return;
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        if (m_tabs->tabText(i) == tabName) {
+            m_tabs->setCurrentIndex(i);
+            return;
+        }
+    }
+}
 
 } // namespace AetherSDR

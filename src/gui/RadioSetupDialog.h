@@ -24,6 +24,7 @@ class RadioSetupDialog : public QDialog {
 public:
     explicit RadioSetupDialog(RadioModel* model, AudioEngine* audio = nullptr,
                               QWidget* parent = nullptr);
+    void selectTab(const QString& tabName);
 
 private:
     QWidget* buildRadioTab();
@@ -43,6 +44,7 @@ private:
 
     RadioModel*  m_model;
     AudioEngine* m_audio{nullptr};
+    QTabWidget*  m_tabs{nullptr};
 
     // Radio tab fields
     QLabel* m_serialLabel{nullptr};

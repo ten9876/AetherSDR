@@ -405,6 +405,7 @@ private:
     BandPlanManager* m_bandPlanMgr{nullptr};
     bool m_singleClickTune{false};
     QPoint m_clickPressPos;        // for single-click-to-tune drag threshold
+    bool   m_spotClickConsumed{false}; // suppress release-to-tune after spot click (#530)
     bool m_showTxInWaterfall{false};  // default matches radio default (off)
     bool m_hasTxSlice{false};  // true if this pan contains the TX slice
 

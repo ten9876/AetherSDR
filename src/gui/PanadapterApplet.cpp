@@ -72,6 +72,9 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     auto* cwTitle = new QLabel("CW");
     cwTitle->setStyleSheet("QLabel { color: #00b4d8; font-size: 10px; font-weight: bold; background: transparent; }");
     cwBar->addWidget(cwTitle);
+    auto* cwHint = new QLabel("(requires PC Audio)");
+    cwHint->setStyleSheet("QLabel { color: #405060; font-size: 9px; background: transparent; }");
+    cwBar->addWidget(cwHint);
 
     m_cwStatsLabel = new QLabel;
     m_cwStatsLabel->setStyleSheet("QLabel { color: #6a8090; font-size: 10px; background: transparent; }");
