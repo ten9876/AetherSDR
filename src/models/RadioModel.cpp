@@ -693,17 +693,16 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
             }
         });
 
-        if (!m_panStream->isRunning()) {
-            // Start on network thread (socket must be created there) (#502)
-            if (m_wanConn) {
-                QMetaObject::invokeMethod(m_panStream, [this]() {
-                    m_panStream->startWan(QHostAddress(m_wanPublicIp), m_wanUdpPort);
-                }, Qt::BlockingQueuedConnection);
-            } else {
-                QMetaObject::invokeMethod(m_panStream, [this]() {
-                    m_panStream->start(m_connection);
-                }, Qt::BlockingQueuedConnection);
-            }
+        // Always (re)start on connect — re-binds socket and re-registers
+        // UDP port with the radio. start() calls stop() internally if needed. (#561)
+        if (m_wanConn) {
+            QMetaObject::invokeMethod(m_panStream, [this]() {
+                m_panStream->startWan(QHostAddress(m_wanPublicIp), m_wanUdpPort);
+            }, Qt::BlockingQueuedConnection);
+        } else {
+            QMetaObject::invokeMethod(m_panStream, [this]() {
+                m_panStream->start(m_connection);
+            }, Qt::BlockingQueuedConnection);
         }
 
         // On WAN: use "client udp_register" via UDP (not TCP "client udpport").
