@@ -1377,24 +1377,38 @@ MainWindow::MainWindow(QWidget* parent)
             m_stationLabel->setText(nick);
     });
 
+    // Frequency reference label from oscillator status (#478)
+    // Show what the radio is actually locked to, not GPS satellite state.
+    connect(&m_radioModel, &RadioModel::infoChanged, this, [this]() {
+        const QString& state = m_radioModel.oscState();
+        const bool locked = m_radioModel.oscLocked();
+        if (state == "gpsdo" && locked) {
+            // Don't override — GPS status handler shows satellite count
+        } else if (m_radioModel.extPresent() && state == "ext") {
+            m_gpsLabel->setText("Ref: Ext 10M");
+            m_gpsStatusLabel->setText(QString("[%1]").arg(locked ? "Locked" : "Unlocked"));
+        } else {
+            m_gpsLabel->setText("Ref: TCXO");
+            m_gpsStatusLabel->setText("[Locked]");
+        }
+    });
+
     connect(&m_radioModel, &RadioModel::gpsStatusChanged,
             this, [this](const QString& status, int tracked, int visible,
                          const QString& grid, const QString& /*alt*/,
                          const QString& /*lat*/, const QString& /*lon*/,
                          const QString& utcTime) {
-        const bool gpsPresent = (status != "Not Present" && status != "");
-        m_gpsLabel->setText(gpsPresent
-            ? QString("GPS: %1/%2").arg(tracked).arg(visible)
-            : "GPS: N/A");
-        m_gpsStatusLabel->setText(gpsPresent
-            ? QString("[%1]").arg(status)
-            : "");
+        // Only show satellite count + lock status when GPSDO is active
+        if (m_radioModel.oscState() == "gpsdo" && m_radioModel.oscLocked()) {
+            m_gpsLabel->setText(QString("GPS: %1/%2").arg(tracked).arg(visible));
+            m_gpsStatusLabel->setText(QString("[%1]").arg(status));
+        }
 
         if (!grid.isEmpty())
             m_gridLabel->setText(grid);
 
         // Use GPS UTC time if available, otherwise system UTC
-        if (gpsPresent && !utcTime.isEmpty()) {
+        if (!utcTime.isEmpty()) {
             m_gpsTimeLabel->setText(utcTime);
             m_useSystemClock = false;
         } else {
@@ -1489,13 +1503,13 @@ MainWindow::~MainWindow()
         }, Qt::BlockingQueuedConnection);
     }
     m_audioThread->quit();
-    m_audioThread->wait();
+    m_audioThread->wait(3000);
     delete m_audio;
 
     // Stop external controller thread (#502)
     if (m_extCtrlThread && m_extCtrlThread->isRunning()) {
         m_extCtrlThread->quit();
-        m_extCtrlThread->wait();
+        m_extCtrlThread->wait(3000);
     }
 #ifdef HAVE_SERIALPORT
     delete m_serialPort;
@@ -1528,6 +1542,15 @@ void MainWindow::closeEvent(QCloseEvent* event)
     // BNR not persisted — requires manual enable each session
 
     s.save();
+
+    // Suppress reconnect dialog during shutdown (#527)
+    m_userDisconnected = true;
+    if (m_reconnectDlg) {
+        m_reconnectDlg->close();
+        delete m_reconnectDlg;
+        m_reconnectDlg = nullptr;
+    }
+
     m_discovery.stopListening();
     m_radioModel.disconnectFromRadio();
     audioStopRx();

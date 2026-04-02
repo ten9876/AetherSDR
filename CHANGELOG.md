@@ -3,6 +3,45 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.17.3] — 2026-04-02
+
+### Filter Widget, DSP Cleanup & Diagnostics
+
+### New Features
+
+**Visual filter passband widget**
+- SmartSDR-style filter control in the RX applet with static trapezoid shape
+- Horizontal drag shifts passband, vertical drag adjusts bandwidth
+- Numeric labels: lo, hi, bandwidth, and center offset from carrier
+- 50 Hz snap grid, minimum 50 Hz bandwidth
+- Replaces the DSP toggle buttons in the RX applet
+
+**Frequency reference status bar (#478)**
+- Status bar shows actual frequency reference: GPS (with satellite count
+  and lock status), Ext 10M, or TCXO
+- No more perpetual "Warming" on radios without a GPS antenna
+- Uses oscillator status messages from radio for accurate source detection
+
+### Bug Fixes
+
+**Stale process on exit (#527)**
+- Suppress reconnect dialog during app shutdown — was keeping the
+  process alive on Windows after the main window closed
+- Added 3-second timeouts to all thread wait() calls in destructors
+
+**DAX TX level meter (#517)**
+- P/CW mic gauge now shows DAX TX input level when DAX is active
+- Previously showed nothing because the mic input path returns early
+  in DAX mode
+
+**DSP toggles removed from RX applet**
+- 9 buttons and 27 sync points eliminated between RxApplet, VfoWidget,
+  and spectrum overlay
+- DSP controls remain in VFO DSP tab and spectrum overlay menu
+- Eliminates triple-state tracking bugs (NR/NR2, RNN/RN2)
+
+---
+
 ## [v0.7.17.2] — 2026-04-01
 
 ### Bug Fixes & MIDI Improvements

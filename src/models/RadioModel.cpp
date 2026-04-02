@@ -140,7 +140,7 @@ RadioModel::~RadioModel()
                                   Qt::BlockingQueuedConnection);
     }
     m_connThread->quit();
-    m_connThread->wait();
+    m_connThread->wait(3000);
     delete m_connection;
 
     // Stop network thread (#502)
@@ -149,7 +149,7 @@ RadioModel::~RadioModel()
                                   Qt::BlockingQueuedConnection);
     }
     m_networkThread->quit();
-    m_networkThread->wait();
+    m_networkThread->wait(3000);
     delete m_panStream;
 }
 

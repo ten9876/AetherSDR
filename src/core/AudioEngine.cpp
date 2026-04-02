@@ -921,6 +921,32 @@ void AudioEngine::feedDaxTxAudio(const QByteArray& float32pcm)
 {
     if (m_txStreamId == 0 || float32pcm.isEmpty()) return;
 
+    // Measure DAX TX input level and emit via pcMicLevelChanged so the
+    // P/CW mic gauge shows DAX audio level regardless of mic profile (#517)
+    {
+        const auto* src = reinterpret_cast<const float*>(float32pcm.constData());
+        const int samples = float32pcm.size() / sizeof(float);
+        float peak = 0.0f;
+        double sumSq = 0.0;
+        for (int i = 0; i < samples; ++i) {
+            float s = std::abs(src[i]);
+            if (s > peak) peak = s;
+            sumSq += static_cast<double>(src[i]) * src[i];
+        }
+        m_pcMicPeak = std::max(m_pcMicPeak, peak);
+        m_pcMicSumSq += sumSq;
+        m_pcMicSampleCount += samples;
+        if (m_pcMicSampleCount >= kMicMeterWindowSamples) {
+            float rms = static_cast<float>(std::sqrt(m_pcMicSumSq / m_pcMicSampleCount));
+            float peakDb = (m_pcMicPeak > 1e-10f) ? 20.0f * std::log10(m_pcMicPeak) : -150.0f;
+            float rmsDb  = (rms > 1e-10f)         ? 20.0f * std::log10(rms)          : -150.0f;
+            emit pcMicLevelChanged(peakDb, rmsDb);
+            m_pcMicPeak = 0.0f;
+            m_pcMicSumSq = 0.0;
+            m_pcMicSampleCount = 0;
+        }
+    }
+
     if (!m_daxTxUseRadioRoute) {
         // Low-latency route: keep radio on mic path (dax=0) and packetize
         // exactly like voice TX (PCC 0x03E3 float32 stereo).
