@@ -15,8 +15,7 @@ namespace AetherSDR {
 ConnectionPanel::ConnectionPanel(QWidget* parent)
     : QWidget(parent)
 {
-    setAttribute(Qt::WA_TranslucentBackground);
-    setStyleSheet("ConnectionPanel { background: transparent; }");
+    setStyleSheet("ConnectionPanel { background: #0f0f1a; }");
     const QString editStyle =
         "QLineEdit { border: 1px solid #304050; "
         "border-radius: 3px; padding: 2px 4px; }";
@@ -316,13 +315,9 @@ bool ConnectionPanel::event(QEvent* e)
 
 void ConnectionPanel::paintEvent(QPaintEvent*)
 {
+    // Solid fill — system window frame handles border/decorations (#574)
     QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing);
-    QPainterPath path;
-    path.addRoundedRect(rect().adjusted(1, 1, -1, -1), 8, 8);
-    p.fillPath(path, QColor(15, 15, 26));
-    p.setPen(QPen(QColor(255, 255, 255, 128), 1));
-    p.drawPath(path);
+    p.fillRect(rect(), QColor(15, 15, 26));
 }
 
 void ConnectionPanel::probeRadio(const QString& ip)

@@ -2528,9 +2528,10 @@ void MainWindow::buildUI()
     setCentralWidget(central);
     auto* splitter = m_splitter;
 
-    // Connection panel — floating popup (not in splitter)
+    // Connection panel — modeless dialog with standard decorations (#560, #574)
     m_connPanel = new ConnectionPanel(this);
-    m_connPanel->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
+    m_connPanel->setWindowFlags(Qt::Dialog);
+    m_connPanel->setWindowTitle("Choose Radio / SmartLink Setup");
     m_connPanel->setFixedSize(300, 420);
     m_connPanel->hide();
 
