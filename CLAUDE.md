@@ -33,7 +33,7 @@ cmake --build build -j$(nproc)
 
 Dependencies (Arch): `qt6-base qt6-multimedia cmake ninja pkgconf autoconf automake libtool`
 
-Current version: **0.7.17.1** (set in both `CMakeLists.txt` and `README.md`).
+Current version: **0.7.17.2** (set in both `CMakeLists.txt` and `README.md`).
 
 ---
 
@@ -162,12 +162,18 @@ src/
 
 ### Data Pipelines
 
-Five-thread architecture after #502 migration:
+Multi-thread architecture — up to 11 threads depending on features enabled:
 - **Main thread**: GUI rendering (paintEvent), RadioModel + all sub-models, user input
-- **Connection thread**: RadioConnection (TCP 4992 I/O, ping RTT measurement)
-- **Audio thread**: AudioEngine (RX/TX audio, NR2/RN2/BNR DSP, QAudioSink/Source)
+- **Connection thread**: RadioConnection (TCP 4992 I/O, kernel TCP_INFO RTT)
+- **Audio thread**: AudioEngine (RX/TX audio, NR2/RN2 DSP, QAudioSink/Source)
 - **Network thread**: PanadapterStream (VITA-49 UDP parsing, FFT/waterfall/meter demux)
 - **ExtControllers thread**: FlexControl, MIDI, SerialPort (USB/serial I/O, RtMidi callbacks)
+- **Spot thread**: DxCluster, RBN, WSJT-X, POTA, FreeDV spot clients
+- **CwDecoder thread**: ggmorse decode loop (QThread::create, on-demand)
+- **DAX IQ thread**: DaxIqModel worker (byte-swap + pipe I/O)
+- **RADE thread**: RADEEngine neural encoder/decoder (on-demand, HAVE_RADE)
+- **BNR thread**: NvidiaBnrFilter gRPC async I/O (std::thread, HAVE_BNR)
+- **DXCC parse thread**: DxccColorProvider ADIF log parser (one-shot at startup)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -302,17 +308,19 @@ SPOT PIPELINES:                             ◄── SPOT WORKER THREAD
 
 **Thread summary:**
 
-| Thread | Components | CPU | Notes |
-|--------|-----------|-----|-------|
-| **Main** | paintEvent, RadioModel, all sub-models, all GUI widgets, CwDecoder | ~97% | Dominated by QPainter waterfall blit |
-| **Connection** | RadioConnection, QTcpSocket, ping RTT | ~0% | Heap-allocated, init() slot pattern |
-| **Audio** | AudioEngine, NR2/RN2/BNR DSP, QAudioSink/Source, TX encoding | ~1.5% | std::atomic flags, recursive_mutex for DSP lifecycle |
-| **Network** | PanadapterStream, QUdpSocket, VITA-49 parsing, FFT/WF assembly | ~0.3% | QMutex guards stream ID sets |
-| **ExtControllers** | FlexControlManager, MidiControlManager, SerialPortController | ~0% | USB serial I/O, RtMidi, poll timers |
-| **Spot** | DxCluster, RBN, WSJT-X, POTA, FreeDV clients | ~0% | Batched 1/sec forwarding |
-| **DAX IQ** | DaxIqModel worker | ~0% | Byte-swap + pipe I/O |
-| **RADE** | RADEEngine | ~0% | Neural encoder/decoder |
-| **BNR gRPC** | NvidiaBnrFilter async I/O | ~0% | GPU container communication |
+| Thread | Components | CPU | Creation | Notes |
+|--------|-----------|-----|----------|-------|
+| **Main** | paintEvent, RadioModel, all sub-models, all GUI widgets | ~97% | Qt default | Dominated by QPainter waterfall blit |
+| **Connection** | RadioConnection, QTcpSocket, kernel TCP_INFO RTT | ~0% | moveToThread | Heap-allocated, init() slot pattern |
+| **Audio** | AudioEngine, NR2/RN2 DSP, QAudioSink/Source, TX encoding | ~1.5% | moveToThread | std::atomic flags, recursive_mutex for DSP lifecycle |
+| **Network** | PanadapterStream, QUdpSocket, VITA-49 parsing, per-stream stats | ~0.3% | moveToThread | QMutex guards stream ID sets |
+| **ExtControllers** | FlexControlManager, MidiControlManager, SerialPortController | ~0% | moveToThread | USB serial I/O, RtMidi, poll timers |
+| **Spot** | DxCluster, RBN, WSJT-X, POTA, FreeDV clients | ~0% | moveToThread | Batched 1/sec forwarding |
+| **CwDecoder** | ggmorse decode loop | ~0% | QThread::create | On-demand start/stop per CW mode |
+| **DAX IQ** | DaxIqModel worker | ~0% | moveToThread | Byte-swap + pipe I/O |
+| **DXCC** | DxccColorProvider ADIF parser | ~0% | moveToThread | One-shot at startup |
+| **RADE** | RADEEngine neural encoder/decoder | ~0% | moveToThread | On-demand, HAVE_RADE |
+| **BNR** | NvidiaBnrFilter gRPC async I/O | ~0% | std::thread | GPU container, HAVE_BNR |
 
 **Cross-thread signals (auto-queued):**
 - Connection → Main: statusReceived, messageReceived, commandResponse, pingRttMeasured
@@ -321,11 +329,13 @@ SPOT PIPELINES:                             ◄── SPOT WORKER THREAD
 - Network → Audio: audioDataReady
 - Audio → Network: txPacketReady (→ sendToRadio)
 - Audio → Main: levelChanged, pcMicLevelChanged, nr2/rn2/bnrEnabledChanged
+- Audio → CwDecoder: feedAudio (lock-free ring buffer)
 - Main → Audio: setNr2/Rn2/BnrEnabled (via QMetaObject::invokeMethod)
 - Main → Audio: startRxStream/stopRxStream (via helper methods)
 - Main → Network: registerPanStream, setDbmRange (QMutex-protected setters)
 - ExtControllers → Main: tuneSteps, buttonPressed, externalPttChanged, cwKeyChanged, paramAction
 - Main → ExtControllers: setTransmitting, loadSettings, open/close (via QMetaObject::invokeMethod)
+- CwDecoder → Main: textDecoded, statsUpdated (auto-queued)
 
 **Design principle:** Everything except GUI rendering and model dispatch runs
 on a dedicated worker thread. RadioModel owns all sub-models as value members
@@ -333,9 +343,9 @@ on the main thread — GUI accesses models directly with no pointer indirection.
 Each worker thread has a single responsibility and communicates exclusively via
 auto-queued signals. The main thread handles only paintEvent + model updates.
 
-**Remaining bottleneck:** Main thread at ~98% is entirely QPainter waterfall
+**Remaining bottleneck:** Main thread at ~97% is entirely QPainter waterfall
 rendering (`p.drawImage()` blit). With waterfall closed, main thread drops to
-2-3%. GPU offload (Phase 3, #502) is the path to resolving this.
+2-3%. GPU offload (#391) is the path to resolving this.
 
 ---
 

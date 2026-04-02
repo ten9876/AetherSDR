@@ -1418,11 +1418,12 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
         m_scrollAccum -= steps * 15;
     } else {
         // Standard mouse wheel: angleDelta is in 1/8° units, one notch = 120.
-        // Some desktops (KDE Plasma, Cinnamon) send high-resolution deltas
-        // (e.g. 960 per notch). Accumulate and divide to normalize. (#390)
+        // Some desktops (KDE Plasma, Cinnamon) send inflated deltas
+        // (e.g. 960 per notch). Clamp to ±1 step per event. (#504)
         m_angleAccum += ev->angleDelta().y();
         steps = m_angleAccum / 120;
         m_angleAccum -= steps * 120;
+        steps = qBound(-1, steps, 1);
     }
     if (steps == 0) { ev->ignore(); return; }
 

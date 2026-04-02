@@ -203,10 +203,13 @@ protected:
             QWidget::wheelEvent(e);
             return;
         }
+        // Clamp to ±1: KDE/Cinnamon send 960 per notch (#504)
         m_angleAccum += e->angleDelta().y();
         constexpr int step = 120;
-        while (m_angleAccum >= step)  { m_angleAccum -= step; emit relayAdjusted(+1); }
-        while (m_angleAccum <= -step) { m_angleAccum += step; emit relayAdjusted(-1); }
+        int emitted = 0;
+        while (m_angleAccum >= step && emitted == 0)  { m_angleAccum -= step; emit relayAdjusted(+1); ++emitted; }
+        while (m_angleAccum <= -step && emitted == 0) { m_angleAccum += step; emit relayAdjusted(-1); ++emitted; }
+        if (emitted) m_angleAccum = 0;  // discard leftover inflation
         e->accept();
     }
 

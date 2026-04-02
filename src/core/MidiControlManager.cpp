@@ -3,6 +3,7 @@
 #include "MidiControlManager.h"
 
 #include <RtMidi.h>
+#include <QDateTime>
 #include <QDebug>
 #include <cmath>
 
@@ -29,6 +30,7 @@ QString MidiBinding::sourceDisplayName() const
 MidiControlManager::MidiControlManager(QObject* parent)
     : QObject(parent)
     , m_hotplugTimer(new QTimer(this))
+    , m_relativeTimer(new QTimer(this))
 {
     m_hotplugTimer->setInterval(5000);
     connect(m_hotplugTimer, &QTimer::timeout, this, [this] {
@@ -37,6 +39,10 @@ MidiControlManager::MidiControlManager(QObject* parent)
         if (m_portName.isEmpty()) return;
         openPortByName(m_portName);
     });
+
+    // Coalesce relative knob events every 20ms with acceleration
+    m_relativeTimer->setInterval(20);
+    connect(m_relativeTimer, &QTimer::timeout, this, &MidiControlManager::flushRelativeAccum);
 }
 
 MidiControlManager::~MidiControlManager()
@@ -273,6 +279,28 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2)
     if (it == m_bindingIndex.end()) return;
 
     const auto& binding = m_bindings[it.value()];
+
+    // ── Relative knob mode: decode delta and accumulate ────────────────
+    if (binding.relative && msgType == MidiBinding::CC) {
+        // Relative CC encoding (two's complement style):
+        // 1-63 = clockwise (1=slow, 63=fast)
+        // 65-127 = counter-clockwise (127=-1, 126=-2)
+        int delta = (data2 < 64) ? data2 : (data2 - 128);
+        if (binding.inverted) delta = -delta;
+
+        auto& accum = m_relativeAccum[binding.paramId];
+        accum.steps += delta;
+        accum.eventCount++;
+        accum.lastEventMs = QDateTime::currentMSecsSinceEpoch();
+
+        if (!m_relativeTimer->isActive())
+            m_relativeTimer->start();
+
+        emit paramValueChanged(binding.paramId, delta > 0 ? 1.0f : 0.0f);
+        return;
+    }
+
+    // ── Absolute mode: existing behavior ───────────────────────────────
     float value = binding.inverted ? (1.0f - normValue) : normValue;
 
     // Scale to parameter range
@@ -304,6 +332,54 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2)
     }
 
     emit paramValueChanged(binding.paramId, value);
+}
+
+// ── Relative knob coalescing with acceleration ─────────────────────────────
+// Called every 20ms. Batches accumulated steps and applies acceleration:
+//   Slow  (≤2 events/window): ÷2 rate — halve steps for fine tuning
+//   Medium (3-6):              1:1 — normal rate
+//   Fast   (>6):               4× — multiply steps for rapid band scanning
+
+void MidiControlManager::flushRelativeAccum()
+{
+    bool anyActive = false;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+
+    for (auto it = m_relativeAccum.begin(); it != m_relativeAccum.end(); ++it) {
+        auto& a = it.value();
+        if (a.steps == 0 && (now - a.lastEventMs) > 100) continue;
+
+        if (a.steps != 0) {
+            int steps = a.steps;
+
+            // Apply acceleration based on event density in this 20ms window
+            if (a.eventCount <= 2) {
+                // Slow: halve steps (skip if only 1 step and alternating)
+                if (steps == 1 || steps == -1) {
+                    static int slowDivider = 0;
+                    if (++slowDivider % 2 == 0) steps = 0;
+                }
+            } else if (a.eventCount > 6) {
+                // Fast: 4× acceleration
+                steps *= 4;
+            }
+            // Medium (3-6 events): 1:1, no change
+
+            if (steps != 0)
+                emit relativeAction(it.key(), steps);
+
+            a.steps = 0;
+            a.eventCount = 0;
+            anyActive = true;
+        }
+
+        // Keep timer alive if we had recent events
+        if ((now - a.lastEventMs) < 100)
+            anyActive = true;
+    }
+
+    if (!anyActive)
+        m_relativeTimer->stop();
 }
 
 } // namespace AetherSDR
