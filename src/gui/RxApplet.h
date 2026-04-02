@@ -3,6 +3,8 @@
 #include <QWidget>
 #include <QVector>
 
+namespace AetherSDR { class FilterPassbandWidget; }
+
 class QHBoxLayout;
 class QGridLayout;
 class QPushButton;
@@ -53,10 +55,6 @@ signals:
     void afGainChanged(int value);
     // Emitted when the user changes the tuning step size (Hz).
     void stepSizeChanged(int hz);
-    // Emitted when NR button cycles to/from NR2 state
-    void nr2CycleToggled(bool on);
-    // Emitted when RNN button cycles to/from RN2 (client RNNoise) state
-    void rn2CycleToggled(bool on);
 
 #ifdef HAVE_RADE
     // Emitted when user selects/deselects RADE digital voice mode
@@ -116,6 +114,7 @@ private:
     QVector<QPushButton*>   m_filterBtns;
     QGridLayout*            m_filterGrid{nullptr};
     QWidget*                m_filterContainer{nullptr};
+    AetherSDR::FilterPassbandWidget* m_filterPassband{nullptr};
 
     // FM duplex/repeater controls (shown only in FM/NFM/DFM modes)
     QWidget*        m_fmContainer{nullptr};
@@ -128,7 +127,6 @@ private:
     QPushButton*    m_revBtn{nullptr};
 
     // Containers for show/hide on mode change
-    QWidget*     m_dspContainer{nullptr};
     QWidget*     m_agcContainer{nullptr};
     QWidget*     m_ritContainer{nullptr};
     QWidget*     m_xitContainer{nullptr};
@@ -148,26 +146,6 @@ private:
     QSlider*     m_sqlSlider{nullptr};
     bool         m_savedSquelchOn{false};
 
-    // DSP
-    QPushButton* m_nbBtn{nullptr};
-    QPushButton* m_nrBtn{nullptr};
-    int m_nrState{0};   // 0=off, 1=NR, 2=NR2
-    void syncNrButton(bool nrOn);
-    void syncRnnButton(bool rnnOn);
-public:
-    int nrState() const { return m_nrState; }
-    void setNrState(int state);
-    void setRnnState(int state);
-    int  rnnState() const { return m_rnnState; }
-private:
-    QPushButton* m_anfBtn{nullptr};
-    QPushButton* m_nrlBtn{nullptr};
-    QPushButton* m_nrsBtn{nullptr};
-    QPushButton* m_rnnBtn{nullptr};
-    int m_rnnState{0};   // 0=off, 1=RNN(radio), 2=RN2(client)
-    QPushButton* m_nrfBtn{nullptr};
-    QPushButton* m_anflBtn{nullptr};
-    QPushButton* m_anftBtn{nullptr};
 
     // RIT
     QPushButton* m_ritOnBtn{nullptr};

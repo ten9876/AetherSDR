@@ -1,4 +1,5 @@
 #include "RxApplet.h"
+#include "FilterPassbandWidget.h"
 #include "ComboStyle.h"
 #include "SliceColors.h"
 #include "models/SliceModel.h"
@@ -491,6 +492,18 @@ void RxApplet::buildUI()
         leftCol->addWidget(m_filterContainer);
     }
 
+    // Visual filter passband widget (draggable lo/hi edges)
+    {
+        m_filterPassband = new AetherSDR::FilterPassbandWidget;
+        m_filterPassband->setMinimumHeight(40);
+        m_filterPassband->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        connect(m_filterPassband, &AetherSDR::FilterPassbandWidget::filterChanged,
+                this, [this](int lo, int hi) {
+            if (m_slice) m_slice->setFilterWidth(lo, hi);
+        });
+        leftCol->addWidget(m_filterPassband);
+    }
+
     // FM duplex/repeater controls (hidden by default, shown for FM modes)
     {
         m_fmContainer = new QWidget;
@@ -621,153 +634,8 @@ void RxApplet::buildUI()
         leftCol->addWidget(m_fmContainer);
     }
 
-    // DSP toggles (wrapped in container for FM hide)
-    {
-        m_dspContainer = new QWidget;
-        auto* dspLayout = new QVBoxLayout(m_dspContainer);
-        dspLayout->setContentsMargins(0, 0, 0, 0);
-        dspLayout->setSpacing(2);
+    // DSP toggles removed — use VFO DSP tab or spectrum overlay instead
 
-        // NB / NR / ANF
-        {
-            auto* row = new QHBoxLayout;
-            row->setSpacing(2);
-
-            m_nbBtn  = mkToggle("NB");
-            m_nrBtn  = mkToggle("NR");
-            m_anfBtn = mkToggle("ANF");
-
-            for (auto* b : {m_nbBtn, m_nrBtn, m_anfBtn})
-                b->setStyleSheet(QString(kButtonBase) + kGreenActive);
-
-            // NR button: 3-state cycle (Off → NR → NR2 → Off)
-            // Make it non-checkable so we control the visual state manually
-            m_nrBtn->setCheckable(false);
-            connect(m_nrBtn, &QPushButton::clicked, this, [this]() {
-                if (!m_slice) return;
-                if (m_nrState == 0) {
-                    // Off → NR on
-                    m_nrState = 1;
-                    m_slice->setNr(true);
-                    m_nrBtn->setText("NR");
-                    m_nrBtn->setStyleSheet(QString(kButtonBase) + kGreenActive
-                        + "QPushButton { background: #1a6030; color: #ffffff;"
-                        " border: 1px solid #20a040; }");
-                } else if (m_nrState == 1) {
-                    // NR on → disable NR, enable NR2
-                    m_nrState = 2;
-                    m_slice->setNr(false);
-                    m_nrBtn->setText("NR2");
-                    emit nr2CycleToggled(true);
-                } else {
-                    // NR2 on → Off
-                    m_nrState = 0;
-                    m_nrBtn->setText("NR");
-                    m_nrBtn->setStyleSheet(QString(kButtonBase) + kGreenActive);
-                    emit nr2CycleToggled(false);
-                }
-            });
-
-            connect(m_nbBtn,  &QPushButton::toggled, this, [this](bool on) {
-                if (m_slice) m_slice->setNb(on);
-            });
-            connect(m_anfBtn, &QPushButton::toggled, this, [this](bool on) {
-                if (m_slice) m_slice->setAnf(on);
-            });
-
-            row->addWidget(m_nbBtn);
-            row->addWidget(m_nrBtn);
-            row->addWidget(m_anfBtn);
-            dspLayout->addLayout(row);
-        }
-
-        // NRL / NRS / RNN
-        {
-            auto* row = new QHBoxLayout;
-            row->setSpacing(2);
-
-            m_nrlBtn = mkToggle("NRL");
-            m_nrsBtn = mkToggle("NRS");
-            m_rnnBtn = mkToggle("RNN");
-
-            for (auto* b : {m_nrlBtn, m_nrsBtn, m_rnnBtn})
-                b->setStyleSheet(QString(kButtonBase) + kGreenActive);
-
-            connect(m_nrlBtn, &QPushButton::toggled, this, [this](bool on) {
-                if (m_slice) m_slice->setNrl(on);
-            });
-            connect(m_nrsBtn, &QPushButton::toggled, this, [this](bool on) {
-                if (m_slice) m_slice->setNrs(on);
-            });
-
-            // RNN button: 3-state cycle (Off → RNN radio → RN2 client → Off)
-            m_rnnBtn->setCheckable(false);
-            connect(m_rnnBtn, &QPushButton::clicked, this, [this]() {
-                if (!m_slice) return;
-                if (m_rnnState == 0) {
-                    // Off → RNN on (radio-side)
-                    m_rnnState = 1;
-                    m_slice->setRnn(true);
-                    m_rnnBtn->setText("RNN");
-                    m_rnnBtn->setStyleSheet(QString(kButtonBase) + kGreenActive
-                        + "QPushButton { background: #1a6030; color: #ffffff;"
-                        " border: 1px solid #20a040; }");
-                } else if (m_rnnState == 1) {
-                    // RNN on → disable RNN, enable RN2
-                    m_rnnState = 2;
-                    m_slice->setRnn(false);
-                    m_rnnBtn->setText("RN2");
-                    m_rnnBtn->setStyleSheet(QString(kButtonBase) + kGreenActive
-                        + "QPushButton { background: #1a6030; color: #ffffff;"
-                        " border: 1px solid #20a040; }");
-                    emit rn2CycleToggled(true);
-                } else {
-                    // RN2 on → Off
-                    m_rnnState = 0;
-                    m_rnnBtn->setText("RNN");
-                    m_rnnBtn->setStyleSheet(QString(kButtonBase) + kGreenActive);
-                    emit rn2CycleToggled(false);
-                }
-            });
-
-            row->addWidget(m_nrlBtn);
-            row->addWidget(m_nrsBtn);
-            row->addWidget(m_rnnBtn);
-            dspLayout->addLayout(row);
-        }
-
-        // NRF / ANFL / ANFT
-        {
-            auto* row = new QHBoxLayout;
-            row->setSpacing(2);
-
-            m_nrfBtn  = mkToggle("NRF");
-            m_anflBtn = mkToggle("ANFL");
-            m_anftBtn = mkToggle("ANFT");
-
-            for (auto* b : {m_nrfBtn, m_anflBtn, m_anftBtn})
-                b->setStyleSheet(QString(kButtonBase) + kGreenActive);
-
-            connect(m_nrfBtn, &QPushButton::toggled, this, [this](bool on) {
-                if (m_slice) m_slice->setNrf(on);
-            });
-            connect(m_anflBtn, &QPushButton::toggled, this, [this](bool on) {
-                if (m_slice) m_slice->setAnfl(on);
-            });
-            connect(m_anftBtn, &QPushButton::toggled, this, [this](bool on) {
-                if (m_slice) m_slice->setAnft(on);
-            });
-
-            row->addWidget(m_nrfBtn);
-            row->addWidget(m_anflBtn);
-            row->addWidget(m_anftBtn);
-            dspLayout->addLayout(row);
-        }
-
-        leftCol->addWidget(m_dspContainer);
-    }
-
-    leftCol->addStretch(1);
     columns->addLayout(leftCol, 2);  // 40%
 
     // ── Right column (40%) ───────────────────────────────────────────────
@@ -998,91 +866,7 @@ void RxApplet::buildUI()
 
 // ─── NR button 3-state sync ──────────────────────────────────────────────────
 
-void RxApplet::syncNrButton(bool nrOn)
-{
-    static const QString kOn =
-        "QPushButton { background: #1a6030; color: #ffffff;"
-        " border: 1px solid #20a040; border-radius: 2px;"
-        " font-size: 10px; font-weight: bold; padding: 1px 4px; }";
-    static const QString kOff = QString(kButtonBase) + kGreenActive;
-
-    if (nrOn) {
-        m_nrState = 1;
-        m_nrBtn->setText("NR");
-        m_nrBtn->setStyleSheet(kOn);
-    } else if (m_nrState == 1) {
-        // NR turned off externally (not via our cycle) — go to off
-        m_nrState = 0;
-        m_nrBtn->setText("NR");
-        m_nrBtn->setStyleSheet(kOff);
-    }
-    // If m_nrState == 2 (NR2), don't change — NR2 is client-side
-}
-
-// ─── RNN button 3-state sync ─────────────────────────────────────────────────
-
-void RxApplet::syncRnnButton(bool rnnOn)
-{
-    static const QString kOn =
-        "QPushButton { background: #1a6030; color: #ffffff;"
-        " border: 1px solid #20a040; border-radius: 2px;"
-        " font-size: 10px; font-weight: bold; padding: 1px 4px; }";
-    static const QString kOff = QString(kButtonBase) + kGreenActive;
-
-    if (rnnOn) {
-        m_rnnState = 1;
-        m_rnnBtn->setText("RNN");
-        m_rnnBtn->setStyleSheet(kOn);
-    } else if (m_rnnState == 1) {
-        // RNN turned off externally — go to off
-        m_rnnState = 0;
-        m_rnnBtn->setText("RNN");
-        m_rnnBtn->setStyleSheet(kOff);
-    }
-    // If m_rnnState == 2 (RN2), don't change — RN2 is client-side
-}
-
-void RxApplet::setNrState(int state)
-{
-    static const QString kOn =
-        "QPushButton { background: #1a6030; color: #ffffff;"
-        " border: 1px solid #20a040; border-radius: 2px;"
-        " font-size: 10px; font-weight: bold; padding: 1px 4px; }";
-    static const QString kOff = QString(kButtonBase) + kGreenActive;
-
-    m_nrState = state;
-    if (state == 0) {
-        m_nrBtn->setText("NR");
-        m_nrBtn->setStyleSheet(kOff);
-    } else if (state == 1) {
-        m_nrBtn->setText("NR");
-        m_nrBtn->setStyleSheet(kOn);
-    } else {
-        m_nrBtn->setText("NR2");
-        m_nrBtn->setStyleSheet(kOn);
-    }
-}
-
-void RxApplet::setRnnState(int state)
-{
-    static const QString kOn =
-        "QPushButton { background: #1a6030; color: #ffffff;"
-        " border: 1px solid #20a040; border-radius: 2px;"
-        " font-size: 10px; font-weight: bold; padding: 1px 4px; }";
-    static const QString kOff = QString(kButtonBase) + kGreenActive;
-
-    m_rnnState = state;
-    if (state == 0) {
-        m_rnnBtn->setText("RNN");
-        m_rnnBtn->setStyleSheet(kOff);
-    } else if (state == 1) {
-        m_rnnBtn->setText("RNN");
-        m_rnnBtn->setStyleSheet(kOn);
-    } else {
-        m_rnnBtn->setText("RN2");
-        m_rnnBtn->setStyleSheet(kOn);
-    }
-}
+// DSP sync functions removed — VFO DSP tab and spectrum overlay handle all DSP state
 
 void RxApplet::setAfGain(int pct)
 {
@@ -1250,9 +1034,15 @@ void RxApplet::connectSlice(SliceModel* s)
 
     // ── Filter ─────────────────────────────────────────────────────────────
     updateFilterButtons();
+    m_filterPassband->setFilter(s->filterLow(), s->filterHigh());
+    m_filterPassband->setMode(s->mode());
     connect(s, &SliceModel::filterChanged, this, [this](int lo, int hi) {
         updateFilterButtons();
         m_filterWidthLbl->setText(formatFilterWidth(lo, hi));
+        m_filterPassband->setFilter(lo, hi);
+    });
+    connect(s, &SliceModel::modeChanged, this, [this](const QString& mode) {
+        m_filterPassband->setMode(mode);
     });
 
     // AGC mode
@@ -1320,54 +1110,7 @@ void RxApplet::connectSlice(SliceModel* s)
         m_sqlSlider->setValue(level);
     });
 
-    // DSP toggles
-    {
-        QSignalBlocker b1(m_nbBtn), b3(m_anfBtn);
-        m_nbBtn->setChecked(s->nbOn());
-        m_anfBtn->setChecked(s->anfOn());
-        // Sync NR button visual state
-        syncNrButton(s->nrOn());
-    }
-    connect(s, &SliceModel::nbChanged,  this, [this](bool on) {
-        QSignalBlocker b(m_nbBtn);  m_nbBtn->setChecked(on);
-    });
-    connect(s, &SliceModel::nrChanged,  this, [this](bool on) {
-        syncNrButton(on);
-    });
-    connect(s, &SliceModel::anfChanged, this, [this](bool on) {
-        QSignalBlocker b(m_anfBtn); m_anfBtn->setChecked(on);
-    });
-
-    // DSP toggles row 2 & 3
-    {
-        QSignalBlocker b1(m_nrlBtn), b2(m_nrsBtn),
-                       b4(m_nrfBtn), b5(m_anflBtn), b6(m_anftBtn);
-        m_nrlBtn->setChecked(s->nrlOn());
-        m_nrsBtn->setChecked(s->nrsOn());
-        m_nrfBtn->setChecked(s->nrfOn());
-        m_anflBtn->setChecked(s->anflOn());
-        m_anftBtn->setChecked(s->anftOn());
-        // Sync RNN visual state (non-checkable 3-state button)
-        syncRnnButton(s->rnnOn());
-    }
-    connect(s, &SliceModel::nrlChanged, this, [this](bool on) {
-        QSignalBlocker b(m_nrlBtn); m_nrlBtn->setChecked(on);
-    });
-    connect(s, &SliceModel::nrsChanged, this, [this](bool on) {
-        QSignalBlocker b(m_nrsBtn); m_nrsBtn->setChecked(on);
-    });
-    connect(s, &SliceModel::rnnChanged, this, [this](bool on) {
-        syncRnnButton(on);
-    });
-    connect(s, &SliceModel::nrfChanged, this, [this](bool on) {
-        QSignalBlocker b(m_nrfBtn); m_nrfBtn->setChecked(on);
-    });
-    connect(s, &SliceModel::anflChanged, this, [this](bool on) {
-        QSignalBlocker b(m_anflBtn); m_anflBtn->setChecked(on);
-    });
-    connect(s, &SliceModel::anftChanged, this, [this](bool on) {
-        QSignalBlocker b(m_anftBtn); m_anftBtn->setChecked(on);
-    });
+    // DSP toggles removed — use VFO DSP tab or spectrum overlay
 
     // RIT
     {
@@ -1549,7 +1292,6 @@ void RxApplet::updateModeSettings(const QString& mode)
 
     // Show/hide FM vs SSB/CW controls
     m_fmContainer->setVisible(isFM);
-    m_dspContainer->setVisible(!isFM);
     m_agcContainer->setVisible(!isFM);
     m_ritContainer->setVisible(!isFM);
     m_xitContainer->setVisible(!isFM);

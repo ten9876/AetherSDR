@@ -934,43 +934,8 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_audio, &AudioEngine::nr2EnabledChanged, this, syncNr2);
     connect(m_audio, &AudioEngine::rn2EnabledChanged, this, syncRn2);
     connect(m_audio, &AudioEngine::bnrEnabledChanged, this, syncBnr);
-    // NR2/RN2 overlay sync is wired in wirePanadapter()
-    // RxApplet NR button 3-state cycle → NR2 enable/disable (#329)
-    connect(m_appletPanel->rxApplet(), &RxApplet::nr2CycleToggled,
-            this, [this](bool on) {
-        if (on)
-            enableNr2WithWisdom();
-        else
-            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
-    });
-    // Sync RxApplet NR button visual when NR2 state changes
-    connect(m_audio, &AudioEngine::nr2EnabledChanged,
-            this, [this](bool on) {
-        auto* rx = m_appletPanel->rxApplet();
-        if (on) {
-            if (auto* s = activeSlice(); s && s->nrOn())
-                s->setNr(false);
-            rx->setNrState(2);
-        } else if (rx->nrState() == 2) {
-            rx->setNrState(0);
-        }
-    });
-
-    // ── RxApplet RNN 3-state cycle → RN2 enable/disable ────────────────────
-    connect(m_appletPanel->rxApplet(), &RxApplet::rn2CycleToggled,
-            this, [this](bool on) {
-        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setRn2Enabled(on); });
-    });
-    // Sync RxApplet RNN button visual when RN2 state changes
-    connect(m_audio, &AudioEngine::rn2EnabledChanged,
-            this, [this](bool on) {
-        auto* rx = m_appletPanel->rxApplet();
-        if (on) {
-            rx->setRnnState(2);
-        } else if (rx->rnnState() == 2) {
-            rx->setRnnState(0);
-        }
-    });
+    // NR2/RN2/BNR DSP controls now only in VFO DSP tab and spectrum overlay.
+    // RxApplet DSP buttons removed — no sync wiring needed.
 
 #ifdef HAVE_RADE
     connect(m_appletPanel->rxApplet(), &RxApplet::radeActivated,
