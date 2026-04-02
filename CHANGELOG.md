@@ -3,6 +3,26 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.17.6] — 2026-04-02
+
+### Reconnect & Disconnect Fixes
+
+**Fix disconnect crash on macOS (#561)**
+- `PanadapterStream::stop()` was called from the main thread, crashing
+  on macOS by closing the socket from the wrong thread
+- Route `stop()` through BlockingQueuedConnection to network thread
+
+**Fix VITA-49 not resuming after reconnect (#561)**
+- On reconnect, `start()` was skipped because the socket was still bound
+  from the previous session. Always call `start()` on connect — it closes
+  and rebinds the socket, re-registering the UDP port with the radio
+
+**Clear spectrum and waterfall on disconnect**
+- FFT and waterfall display now blanks immediately on disconnect
+- Prevents the display from appearing frozen
+
+---
+
 ## [v0.7.17.4] — 2026-04-02
 
 ### UI Polish & Stability

@@ -41,6 +41,7 @@ public:
 
     // Set the frequency range covered by this panadapter.
     void setFrequencyRange(double centerMhz, double bandwidthMhz);
+    void clearDisplay();  // blank spectrum and waterfall on disconnect
 
     // Feed a new FFT frame. bins are scaled dBm values.
     void updateSpectrum(const QVector<float>& binsDbm);

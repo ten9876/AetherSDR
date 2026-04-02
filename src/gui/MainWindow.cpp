@@ -3010,6 +3010,10 @@ void MainWindow::onConnectionStateChanged(bool connected)
         audioStopRx();
         audioStopTx();
 
+        // Clear spectrum/waterfall so the display doesn't look frozen
+        for (auto* applet : m_panStack->allApplets())
+            applet->spectrumWidget()->clearDisplay();
+
         // Show reconnect dialog on unexpected disconnect (only one at a time)
         if (!m_userDisconnected && !m_reconnectDlg) {
             m_reconnectDlg = new QDialog(this);

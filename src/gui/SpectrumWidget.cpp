@@ -272,6 +272,16 @@ void SpectrumWidget::resetWfTimeScale() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+void SpectrumWidget::clearDisplay()
+{
+    m_bins.clear();
+    m_smoothed.clear();
+    if (!m_waterfall.isNull())
+        m_waterfall.fill(Qt::black);
+    m_wfWriteRow = 0;
+    update();
+}
+
 void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
 {
     if (centerMhz != m_centerMhz || bandwidthMhz != m_bandwidthMhz)
