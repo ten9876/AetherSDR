@@ -3,6 +3,47 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.18] — 2026-04-02
+
+### Tuner Controls, Band Panel & UI Polish
+
+### New Features
+
+**TGXL 3x1 antenna switch (PR #573 by @boydsoftprez)**
+- ANT 1/2/3 buttons in Tuner Applet for TGXL 3x1 models
+- Protocol: `activate ant=N` via direct TGXL TCP port 9010
+- Only visible on 3x1 models (`one_by_three=1`), hidden on SO2R
+
+**Clickable AMP/TUN status bar indicators (PR #579 by @boydsoftprez)**
+- TUN: click cycles OPERATE → BYPASS → STANDBY (green/amber/grey)
+- AMP: click toggles OPERATE ↔ STANDBY (green/grey)
+- Resolves remote PGXL recovery (#479)
+
+**XVTR bands in Band panel (#571)**
+- Configured transverter bands appear as cyan buttons in the Band grid
+- XVTR button opens Radio Setup → XVTR tab
+- Band panel dynamically rebuilds on XVTR config changes
+
+### Bug Fixes
+
+**Connection panel now a proper dialog (#560, #574)**
+- Converted from frameless popup to QDialog with title bar and close button
+- No longer disappears on focus loss or lacks window decorations
+
+**Spot click precision (#530)**
+- Clicking a spot label now tunes to the exact spot frequency
+- Previously the mouseReleaseEvent overrode with a step-snapped position
+
+**Aurora/AU-520 power meter scaling (#484, #501, #582)**
+- AU-520 reports `max_internal_pa_power=500` in slice status
+- Power gauge now uses the higher of max_power_level and
+  max_internal_pa_power for correct 0-600W Aurora scale
+
+**CW decode hint (#392)**
+- Added "(requires PC Audio)" hint to CW decode panel header
+
+---
+
 ## [v0.7.17.6] — 2026-04-02
 
 ### Reconnect & Disconnect Fixes
