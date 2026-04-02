@@ -1065,9 +1065,40 @@ MainWindow::MainWindow(QWidget* parent)
         m_appletPanel->sMeterWidget()->setPowerScale(maxW, hasAmp);
     };
     connect(&m_radioModel, &RadioModel::amplifierChanged, this, updatePowerScale);
-    connect(&m_radioModel, &RadioModel::amplifierChanged, this, [this](bool present) {
+
+    // TGXL indicator: two-line rich text — label on top, state smaller below.
+    // Green = OPERATE, amber = BYPASS, grey = STANDBY (matches SmartSDR)
+    auto setIndicatorHtml = [](QLabel* lbl, const QString& name,
+                               const QString& state, const QString& color) {
+        lbl->setText(QString("<span style='color:%1; font-size:18px; font-weight:bold;'>%2</span><br>"
+                             "<span style='color:%1; font-size:11px;'>%3</span>")
+                     .arg(color, name, state));
+    };
+
+    auto updateTgxlStyle = [this, setIndicatorHtml]() {
+        auto& t = m_radioModel.tunerModel();
+        if (t.isOperate() && !t.isBypass())
+            setIndicatorHtml(m_tgxlIndicator, "TUN", "OPERATE", "#00e060");
+        else if (t.isOperate() && t.isBypass())
+            setIndicatorHtml(m_tgxlIndicator, "TUN", "BYPASS", "#e0a000");
+        else
+            setIndicatorHtml(m_tgxlIndicator, "TUN", "STANDBY", "#404858");
+    };
+    connect(&m_radioModel.tunerModel(), &TunerModel::stateChanged, this, updateTgxlStyle);
+
+    // PGXL indicator: OPERATE (green) or STANDBY (grey) — no bypass for PGXL
+    auto updatePgxlStyle = [this, setIndicatorHtml]() {
+        if (m_radioModel.ampOperate())
+            setIndicatorHtml(m_pgxlIndicator, "AMP", "OPERATE", "#00e060");
+        else
+            setIndicatorHtml(m_pgxlIndicator, "AMP", "STANDBY", "#404858");
+    };
+    connect(&m_radioModel, &RadioModel::ampStateChanged, this, updatePgxlStyle);
+
+    connect(&m_radioModel, &RadioModel::amplifierChanged, this, [this, updatePgxlStyle](bool present) {
         m_pgxlIndicator->setVisible(present);
         m_appletPanel->setAmpVisible(present);
+        if (present) updatePgxlStyle();
     });
     connect(&m_radioModel.meterModel(), &MeterModel::ampMetersChanged,
             this, [this](float fwdPwr, float swr, float temp) {
@@ -1672,6 +1703,24 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         // Optimistic update — radio accepts this command (R|0) but doesn't
         // echo back a status update with the new value.
         m_radioModel.setFullDuplex(on);
+        return true;
+    }
+    if (obj == m_tgxlIndicator && event->type() == QEvent::MouseButtonPress) {
+        auto& t = m_radioModel.tunerModel();
+        // Cycle: OPERATE → BYPASS → STANDBY → OPERATE
+        if (t.isOperate() && !t.isBypass())
+            t.setBypass(true);
+        else if (t.isOperate() && t.isBypass())
+            t.setOperate(false);
+        else {
+            t.setBypass(false);
+            t.setOperate(true);
+        }
+        return true;
+    }
+    if (obj == m_pgxlIndicator && event->type() == QEvent::MouseButtonPress) {
+        // Simple toggle: OPERATE ↔ STANDBY (PGXL has no BYPASS)
+        m_radioModel.setAmpOperate(!m_radioModel.ampOperate());
         return true;
     }
     if (obj == m_panelToggle && event->type() == QEvent::MouseButtonPress) {
@@ -2553,7 +2602,7 @@ void MainWindow::buildUI()
         m_appletPanel->hide();
 
     // ── Status bar (SmartSDR-style, double height) ─────────────────────
-    statusBar()->setFixedHeight(40);
+    statusBar()->setFixedHeight(46);
     statusBar()->setSizeGripEnabled(false);
     statusBar()->setStyleSheet(
         "QStatusBar { background: #0a0a14; border-top: 1px solid #203040; }"
@@ -2749,13 +2798,23 @@ void MainWindow::buildUI()
 
     addSep();
 
-    m_tgxlIndicator = new QLabel("TGXL");
-    m_tgxlIndicator->setStyleSheet("QLabel { color: rgba(255,255,255,128); font-weight: bold; font-size: 21px; }");
+    m_tgxlIndicator = new QLabel;
+    m_tgxlIndicator->setTextFormat(Qt::RichText);
+    m_tgxlIndicator->setAlignment(Qt::AlignCenter);
+    m_tgxlIndicator->setCursor(Qt::PointingHandCursor);
+    m_tgxlIndicator->setToolTip("Tuner Genius XL — click to cycle OPERATE/BYPASS/STANDBY");
+    m_tgxlIndicator->installEventFilter(this);
     m_tgxlIndicator->setVisible(false);
     hbox->addWidget(m_tgxlIndicator);
 
-    m_pgxlIndicator = new QLabel("PGXL");
-    m_pgxlIndicator->setStyleSheet("QLabel { color: rgba(255,255,255,128); font-weight: bold; font-size: 21px; }");
+    addSep();
+
+    m_pgxlIndicator = new QLabel;
+    m_pgxlIndicator->setTextFormat(Qt::RichText);
+    m_pgxlIndicator->setAlignment(Qt::AlignCenter);
+    m_pgxlIndicator->setCursor(Qt::PointingHandCursor);
+    m_pgxlIndicator->setToolTip("Power Genius XL — click to toggle OPERATE/STANDBY");
+    m_pgxlIndicator->installEventFilter(this);
     m_pgxlIndicator->setVisible(false);
     hbox->addWidget(m_pgxlIndicator);
 
