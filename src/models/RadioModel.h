@@ -85,6 +85,8 @@ public:
     UsbCableModel&    usbCableModel()    { return m_usbCableModel; }
     DaxIqModel&       daxIqModel()       { return m_daxIqModel; }
     bool              hasAmplifier() const { return m_hasAmplifier; }
+    bool              ampOperate()   const { return m_ampOperate; }
+    QString           ampHandle()    const { return m_ampHandle; }
 
     // Getters
     QString name()    const { return m_name; }
@@ -93,6 +95,7 @@ public:
     bool isConnected() const;
     bool fullDuplexEnabled() const { return m_fullDuplex; }
     void setFullDuplex(bool on) { m_fullDuplex = on; emit infoChanged(); }
+    void setAmpOperate(bool on);
     float paTemp()    const { return m_paTemp; }
     float txPower()   const { return m_txPower; }
     QStringList antennaList() const { return m_antList; }
@@ -255,6 +258,7 @@ signals:
     void antListChanged(QStringList ants);
     // Emitted when a power amplifier (e.g. PGXL) is detected or lost.
     void amplifierChanged(bool present);
+    void ampStateChanged();   // amplifier operate/bypass changed
     void memoryRemoved(int index);
     void audioOutputChanged();
     // Emitted when TX ownership changes in Multi-Flex (another client transmitting)
@@ -410,6 +414,8 @@ private:
     QString m_activePanId;       // currently active panadapter
 
     bool    m_hasAmplifier{false};  // true if a power amp (PGXL) is detected
+    QString m_ampHandle;             // amplifier handle for commands
+    bool    m_ampOperate{false};
 
     // GPS state
     QString m_gpsStatus;           // "Locked", "Present", "Not Present"

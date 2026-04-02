@@ -1025,6 +1025,8 @@ void RadioModel::onDisconnected()
     m_tunerModel.setHandle({});       // clear TGXL presence
     m_xvtrList.clear();
     m_hasAmplifier = false;
+    m_ampHandle.clear();
+    m_ampOperate = false;
     m_fullDuplex = false;
     m_model.clear();
     m_version.clear();
@@ -1337,6 +1339,13 @@ void RadioModel::sendCommand(const QString& cmd)
 void RadioModel::sendCmdPublic(const QString& cmd, ResponseCallback cb)
 {
     sendCmd(cmd, cb);
+}
+
+void RadioModel::setAmpOperate(bool on)
+{
+    if (m_ampHandle.isEmpty()) return;
+    // FlexLib API: "amplifier set <handle> operate=0|1"
+    sendCmd(QString("amplifier set %1 operate=%2").arg(m_ampHandle).arg(on ? 1 : 0));
 }
 
 void RadioModel::createRxAudioStream()
@@ -1692,11 +1701,26 @@ void RadioModel::onStatusReceived(const QString& object,
                 m_tunerModel.applyStatus(kvs);
             }
 
-            // Detect power amplifier (PGXL or any non-TGXL amp)
-            if (!model.isEmpty() && model != "TunerGeniusXL" && !m_hasAmplifier) {
-                m_hasAmplifier = true;
-                qCDebug(lcProtocol) << "RadioModel: power amplifier detected, model=" << model;
-                emit amplifierChanged(true);
+            // Track power amplifier state (PGXL or any non-TGXL amp).
+            // PGXL uses "state=OPERATE|IDLE|BYPASS|..." (not operate=/bypass= like TGXL)
+            if (!model.isEmpty() && model != "TunerGeniusXL") {
+                m_ampHandle = handle;
+                if (!m_hasAmplifier) {
+                    m_hasAmplifier = true;
+                    qCDebug(lcProtocol) << "RadioModel: power amplifier detected, model=" << model;
+                    emit amplifierChanged(true);
+                }
+            }
+            if (!m_ampHandle.isEmpty() && handle == m_ampHandle) {
+                const QString state = kvs.value("state").toUpper();
+                if (!state.isEmpty()) {
+                    // PGXL states: IDLE = on/ready, STANDBY = off, POWERUP = transitioning
+                    bool op = (state == "IDLE" || state == "OPERATE");
+                    if (m_ampOperate != op) {
+                        m_ampOperate = op;
+                        emit ampStateChanged();
+                    }
+                }
             }
         }
         return;
