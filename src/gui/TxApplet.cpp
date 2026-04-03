@@ -125,7 +125,7 @@ void TxApplet::buildUI()
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
 
-        m_profileCombo = new QComboBox;
+        m_profileCombo = new GuardedComboBox;
         AetherSDR::applyComboStyle(m_profileCombo);
         m_profileCombo->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         row->addWidget(m_profileCombo, 1);  // 1 out of 2 = 50%

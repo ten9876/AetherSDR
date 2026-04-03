@@ -1,4 +1,5 @@
 #include "CatApplet.h"
+#include "GuardedSlider.h"
 #include "SliceColors.h"
 #include <algorithm>
 #include <cmath>
@@ -314,7 +315,7 @@ void CatApplet::buildUI()
         label->setFixedWidth(28);
         row->addWidget(label);
 
-        m_iqRateCombo[i] = new QComboBox;
+        m_iqRateCombo[i] = new GuardedComboBox;
         applyComboStyle(m_iqRateCombo[i]);
         m_iqRateCombo[i]->addItem("24k",  24000);
         m_iqRateCombo[i]->addItem("48k",  48000);
