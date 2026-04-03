@@ -1005,6 +1005,48 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         ++row;
     }
 
+    // Background image (#611)
+    {
+        auto* lbl = new QLabel("Background:");
+        lbl->setStyleSheet(labelStyle);
+        grid->addWidget(lbl, row, 0, 1, 2);
+        auto* bgBtn = new QPushButton("Choose...");
+        bgBtn->setFixedSize(60, 18);
+        bgBtn->setStyleSheet(btnStyle);
+        connect(bgBtn, &QPushButton::clicked, this, [this] {
+            emit backgroundImageRequested();
+        });
+        grid->addWidget(bgBtn, row, 2);
+        auto* clearBtn = new QPushButton("Clear");
+        clearBtn->setFixedSize(42, 18);
+        clearBtn->setStyleSheet(btnStyle);
+        connect(clearBtn, &QPushButton::clicked, this, [this] {
+            emit backgroundImageCleared();
+        });
+        grid->addWidget(clearBtn, row, 3);
+        ++row;
+
+        // Opacity slider
+        auto* opacLbl = new QLabel("Bg Opacity:");
+        opacLbl->setStyleSheet(labelStyle);
+        grid->addWidget(opacLbl, row, 0, 1, 2);
+        m_bgOpacitySlider = new GuardedSlider(Qt::Horizontal);
+        m_bgOpacitySlider->setRange(0, 100);
+        m_bgOpacitySlider->setValue(80);
+        m_bgOpacitySlider->setStyleSheet(sliderStyle);
+        grid->addWidget(m_bgOpacitySlider, row, 2);
+        m_bgOpacityLabel = new QLabel("80");
+        m_bgOpacityLabel->setStyleSheet(valStyle);
+        m_bgOpacityLabel->setFixedWidth(28);
+        m_bgOpacityLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        grid->addWidget(m_bgOpacityLabel, row, 3);
+        connect(m_bgOpacitySlider, &QSlider::valueChanged, this, [this](int v) {
+            m_bgOpacityLabel->setText(QString::number(v));
+            emit backgroundOpacityChanged(v);
+        });
+        ++row;
+    }
+
     m_displayPanel->adjustSize();
 }
 

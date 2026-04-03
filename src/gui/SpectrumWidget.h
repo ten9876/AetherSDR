@@ -117,6 +117,10 @@ public:
     void setSingleClickTune(bool on) { m_singleClickTune = on; }
     void setShowCursorFreq(bool on) { m_showCursorFreq = on; update(); }
     bool showCursorFreq() const { return m_showCursorFreq; }
+    void setBackgroundImage(const QString& path);
+    QString backgroundImagePath() const { return m_bgImagePath; }
+    void setBackgroundOpacity(int pct) { m_bgOpacity = qBound(0, pct, 100); update(); }
+    int backgroundOpacity() const { return m_bgOpacity; }
     bool showBandPlan() const { return m_bandPlanFontSize > 0; }
     int  bandPlanFontSize() const { return m_bandPlanFontSize; }
 
@@ -396,6 +400,13 @@ private:
     // On-screen indicators (WNB, RF Gain)
     bool m_wnbActive{false};
     int  m_rfGainValue{0};
+
+    // Background image
+    QImage  m_bgImage;
+    QImage  m_bgScaled;     // cached at current specRect size
+    QString m_bgImagePath;
+    QSize   m_bgScaledSize;
+    int     m_bgOpacity{80};  // 0=full image, 100=solid dark (default 80%)
 
     // Cursor frequency label
     bool   m_showCursorFreq{false};

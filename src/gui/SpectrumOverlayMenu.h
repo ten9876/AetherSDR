@@ -96,6 +96,9 @@ signals:
     void wfBlankerEnabledChanged(bool on);
     void wfBlankerThresholdChanged(float threshold);
     void cursorFreqToggled(bool on);
+    void backgroundImageRequested();
+    void backgroundImageCleared();
+    void backgroundOpacityChanged(int pct);
 
 private:
     QString m_panId;
@@ -181,6 +184,8 @@ private:
     QPushButton* m_floorEnableBtn{nullptr};
 
     QPushButton* m_cursorFreqBtn{nullptr};
+    QSlider*     m_bgOpacitySlider{nullptr};
+    QLabel*      m_bgOpacityLabel{nullptr};
 
     QStringList  m_antList;
     SliceModel*  m_slice{nullptr};

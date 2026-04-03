@@ -72,6 +72,7 @@
 #include <QShortcut>
 #include <QScrollArea>
 #include <QFrame>
+#include <QFileDialog>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QJsonDocument>
@@ -710,6 +711,11 @@ MainWindow::MainWindow(QWidget* parent)
             spectrum()->setShowCursorFreq(cursorFreq);
             if (spectrum()->overlayMenu()->cursorFreqButton())
                 spectrum()->overlayMenu()->cursorFreqButton()->setChecked(cursorFreq);
+            QString bgPath = s.value(spectrum()->settingsKey("BackgroundImage")).toString();
+            if (!bgPath.isEmpty())
+                spectrum()->setBackgroundImage(bgPath);
+            int bgOpacity = s.value(spectrum()->settingsKey("BackgroundOpacity"), "80").toInt();
+            spectrum()->setBackgroundOpacity(bgOpacity);
             // Nudge rate to force waterfall tile re-sync
             QTimer::singleShot(500, this, [this, rate]() {
                 m_radioModel.setWaterfallLineDuration(rate + 1);
@@ -4056,6 +4062,34 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setShowCursorFreq(on);
         auto& s = AppSettings::instance();
         s.setValue(sw->settingsKey("CursorFreqLabel"), on ? "True" : "False");
+        s.save();
+    });
+
+    disconnect(menu, &SpectrumOverlayMenu::backgroundImageRequested, this, nullptr);
+    disconnect(menu, &SpectrumOverlayMenu::backgroundImageCleared, this, nullptr);
+    disconnect(menu, &SpectrumOverlayMenu::backgroundOpacityChanged, this, nullptr);
+    connect(menu, &SpectrumOverlayMenu::backgroundImageRequested,
+            this, [this, sw] {
+        QString path = QFileDialog::getOpenFileName(this, "Choose Background Image",
+            QString(), "Images (*.png *.jpg *.jpeg *.bmp)");
+        if (path.isEmpty()) return;
+        sw->setBackgroundImage(path);
+        auto& s = AppSettings::instance();
+        s.setValue(sw->settingsKey("BackgroundImage"), path);
+        s.save();
+    });
+    connect(menu, &SpectrumOverlayMenu::backgroundImageCleared,
+            this, [sw] {
+        sw->setBackgroundImage({});
+        auto& s = AppSettings::instance();
+        s.setValue(sw->settingsKey("BackgroundImage"), "none");
+        s.save();
+    });
+    connect(menu, &SpectrumOverlayMenu::backgroundOpacityChanged,
+            this, [sw](int pct) {
+        sw->setBackgroundOpacity(pct);
+        auto& s = AppSettings::instance();
+        s.setValue(sw->settingsKey("BackgroundOpacity"), QString::number(pct));
         s.save();
     });
 

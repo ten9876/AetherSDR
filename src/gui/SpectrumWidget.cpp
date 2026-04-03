@@ -124,6 +124,12 @@ void SpectrumWidget::loadSettings()
     }
     m_singleClickTune = s.value("SingleClickTune", "False").toString() == "True";
 
+    // Background image — default to bundled logo, "none" = explicitly cleared
+    QString bgPath = s.value(settingsKey("BackgroundImage"), ":/bg-default.jpg").toString();
+    if (bgPath != "none" && !bgPath.isEmpty())
+        setBackgroundImage(bgPath);
+    m_bgOpacity = s.value(settingsKey("BackgroundOpacity"), "80").toInt();
+
     // Sync overlay menu sliders with restored settings
     if (m_overlayMenu)
         m_overlayMenu->syncDisplaySettings(m_fftAverage, m_fftFps,
@@ -1413,6 +1419,24 @@ void SpectrumWidget::leaveEvent(QEvent* event)
     }
 }
 
+void SpectrumWidget::setBackgroundImage(const QString& path)
+{
+    m_bgImagePath = path;
+    m_bgScaled = {};
+    m_bgScaledSize = {};
+    if (path.isEmpty()) {
+        m_bgImage = {};
+    } else {
+        m_bgImage = QImage(path);
+        qDebug() << "SpectrumWidget: background image" << path
+                 << "loaded:" << !m_bgImage.isNull()
+                 << "size:" << m_bgImage.size();
+        if (m_bgImage.isNull())
+            qWarning() << "SpectrumWidget: failed to load background image:" << path;
+    }
+    update();
+}
+
 void SpectrumWidget::wheelEvent(QWheelEvent* ev)
 {
     // Skip scroll on the divider + freq scale bar.
@@ -1646,7 +1670,19 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
 
     {
         // Software fallback: full QPainter rendering
-        p.fillRect(specRect, QColor(0x0a, 0x0a, 0x14));
+        if (m_bgImage.isNull()) {
+            p.fillRect(specRect, QColor(0x0a, 0x0a, 0x14));
+        } else {
+            // Cache scaled image to avoid per-frame scaling
+            if (m_bgScaledSize != specRect.size()) {
+                m_bgScaled = m_bgImage.scaled(specRect.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+                m_bgScaledSize = specRect.size();
+            }
+            p.drawImage(specRect.topLeft(), m_bgScaled);
+            // Dark overlay to mute the image (0%=full image, 100%=solid dark)
+            int alpha = m_bgOpacity * 255 / 100;
+            p.fillRect(specRect, QColor(0x0a, 0x0a, 0x14, alpha));
+        }
         drawGrid(p, specRect);
         drawSpectrum(p, specRect);
         if (m_bandPlanFontSize > 0) drawBandPlan(p, specRect);
