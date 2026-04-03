@@ -512,31 +512,59 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
     // Sample rate: macOS needs 48kHz for USB mics, Linux can try 24kHz first
 #ifdef Q_OS_MAC
     fmt.setSampleRate(48000);
-    m_txDownsampleFrom48k = true;
     if (!dev.isFormatSupported(fmt)) {
         fmt.setSampleRate(24000);
-        m_txDownsampleFrom48k = false;
         if (!dev.isFormatSupported(fmt)) {
             qCWarning(lcAudio) << "AudioEngine: input device supports neither 48kHz nor 24kHz";
             return false;
         }
     }
 #else
+    qCDebug(lcAudio) << "AudioEngine: input device caps:"
+        << dev.minimumSampleRate() << "-" << dev.maximumSampleRate() << "Hz"
+        << dev.minimumChannelCount() << "-" << dev.maximumChannelCount() << "ch";
+
+    // Try 24kHz first (native radio rate), then 48kHz, then 44.1kHz
     if (!dev.isFormatSupported(fmt)) {
-        qCWarning(lcAudio) << "AudioEngine: input device does not support 24kHz, trying 48kHz";
+        qCWarning(lcAudio) << "AudioEngine: input device does not support 24kHz stereo Int16, trying 48kHz";
         fmt.setSampleRate(48000);
-        m_txDownsampleFrom48k = true;
         if (!dev.isFormatSupported(fmt)) {
-            qCWarning(lcAudio) << "AudioEngine: input device does not support 48kHz either";
-            return false;
+            qCWarning(lcAudio) << "AudioEngine: 48kHz stereo Int16 not supported, trying 44100Hz";
+            fmt.setSampleRate(44100);
+            if (!dev.isFormatSupported(fmt)) {
+                // Last resort: try mono — some USB headsets only advertise mono
+                qCWarning(lcAudio) << "AudioEngine: 44100Hz stereo not supported, trying mono variants";
+                for (int rate : {48000, 44100, 24000}) {
+                    fmt.setSampleRate(rate);
+                    fmt.setChannelCount(1);
+                    if (dev.isFormatSupported(fmt)) {
+                        qCWarning(lcAudio) << "AudioEngine: using mono" << rate << "Hz input";
+                        break;
+                    }
+                }
+                if (!dev.isFormatSupported(fmt)) {
+                    qCWarning(lcAudio) << "AudioEngine: input device supports no usable format";
+                    return false;
+                }
+            }
         }
-    } else {
-        m_txDownsampleFrom48k = false;
     }
 #endif
 
-    qCDebug(lcAudio) << "AudioEngine: input device:" << dev.description()
-             << "rate:" << fmt.sampleRate() << "ch:" << fmt.channelCount();
+    // Record actual negotiated input format for resampling in onTxAudioReady
+    m_txInputRate = fmt.sampleRate();
+    m_txInputMono = (fmt.channelCount() == 1);
+    m_txNeedsResample = (m_txInputRate != 24000);
+
+    // Create polyphase resampler for high-quality rate conversion
+    if (m_txNeedsResample)
+        m_txResampler = std::make_unique<Resampler>(m_txInputRate, 24000, 16384);
+    else
+        m_txResampler.reset();
+
+    qCDebug(lcAudio) << "AudioEngine: TX input device:" << dev.description()
+             << "rate:" << fmt.sampleRate() << "ch:" << fmt.channelCount()
+             << "resample:" << m_txNeedsResample;
 
 #ifdef Q_OS_MAC
     // macOS: QAudioSource pull mode broken — use push mode with QBuffer
@@ -598,6 +626,7 @@ void AudioEngine::stopTxStream()
     m_txSocket.close();
     m_txAccumulator.clear();
     m_txFloatAccumulator.clear();
+    m_txResampler.reset();
 }
 
 void AudioEngine::onTxAudioReady()
@@ -616,17 +645,27 @@ void AudioEngine::onTxAudioReady()
     if (data.isEmpty()) return;
 #endif
 
-    // Downsample 48kHz → 24kHz: drop every other stereo sample pair
-    if (m_txDownsampleFrom48k && data.size() >= 8) {
-        const auto* src = reinterpret_cast<const qint16*>(data.constData());
-        const int stereoSamples = data.size() / 4;
-        QByteArray ds(stereoSamples / 2 * 4, Qt::Uninitialized);
-        auto* dst = reinterpret_cast<qint16*>(ds.data());
-        for (int i = 0; i < stereoSamples / 2; ++i) {
-            dst[i * 2 + 0] = src[i * 4 + 0];  // L (take every other pair)
-            dst[i * 2 + 1] = src[i * 4 + 1];  // R
+    // Resample to 24kHz stereo using r8brain polyphase resampler
+    if (m_txNeedsResample && m_txResampler) {
+        const auto* pcm = reinterpret_cast<const int16_t*>(data.constData());
+        if (m_txInputMono) {
+            // Mono input → resample → duplicate to stereo
+            data = m_txResampler->processMonoToStereo(pcm, data.size() / sizeof(int16_t));
+        } else {
+            // Stereo input → downmix to mono → resample → duplicate to stereo
+            data = m_txResampler->processStereoToStereo(pcm, data.size() / (2 * sizeof(int16_t)));
         }
-        data = ds;
+    } else if (m_txInputMono) {
+        // 24kHz mono (no resample needed) → duplicate to stereo
+        const auto* src = reinterpret_cast<const int16_t*>(data.constData());
+        const int monoSamples = data.size() / sizeof(int16_t);
+        QByteArray stereo(monoSamples * 2 * sizeof(int16_t), Qt::Uninitialized);
+        auto* dst = reinterpret_cast<int16_t*>(stereo.data());
+        for (int i = 0; i < monoSamples; ++i) {
+            dst[i * 2] = src[i];
+            dst[i * 2 + 1] = src[i];
+        }
+        data = stereo;
     }
 
     // RADE mode: emit raw PCM for RADEEngine instead of sending VITA-49
@@ -699,15 +738,19 @@ void AudioEngine::onTxAudioReady()
             if (opus.isEmpty()) continue;
 
             // Build VITA-49 Opus packet matching SmartSDR exactly:
-            // Header: 28 bytes + opus payload, NO trailer
-            int words = (28 + opus.size() + 3) / 4;  // round up to 32-bit words
-            QByteArray pkt(words * 4, '\0');
+            // Header: 28 bytes + opus payload, NO trailer.
+            // FlexLib Opus packets are byte-centric — payload is NOT
+            // padded to 32-bit word alignment. Size field in header
+            // is still in 32-bit words (rounded up) per VITA-49 spec.
+            const int pktBytes = 28 + opus.size();  // exact, no padding
+            const int sizeWords = (pktBytes + 3) / 4;  // for header field only
+            QByteArray pkt(pktBytes, '\0');
             auto* p = reinterpret_cast<quint32*>(pkt.data());
 
             // Word 0: type=3 (ExtDataWithStream), C=1, T=0, TSI=3, TSF=1
             p[0] = qToBigEndian<quint32>(
                 (3u << 28) | (1u << 27) | (3u << 22) | (1u << 20)
-                | ((m_txPacketCount & 0x0F) << 16) | words);
+                | ((m_txPacketCount & 0x0F) << 16) | sizeWords);
             m_txPacketCount = (m_txPacketCount + 1) & 0x0F;
             p[1] = qToBigEndian(m_remoteTxStreamId);    // remote_audio_tx stream
             p[2] = qToBigEndian<quint32>(0x00001C2D);   // OUI (FlexRadio)

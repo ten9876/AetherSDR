@@ -201,7 +201,10 @@ private:
     std::atomic<bool>  m_muted{false};
     bool  m_resampleTo48k{false};      // RX: upsample 24kHz → 48kHz output
     std::unique_ptr<Resampler> m_rxResampler;  // 24k stereo → 48k stereo (lazy init)
-    bool  m_txDownsampleFrom48k{false}; // TX: downsample 48kHz → 24kHz input
+    bool  m_txNeedsResample{false};      // TX: input rate != 24kHz, needs resampling
+    bool  m_txInputMono{false};          // TX: input device is mono
+    int   m_txInputRate{24000};          // TX: actual input sample rate
+    std::unique_ptr<Resampler> m_txResampler;  // e.g. 48k→24k (lazy init)
 
     // DSP lifecycle mutex: held during feedAudioData() DSP section AND
     // during enable/disable to prevent use-after-free (#502)
