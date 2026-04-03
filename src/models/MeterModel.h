@@ -38,7 +38,7 @@ public:
 
     // Set the TGXL amplifier handle so AMP meters can be routed correctly
     // (TGXL FWD/RL → TunerApplet, PGXL FWD/RL → AmpApplet)
-    void setTgxlHandle(quint32 handle) { m_tgxlHandle = handle; }
+    void setTgxlHandle(quint32 handle);
 
     // Register or update a meter definition from a TCP status message.
     void defineMeter(const MeterDef& def);

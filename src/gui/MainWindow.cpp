@@ -70,10 +70,13 @@
 #include <QCloseEvent>
 #include <QMessageBox>
 #include <QShortcut>
+#include <QScrollArea>
+#include <QFrame>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include "core/VersionNumber.h"
 #include <QPointer>
 #include <QTextEdit>
@@ -1432,7 +1435,7 @@ MainWindow::MainWindow(QWidget* parent)
         const bool locked = m_radioModel.oscLocked();
         if (state == "gpsdo" && locked) {
             // Don't override — GPS status handler shows satellite count
-        } else if (m_radioModel.extPresent() && state == "ext") {
+        } else if (m_radioModel.extPresent() && (state == "ext" || state == "external")) {
             m_gpsLabel->setText("Ref: Ext 10M");
             m_gpsStatusLabel->setText(QString("[%1]").arg(locked ? "Locked" : "Unlocked"));
         } else {
@@ -2526,22 +2529,77 @@ void MainWindow::buildMenuBar()
     });
     helpMenu->addSeparator();
     helpMenu->addAction("About AetherSDR", this, [this]{
-        const QString text = QString(
+        auto* dlg = new QDialog(this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setWindowTitle("About AetherSDR");
+        dlg->setFixedWidth(380);
+        dlg->setStyleSheet("QDialog { background: #0f0f1a; }");
+
+        auto* vbox = new QVBoxLayout(dlg);
+        vbox->setSpacing(8);
+        vbox->setContentsMargins(16, 16, 16, 16);
+
+        // Icon
+        auto* iconLbl = new QLabel;
+        iconLbl->setPixmap(QPixmap(":/icon.png").scaled(96, 96, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        iconLbl->setAlignment(Qt::AlignCenter);
+        vbox->addWidget(iconLbl);
+
+        // Header
+        auto* header = new QLabel(QString(
             "<div style='text-align:center;'>"
-            "<h2 style='margin-bottom:2px;'>AetherSDR</h2>"
-            "<p style='margin-top:0;'>v%1</p>"
-            "<p>Linux-native SmartSDR-compatible client<br>"
+            "<h2 style='margin-bottom:2px; color:#c8d8e8;'>AetherSDR</h2>"
+            "<p style='margin-top:0; color:#8aa8c0;'>v%1</p>"
+            "<p style='color:#c8d8e8;'>Linux-native SmartSDR-compatible client<br>"
             "for FlexRadio transceivers.</p>"
-            "<p style='font-size:11px; color:#8aa8c0;'>"
+            "<p style='font-size:11px; color:#6a8090;'>"
             "Built with Qt %2 &middot; C++20<br>"
             "Compiled: %3</p>"
-            "<hr>"
-            "<p style='font-size:11px;'>"
-            "<b>Contributors</b><br>"
-            "Jeremy (KK7GWY)<br>"
-            "Claude &middot; Anthropic<br>"
-            "Dependabot</p>"
-            "<hr>"
+            "</div>")
+            .arg(QCoreApplication::applicationVersion(), qVersion(),
+                 QStringLiteral(__DATE__)));
+        header->setAlignment(Qt::AlignCenter);
+        header->setWordWrap(true);
+        vbox->addWidget(header);
+
+        // Separator
+        auto* sep1 = new QFrame;
+        sep1->setFrameShape(QFrame::HLine);
+        sep1->setStyleSheet("color: #304050;");
+        vbox->addWidget(sep1);
+
+        // Contributors label
+        auto* contribTitle = new QLabel("<b style='color:#c8d8e8;'>Contributors</b>");
+        contribTitle->setAlignment(Qt::AlignCenter);
+        vbox->addWidget(contribTitle);
+
+        // Scrollable contributors list
+        auto* contribLabel = new QLabel("Jeremy (KK7GWY)<br>Claude &middot; Anthropic<br>Dependabot");
+        contribLabel->setAlignment(Qt::AlignCenter);
+        contribLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 11px; }");
+        contribLabel->setWordWrap(true);
+
+        auto* scroll = new QScrollArea;
+        scroll->setWidget(contribLabel);
+        scroll->setWidgetResizable(true);
+        scroll->setFixedHeight(80);
+        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        scroll->setStyleSheet(
+            "QScrollArea { background: #0a0a14; border: 1px solid #203040; border-radius: 4px; }"
+            "QScrollBar:vertical { background: #0a0a14; width: 6px; }"
+            "QScrollBar::handle:vertical { background: #304050; border-radius: 3px; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }");
+        vbox->addWidget(scroll);
+
+        // Separator
+        auto* sep2 = new QFrame;
+        sep2->setFrameShape(QFrame::HLine);
+        sep2->setStyleSheet("color: #304050;");
+        vbox->addWidget(sep2);
+
+        // Footer
+        auto* footer = new QLabel(
+            "<div style='text-align:center;'>"
             "<p style='font-size:11px; color:#8aa8c0;'>"
             "&copy; 2026 AetherSDR Contributors<br>"
             "Licensed under "
@@ -2549,18 +2607,47 @@ void MainWindow::buildMenuBar()
             "<p style='font-size:11px;'>"
             "<a href='https://github.com/ten9876/AetherSDR' style='color:#00b4d8;'>"
             "github.com/ten9876/AetherSDR</a></p>"
-            "<hr>"
             "<p style='font-size:10px; color:#6a8090;'>"
             "SmartSDR protocol &copy; FlexRadio Systems</p>"
-            "</div>"
-            ).arg(QCoreApplication::applicationVersion(),
-                  qVersion(),
-                  QStringLiteral(__DATE__));
-        QMessageBox about(this);
-        about.setWindowTitle("About AetherSDR");
-        about.setIconPixmap(QPixmap(":/icon.png").scaled(128, 128, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-        about.setText(text);
-        about.exec();
+            "</div>");
+        footer->setAlignment(Qt::AlignCenter);
+        footer->setOpenExternalLinks(true);
+        footer->setWordWrap(true);
+        vbox->addWidget(footer);
+
+        // OK button
+        auto* okBtn = new QPushButton("OK");
+        okBtn->setStyleSheet(
+            "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+            "border-radius: 4px; padding: 6px 24px; }"
+            "QPushButton:hover { background: #00c8f0; }");
+        connect(okBtn, &QPushButton::clicked, dlg, &QDialog::close);
+        vbox->addWidget(okBtn, 0, Qt::AlignCenter);
+
+        dlg->show();
+
+        // Fetch live contributor list from GitHub API
+        auto* nam = new QNetworkAccessManager(dlg);
+        auto* reply = nam->get(QNetworkRequest(
+            QUrl("https://api.github.com/repos/ten9876/AetherSDR/contributors")));
+        connect(reply, &QNetworkReply::finished, dlg, [contribLabel, reply] {
+            reply->deleteLater();
+            if (reply->error() != QNetworkReply::NoError) return;
+            auto doc = QJsonDocument::fromJson(reply->readAll());
+            if (!doc.isArray()) return;
+            QStringList names;
+            names << "Jeremy (KK7GWY)" << "Claude &middot; Anthropic";
+            for (const auto& val : doc.array()) {
+                auto obj = val.toObject();
+                QString login = obj.value("login").toString();
+                if (login.isEmpty() || login == "ten9876") continue;
+                if (login.contains("[bot]"))
+                    login = login.replace("[bot]", "");
+                if (!names.contains(login))
+                    names << login;
+            }
+            contribLabel->setText(names.join("<br>"));
+        });
     });
 }
 

@@ -9,6 +9,37 @@ MeterModel::MeterModel(QObject* parent)
     : QObject(parent)
 {}
 
+void MeterModel::setTgxlHandle(quint32 handle)
+{
+    if (m_tgxlHandle == handle) return;
+    m_tgxlHandle = handle;
+
+    // Re-scan existing AMP meter definitions to reassign TGXL vs PGXL.
+    // Meter definitions may arrive before the TGXL handle is known,
+    // causing all AMP meters to be routed to the PGXL slot (#600).
+    m_tgxlFwdIdx = -1;
+    m_tgxlSwrIdx = -1;
+    m_ampFwdPwrIdx = -1;
+    m_ampSwrIdx = -1;
+    m_ampTempIdx = -1;
+    for (auto it = m_defs.constBegin(); it != m_defs.constEnd(); ++it) {
+        const auto& def = *it;
+        if (def.source == "AMP" && def.name == "FWD" && def.unit == "dBm") {
+            if (handle != 0 && def.sourceIndex == static_cast<int>(handle))
+                m_tgxlFwdIdx = def.index;
+            else
+                m_ampFwdPwrIdx = def.index;
+        } else if (def.source == "AMP" && def.name == "RL") {
+            if (handle != 0 && def.sourceIndex == static_cast<int>(handle))
+                m_tgxlSwrIdx = def.index;
+            else
+                m_ampSwrIdx = def.index;
+        } else if (def.source == "AMP" && def.name == "TEMP") {
+            m_ampTempIdx = def.index;
+        }
+    }
+}
+
 void MeterModel::defineMeter(const MeterDef& def)
 {
     m_defs[def.index] = def;
@@ -44,13 +75,13 @@ void MeterModel::defineMeter(const MeterDef& def)
     // PGXL meters go to AmpApplet (m_ampFwdPwrIdx/SwrIdx/TempIdx).
     // Distinguish by matching def.sourceIndex against the known TGXL handle.
     else if (def.source == "AMP" && def.name == "FWD" && def.unit == "dBm") {
-        if (m_tgxlHandle != 0 && def.sourceIndex == m_tgxlHandle)
+        if (m_tgxlHandle != 0 && def.sourceIndex == static_cast<int>(m_tgxlHandle))
             m_tgxlFwdIdx = def.index;
         else
             m_ampFwdPwrIdx = def.index;
     }
     else if (def.source == "AMP" && def.name == "RL") {
-        if (m_tgxlHandle != 0 && def.sourceIndex == m_tgxlHandle)
+        if (m_tgxlHandle != 0 && def.sourceIndex == static_cast<int>(m_tgxlHandle))
             m_tgxlSwrIdx = def.index;
         else
             m_ampSwrIdx = def.index;
