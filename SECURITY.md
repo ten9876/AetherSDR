@@ -25,6 +25,8 @@ AetherSDR communicates with FlexRadio hardware over local network protocols
 - Command injection via malformed radio status messages
 - Denial of service from crafted UDP packets
 - Sensitive data exposure (e.g. network credentials in logs)
+- SmartLink Auth0 token handling (OS keychain storage, refresh token lifecycle)
+- WebSocket server endpoints (TCI, future integrations)
 
 ## Supported Versions
 
