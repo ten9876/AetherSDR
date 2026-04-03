@@ -50,6 +50,12 @@ public:
     void loginWithRefreshToken(const QString& refreshToken);
     // Logout and disconnect from SmartLink server
     void logout();
+    // Attempt silent login from stored keychain credentials
+    void tryAutoLogin();
+    // Save current refresh token to OS keychain
+    void saveCredentials();
+    // Clear stored credentials from OS keychain
+    void clearCredentials();
 
     // Request connection to a specific radio (by serial).
     // holePunchPort is the local UDP port we've bound for VITA-49 reception;

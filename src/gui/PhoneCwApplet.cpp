@@ -1,4 +1,5 @@
 #include "PhoneCwApplet.h"
+#include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "HGauge.h"
 #include "models/TransmitModel.h"
@@ -168,7 +169,7 @@ void PhoneCwApplet::buildPhonePanel()
         });
         row->addWidget(m_micSourceCombo);
 
-        m_micLevelSlider = new QSlider(Qt::Horizontal);
+        m_micLevelSlider = new GuardedSlider(Qt::Horizontal);
         m_micLevelSlider->setRange(0, 100);
         m_micLevelSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_micLevelSlider, 1);
@@ -236,7 +237,7 @@ void PhoneCwApplet::buildPhonePanel()
         labelsRow->addWidget(dxPlusLbl);
         procVbox->addLayout(labelsRow);
 
-        m_procSlider = new QSlider(Qt::Horizontal);
+        m_procSlider = new GuardedSlider(Qt::Horizontal);
         m_procSlider->setRange(0, 2);
         m_procSlider->setTickInterval(1);
         m_procSlider->setTickPosition(QSlider::NoTicks);
@@ -286,7 +287,7 @@ void PhoneCwApplet::buildPhonePanel()
         m_monBtn->setStyleSheet(QString(kButtonBase) + kGreenActive);
         row->addWidget(m_monBtn);
 
-        m_monSlider = new QSlider(Qt::Horizontal);
+        m_monSlider = new GuardedSlider(Qt::Horizontal);
         m_monSlider->setRange(0, 100);
         m_monSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_monSlider, 1);
@@ -344,7 +345,7 @@ void PhoneCwApplet::buildCwPanel()
 
         row->addSpacing(kGap);
 
-        m_delaySlider = new QSlider(Qt::Horizontal);
+        m_delaySlider = new GuardedSlider(Qt::Horizontal);
         m_delaySlider->setRange(0, 2000);
         m_delaySlider->setSingleStep(10);
         m_delaySlider->setPageStep(100);
@@ -378,7 +379,7 @@ void PhoneCwApplet::buildCwPanel()
 
         row->addSpacing(kGap);
 
-        m_speedSlider = new QSlider(Qt::Horizontal);
+        m_speedSlider = new GuardedSlider(Qt::Horizontal);
         m_speedSlider->setRange(5, 100);
         m_speedSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_speedSlider, 1);
@@ -412,7 +413,7 @@ void PhoneCwApplet::buildCwPanel()
 
         row->addSpacing(kGap);
 
-        m_sidetoneSlider = new QSlider(Qt::Horizontal);
+        m_sidetoneSlider = new GuardedSlider(Qt::Horizontal);
         m_sidetoneSlider->setRange(0, 100);
         m_sidetoneSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_sidetoneSlider, 1);
@@ -447,7 +448,7 @@ void PhoneCwApplet::buildCwPanel()
         lLbl->setStyleSheet(kDimLabelStyle);
         row->addWidget(lLbl);
 
-        m_cwPanSlider = new QSlider(Qt::Horizontal);
+        m_cwPanSlider = new GuardedSlider(Qt::Horizontal);
         m_cwPanSlider->setRange(0, 100);
         m_cwPanSlider->setValue(50);
         m_cwPanSlider->setStyleSheet(kSliderStyle);

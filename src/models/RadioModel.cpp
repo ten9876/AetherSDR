@@ -1609,6 +1609,18 @@ void RadioModel::onStatusReceived(const QString& object,
                 connect(pan, &PanadapterModel::waterfallIdChanged,
                         this, &RadioModel::updateStreamFilters);
                 updateStreamFilters();
+                // Query RF gain range from radio (varies by model)
+                sendCmd(QString("display pan rfgain_info %1").arg(panId),
+                        [pan](int code, const QString& body) {
+                    if (code != 0 || body.isEmpty()) return;
+                    QStringList vals = body.split(',');
+                    if (vals.size() < 3) return;
+                    int low = vals[0].trimmed().toInt();
+                    int high = vals[1].trimmed().toInt();
+                    int step = vals[2].trimmed().toInt();
+                    if (step > 0)
+                        pan->setRfGainInfo(low, high, step);
+                });
                 qCDebug(lcProtocol) << "RadioModel: claimed panadapter" << panId;
                 emit panadapterAdded(pan);
             }

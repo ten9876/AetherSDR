@@ -35,6 +35,14 @@ void PanadapterModel::setClientHandle(const QString& h)
     m_clientHandle = h;
 }
 
+void PanadapterModel::setRfGainInfo(int low, int high, int step)
+{
+    m_rfGainLow = low;
+    m_rfGainHigh = high;
+    m_rfGainStep = step;
+    emit rfGainInfoChanged(low, high, step);
+}
+
 void PanadapterModel::applyPanStatus(const QMap<QString, QString>& kvs)
 {
     bool infoChanged = false;

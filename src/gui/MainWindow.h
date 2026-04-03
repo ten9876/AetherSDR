@@ -181,6 +181,7 @@ private:
     // Modeless dialogs
     QPointer<QDialog> m_spotHubDialog;
     QPointer<QDialog> m_radioSetupDialog;
+    QPointer<QDialog> m_memoryDialog;
     QPointer<WhatsNewDialog> m_whatsNewDialog;
 #ifdef HAVE_MIDI
     QPointer<QDialog> m_midiDialog;

@@ -698,6 +698,10 @@ MainWindow::MainWindow(QWidget* parent)
             spectrum()->setRfGain(rfGain);
             spectrum()->overlayMenu()->setWnbState(wnbOn, wnbLevel);
             spectrum()->overlayMenu()->setRfGain(rfGain);
+            bool cursorFreq = s.value(spectrum()->settingsKey("CursorFreqLabel"), "False").toString() == "True";
+            spectrum()->setShowCursorFreq(cursorFreq);
+            if (spectrum()->overlayMenu()->cursorFreqButton())
+                spectrum()->overlayMenu()->cursorFreqButton()->setChecked(cursorFreq);
             // Nudge rate to force waterfall tile re-sync
             QTimer::singleShot(500, this, [this, rate]() {
                 m_radioModel.setWaterfallLineDuration(rate + 1);
@@ -743,6 +747,14 @@ MainWindow::MainWindow(QWidget* parent)
                 applet->spectrumWidget(), &SpectrumWidget::setFrequencyRange);
         connect(pan, &PanadapterModel::levelChanged,
                 applet->spectrumWidget(), &SpectrumWidget::setDbmRange);
+        connect(pan, &PanadapterModel::rfGainInfoChanged,
+                applet->spectrumWidget()->overlayMenu(),
+                &SpectrumOverlayMenu::setRfGainRange);
+        connect(pan, &PanadapterModel::rfGainChanged,
+                this, [applet](int gain, const QString&) {
+            applet->spectrumWidget()->setRfGain(gain);
+            applet->spectrumWidget()->overlayMenu()->setRfGain(gain);
+        });
 
         // Push display dimensions to the radio so it sends full-size FFT bins.
         // Without this, the radio uses xpixels=50 ypixels=20 (default) and
@@ -1902,8 +1914,15 @@ void MainWindow::buildMenuBar()
     });
     auto* memoryAction = settingsMenu->addAction("Memory...");
     connect(memoryAction, &QAction::triggered, this, [this] {
-        MemoryDialog dlg(&m_radioModel, this);
-        dlg.exec();
+        if (m_memoryDialog) {
+            m_memoryDialog->raise();
+            m_memoryDialog->activateWindow();
+            return;
+        }
+        auto* dlg = new MemoryDialog(&m_radioModel, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        m_memoryDialog = dlg;
+        dlg->show();
     });
     auto* usbCablesAction = settingsMenu->addAction("USB Cables...");
     connect(usbCablesAction, &QAction::triggered, this, [this] {
@@ -3892,6 +3911,13 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             sw, &SpectrumWidget::setWfBlankerEnabled);
     connect(menu, &SpectrumOverlayMenu::wfBlankerThresholdChanged,
             sw, &SpectrumWidget::setWfBlankerThreshold);
+    connect(menu, &SpectrumOverlayMenu::cursorFreqToggled,
+            this, [sw](bool on) {
+        sw->setShowCursorFreq(on);
+        auto& s = AppSettings::instance();
+        s.setValue(sw->settingsKey("CursorFreqLabel"), on ? "True" : "False");
+        s.save();
+    });
 
     // ── Click-to-tune ────────────────────────────────────────────────────
     // Uses "slice m <freq> pan=<panId>" (matches SmartSDR protocol).
@@ -4318,6 +4344,9 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     connect(w, &VfoWidget::autotuneRequested, this, [this, sliceId](bool intermittent) {
         if (m_radioModel.slice(sliceId))
             m_radioModel.cwAutoTune(sliceId, intermittent);
+    });
+    connect(w, &VfoWidget::addSpotRequested, this, [this](double freqMhz) {
+        spectrum()->showAddSpotDialog(freqMhz);
     });
 
     // Clicking an inactive VfoWidget activates that slice

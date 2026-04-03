@@ -1,4 +1,5 @@
 #include "RadioSetupDialog.h"
+#include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "models/RadioModel.h"
 #include "core/AppSettings.h"
@@ -1333,7 +1334,7 @@ QWidget* RadioSetupDialog::buildAudioTab()
     auto* lineoutLabel = new QLabel("Line Out:");
     lineoutLabel->setStyleSheet(kLabelStyle);
     lineoutLabel->setFixedWidth(90);
-    auto* lineoutSlider = new QSlider(Qt::Horizontal);
+    auto* lineoutSlider = new GuardedSlider(Qt::Horizontal);
     lineoutSlider->setRange(0, 100);
     lineoutSlider->setValue(m_model->lineoutGain());
     auto* lineoutValue = new QLabel(QString::number(m_model->lineoutGain()));
@@ -1364,7 +1365,7 @@ QWidget* RadioSetupDialog::buildAudioTab()
     auto* hpLabel = new QLabel("Headphone:");
     hpLabel->setStyleSheet(kLabelStyle);
     hpLabel->setFixedWidth(90);
-    auto* hpSlider = new QSlider(Qt::Horizontal);
+    auto* hpSlider = new GuardedSlider(Qt::Horizontal);
     hpSlider->setRange(0, 100);
     hpSlider->setValue(m_model->headphoneGain());
     auto* hpValue = new QLabel(QString::number(m_model->headphoneGain()));
@@ -1725,7 +1726,7 @@ QWidget* RadioSetupDialog::buildFiltersTab()
             lbl->setStyleSheet(kLabelStyle);
             grid->addWidget(lbl, row, 0);
 
-            auto* slider = new QSlider(Qt::Horizontal);
+            auto* slider = new GuardedSlider(Qt::Horizontal);
             slider->setRange(0, 3);
             slider->setValue(r.level);
             slider->setStyleSheet(kFilterSlider);

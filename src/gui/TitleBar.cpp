@@ -1,4 +1,5 @@
 #include "TitleBar.h"
+#include "GuardedSlider.h"
 #include "core/AppSettings.h"
 
 #include <QHBoxLayout>
@@ -127,7 +128,7 @@ TitleBar::TitleBar(QWidget* parent)
     });
     m_hbox->addWidget(m_speakerBtn);
 
-    m_masterSlider = new QSlider(Qt::Horizontal);
+    m_masterSlider = new GuardedSlider(Qt::Horizontal);
     m_masterSlider->setRange(0, 100);
     int savedVol = s.value("MasterVolume", "100").toInt();
     m_masterSlider->setValue(savedVol);
@@ -166,7 +167,7 @@ TitleBar::TitleBar(QWidget* parent)
     });
     m_hbox->addWidget(m_headphoneBtn);
 
-    m_hpSlider = new QSlider(Qt::Horizontal);
+    m_hpSlider = new GuardedSlider(Qt::Horizontal);
     m_hpSlider->setRange(0, 100);
     m_hpSlider->setValue(50);
     m_hpSlider->setFixedWidth(80);

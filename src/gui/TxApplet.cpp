@@ -1,4 +1,5 @@
 #include "TxApplet.h"
+#include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "HGauge.h"
 #include "models/TransmitModel.h"
@@ -84,7 +85,7 @@ void TxApplet::buildUI()
         label->setFixedWidth(62);
         row->addWidget(label);
 
-        m_rfPowerSlider = new QSlider(Qt::Horizontal);
+        m_rfPowerSlider = new GuardedSlider(Qt::Horizontal);
         m_rfPowerSlider->setRange(0, 100);
         m_rfPowerSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_rfPowerSlider, 1);
@@ -106,7 +107,7 @@ void TxApplet::buildUI()
         label->setFixedWidth(62);
         row->addWidget(label);
 
-        m_tunePowerSlider = new QSlider(Qt::Horizontal);
+        m_tunePowerSlider = new GuardedSlider(Qt::Horizontal);
         m_tunePowerSlider->setRange(0, 100);
         m_tunePowerSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_tunePowerSlider, 1);

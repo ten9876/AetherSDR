@@ -83,6 +83,7 @@ Q_SIGNALS:
     void splitToggled();
     void swapRequested();
     void autotuneRequested(bool intermittent);  // CW auto-tune: false=once, true=loop
+    void addSpotRequested(double freqMhz);
     void sliceActivationRequested(int sliceId);
 
 protected:

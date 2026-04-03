@@ -1,4 +1,5 @@
 #include "EqApplet.h"
+#include "GuardedSlider.h"
 
 #include <QPushButton>
 #include <QLabel>
@@ -224,7 +225,7 @@ void EqApplet::buildUI()
             col->setSpacing(1);
             col->setContentsMargins(0, 0, 0, 0);
 
-            auto* slider = new QSlider(Qt::Vertical);
+            auto* slider = new GuardedSlider(Qt::Vertical);
             slider->setRange(-10, 10);
             slider->setValue(0);
             slider->setTickPosition(QSlider::NoTicks);

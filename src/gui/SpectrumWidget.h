@@ -115,6 +115,8 @@ public:
     void setBandPlanFontSize(int pt) { m_bandPlanFontSize = pt; update(); }
     void setBandPlanManager(class BandPlanManager* mgr);
     void setSingleClickTune(bool on) { m_singleClickTune = on; }
+    void setShowCursorFreq(bool on) { m_showCursorFreq = on; update(); }
+    bool showCursorFreq() const { return m_showCursorFreq; }
     bool showBandPlan() const { return m_bandPlanFontSize > 0; }
     int  bandPlanFontSize() const { return m_bandPlanFontSize; }
 
@@ -266,9 +268,12 @@ protected:
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void leaveEvent(QEvent* event) override;
+
+public:
+    void showAddSpotDialog(double freqMhz);
 
 private:
-    void showAddSpotDialog(double freqMhz);
     void drawGrid(QPainter& p, const QRect& r);
     void drawSpectrum(QPainter& p, const QRect& r);
     void drawSliceMarkers(QPainter& p, const QRect& specRect, const QRect& wfRect);
@@ -391,6 +396,10 @@ private:
     // On-screen indicators (WNB, RF Gain)
     bool m_wnbActive{false};
     int  m_rfGainValue{0};
+
+    // Cursor frequency label
+    bool   m_showCursorFreq{false};
+    QPoint m_cursorPos{-1, -1};
 
     // NB Waterfall Blanker (#277)
     bool  m_wfBlankerEnabled{false};
