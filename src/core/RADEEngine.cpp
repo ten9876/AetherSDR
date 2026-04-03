@@ -206,6 +206,8 @@ void RADEEngine::feedRxAudio(int channel, const QByteArray& pcm)
     if (channel != 1) return;  // only process DAX channel 1
     auto* fargan = static_cast<FARGANState*>(m_fargan);
 
+    QByteArray speech16k;
+
     // 1. Downsample 24kHz stereo → 8kHz mono for RADE modem
     QByteArray mono8k = m_down24to8->processStereoToMono(reinterpret_cast<const int16_t*>(pcm.constData()), pcm.size() / 4);
 
@@ -236,17 +238,6 @@ void RADEEngine::feedRxAudio(int channel, const QByteArray& pcm)
         // Remove consumed samples
         m_rxAccum.remove(0, nin * sizeof(RADE_COMP));
 
-        // Update sync status
-        bool synced = rade_sync(m_rade) != 0;
-        if (synced != m_synced) {
-            m_synced = synced;
-            emit syncChanged(synced);
-        }
-        if (synced) {
-            emit snrChanged(static_cast<float>(rade_snrdB_3k_est(m_rade)));
-            emit freqOffsetChanged(static_cast<float>(rade_freq_offset(m_rade)));
-        }
-
         // 4. If features available, synthesize speech via FARGAN
         if (n_out > 0) {
             // FARGAN warmup: need initial features
@@ -263,8 +254,7 @@ void RADEEngine::feedRxAudio(int channel, const QByteArray& pcm)
 
             // Process features frame by frame (NB_TOTAL_FEATURES per frame)
             int nFrames = n_out / NB_TOTAL_FEATURES;
-            QByteArray speech16k;
-            speech16k.reserve(nFrames * LPCNET_FRAME_SIZE * 2);
+            speech16k.reserve(speech16k.capacity() + (nFrames * LPCNET_FRAME_SIZE * sizeof(int16_t)));
 
             for (int f = 0; f < nFrames; ++f) {
                 float* feat = &features_out[f * NB_TOTAL_FEATURES];
@@ -277,17 +267,40 @@ void RADEEngine::feedRxAudio(int channel, const QByteArray& pcm)
                     float v = std::floor(0.5f + std::clamp(
                         32768.0f * fpcm[i], -32767.0f, 32767.0f));
                     int16_t s = static_cast<int16_t>(v);
-                    speech16k.append(reinterpret_cast<const char*>(&s), 2);
+                    speech16k.append(reinterpret_cast<const char*>(&s), sizeof(int16_t));
                 }
             }
 
-            // 5. Upsample 16kHz mono → 24kHz stereo for speaker
-            if (!speech16k.isEmpty())
-                emit rxSpeechReady(m_up16to24->processMonoToStereo(reinterpret_cast<const int16_t*>(speech16k.constData()), speech16k.size() / 2));
         }
 
         nin = rade_nin(m_rade);
     }
+
+    // 5. Upsample 16kHz mono → 24kHz stereo for speaker
+    if (!speech16k.isEmpty())
+        m_rxOutAccum.append(m_up16to24->processMonoToStereo(reinterpret_cast<const int16_t*>(speech16k.constData()), speech16k.size() / sizeof(int16_t)));
+
+    if (m_rxOutAccum.size() >= pcm.size())
+    {
+        emit rxSpeechReady(m_rxOutAccum.left(pcm.size()));
+        m_rxOutAccum.remove(0, pcm.size());
+    }
+    else
+    {
+        emit rxSpeechReady(QByteArray(pcm.size(), '\0'));
+    }
+
+    // Update sync status
+    bool synced = rade_sync(m_rade) != 0;
+    if (synced != m_synced) {
+        m_synced = synced;
+        emit syncChanged(synced);
+    }
+    if (synced) {
+        emit snrChanged(static_cast<float>(rade_snrdB_3k_est(m_rade)));
+        emit freqOffsetChanged(static_cast<float>(rade_freq_offset(m_rade)));
+    }
+
 #else
     Q_UNUSED(channel); Q_UNUSED(pcm);
 #endif
