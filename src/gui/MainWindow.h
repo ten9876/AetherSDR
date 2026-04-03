@@ -189,6 +189,7 @@ private:
 
     // Menus
     QMenu*           m_profilesMenu{nullptr};
+    QAction*         m_txBandAction{nullptr};
 
     // Audio stream re-creation flag (after profile load)
     bool             m_needAudioStream{false};

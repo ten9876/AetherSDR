@@ -36,13 +36,15 @@ signals:
     void lineoutMuteChanged(bool muted);
     void headphoneMuteChanged(bool muted);
     void minimalModeRequested();
+    void multiFlexClicked();
 
 private:
     void showFeatureRequestDialog();
+    void showFeatureRequestDialogImpl();
     QHBoxLayout* m_hbox{nullptr};
     QMenuBar*    m_menuBar{nullptr};
     QLabel*      m_otherTxLabel{nullptr};
-    QLabel*      m_mfLabel{nullptr};
+    QPushButton* m_mfBtn{nullptr};
     QPushButton* m_pcBtn{nullptr};
     QPushButton* m_speakerBtn{nullptr};
     QPushButton* m_headphoneBtn{nullptr};

@@ -12,6 +12,11 @@
 #include <QClipboard>
 #include <QApplication>
 #include <QTimer>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include "core/VersionNumber.h"
 
 namespace AetherSDR {
 
@@ -62,13 +67,17 @@ TitleBar::TitleBar(QWidget* parent)
     appName->setAlignment(Qt::AlignCenter);
     m_hbox->addWidget(appName);
 
-    m_mfLabel = new QLabel("multiFLEX");
-    m_mfLabel->setStyleSheet(
-        "QLabel { color: #20c060; font-size: 11px; font-weight: bold; "
+    m_mfBtn = new QPushButton("multiFLEX");
+    m_mfBtn->setFlat(true);
+    m_mfBtn->setStyleSheet(
+        "QPushButton { color: #20c060; font-size: 11px; font-weight: bold; "
         "border: 1px solid #20c060; border-radius: 4px; "
-        "background: transparent; padding: 0px 3px; }");
-    m_mfLabel->setVisible(false);
-    m_hbox->addWidget(m_mfLabel);
+        "background: transparent; padding: 0px 3px; }"
+        "QPushButton:hover { background: rgba(32, 192, 96, 30); }");
+    m_mfBtn->setVisible(false);
+    m_mfBtn->setCursor(Qt::PointingHandCursor);
+    connect(m_mfBtn, &QPushButton::clicked, this, &TitleBar::multiFlexClicked);
+    m_hbox->addWidget(m_mfBtn);
 
     m_hbox->addStretch(1);
 
@@ -260,14 +269,14 @@ void TitleBar::setHeadphoneVolume(int pct)
 void TitleBar::setMultiFlexStatus(int count, const QStringList& names)
 {
     if (count > 0) {
-        m_mfLabel->setVisible(true);
+        m_mfBtn->setVisible(true);
         QString tip = QString("multiFLEX — %1 other client%2:\n")
             .arg(count).arg(count > 1 ? "s" : "");
         for (const QString& n : names)
             tip += "  " + n + "\n";
-        m_mfLabel->setToolTip(tip.trimmed());
+        m_mfBtn->setToolTip(tip.trimmed());
     } else {
-        m_mfLabel->setVisible(false);
+        m_mfBtn->setVisible(false);
     }
 }
 
@@ -282,6 +291,38 @@ void TitleBar::setOtherClientTx(bool transmitting, const QString& station)
 }
 
 void TitleBar::showFeatureRequestDialog()
+{
+    // Version check guard (#486) — warn if not on latest release
+    auto* nam = new QNetworkAccessManager(this);
+    auto* reply = nam->get(QNetworkRequest(
+        QUrl("https://api.github.com/repos/ten9876/AetherSDR/releases/latest")));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, nam] {
+        reply->deleteLater();
+        nam->deleteLater();
+
+        if (reply->error() == QNetworkReply::NoError) {
+            auto doc = QJsonDocument::fromJson(reply->readAll());
+            QString latest = doc.object().value("tag_name").toString();
+            if (latest.startsWith('v')) latest = latest.mid(1);
+            auto latestVer = VersionNumber::parse(latest);
+            auto currentVer = VersionNumber::parse(QCoreApplication::applicationVersion());
+            if (!latestVer.isNull() && currentVer < latestVer) {
+                auto answer = QMessageBox::warning(this, "Outdated Version",
+                    QString("<p>You are running <b>v%1</b> but <b>v%2</b> is available.</p>"
+                            "<p>Your issue may already be fixed in the latest release. "
+                            "Please update before filing a bug report.</p>"
+                            "<p>Continue anyway?</p>")
+                        .arg(QCoreApplication::applicationVersion(), latest),
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+                if (answer != QMessageBox::Yes) return;
+            }
+        }
+        // Proceed to show the feature request dialog
+        showFeatureRequestDialogImpl();
+    });
+}
+
+void TitleBar::showFeatureRequestDialogImpl()
 {
     static const QString kPrompt =
         "Before responding, please read the AetherSDR project context at\n"
@@ -384,7 +425,7 @@ void TitleBar::setMinimalMode(bool on)
     m_hpSlider->setVisible(!on);
     m_masterLabel->setVisible(!on);
     m_hpLabel->setVisible(!on);
-    // Don't touch m_otherTxLabel or m_mfLabel — their visibility is
+    // Don't touch m_otherTxLabel or m_mfBtn — their visibility is
     // managed by setOtherClientTx() and setMultiFlexStatus() respectively
 
     // Swap icon and tooltip

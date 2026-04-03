@@ -1745,19 +1745,22 @@ void VfoWidget::setSlice(SliceModel* slice)
         // CW: show APF, hide ANF/RNN/ANFL/ANFT
         // RTTY/DIG/FDV: hide ANF/ANFL/ANFT
         bool isVoice = !isRtty && !isCw && !isDig && !isFm && !isFdv;
-        // Disable squelch in digital modes (not meaningful — audio goes via DAX)
-        m_sqlBtn->setEnabled(!isDig);
-        m_sqlSlider->setEnabled(!isDig);
-        if (isDig && m_slice) {
-            // Save and disable squelch when entering digital mode
+        // Disable squelch in digital and CW modes
+        // Digital: audio goes via DAX, SQL not meaningful
+        // CW: radio locks squelch on at fixed level, rejects changes
+        bool sqlDisabled = isDig || isCw;
+        m_sqlBtn->setEnabled(!sqlDisabled);
+        m_sqlSlider->setEnabled(!sqlDisabled);
+        if (sqlDisabled && m_slice) {
             if (m_slice->squelchOn()) {
                 m_savedSquelchOn = true;
-                m_slice->setSquelch(false, m_slice->squelchLevel());
-                QSignalBlocker sb(m_sqlBtn);
-                m_sqlBtn->setChecked(false);
+                if (isDig) {
+                    m_slice->setSquelch(false, m_slice->squelchLevel());
+                    QSignalBlocker sb(m_sqlBtn);
+                    m_sqlBtn->setChecked(false);
+                }
             }
-        } else if (!isDig && m_slice && m_savedSquelchOn) {
-            // Restore squelch when leaving digital mode
+        } else if (!sqlDisabled && m_slice && m_savedSquelchOn) {
             m_savedSquelchOn = false;
             m_slice->setSquelch(true, m_slice->squelchLevel());
             QSignalBlocker sb(m_sqlBtn);
@@ -2215,6 +2218,9 @@ void VfoWidget::syncFromSlice()
     m_apfContainer->setVisible(isCw);
     m_digContainer->setVisible(isDig);
     m_fmContainer->setVisible(isFm);
+    // CW: radio locks squelch on at fixed level; Digital: not meaningful
+    m_sqlBtn->setEnabled(!isDig && !isCw);
+    m_sqlSlider->setEnabled(!isDig && !isCw);
     if (isFm) {
         QSignalBlocker b1(m_fmToneModeCmb), b2(m_fmToneValueCmb), b3(m_fmOffsetSpin);
         int tmIdx = m_fmToneModeCmb->findData(m_slice->fmToneMode());

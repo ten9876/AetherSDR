@@ -19,13 +19,15 @@ public:
     // If lastSeen is empty (first install), shows only the current version.
     explicit WhatsNewDialog(const QString& lastSeenVersion,
                             const QString& currentVersion,
-                            QWidget* parent = nullptr);
+                            QWidget* parent = nullptr,
+                            bool showUpgrade = false);
 
     // Show all entries for the current version (for Help menu).
     static WhatsNewDialog* showAll(QWidget* parent);
 
 private:
-    void buildUI(const QString& lastSeenVersion, const QString& currentVersion);
+    void buildUI(const QString& lastSeenVersion, const QString& currentVersion,
+                  bool showUpgrade);
     QString renderHtml(const std::vector<ReleaseEntry>& entries, bool isWelcome) const;
 };
 

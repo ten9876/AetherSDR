@@ -26,6 +26,9 @@ public:
                               QWidget* parent = nullptr);
     void selectTab(const QString& tabName);
 
+signals:
+    void txBandSettingsRequested();
+
 private:
     QWidget* buildRadioTab();
     QWidget* buildNetworkTab();

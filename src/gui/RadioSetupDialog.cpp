@@ -755,122 +755,7 @@ QWidget* RadioSetupDialog::buildTxTab()
             "padding: 4px 12px; }"
             "QPushButton:hover { background: #203040; }");
         connect(bandSetBtn, &QPushButton::clicked, this, [this] {
-            // Build TX Band Settings popup
-            auto* dlg = new QDialog(this);
-            dlg->setWindowTitle(QString("TX Band Settings (Current TX Profile: %1)")
-                .arg(m_model->transmitModel().activeProfile()));
-            dlg->setMinimumSize(700, 450);
-            dlg->setStyleSheet("QDialog { background: #0f0f1a; }");
-            dlg->setAttribute(Qt::WA_DeleteOnClose);
-
-            auto* vb = new QVBoxLayout(dlg);
-
-            // Table header
-            auto* headerGrid = new QGridLayout;
-            headerGrid->setSpacing(1);
-            const QStringList headers = {"Band", "RF PWR(%)", "Tune PWR(%)", "PTT Inhibit",
-                                          "ACC TX", "RCA TX Req", "ACC TX Req",
-                                          "RCA TX1", "RCA TX2", "RCA TX3", "HWALC"};
-            for (int c = 0; c < headers.size(); ++c) {
-                auto* lbl = new QLabel(headers[c]);
-                lbl->setStyleSheet("QLabel { color: #8aa8c0; font-size: 10px; "
-                                    "font-weight: bold; background: #1a2a3a; "
-                                    "border: 1px solid #304050; padding: 2px 4px; }");
-                lbl->setAlignment(Qt::AlignCenter);
-                headerGrid->addWidget(lbl, 0, c);
-            }
-
-            // Data rows — sorted by band order
-            const auto& bands = m_model->txBandSettings();
-            QList<int> sortedIds = bands.keys();
-            std::sort(sortedIds.begin(), sortedIds.end());
-
-            int row = 1;
-            for (int id : sortedIds) {
-                const auto& b = bands[id];
-                int col = 0;
-
-                // Band name
-                auto* nameLbl = new QLabel(b.bandName);
-                nameLbl->setStyleSheet("QLabel { color: #c8d8e8; font-size: 11px; "
-                                        "font-weight: bold; background: #0f0f1a; "
-                                        "border: 1px solid #203040; padding: 2px 4px; }");
-                headerGrid->addWidget(nameLbl, row, col++);
-
-                // RF Power
-                auto* rfEdit = new QLineEdit(QString::number(b.rfPower));
-                rfEdit->setStyleSheet(kEditStyle);
-                rfEdit->setFixedWidth(50);
-                rfEdit->setAlignment(Qt::AlignCenter);
-                int bandId = id;
-                connect(rfEdit, &QLineEdit::editingFinished, dlg, [this, rfEdit, bandId] {
-                    m_model->sendCommand(
-                        QString("transmit bandset %1 rfpower=%2").arg(bandId).arg(rfEdit->text()));
-                });
-                headerGrid->addWidget(rfEdit, row, col++);
-
-                // Tune Power
-                auto* tuneEdit = new QLineEdit(QString::number(b.tunePower));
-                tuneEdit->setStyleSheet(kEditStyle);
-                tuneEdit->setFixedWidth(50);
-                tuneEdit->setAlignment(Qt::AlignCenter);
-                connect(tuneEdit, &QLineEdit::editingFinished, dlg, [this, tuneEdit, bandId] {
-                    m_model->sendCommand(
-                        QString("transmit bandset %1 tunepower=%2").arg(bandId).arg(tuneEdit->text()));
-                });
-                headerGrid->addWidget(tuneEdit, row, col++);
-
-                // Checkboxes: PTT Inhibit, ACC TX, RCA TX Req, ACC TX Req, TX1, TX2, TX3, HWALC
-                struct CbDef { bool val; const char* txCmd; const char* ilCmd; };
-                CbDef cbs[] = {
-                    {b.inhibit, "inhibit", nullptr},
-                    {b.accTx,   nullptr, "acc_tx_enabled"},
-                    {b.rcaTxReq,nullptr, "rca_txreq_enable"},
-                    {b.accTxReq,nullptr, "acc_txreq_enable"},
-                    {b.tx1,     nullptr, "tx1_enabled"},
-                    {b.tx2,     nullptr, "tx2_enabled"},
-                    {b.tx3,     nullptr, "tx3_enabled"},
-                    {b.hwAlc,   "hwalc_enabled", nullptr},
-                };
-
-                for (const auto& cb : cbs) {
-                    auto* chk = new QCheckBox;
-                    chk->setChecked(cb.val);
-                    chk->setStyleSheet(
-                        "QCheckBox { background: transparent; spacing: 0; }"
-                        "QCheckBox::indicator { width: 16px; height: 16px; "
-                        "border: 2px solid #506070; border-radius: 3px; background: #0a0a18; }"
-                        "QCheckBox::indicator:checked { background: #0070c0; "
-                        "border: 2px solid #00a0e0; }");
-                    auto cmdKey = cb.txCmd ? QString(cb.txCmd) : QString(cb.ilCmd);
-                    auto prefix = cb.txCmd ? QString("transmit") : QString("interlock");
-                    connect(chk, &QCheckBox::toggled, dlg, [this, bandId, prefix, cmdKey](bool on) {
-                        m_model->sendCommand(
-                            QString("%1 bandset %2 %3=%4").arg(prefix).arg(bandId).arg(cmdKey).arg(on ? 1 : 0));
-                    });
-                    auto* container = new QWidget;
-                    auto* hb = new QHBoxLayout(container);
-                    hb->setContentsMargins(0, 0, 0, 0);
-                    hb->setAlignment(Qt::AlignCenter);
-                    hb->addWidget(chk);
-                    headerGrid->addWidget(container, row, col++);
-                }
-
-                ++row;
-            }
-
-            vb->addLayout(headerGrid);
-            vb->addStretch(1);
-
-            auto* closeBtn = new QPushButton("Close");
-            closeBtn->setStyleSheet(
-                "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
-                "border-radius: 3px; color: #c8d8e8; padding: 4px 16px; }"
-                "QPushButton:hover { background: #203040; }");
-            connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::close);
-            vb->addWidget(closeBtn, 0, Qt::AlignRight);
-
-            dlg->show();
+            emit txBandSettingsRequested();
         });
         grid->addWidget(bandSetBtn, 3, 2, 1, 2);
 
@@ -965,6 +850,29 @@ QWidget* RadioSetupDialog::buildTxTab()
                 QString("transmit set show_tx_in_waterfall=%1").arg(on ? 1 : 0));
         });
         grid->addWidget(swBtn, 2, 1);
+
+        // TX Follows Active Slice (#441)
+        auto* tfLbl = new QLabel("TX Follows Active Slice:");
+        tfLbl->setStyleSheet(kLabelStyle);
+        grid->addWidget(tfLbl, 3, 0);
+        bool txFollows = AppSettings::instance().value("TxFollowsActiveSlice", "False").toString() == "True";
+        auto* tfBtn = new QPushButton(txFollows ? "Enabled" : "Disabled");
+        tfBtn->setCheckable(true);
+        tfBtn->setChecked(txFollows);
+        tfBtn->setToolTip("Automatically assign TX to the active slice.\nDisabled during Split operation.");
+        tfBtn->setStyleSheet(
+            "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
+            "border-radius: 3px; color: #c8d8e8; font-size: 11px; font-weight: bold; "
+            "padding: 3px 10px; }"
+            "QPushButton:checked { background: #1a5030; color: #00e060; "
+            "border: 1px solid #20a040; }");
+        connect(tfBtn, &QPushButton::toggled, this, [tfBtn](bool on) {
+            tfBtn->setText(on ? "Enabled" : "Disabled");
+            auto& s = AppSettings::instance();
+            s.setValue("TxFollowsActiveSlice", on ? "True" : "False");
+            s.save();
+        });
+        grid->addWidget(tfBtn, 3, 1);
 
         vbox->addLayout(grid);
     }

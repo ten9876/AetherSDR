@@ -1300,18 +1300,23 @@ void RxApplet::updateModeSettings(const QString& mode)
     // QSK visibility — only meaningful in CW mode
     m_qskBtn->setVisible(mode == "CW");
 
-    // Disable squelch in digital modes (audio goes via DAX, SQL not meaningful)
-    bool isDig = (mode == "DIGU" || mode == "DIGL");
-    m_sqlBtn->setEnabled(!isDig);
-    m_sqlSlider->setEnabled(!isDig);
-    if (isDig && m_slice) {
+    // Disable squelch in digital and CW modes
+    // Digital: audio goes via DAX, SQL not meaningful
+    // CW: radio locks squelch on at fixed level, rejects changes
+    bool sqlDisabled = (mode == "DIGU" || mode == "DIGL" || mode == "CW" || mode == "CWL");
+    m_sqlBtn->setEnabled(!sqlDisabled);
+    m_sqlSlider->setEnabled(!sqlDisabled);
+    if (sqlDisabled && m_slice) {
         if (m_slice->squelchOn()) {
             m_savedSquelchOn = true;
-            m_slice->setSquelch(false, m_slice->squelchLevel());
-            QSignalBlocker sb(m_sqlBtn);
-            m_sqlBtn->setChecked(false);
+            if (mode == "DIGU" || mode == "DIGL") {
+                // Only send squelch off for digital modes; CW is radio-managed
+                m_slice->setSquelch(false, m_slice->squelchLevel());
+                QSignalBlocker sb(m_sqlBtn);
+                m_sqlBtn->setChecked(false);
+            }
         }
-    } else if (!isDig && m_slice && m_savedSquelchOn) {
+    } else if (!sqlDisabled && m_slice && m_savedSquelchOn) {
         m_savedSquelchOn = false;
         m_slice->setSquelch(true, m_slice->squelchLevel());
         QSignalBlocker sb(m_sqlBtn);

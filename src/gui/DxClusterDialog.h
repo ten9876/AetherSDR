@@ -33,7 +33,8 @@ class SpotTableModel : public QAbstractTableModel {
     Q_OBJECT
 
 public:
-    enum Column { ColTime, ColFreq, ColDxCall, ColComment, ColSpotter, ColBand, ColSource, ColCount };
+    enum Column { ColTime, ColFreq, ColDxCall, ColComment, ColSpotter, ColBand, ColMode, ColSource, ColCount };
+    static QString extractMode(const QString& comment);
 
     explicit SpotTableModel(QObject* parent = nullptr) : QAbstractTableModel(parent) {}
 

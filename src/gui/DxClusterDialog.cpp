@@ -30,6 +30,21 @@ namespace AetherSDR {
 
 // ── SpotTableModel ──────────────────────────────────────────────────────────
 
+QString SpotTableModel::extractMode(const QString& comment)
+{
+    static const QSet<QString> known = {
+        "CW", "SSB", "USB", "LSB", "AM", "FM", "FT8", "FT4",
+        "JS8", "RTTY", "PSK31", "PSK63", "PSK", "OLIVIA",
+        "JT65", "JT9", "SAM", "NFM", "DIGU", "DIGL"
+    };
+    QStringList words = comment.split(' ', Qt::SkipEmptyParts);
+    if (!words.isEmpty() && known.contains(words.first().toUpper()))
+        return words.first().toUpper();
+    if (!words.isEmpty() && known.contains(words.last().toUpper()))
+        return words.last().toUpper();
+    return {};
+}
+
 QVariant SpotTableModel::data(const QModelIndex& index, int role) const
 {
     if (!index.isValid() || index.row() >= m_spots.size())
@@ -42,6 +57,7 @@ QVariant SpotTableModel::data(const QModelIndex& index, int role) const
         case ColTime:    return spot.utcTime.toString("HH:mm");
         case ColFreq:    return QString::number(spot.freqMhz * 1000.0, 'f', 1);
         case ColDxCall:  return spot.dxCall;
+        case ColMode:    return extractMode(spot.comment);
         case ColComment: return spot.comment;
         case ColSpotter: return spot.spotterCall;
         case ColBand:    return bandForFreq(spot.freqMhz);
@@ -75,6 +91,7 @@ QVariant SpotTableModel::headerData(int section, Qt::Orientation orientation, in
     case ColTime:    return "Time";
     case ColFreq:    return "Freq (kHz)";
     case ColDxCall:  return "DX Call";
+    case ColMode:    return "Mode";
     case ColComment: return "Comment";
     case ColSpotter: return "Spotter";
     case ColBand:    return "Band";
@@ -1486,6 +1503,7 @@ void DxClusterDialog::buildSpotListTab(QTabWidget* tabs)
     m_spotTable->setColumnWidth(SpotTableModel::ColTime, 50);
     m_spotTable->setColumnWidth(SpotTableModel::ColFreq, 80);
     m_spotTable->setColumnWidth(SpotTableModel::ColDxCall, 90);
+    m_spotTable->setColumnWidth(SpotTableModel::ColMode, 45);
     m_spotTable->setColumnWidth(SpotTableModel::ColComment, 200);
     m_spotTable->setColumnWidth(SpotTableModel::ColSpotter, 80);
     m_spotTable->setColumnWidth(SpotTableModel::ColBand, 45);
@@ -1576,6 +1594,23 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
         save("IsSpotsEnabled", on ? "True" : "False");
     });
     grid->addWidget(spotsToggle, row++, 1, Qt::AlignLeft);
+
+    // ── Auto-switch mode on spot click (#424) ───────────────────────────
+    grid->addWidget(new QLabel("Auto Mode:"), row, 0);
+    bool autoMode = s.value("SpotAutoSwitchMode", "False").toString() == "True";
+    auto* autoModeToggle = new QPushButton(autoMode ? "Enabled" : "Disabled");
+    autoModeToggle->setCheckable(true);
+    autoModeToggle->setChecked(autoMode);
+    autoModeToggle->setFixedWidth(80);
+    autoModeToggle->setToolTip("Automatically switch slice mode when clicking a spot\nthat includes mode information (e.g. CW, FT8, RTTY)");
+    autoModeToggle->setStyleSheet(
+        "QPushButton { background: #206030; color: white; border: 1px solid #305040; padding: 3px; }"
+        "QPushButton:!checked { background: #603020; }");
+    connect(autoModeToggle, &QPushButton::toggled, this, [autoModeToggle, save](bool on) {
+        autoModeToggle->setText(on ? "Enabled" : "Disabled");
+        save("SpotAutoSwitchMode", on ? "True" : "False");
+    });
+    grid->addWidget(autoModeToggle, row++, 1, Qt::AlignLeft);
 
     // ── Levels slider ───────────────────────────────────────────────────
     grid->addWidget(new QLabel("Levels:"), row, 0);

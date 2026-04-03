@@ -1,23 +1,27 @@
 #include "WhatsNewDialog.h"
 #include "generated/WhatsNewData.h"
 #include "core/VersionNumber.h"
+#include "core/AppSettings.h"
 
 #include <QCoreApplication>
 #include <QLabel>
 #include <QPushButton>
 #include <QTextBrowser>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QDesktopServices>
 
 namespace AetherSDR {
 
 WhatsNewDialog::WhatsNewDialog(const QString& lastSeenVersion,
                                const QString& currentVersion,
-                               QWidget* parent)
+                               QWidget* parent,
+                               bool showUpgrade)
     : QDialog(parent)
 {
     setAttribute(Qt::WA_DeleteOnClose);
     setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
-    buildUI(lastSeenVersion, currentVersion);
+    buildUI(lastSeenVersion, currentVersion, showUpgrade);
 }
 
 WhatsNewDialog* WhatsNewDialog::showAll(QWidget* parent)
@@ -28,7 +32,8 @@ WhatsNewDialog* WhatsNewDialog::showAll(QWidget* parent)
 }
 
 void WhatsNewDialog::buildUI(const QString& lastSeenVersion,
-                              const QString& currentVersion)
+                              const QString& currentVersion,
+                              bool showUpgrade)
 {
     setWindowTitle("What's New — AetherSDR");
     resize(580, 540);
@@ -77,6 +82,15 @@ void WhatsNewDialog::buildUI(const QString& lastSeenVersion,
     header->setStyleSheet("QLabel { background: #0a0a14; }");
     layout->addWidget(header);
 
+    // Lightbulb hint (#485)
+    auto* hint = new QLabel(
+        "<span style='color: #8090a0; font-size: 11px;'>"
+        "Found a bug or have an idea? Click the \xf0\x9f\x92\xa1 button in the title bar.</span>");
+    hint->setAlignment(Qt::AlignCenter);
+    hint->setContentsMargins(16, 0, 16, 4);
+    hint->setStyleSheet("QLabel { background: #0a0a14; }");
+    layout->addWidget(hint);
+
     // Separator
     auto* sep = new QWidget;
     sep->setFixedHeight(1);
@@ -102,15 +116,36 @@ void WhatsNewDialog::buildUI(const QString& lastSeenVersion,
     auto* footerLayout = new QVBoxLayout(footer);
     footerLayout->setContentsMargins(16, 12, 16, 16);
 
-    auto* btn = new QPushButton("Got it — 73!");
-    btn->setFixedHeight(36);
-    btn->setCursor(Qt::PointingHandCursor);
-    btn->setStyleSheet(
+    auto* btnRow = new QHBoxLayout;
+    btnRow->setSpacing(12);
+
+    auto* gotItBtn = new QPushButton("Got it \xe2\x80\x94 73!");
+    gotItBtn->setFixedHeight(36);
+    gotItBtn->setCursor(Qt::PointingHandCursor);
+    gotItBtn->setStyleSheet(
         "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
         "font-size: 14px; border-radius: 18px; padding: 0 32px; }"
         "QPushButton:hover { background: #00c8f0; }");
-    connect(btn, &QPushButton::clicked, this, &QDialog::close);
-    footerLayout->addWidget(btn, 0, Qt::AlignCenter);
+    connect(gotItBtn, &QPushButton::clicked, this, &QDialog::close);
+    btnRow->addWidget(gotItBtn);
+
+    if (showUpgrade) {
+        auto* upgradeBtn = new QPushButton("Upgrade");
+        upgradeBtn->setFixedHeight(36);
+        upgradeBtn->setCursor(Qt::PointingHandCursor);
+        upgradeBtn->setStyleSheet(
+            "QPushButton { background: #20a040; color: #ffffff; font-weight: bold; "
+            "font-size: 14px; border-radius: 18px; padding: 0 32px; }"
+            "QPushButton:hover { background: #28c050; }");
+        connect(upgradeBtn, &QPushButton::clicked, this, [this] {
+            QDesktopServices::openUrl(QUrl("https://github.com/ten9876/AetherSDR/releases/latest"));
+            close();
+        });
+        btnRow->addWidget(upgradeBtn);
+    }
+
+    footerLayout->addLayout(btnRow);
+    footerLayout->setAlignment(btnRow, Qt::AlignCenter);
     layout->addWidget(footer);
 
     setStyleSheet("WhatsNewDialog { background: #0f0f1a; }");
