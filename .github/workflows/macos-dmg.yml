@@ -91,8 +91,9 @@ jobs:
             codesign --force --options runtime --timestamp \
               --sign "Developer ID Application" "$item" 2>/dev/null || true
           done
-          # Sign the main executable and app bundle
+          # Sign the main executable and app bundle (with mic entitlement for TX audio)
           codesign --force --deep --options runtime --timestamp \
+            --entitlements macos/AetherSDR.entitlements \
             --sign "Developer ID Application" \
             build/AetherSDR.app
           # Verify

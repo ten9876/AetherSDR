@@ -82,7 +82,7 @@ jobs:
       # ── Ad-hoc sign ──────────────────────────────────────────────────────
       - name: Ad-hoc sign app and plugin
         run: |
-          codesign --force --deep --sign - build/AetherSDR.app
+          codesign --force --deep --entitlements macos/AetherSDR.entitlements --sign - build/AetherSDR.app
           codesign --force --deep --sign - build-hal/AetherSDRDAX.driver
 
       # ── Package as .pkg installer ────────────────────────────────────────
