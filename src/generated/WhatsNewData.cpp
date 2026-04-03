@@ -6,6 +6,19 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.7.18.2"), QStringLiteral("2026-04-03"), QStringLiteral("Quality of Life & Issue Triage"), {
+            {ChangeCategory::Feature, QStringLiteral("Clickable multiFLEX badge"), QStringLiteral("Click the green \"multiFLEX\" badge in the title bar to open the dashboard Hover highlight and pointing hand cursor")},
+            {ChangeCategory::Feature, QStringLiteral("SAM, NFM, DFM keyboard shortcuts"), QStringLiteral("All radio-supported modes now bindable in View → Configure Shortcuts")},
+            {ChangeCategory::Feature, QStringLiteral("Auto-switch mode on spot click"), QStringLiteral("Clicking a spot with Auto Mode enabled switches slice to match the spot's mode Mode extracted from comment text (RBN/POTA/Cluster) or inferred from frequency Toggle in SpotHub → Display tab, Mode c...")},
+            {ChangeCategory::Feature, QStringLiteral("TX Follows Active Slice"), QStringLiteral("Optional mode in Radio Setup → TX: switching active slice auto-assigns TX Disabled during Split to preserve intentional RX/TX separation")},
+            {ChangeCategory::Feature, QStringLiteral("Upgrade check on launch"), QStringLiteral("Checks GitHub releases for newer version, shows What's New with green \"Upgrade\" button Nags on every launch until user upgrades; \"Got it — 73!\" dismisses temporarily")},
+            {ChangeCategory::Feature, QStringLiteral("Lightbulb hint in What's New"), QStringLiteral("\"Found a bug or have an idea? Click the lightbulb button\" in dialog header")},
+            {ChangeCategory::Feature, QStringLiteral("Version check before issue submission"), QStringLiteral("Warns if running an old version when clicking the lightbulb button")},
+            {ChangeCategory::BugFix, QStringLiteral("Squelch controls disabled in CW mode"), QStringLiteral("Radio locks squelch at fixed level in CW; controls now dimmed in both VFO and RX applet")},
+            {ChangeCategory::BugFix, QStringLiteral("RADE audio mute not cleared on quick-mode switch"), QStringLiteral("Quick-mode buttons now properly deactivate RADE before mode change")},
+            {ChangeCategory::BugFix, QStringLiteral("Memory dialog now modeless"), QStringLiteral("No longer blocks panadapter interaction while open")},
+            {ChangeCategory::BugFix, QStringLiteral("TX Band Settings grid lines and dedup"), QStringLiteral("Grid lines visible on all cells; removed duplicate dialog from Radio Setup")},
+        }},
         {QStringLiteral("0.7.18.1"), QStringLiteral("2026-04-03"), QStringLiteral(""), {
             {ChangeCategory::Feature, QStringLiteral("SmartLink credential persistence via OS keychain"), QStringLiteral("Auth0 refresh token stored securely in OS keychain (Linux/macOS/Windows) Auto-login from stored token on launch — no re-entering credentials Email pre-filled (Base64-encoded in settings) on next la...")},
             {ChangeCategory::Feature, QStringLiteral("Cursor frequency label on panadapter"), QStringLiteral("Hover frequency displayed near cursor on both FFT and waterfall Toggle via Display panel → \"Cursor Freq\" button, persisted")},

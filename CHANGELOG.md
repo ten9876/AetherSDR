@@ -3,6 +3,52 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.18.2] — 2026-04-03
+
+### Quality of Life & Issue Triage
+
+### New Features
+
+**Clickable multiFLEX badge (#599)**
+- Click the green "multiFLEX" badge in the title bar to open the dashboard
+- Hover highlight and pointing hand cursor
+
+**SAM, NFM, DFM keyboard shortcuts (#601)**
+- All radio-supported modes now bindable in View → Configure Shortcuts
+
+**Auto-switch mode on spot click (#424)**
+- Clicking a spot with Auto Mode enabled switches slice to match the spot's mode
+- Mode extracted from comment text (RBN/POTA/Cluster) or inferred from frequency
+- Toggle in SpotHub → Display tab, Mode column added to Spot List
+
+**TX Follows Active Slice (#441)**
+- Optional mode in Radio Setup → TX: switching active slice auto-assigns TX
+- Disabled during Split to preserve intentional RX/TX separation
+
+**Upgrade check on launch (#486)**
+- Checks GitHub releases for newer version, shows What's New with green "Upgrade" button
+- Nags on every launch until user upgrades; "Got it — 73!" dismisses temporarily
+
+**Lightbulb hint in What's New (#485)**
+- "Found a bug or have an idea? Click the lightbulb button" in dialog header
+
+**Version check before issue submission (#486)**
+- Warns if running an old version when clicking the lightbulb button
+
+### Bug Fixes
+
+**Squelch controls disabled in CW mode (#285)**
+- Radio locks squelch at fixed level in CW; controls now dimmed in both VFO and RX applet
+
+**RADE audio mute not cleared on quick-mode switch (#590)**
+- Quick-mode buttons now properly deactivate RADE before mode change
+
+**Memory dialog now modeless (#591)**
+- No longer blocks panadapter interaction while open
+
+**TX Band Settings grid lines and dedup (#533)**
+- Grid lines visible on all cells; removed duplicate dialog from Radio Setup
+
 ## [v0.7.18.1] — 2026-04-03
 
 ### SmartLink Persistence, Scroll Fixes & Quick Wins
