@@ -6,6 +6,14 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.7.18.3"), QStringLiteral("2026-04-03"), QStringLiteral("Documentation"), {
+            {ChangeCategory::Feature, QStringLiteral("Background image behind FFT spectrum"), QStringLiteral("Custom background image with adjustable dark overlay (0-100% opacity) Bundled AetherSDR logo as default background Choose/Clear buttons in Display overlay panel, persisted across sessions")},
+            {ChangeCategory::Feature, QStringLiteral("Dynamic contributors in About dialog"), QStringLiteral("Live contributor list fetched from GitHub API with scrollable inset Falls back to hardcoded list when offline")},
+            {ChangeCategory::Feature, QStringLiteral("GPG signed commits badge"), QStringLiteral("README badge linking to commit history")},
+            {ChangeCategory::BugFix, QStringLiteral("External 10MHz reference showing as TCXO"), QStringLiteral("Radio sends `state=external` but we only checked `state=ext`")},
+            {ChangeCategory::BugFix, QStringLiteral("TGXL power meter zero with PGXL connected"), QStringLiteral("AMP meter definitions arrived before TGXL handle was known, routing all meters to PGXL. Re-scan meter routing when handle arrives.")},
+            {ChangeCategory::BugFix, QStringLiteral("TX Band Settings grid lines and dedup"), QStringLiteral("Visible grid lines on all cells, removed duplicate dialog from Radio Setup")},
+        }},
         {QStringLiteral("0.7.18.2"), QStringLiteral("2026-04-03"), QStringLiteral("Quality of Life & Issue Triage"), {
             {ChangeCategory::Feature, QStringLiteral("Clickable multiFLEX badge"), QStringLiteral("Click the green \"multiFLEX\" badge in the title bar to open the dashboard Hover highlight and pointing hand cursor")},
             {ChangeCategory::Feature, QStringLiteral("SAM, NFM, DFM keyboard shortcuts"), QStringLiteral("All radio-supported modes now bindable in View → Configure Shortcuts")},

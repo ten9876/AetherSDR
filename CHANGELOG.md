@@ -3,6 +3,44 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.18.3] — 2026-04-03
+
+### Background Image, Dynamic About & Bug Fixes
+
+### New Features
+
+**Background image behind FFT spectrum (#611)**
+- Custom background image with adjustable dark overlay (0-100% opacity)
+- Bundled AetherSDR logo as default background
+- Choose/Clear buttons in Display overlay panel, persisted across sessions
+
+**Dynamic contributors in About dialog**
+- Live contributor list fetched from GitHub API with scrollable inset
+- Falls back to hardcoded list when offline
+
+**GPG signed commits badge**
+- README badge linking to commit history
+
+### Bug Fixes
+
+**External 10MHz reference showing as TCXO (#606)**
+- Radio sends `state=external` but we only checked `state=ext`
+
+**TGXL power meter zero with PGXL connected (#600)**
+- AMP meter definitions arrived before TGXL handle was known, routing all
+  meters to PGXL. Re-scan meter routing when handle arrives.
+
+**TX Band Settings grid lines and dedup (#533)**
+- Visible grid lines on all cells, removed duplicate dialog from Radio Setup
+
+### Documentation
+
+**README streamlined** — 357 → 130 lines, condensed feature list, removed shipped roadmap
+
+**CONTRIBUTING.md rewritten** — 517 → 213 lines, added thread architecture table, widget guidelines, optional dependency flags
+
+**SECURITY.md** — added SmartLink credentials and WebSocket endpoints to scope
+
 ## [v0.7.18.2] — 2026-04-03
 
 ### Quality of Life & Issue Triage
