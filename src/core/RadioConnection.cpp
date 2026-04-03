@@ -11,7 +11,33 @@
 #include <sys/socket.h>
 #elif defined(Q_OS_WIN)
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <mstcpip.h>
+// MinGW headers may lack TCP_INFO_v0 / SIO_TCP_INFO (Windows 10 1703+)
+#ifndef SIO_TCP_INFO
+#define SIO_TCP_INFO _WSAIORW(IOC_VENDOR, 39)
+typedef struct _TCP_INFO_v0 {
+    ULONG    State;  // TCPSTATE enum — not used, just padding
+    ULONG    Mss;
+    ULONG64  ConnectionTimeMs;
+    BOOLEAN  TimestampsEnabled;
+    ULONG    RttUs;
+    ULONG    MinRttUs;
+    ULONG    BytesInFlight;
+    ULONG    Cwnd;
+    ULONG    SndWnd;
+    ULONG    RcvWnd;
+    ULONG    RcvBuf;
+    ULONG64  BytesOut;
+    ULONG64  BytesIn;
+    ULONG    BytesReordered;
+    ULONG    BytesRetrans;
+    ULONG    FastRetrans;
+    ULONG    DupAcksIn;
+    ULONG    TimeoutEpisodes;
+    UCHAR    SynRetrans;
+} TCP_INFO_v0;
+#endif
 #endif
 
 namespace AetherSDR {
