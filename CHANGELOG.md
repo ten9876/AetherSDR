@@ -3,6 +3,64 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.18.1] — 2026-04-03
+
+### SmartLink Persistence, Scroll Fixes & Quick Wins
+
+### New Features
+
+**SmartLink credential persistence via OS keychain (#572)**
+- Auth0 refresh token stored securely in OS keychain (Linux/macOS/Windows)
+- Auto-login from stored token on launch — no re-entering credentials
+- Email pre-filled (Base64-encoded in settings) on next launch
+- Requires `qtkeychain-qt6` package (optional — graceful fallback)
+
+**Cursor frequency label on panadapter (#456)**
+- Hover frequency displayed near cursor on both FFT and waterfall
+- Toggle via Display panel → "Cursor Freq" button, persisted
+
+**Dynamic RF gain range from radio (#580)**
+- Query `display pan rfgain_info` on connect for actual gain range
+- Slider adapts to radio model (FLEX-6300 vs 8600 vs 6600M)
+
+**Right-click VFO "Add Spot" (#428)**
+- Right-click the VFO frequency display → context menu → Add Spot
+- Pre-filled with exact tuned frequency
+
+**macOS TX audio entitlement (PR #592 by @boydsoftprez)**
+- Add `com.apple.security.device.audio-input` entitlement for hardened runtime
+- Fixes silent mic when launched from Finder (Fixes #543)
+
+### Bug Fixes
+
+**RF gain slider not updating on antenna switch (#557)**
+- `PanadapterModel::rfGainChanged` was not wired to overlay slider
+- Gain now updates immediately when switching RX antennas
+
+**SpotHub Enter key activating random buttons (#459)**
+- Disabled `autoDefault` on all QPushButtons in the SpotHub dialog
+
+**GuardedSlider across all applets (#570)**
+- All sliders now consume wheel events at boundaries
+- Prevents VFO scroll leak from overlay and title bar sliders
+
+**RADE audio mute not cleared on quick-mode switch (#590)**
+- Quick-mode buttons bypassed RADE deactivation, leaving slice muted
+- Now properly emits `radeActivated(false)` before mode change
+
+**Memory dialog now modeless (#591)**
+- No longer blocks panadapter interaction while open
+- Singleton pattern with QPointer (same as SpotHub, Radio Setup)
+
+**Auto-select first discovered radio**
+- New users no longer confused by unselected radio in connection panel
+
+**Enter key triggers SmartLink login**
+- Press Enter in password field to log in
+
+**What's New dialog updated**
+- Regenerated from CHANGELOG.md — was blank since v0.7.16
+
 ## [v0.7.18] — 2026-04-02
 
 ### Tuner Controls, Band Panel & UI Polish
