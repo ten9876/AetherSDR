@@ -1,4 +1,5 @@
 #include "SpotSettingsDialog.h"
+#include "GuardedSlider.h"
 #include "models/RadioModel.h"
 #include "core/AppSettings.h"
 
@@ -67,7 +68,7 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
     // ── Levels slider ───────────────────────────────────────────────────
     grid->addWidget(new QLabel("Levels:"), row, 0);
     auto* levelsRow = new QHBoxLayout;
-    m_levelsSlider = new QSlider(Qt::Horizontal);
+    m_levelsSlider = new GuardedSlider(Qt::Horizontal);
     m_levelsSlider->setRange(1, 10);
     m_levelsSlider->setValue(levels);
     m_levelsValue = new QLabel(QString::number(levels));
@@ -84,7 +85,7 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
     // ── Position slider ─────────────────────────────────────────────────
     grid->addWidget(new QLabel("Position:"), row, 0);
     auto* posRow = new QHBoxLayout;
-    m_positionSlider = new QSlider(Qt::Horizontal);
+    m_positionSlider = new GuardedSlider(Qt::Horizontal);
     m_positionSlider->setRange(0, 100);
     m_positionSlider->setValue(position);
     m_positionValue = new QLabel(QString::number(position));
@@ -101,7 +102,7 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
     // ── Font Size slider ────────────────────────────────────────────────
     grid->addWidget(new QLabel("Font Size:"), row, 0);
     auto* fontRow = new QHBoxLayout;
-    m_fontSizeSlider = new QSlider(Qt::Horizontal);
+    m_fontSizeSlider = new GuardedSlider(Qt::Horizontal);
     m_fontSizeSlider->setRange(8, 32);
     m_fontSizeSlider->setValue(fontSize);
     m_fontSizeValue = new QLabel(QString::number(fontSize));
@@ -118,7 +119,7 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
     // ── Spot Lifetime slider ──────────────────────────────────────────
     grid->addWidget(new QLabel("Spot Lifetime:"), row, 0);
     auto* lifeRow = new QHBoxLayout;
-    auto* lifetimeSlider = new QSlider(Qt::Horizontal);
+    auto* lifetimeSlider = new GuardedSlider(Qt::Horizontal);
     lifetimeSlider->setRange(1, 1440);
     lifetimeSlider->setValue(lifetimeMin);
     auto formatLifetime = [](int mins) -> QString {
@@ -218,7 +219,7 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
     // ── Background Opacity slider ───────────────────────────────────────
     grid->addWidget(new QLabel("Background Opacity:"), row, 0);
     auto* opacRow = new QHBoxLayout;
-    m_bgOpacitySlider = new QSlider(Qt::Horizontal);
+    m_bgOpacitySlider = new GuardedSlider(Qt::Horizontal);
     m_bgOpacitySlider->setRange(0, 100);
     m_bgOpacitySlider->setValue(m_bgOpacity);
     m_bgOpacityValue = new QLabel(QString::number(m_bgOpacity));

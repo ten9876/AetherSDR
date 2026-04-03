@@ -1,5 +1,6 @@
 #include "RxApplet.h"
 #include "FilterPassbandWidget.h"
+#include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "SliceColors.h"
 #include "models/SliceModel.h"
@@ -661,7 +662,7 @@ void RxApplet::buildUI()
         });
         row->addWidget(m_muteBtn);
 
-        m_afSlider = new QSlider(Qt::Horizontal);
+        m_afSlider = new GuardedSlider(Qt::Horizontal);
         m_afSlider->setRange(0, 100);
         m_afSlider->setValue(70);
         m_afSlider->setStyleSheet(kSliderStyle);
@@ -709,7 +710,7 @@ void RxApplet::buildUI()
         m_sqlBtn->setStyleSheet(QString(kButtonBase) + kGreenActive + kDisabledBtn);
         row->addWidget(m_sqlBtn);
 
-        m_sqlSlider = new QSlider(Qt::Horizontal);
+        m_sqlSlider = new GuardedSlider(Qt::Horizontal);
         m_sqlSlider->setRange(0, 100);
         m_sqlSlider->setValue(20);
         m_sqlSlider->setStyleSheet(kSliderStyle);
@@ -745,7 +746,7 @@ void RxApplet::buildUI()
         });
         agcRow->addWidget(m_agcCombo);
 
-        m_agcTSlider = new QSlider(Qt::Horizontal);
+        m_agcTSlider = new GuardedSlider(Qt::Horizontal);
         m_agcTSlider->setRange(0, 100);
         m_agcTSlider->setValue(65);
         m_agcTSlider->setStyleSheet(kSliderStyle);

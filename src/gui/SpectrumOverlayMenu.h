@@ -44,6 +44,7 @@ public:
     void setSlice(SliceModel* slice);
     void setWnbState(bool on, int level);
     void setRfGain(int gain);
+    void setRfGainRange(int low, int high, int step);
 
     // Populate XVTR band sub-panel
     struct XvtrBand { QString name; double rfFreqMhz; };
@@ -51,6 +52,7 @@ public:
     QPushButton* dspNr2Button() const;
     QPushButton* dspRn2Button() const;
     QPushButton* dspBnrButton() const;
+    QPushButton* cursorFreqButton() const { return m_cursorFreqBtn; }
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -93,6 +95,7 @@ signals:
     // NB Waterfall Blanker (#277)
     void wfBlankerEnabledChanged(bool on);
     void wfBlankerThresholdChanged(float threshold);
+    void cursorFreqToggled(bool on);
 
 private:
     QString m_panId;
@@ -176,6 +179,8 @@ private:
     QSlider*     m_floorSlider{nullptr};
     QLabel*      m_floorLabel{nullptr};
     QPushButton* m_floorEnableBtn{nullptr};
+
+    QPushButton* m_cursorFreqBtn{nullptr};
 
     QStringList  m_antList;
     SliceModel*  m_slice{nullptr};

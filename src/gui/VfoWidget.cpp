@@ -1,6 +1,7 @@
 #include "VfoWidget.h"
 #include "PhaseKnob.h"
 #include "ComboStyle.h"
+#include "GuardedSlider.h"
 #include "SliceColors.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
@@ -29,14 +30,7 @@
 
 // QSlider that always accepts wheel events, preventing propagation to parent
 // (e.g. SpectrumWidget frequency scroll) at min/max boundaries. (#547 BUG-002)
-class GuardedSlider : public QSlider {
-public:
-    using QSlider::QSlider;
-    void wheelEvent(QWheelEvent* ev) override {
-        QSlider::wheelEvent(ev);
-        ev->accept();  // always consume, even at boundary
-    }
-};
+// GuardedSlider moved to GuardedSlider.h for use across all applets (#570)
 
 // Horizontal level meter bar: maps a dBm value to a filled bar.
 // Range: -130 (empty) to -20 dBm (full). Color: cyan with green tint above S9.
@@ -1232,6 +1226,15 @@ void VfoWidget::buildTabContent()
             connect(btn, &QPushButton::clicked, this, [this, i] {
                 if (!m_slice) return;
                 const QString& assign = m_quickModeAssign[i];
+#ifdef HAVE_RADE
+                if (assign == "RADE") {
+                    emit radeActivated(true, m_slice->sliceId());
+                    return;
+                }
+                // Deactivate RADE if switching away from it
+                if (m_radeActive)
+                    emit radeActivated(false, m_slice->sliceId());
+#endif
                 if (assign == "SSB") {
                     m_slice->setMode(m_slice->mode() == "USB" ? "LSB" : "USB");
                 } else if (assign == "DIG") {
@@ -2485,6 +2488,21 @@ bool VfoWidget::eventFilter(QObject* obj, QEvent* event)
     if (obj == m_freqLabel && event->type() == QEvent::MouseButtonDblClick) {
         beginDirectEntry();
         return true;
+    }
+    // Right-click on frequency label → context menu
+    if (obj == m_freqLabel && event->type() == QEvent::MouseButtonPress) {
+        auto* me = static_cast<QMouseEvent*>(event);
+        if (me->button() == Qt::RightButton && m_slice) {
+            QMenu menu(this);
+            menu.setStyleSheet(
+                "QMenu { background: #1a1a2e; color: #c8d8e8; border: 1px solid #304060; }"
+                "QMenu::item:selected { background: #00b4d8; color: #0f0f1a; }");
+            menu.addAction("Add Spot", this, [this] {
+                emit addSpotRequested(m_slice->frequency());
+            });
+            menu.exec(me->globalPosition().toPoint());
+            return true;
+        }
     }
 
     if (event->type() == QEvent::MouseButtonPress) {

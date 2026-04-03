@@ -1,4 +1,5 @@
 #include "PhoneApplet.h"
+#include "GuardedSlider.h"
 #include "models/TransmitModel.h"
 
 #include <QPushButton>
@@ -111,7 +112,7 @@ void PhoneApplet::buildUI()
         row->addWidget(lbl);
         row->addSpacing(10);
 
-        m_amCarrierSlider = new QSlider(Qt::Horizontal);
+        m_amCarrierSlider = new GuardedSlider(Qt::Horizontal);
         m_amCarrierSlider->setRange(0, 100);
         m_amCarrierSlider->setStyleSheet(kSliderStyle);
         connect(m_amCarrierSlider, &QSlider::valueChanged, this, [this](int v) {
@@ -147,7 +148,7 @@ void PhoneApplet::buildUI()
         row->addWidget(m_voxBtn);
         row->addSpacing(10);
 
-        m_voxLevelSlider = new QSlider(Qt::Horizontal);
+        m_voxLevelSlider = new GuardedSlider(Qt::Horizontal);
         m_voxLevelSlider->setRange(0, 100);
         m_voxLevelSlider->setStyleSheet(kSliderStyle);
         connect(m_voxLevelSlider, &QSlider::valueChanged, this, [this](int v) {
@@ -180,7 +181,7 @@ void PhoneApplet::buildUI()
         row->addWidget(lbl);
         row->addSpacing(10);
 
-        m_voxDelaySlider = new QSlider(Qt::Horizontal);
+        m_voxDelaySlider = new GuardedSlider(Qt::Horizontal);
         m_voxDelaySlider->setRange(0, 100);
         m_voxDelaySlider->setStyleSheet(kSliderStyle);
         connect(m_voxDelaySlider, &QSlider::valueChanged, this, [this](int v) {
@@ -219,7 +220,7 @@ void PhoneApplet::buildUI()
         row->addWidget(m_dexpBtn);
         row->addSpacing(10);
 
-        m_dexpSlider = new QSlider(Qt::Horizontal);
+        m_dexpSlider = new GuardedSlider(Qt::Horizontal);
         m_dexpSlider->setRange(0, 100);
         m_dexpSlider->setStyleSheet(kSliderStyle);
         connect(m_dexpSlider, &QSlider::valueChanged, this, [this](int v) {

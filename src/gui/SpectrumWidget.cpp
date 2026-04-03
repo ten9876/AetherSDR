@@ -1181,6 +1181,12 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         setCursor(Qt::CrossCursor);
     }
 
+    // Track cursor position for frequency label overlay
+    if (m_showCursorFreq) {
+        m_cursorPos = ev->position().toPoint();
+        update();
+    }
+
     // Band plan spot tooltip on hover
     const int specH2 = static_cast<int>((height() - FREQ_SCALE_H - DIVIDER_H) * m_spectrumFrac);
     const int bandBarTop = specH2 - 8;
@@ -1396,6 +1402,15 @@ void SpectrumWidget::mouseDoubleClickEvent(QMouseEvent* ev)
     }
 
     QWidget::mouseDoubleClickEvent(ev);
+}
+
+void SpectrumWidget::leaveEvent(QEvent* event)
+{
+    QWidget::leaveEvent(event);
+    if (m_showCursorFreq) {
+        m_cursorPos = {-1, -1};
+        update();
+    }
 }
 
 void SpectrumWidget::wheelEvent(QWheelEvent* ev)
@@ -1762,6 +1777,27 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
             x -= ww;
             p.drawText(x, topY, "WNB");
         }
+    }
+
+    // ── Cursor frequency label (#456) ──────────────────────────────────────
+    if (m_showCursorFreq && m_cursorPos.x() >= 0
+        && m_cursorPos.y() >= 0) {
+        const double freqMhz = xToMhz(m_cursorPos.x());
+        const QString label = QString::number(freqMhz, 'f', 6);
+        QFont f = p.font();
+        f.setPointSize(9);
+        p.setFont(f);
+        const QFontMetrics fm(f);
+        const int tw = fm.horizontalAdvance(label) + 8;
+        const int th = fm.height() + 4;
+        // Position label to the right of cursor, flip left if near right edge
+        int lx = m_cursorPos.x() + 12;
+        if (lx + tw > width()) lx = m_cursorPos.x() - tw - 4;
+        int ly = m_cursorPos.y() - th - 4;
+        if (ly < 0) ly = m_cursorPos.y() + 16;
+        p.fillRect(lx, ly, tw, th, QColor(0x0f, 0x0f, 0x1a, 200));
+        p.setPen(QColor(0xc8, 0xd8, 0xe8));
+        p.drawText(lx + 4, ly + fm.ascent() + 2, label);
     }
 
     qCDebug(lcPerf) << "paintEvent:" << static_cast<int>(frameTimer.elapsed()) << "ms";

@@ -1,4 +1,5 @@
 #include "SpectrumOverlayMenu.h"
+#include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "models/SliceModel.h"
 #include "models/BandDefs.h"
@@ -262,7 +263,7 @@ void SpectrumOverlayMenu::buildAntPanel()
     gainLabel->setStyleSheet(kLabelStyle);
     gainLabel->setFixedWidth(kLabelW);
     gainRow->addWidget(gainLabel);
-    m_rfGainSlider = new QSlider(Qt::Horizontal);
+    m_rfGainSlider = new GuardedSlider(Qt::Horizontal);
     m_rfGainSlider->setRange(-8, 32);
     m_rfGainSlider->setSingleStep(8);
     m_rfGainSlider->setPageStep(8);
@@ -278,8 +279,10 @@ void SpectrumOverlayMenu::buildAntPanel()
     vbox->addLayout(gainRow);
 
     connect(m_rfGainSlider, &QSlider::valueChanged, this, [this](int v) {
-        // Snap to nearest multiple of 8
-        int snapped = qRound(v / 8.0) * 8;
+        // Snap to nearest multiple of step size
+        int step = m_rfGainSlider->singleStep();
+        if (step < 1) step = 1;
+        int snapped = qRound(static_cast<double>(v) / step) * step;
         if (snapped != v) {
             QSignalBlocker sb(m_rfGainSlider);
             m_rfGainSlider->setValue(snapped);
@@ -302,7 +305,7 @@ void SpectrumOverlayMenu::buildAntPanel()
         "border: 1px solid #0090e0; }"
         "QPushButton:hover { border: 1px solid #0090e0; }");
     wnbRow->addWidget(m_wnbBtn);
-    m_wnbSlider = new QSlider(Qt::Horizontal);
+    m_wnbSlider = new GuardedSlider(Qt::Horizontal);
     m_wnbSlider->setRange(0, 100);
     m_wnbSlider->setValue(50);
     m_wnbSlider->setStyleSheet(kSliderStyle);
@@ -535,7 +538,7 @@ void SpectrumOverlayMenu::buildDspPanel()
         dspRow.btn = btn;
 
         if (def.hasLevel) {
-            auto* slider = new QSlider(Qt::Horizontal);
+            auto* slider = new GuardedSlider(Qt::Horizontal);
             slider->setRange(0, 100);
             slider->setValue(50);
             slider->setStyleSheet(kSliderStyle);
@@ -808,7 +811,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         lbl->setStyleSheet(labelStyle);
         grid->addWidget(lbl, row, 0);
 
-        slider = new QSlider(Qt::Horizontal);
+        slider = new GuardedSlider(Qt::Horizontal);
         slider->setRange(lo, hi);
         slider->setValue(def);
         slider->setStyleSheet(sliderStyle);
@@ -837,7 +840,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         btn->setStyleSheet(btnStyle);
         grid->addWidget(btn, row, 1);
 
-        slider = new QSlider(Qt::Horizontal);
+        slider = new GuardedSlider(Qt::Horizontal);
         slider->setRange(lo, hi);
         slider->setValue(def);
         slider->setStyleSheet(sliderStyle);
@@ -879,7 +882,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         m_fillColorBtn->setToolTip("Choose fill color");
         grid->addWidget(m_fillColorBtn, row, 1);
 
-        m_fillSlider = new QSlider(Qt::Horizontal);
+        m_fillSlider = new GuardedSlider(Qt::Horizontal);
         m_fillSlider->setRange(0, 100);
         m_fillSlider->setValue(70);
         m_fillSlider->setStyleSheet(sliderStyle);
@@ -984,6 +987,24 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         emit wfBlankerThresholdChanged(t);
     });
 
+    // Cursor frequency label toggle (#456)
+    {
+        auto* lbl = new QLabel("Cursor Freq:");
+        lbl->setStyleSheet(labelStyle);
+        grid->addWidget(lbl, row, 0, 1, 2);
+        m_cursorFreqBtn = new QPushButton("Off");
+        m_cursorFreqBtn->setCheckable(true);
+        m_cursorFreqBtn->setChecked(false);
+        m_cursorFreqBtn->setFixedSize(36, 18);
+        m_cursorFreqBtn->setStyleSheet(btnStyle);
+        grid->addWidget(m_cursorFreqBtn, row, 3, Qt::AlignRight);
+        connect(m_cursorFreqBtn, &QPushButton::toggled, this, [this](bool on) {
+            m_cursorFreqBtn->setText(on ? "On" : "Off");
+            emit cursorFreqToggled(on);
+        });
+        ++row;
+    }
+
     m_displayPanel->adjustSize();
 }
 
@@ -1057,6 +1078,16 @@ void SpectrumOverlayMenu::setRfGain(int gain)
     QSignalBlocker b(m_rfGainSlider);
     m_rfGainSlider->setValue(gain);
     m_rfGainLabel->setText(QString::number(gain));
+}
+
+void SpectrumOverlayMenu::setRfGainRange(int low, int high, int step)
+{
+    if (!m_rfGainSlider) return;
+    QSignalBlocker b(m_rfGainSlider);
+    m_rfGainSlider->setRange(low, high);
+    m_rfGainSlider->setSingleStep(step);
+    m_rfGainSlider->setPageStep(step);
+    m_rfGainSlider->setTickInterval(step);
 }
 
 void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)

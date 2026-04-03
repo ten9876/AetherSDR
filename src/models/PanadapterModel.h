@@ -32,6 +32,10 @@ public:
     float maxDbm() const { return m_maxDbm; }
     QStringList antList() const { return m_antList; }
     int rfGain() const { return m_rfGain; }
+    int rfGainLow() const { return m_rfGainLow; }
+    int rfGainHigh() const { return m_rfGainHigh; }
+    int rfGainStep() const { return m_rfGainStep; }
+    void setRfGainInfo(int low, int high, int step);
     bool wnbActive() const { return m_wnbActive; }
     int wnbLevel() const { return m_wnbLevel; }
     QString preamp() const { return m_preamp; }
@@ -54,6 +58,7 @@ signals:
     void levelChanged(float minDbm, float maxDbm);
     void antListChanged(const QStringList& ants);
     void rfGainChanged(int gain, const QString& preamp);
+    void rfGainInfoChanged(int low, int high, int step);
     void wnbChanged(bool active, int level);
     void waterfallIdChanged(const QString& wfId);
 
@@ -67,6 +72,9 @@ private:
     float       m_maxDbm{-40.0f};
     QStringList m_antList;
     int         m_rfGain{0};
+    int         m_rfGainLow{-8};
+    int         m_rfGainHigh{32};
+    int         m_rfGainStep{8};
     bool        m_wnbActive{false};
     int         m_wnbLevel{50};
     QString     m_preamp;

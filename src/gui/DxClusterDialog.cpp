@@ -1,4 +1,5 @@
 #include "DxClusterDialog.h"
+#include "GuardedSlider.h"
 #include "core/DxClusterClient.h"
 #include "core/AppSettings.h"
 #include "models/RadioModel.h"
@@ -543,6 +544,11 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
 
     // Scroll spot table to show newest entries
     m_spotTable->scrollToBottom();
+
+    // Disable autoDefault on all buttons so Enter in command inputs
+    // only fires returnPressed, not random button clicks (#459)
+    for (auto* btn : findChildren<QPushButton*>())
+        btn->setAutoDefault(false);
 
     updateStatus();
 }
@@ -1112,7 +1118,7 @@ void DxClusterDialog::buildWsjtxTab(QTabWidget* tabs)
     decodeRow->addWidget(lifeLabel);
 
     int wsjtxLife = s.value("WsjtxSpotLifetime", 120).toInt();
-    auto* wsjtxLifeSlider = new QSlider(Qt::Horizontal);
+    auto* wsjtxLifeSlider = new GuardedSlider(Qt::Horizontal);
     wsjtxLifeSlider->setRange(30, 300);
     wsjtxLifeSlider->setValue(wsjtxLife);
     wsjtxLifeSlider->setFixedWidth(120);
@@ -1574,7 +1580,7 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
     // ── Levels slider ───────────────────────────────────────────────────
     grid->addWidget(new QLabel("Levels:"), row, 0);
     auto* levelsRow = new QHBoxLayout;
-    auto* levelsSlider = new QSlider(Qt::Horizontal);
+    auto* levelsSlider = new GuardedSlider(Qt::Horizontal);
     levelsSlider->setRange(1, 10);
     levelsSlider->setValue(levels);
     auto* levelsValue = new QLabel(QString::number(levels));
@@ -1591,7 +1597,7 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
     // ── Position slider ─────────────────────────────────────────────────
     grid->addWidget(new QLabel("Position:"), row, 0);
     auto* posRow = new QHBoxLayout;
-    auto* posSlider = new QSlider(Qt::Horizontal);
+    auto* posSlider = new GuardedSlider(Qt::Horizontal);
     posSlider->setRange(0, 100);
     posSlider->setValue(position);
     auto* posValue = new QLabel(QString::number(position));
@@ -1608,7 +1614,7 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
     // ── Font Size slider ────────────────────────────────────────────────
     grid->addWidget(new QLabel("Font Size:"), row, 0);
     auto* fontRow = new QHBoxLayout;
-    auto* fontSlider = new QSlider(Qt::Horizontal);
+    auto* fontSlider = new GuardedSlider(Qt::Horizontal);
     fontSlider->setRange(8, 32);
     fontSlider->setValue(fontSize);
     auto* fontValue = new QLabel(QString::number(fontSize));
@@ -1625,7 +1631,7 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
     // ── Spot Lifetime slider ────────────────────────────────────────────
     grid->addWidget(new QLabel("Spot Lifetime:"), row, 0);
     auto* lifeRow = new QHBoxLayout;
-    auto* lifeSlider = new QSlider(Qt::Horizontal);
+    auto* lifeSlider = new GuardedSlider(Qt::Horizontal);
     lifeSlider->setRange(1, 1440);
     lifeSlider->setValue(lifetimeMin);
     auto formatLifetime = [](int mins) -> QString {
@@ -1724,7 +1730,7 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
     // ── Background Opacity slider ───────────────────────────────────────
     grid->addWidget(new QLabel("Background Opacity:"), row, 0);
     auto* opacRow = new QHBoxLayout;
-    auto* opacSlider = new QSlider(Qt::Horizontal);
+    auto* opacSlider = new GuardedSlider(Qt::Horizontal);
     opacSlider->setRange(0, 100);
     opacSlider->setValue(bgOpacity);
     auto* opacValue = new QLabel(QString::number(bgOpacity));

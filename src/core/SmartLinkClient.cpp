@@ -1,4 +1,5 @@
 #include "SmartLinkClient.h"
+#include "AppSettings.h"
 #include "LogManager.h"
 
 #include <QJsonDocument>
@@ -7,6 +8,10 @@
 #include <QNetworkReply>
 #include <QSslConfiguration>
 #include <QUrl>
+
+#ifdef HAVE_KEYCHAIN
+#include <qt6keychain/keychain.h>
+#endif
 
 namespace AetherSDR {
 
@@ -49,6 +54,11 @@ void SmartLinkClient::login(const QString& email, const QString& password)
 
     qCDebug(lcSmartLink) << "SmartLinkClient: Auth0 login for" << email.left(3) + "***";
 
+    // Remember email (Base64-encoded) for pre-fill on next launch
+    auto& s = AppSettings::instance();
+    s.setValue("SmartLinkEmail", QString::fromUtf8(email.toUtf8().toBase64()));
+    s.save();
+
     auto* reply = m_nam.post(req, QJsonDocument(body).toJson());
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         reply->deleteLater();
@@ -75,6 +85,7 @@ void SmartLinkClient::login(const QString& email, const QString& password)
 
         qCDebug(lcSmartLink) << "SmartLinkClient: Auth0 login successful, id_token length:" << m_idToken.length();
         m_authenticated = true;
+        saveCredentials();
         emit authenticated();
 
         // Now connect to SmartLink server with the token
@@ -123,6 +134,7 @@ void SmartLinkClient::loginWithRefreshToken(const QString& refreshToken)
 
         qCDebug(lcSmartLink) << "SmartLinkClient: Auth0 refresh successful";
         m_authenticated = true;
+        saveCredentials();
         emit authenticated();
         connectToServer();
     });
@@ -136,7 +148,66 @@ void SmartLinkClient::logout()
     m_userCallsign.clear();
     m_userFirstName.clear();
     m_userLastName.clear();
+    clearCredentials();
     disconnect();
+}
+
+// ── Credential Persistence ──────────────────────────────────────────────────
+
+void SmartLinkClient::saveCredentials()
+{
+#ifdef HAVE_KEYCHAIN
+    if (m_refreshToken.isEmpty()) return;
+
+    auto* job = new QKeychain::WritePasswordJob("AetherSDR");
+    job->setAutoDelete(true);
+    job->setKey("smartlink_refresh_token");
+    job->setTextData(m_refreshToken);
+    connect(job, &QKeychain::Job::finished, this, [](QKeychain::Job* j) {
+        if (j->error() != QKeychain::NoError)
+            qCWarning(lcSmartLink) << "SmartLinkClient: keychain save failed:" << j->errorString();
+        else
+            qCDebug(lcSmartLink) << "SmartLinkClient: refresh token saved to keychain";
+    });
+    job->start();
+#endif
+}
+
+void SmartLinkClient::clearCredentials()
+{
+#ifdef HAVE_KEYCHAIN
+    auto* job = new QKeychain::DeletePasswordJob("AetherSDR");
+    job->setAutoDelete(true);
+    job->setKey("smartlink_refresh_token");
+    connect(job, &QKeychain::Job::finished, this, [](QKeychain::Job* j) {
+        if (j->error() != QKeychain::NoError && j->error() != QKeychain::EntryNotFound)
+            qCWarning(lcSmartLink) << "SmartLinkClient: keychain clear failed:" << j->errorString();
+        else
+            qCDebug(lcSmartLink) << "SmartLinkClient: refresh token cleared from keychain";
+    });
+    job->start();
+#endif
+    AppSettings::instance().remove("SmartLinkEmail");
+    AppSettings::instance().save();
+}
+
+void SmartLinkClient::tryAutoLogin()
+{
+#ifdef HAVE_KEYCHAIN
+    auto* job = new QKeychain::ReadPasswordJob("AetherSDR");
+    job->setAutoDelete(true);
+    job->setKey("smartlink_refresh_token");
+    connect(job, &QKeychain::Job::finished, this, [this](QKeychain::Job* j) {
+        auto* readJob = static_cast<QKeychain::ReadPasswordJob*>(j);
+        if (j->error() != QKeychain::NoError || readJob->textData().isEmpty()) {
+            qCDebug(lcSmartLink) << "SmartLinkClient: no stored credentials";
+            return;
+        }
+        qCDebug(lcSmartLink) << "SmartLinkClient: found stored refresh token, attempting auto-login";
+        loginWithRefreshToken(readJob->textData());
+    });
+    job->start();
+#endif
 }
 
 // ── SmartLink Server Connection ──────────────────────────────────────────────

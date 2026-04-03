@@ -1,4 +1,5 @@
 #include "PanadapterApplet.h"
+#include "GuardedSlider.h"
 #include "SpectrumWidget.h"
 
 #include <QVBoxLayout>
@@ -84,7 +85,7 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     auto* sensLabel = new QLabel("Sens:");
     sensLabel->setStyleSheet("QLabel { color: #6a8090; font-size: 9px; background: transparent; }");
     cwBar->addWidget(sensLabel);
-    m_cwSensSlider = new QSlider(Qt::Horizontal);
+    m_cwSensSlider = new GuardedSlider(Qt::Horizontal);
     m_cwSensSlider->setRange(0, 100);  // 0=show everything, 100=only high confidence
     m_cwSensSlider->setValue(30);      // default: moderate filtering
     m_cwSensSlider->setFixedWidth(60);
@@ -127,7 +128,7 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     minLabel->setStyleSheet("QLabel { color: #6a8090; font-size: 8px; background: transparent; }");
     cwBar->addWidget(minLabel);
 
-    m_pitchMinSlider = new QSlider(Qt::Horizontal);
+    m_pitchMinSlider = new GuardedSlider(Qt::Horizontal);
     m_pitchMinSlider->setRange(300, 1200);
     m_pitchMinSlider->setValue(500);
     m_pitchMinSlider->setFixedWidth(50);
@@ -143,7 +144,7 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     maxLabel->setStyleSheet("QLabel { color: #6a8090; font-size: 8px; background: transparent; }");
     cwBar->addWidget(maxLabel);
 
-    m_pitchMaxSlider = new QSlider(Qt::Horizontal);
+    m_pitchMaxSlider = new GuardedSlider(Qt::Horizontal);
     m_pitchMaxSlider->setRange(300, 1200);
     m_pitchMaxSlider->setValue(700);
     m_pitchMaxSlider->setFixedWidth(50);

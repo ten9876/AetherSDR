@@ -68,6 +68,9 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_emailEdit = new QLineEdit(m_loginForm);
     m_emailEdit->setStyleSheet(editStyle);
     m_emailEdit->setPlaceholderText("flexradio account email");
+    QString storedEmail = AppSettings::instance().value("SmartLinkEmail").toString();
+    if (!storedEmail.isEmpty())
+        m_emailEdit->setText(QString::fromUtf8(QByteArray::fromBase64(storedEmail.toUtf8())));
     emailRow->addWidget(m_emailEdit, 1);
     loginLayout->addLayout(emailRow);
 
@@ -122,15 +125,17 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
 
     vbox->addWidget(m_manualGroup);
 
-    // Login button click
-    connect(m_loginBtn, &QPushButton::clicked, this, [this] {
+    // Login action (button click or Enter in password field)
+    auto doLogin = [this] {
         const QString email = m_emailEdit->text().trimmed();
         const QString pass  = m_passwordEdit->text();
         if (email.isEmpty() || pass.isEmpty()) return;
         m_loginBtn->setEnabled(false);
         m_loginBtn->setText("Logging in...");
         emit smartLinkLoginRequested(email, pass);
-    });
+    };
+    connect(m_loginBtn, &QPushButton::clicked, this, doLogin);
+    connect(m_passwordEdit, &QLineEdit::returnPressed, this, doLogin);
 
     // All widgets now exist — safe to call setConnected for initial state
     setConnected(false);
@@ -159,6 +164,9 @@ void ConnectionPanel::onRadioDiscovered(const RadioInfo& radio)
 {
     m_radios.append(radio);
     m_radioList->addItem(radio.displayName());
+    // Auto-select first discovered radio so new users don't get stuck
+    if (m_radioList->count() == 1)
+        m_radioList->setCurrentRow(0);
 }
 
 void ConnectionPanel::onRadioUpdated(const RadioInfo& radio)
@@ -276,6 +284,9 @@ void ConnectionPanel::setSmartLinkClient(SmartLinkClient* client)
         m_slUserLabel->setStyleSheet("QLabel { color: #ff4444; font-size: 10px; }");
         m_slUserLabel->setVisible(true);
     });
+
+    // Attempt auto-login from stored keychain credentials
+    client->tryAutoLogin();
 
     connect(client, &SmartLinkClient::radioListReceived, this,
             [this](const QList<WanRadioInfo>& radios) {
