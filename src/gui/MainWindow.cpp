@@ -105,6 +105,8 @@ namespace AetherSDR {
 
 // ─── Shortcut guard (file-scope for use as std::function<bool()>) ───────────
 
+static constexpr const char* kPaTempUnitSettingKey = "PaTempDisplayUnit";
+
 static bool s_keyboardShortcutsEnabled = false;
 
 static bool isTextInputFocused()
@@ -145,6 +147,9 @@ MainWindow::MainWindow(QWidget* parent)
     buildMenuBar();
     buildUI();
     registerShortcutActions();
+    m_paTempUseFahrenheit =
+        AppSettings::instance().value(kPaTempUnitSettingKey, "Fahrenheit").toString() != "Celsius";
+    updatePaTempLabel();
 
     // DXCC spot coloring (#330)
     m_dxccProvider.loadCtyDat(":/cty.dat");
@@ -1830,7 +1835,9 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(&m_radioModel.meterModel(), &MeterModel::hwTelemetryChanged,
             this, [this](float paTemp, float supplyVolts) {
-        m_paTempLabel->setText(QString("PA %1\u00B0C").arg(paTemp, 0, 'f', 1));
+        m_lastPaTempC = paTemp;
+        m_hasPaTempTelemetry = true;
+        updatePaTempLabel();
         m_supplyVoltLabel->setText(QString("%1 V").arg(supplyVolts, 0, 'f', 2));
 
         // Update station label (nickname arrives via status after connect)
@@ -2092,6 +2099,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         }
     }
 
+    if (obj == m_paTempLabel && event->type() == QEvent::MouseButtonPress) {
+        setPaTempDisplayUnit(!m_paTempUseFahrenheit);
+        return true;
+    }
     if (obj == m_networkLabel && event->type() == QEvent::MouseButtonDblClick) {
         NetworkDiagnosticsDialog dlg(&m_radioModel, this);
         dlg.exec();
@@ -2239,6 +2250,35 @@ void MainWindow::toggleConnectionDialog()
     m_connPanel->move(pos);
     m_connPanel->show();
     m_connPanel->raise();
+}
+
+void MainWindow::updatePaTempLabel()
+{
+    const QString unit = m_paTempUseFahrenheit ? "F" : "C";
+    if (!m_hasPaTempTelemetry) {
+        m_paTempLabel->setText(QString("PA --\u00B0%1").arg(unit));
+    } else if (m_paTempUseFahrenheit) {
+        const float paTempF = (m_lastPaTempC * 9.0f / 5.0f) + 32.0f;
+        m_paTempLabel->setText(QString("PA %1\u00B0F").arg(paTempF, 0, 'f', 1));
+    } else {
+        m_paTempLabel->setText(QString("PA %1\u00B0C").arg(m_lastPaTempC, 0, 'f', 1));
+    }
+
+    m_paTempLabel->setToolTip(
+        QString("PA temperature\nClick to switch to %1")
+            .arg(m_paTempUseFahrenheit ? "Celsius (\u00B0C)" : "Fahrenheit (\u00B0F)"));
+}
+
+void MainWindow::setPaTempDisplayUnit(bool useFahrenheit)
+{
+    if (m_paTempUseFahrenheit == useFahrenheit)
+        return;
+
+    m_paTempUseFahrenheit = useFahrenheit;
+    auto& settings = AppSettings::instance();
+    settings.setValue(kPaTempUnitSettingKey, useFahrenheit ? "Fahrenheit" : "Celsius");
+    settings.save();
+    updatePaTempLabel();
 }
 
 // ─── Audio thread helpers (#502) ─────────────────────────────────────────────
@@ -3380,6 +3420,9 @@ void MainWindow::buildUI()
     m_paTempLabel = new QLabel("");
     m_paTempLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 12px; }");
     m_paTempLabel->setAlignment(Qt::AlignCenter);
+    m_paTempLabel->setCursor(Qt::PointingHandCursor);
+    m_paTempLabel->installEventFilter(this);
+    updatePaTempLabel();
     m_supplyVoltLabel = new QLabel("");
     m_supplyVoltLabel->setStyleSheet("QLabel { color: #607080; font-size: 12px; }");
     m_supplyVoltLabel->setAlignment(Qt::AlignCenter);

@@ -118,6 +118,8 @@ private:
     void applyPanLayout(const QString& layoutId);
     void createPansSequentially(const QString& layoutId, int total,
                                 std::shared_ptr<QStringList> panIds, int created);
+    void updatePaTempLabel();
+    void setPaTempDisplayUnit(bool useFahrenheit);
 
     BandSnapshot captureCurrentBandState() const;
     void restoreBandState(const BandSnapshot& snap);
@@ -258,6 +260,9 @@ private:
     bool m_updatingFromModel{false};
     void toggleConnectionDialog();
     bool m_useSystemClock{true};     // true when no GPS installed
+    bool m_paTempUseFahrenheit{true};
+    bool m_hasPaTempTelemetry{false};
+    float m_lastPaTempC{0.0f};
     bool m_userDisconnected{false};  // true after explicit disconnect, blocks auto-connect
     QDialog* m_reconnectDlg{nullptr}; // shown on unexpected disconnect, dismissed on reconnect
     bool m_displaySettingsPushed{false};  // one-shot: push saved display settings after pan created
