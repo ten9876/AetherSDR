@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [v0.7.18.3] — 2026-04-03
 
-### Background Image, Dynamic About & Bug Fixes
+### Background Image, Community PRs & Bug Fixes
 
 ### New Features
 
@@ -32,6 +32,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 **TX Band Settings grid lines and dedup (#533)**
 - Visible grid lines on all cells, removed duplicate dialog from Radio Setup
+
+**GuardedComboBox across all applets (#618)**
+- All combo boxes now consume scroll wheel events at boundaries
+- Prevents accidental mode/antenna/profile changes from scroll leaking
+
+### Community PRs
+
+**Fix PC mic TX audio (PR #623 by @boydsoftprez)**
+- Opus VITA-49 padding fix — trailing zeros corrupted radio's decoder
+- Mono USB mic support with extended fallback chain
+- r8brain resampling for TX downsampling (Fixes #363, #387)
+
+**Fix TGXL Fwd Power/SWR gauges (PR #627 by @boydsoftprez)**
+- Parse meters from TGXL direct TCP connection (port 9010)
+- TGXL reports power/SWR via R responses, not VITA-49 (Fixes #625)
+
+**Fix MinGW build (PR #622 by @boydsoftprez)**
+- Add TCP_INFO_v0 and SIO_TCP_INFO definitions for MinGW
+- Replace MSVC-only _dupenv_s with std::getenv
 
 ### Documentation
 

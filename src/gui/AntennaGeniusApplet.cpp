@@ -1,4 +1,5 @@
 #include "AntennaGeniusApplet.h"
+#include "GuardedSlider.h"
 #include "models/AntennaGeniusModel.h"
 
 #include <QPushButton>
@@ -68,7 +69,7 @@ void AntennaGeniusApplet::buildUI()
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
 
-        m_deviceCombo = new QComboBox;
+        m_deviceCombo = new GuardedComboBox;
         m_deviceCombo->setStyleSheet(
             "QComboBox { background: #1a2a3a; border: 1px solid #203040; "
             "border-radius: 3px; padding: 2px 4px; color: #c8d8e8; font-size: 10px; }"

@@ -1,4 +1,5 @@
 #include "AppletPanel.h"
+#include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "RxApplet.h"
 #include "SMeterWidget.h"
@@ -222,7 +223,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     auto* txLabel = new QLabel("TX Select", selectRow);
     txLabel->setStyleSheet(labelStyle);
     txLabel->setAlignment(Qt::AlignCenter);
-    m_txSelect = new QComboBox(selectRow);
+    m_txSelect = new GuardedComboBox(selectRow);
     m_txSelect->addItems({"Power", "SWR", "Level", "Compression"});
     AetherSDR::applyComboStyle(m_txSelect);
 
@@ -234,7 +235,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     auto* rxLabel = new QLabel("RX Select", selectRow);
     rxLabel->setStyleSheet(labelStyle);
     rxLabel->setAlignment(Qt::AlignCenter);
-    m_rxSelect = new QComboBox(selectRow);
+    m_rxSelect = new GuardedComboBox(selectRow);
     m_rxSelect->addItems({"S-Meter", "S-Meter Peak"});
     m_rxSelect->setCurrentIndex(0);
     AetherSDR::applyComboStyle(m_rxSelect);

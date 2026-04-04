@@ -353,7 +353,7 @@ void RxApplet::buildUI()
         m_freqRow->addSpacing(4);
 
         // Mode selector combo
-        m_modeCombo = new QComboBox;
+        m_modeCombo = new GuardedComboBox;
         m_modeCombo->setFixedHeight(20);
         m_modeCombo->addItems({"USB", "LSB", "CW", "AM", "SAM", "FM",
                                "NFM", "DFM", "DIGU", "DIGL", "RTTY"});
@@ -517,7 +517,7 @@ void RxApplet::buildUI()
         {
             auto* row = new QHBoxLayout;
             row->setSpacing(4);
-            m_toneModeCmb = new QComboBox;
+            m_toneModeCmb = new GuardedComboBox;
             m_toneModeCmb->addItem("Off",      QString("off"));
             m_toneModeCmb->addItem("CTCSS TX", QString("ctcss_tx"));
             AetherSDR::applyComboStyle(m_toneModeCmb);
@@ -535,7 +535,7 @@ void RxApplet::buildUI()
 
         // CTCSS tone value dropdown
         {
-            m_toneValueCmb = new QComboBox;
+            m_toneValueCmb = new GuardedComboBox;
             for (int i = 0; i < CTCSS_COUNT; ++i) {
                 const auto& t = CTCSS_TONES[i];
                 m_toneValueCmb->addItem(
@@ -733,7 +733,7 @@ void RxApplet::buildUI()
         agcRow->setContentsMargins(0, 0, 0, 0);
         agcRow->setSpacing(4);
 
-        m_agcCombo = new QComboBox;
+        m_agcCombo = new GuardedComboBox;
         m_agcCombo->addItem("Off",  QString("off"));
         m_agcCombo->addItem("Slow", QString("slow"));
         m_agcCombo->addItem("Med",  QString("med"));

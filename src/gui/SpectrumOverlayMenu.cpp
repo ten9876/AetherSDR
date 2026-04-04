@@ -245,7 +245,7 @@ void SpectrumOverlayMenu::buildAntPanel()
     antLabel->setStyleSheet(kLabelStyle);
     antLabel->setFixedWidth(kLabelW);
     antRow->addWidget(antLabel);
-    m_rxAntCmb = new QComboBox;
+    m_rxAntCmb = new GuardedComboBox;
     AetherSDR::applyComboStyle(m_rxAntCmb);
     antRow->addWidget(m_rxAntCmb, 1);
     vbox->addLayout(antRow);
@@ -635,7 +635,7 @@ void SpectrumOverlayMenu::buildDaxPanel()
     auto* lbl = new QLabel("DAX Ch");
     lbl->setStyleSheet(kLabelStyle);
     row->addWidget(lbl);
-    m_daxCmb = new QComboBox;
+    m_daxCmb = new GuardedComboBox;
     m_daxCmb->addItems({"Off", "1", "2", "3", "4"});
     AetherSDR::applyComboStyle(m_daxCmb);
     row->addWidget(m_daxCmb, 1);
@@ -652,7 +652,7 @@ void SpectrumOverlayMenu::buildDaxPanel()
     auto* iqLbl = new QLabel("IQ Ch");
     iqLbl->setStyleSheet(kLabelStyle);
     iqRow->addWidget(iqLbl);
-    m_daxIqCmb = new QComboBox;
+    m_daxIqCmb = new GuardedComboBox;
     m_daxIqCmb->addItems({"None", "1", "2", "3", "4"});
     AetherSDR::applyComboStyle(m_daxIqCmb);
     iqRow->addWidget(m_daxIqCmb, 1);

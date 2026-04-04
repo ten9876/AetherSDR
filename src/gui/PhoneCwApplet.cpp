@@ -138,7 +138,7 @@ void PhoneCwApplet::buildPhonePanel()
     vbox->addSpacing(4);
 
     // ── Mic profile dropdown ─────────────────────────────────────────────
-    m_micProfileCombo = new QComboBox;
+    m_micProfileCombo = new GuardedComboBox;
     m_micProfileCombo->setFixedHeight(22);
     AetherSDR::applyComboStyle(m_micProfileCombo);
     connect(m_micProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -156,7 +156,7 @@ void PhoneCwApplet::buildPhonePanel()
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
 
-        m_micSourceCombo = new QComboBox;
+        m_micSourceCombo = new GuardedComboBox;
         m_micSourceCombo->setFixedWidth(55);
         m_micSourceCombo->setFixedHeight(22);
         AetherSDR::applyComboStyle(m_micSourceCombo);

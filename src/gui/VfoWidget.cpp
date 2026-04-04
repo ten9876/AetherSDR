@@ -606,7 +606,7 @@ void VfoWidget::buildTabContent()
         // AGC-T row: mode combo + threshold slider
         auto* agcRow = new QHBoxLayout;
         agcRow->setSpacing(3);
-        m_agcCmb = new QComboBox;
+        m_agcCmb = new GuardedComboBox;
         m_agcCmb->addItems({"Off", "Slow", "Med", "Fast"});
         m_agcCmb->setFixedHeight(20);
         m_agcCmb->setFixedWidth(60);
@@ -1040,14 +1040,14 @@ void VfoWidget::buildTabContent()
             // Tone mode + tone value on one row
             auto* toneRow = new QHBoxLayout;
             toneRow->setSpacing(2);
-            m_fmToneModeCmb = new QComboBox;
+            m_fmToneModeCmb = new GuardedComboBox;
             m_fmToneModeCmb->addItem("Off", QString("off"));
             m_fmToneModeCmb->addItem("CTCSS TX", QString("ctcss_tx"));
             AetherSDR::applyComboStyle(m_fmToneModeCmb);
             toneRow->addWidget(m_fmToneModeCmb, 1);
 
             // Tone value — simplified list of common CTCSS tones
-            m_fmToneValueCmb = new QComboBox;
+            m_fmToneValueCmb = new GuardedComboBox;
             const double tones[] = {67.0,71.9,74.4,77.0,79.7,82.5,85.4,88.5,91.5,94.8,
                 97.4,100.0,103.5,107.2,110.9,114.8,118.8,123.0,127.3,131.8,
                 136.5,141.3,146.2,151.4,156.7,162.2,167.9,173.8,179.9,186.2,
@@ -1180,7 +1180,7 @@ void VfoWidget::buildTabContent()
         vb->setSpacing(3);
 
         // Mode dropdown (same style as RxApplet)
-        m_modeCombo = new QComboBox;
+        m_modeCombo = new GuardedComboBox;
         m_modeCombo->setFixedHeight(26);
         // Default modes — replaced dynamically when slice connects and sends mode_list
         m_modeCombo->addItems({"USB", "LSB", "CW", "AM", "SAM", "FM",
@@ -1418,7 +1418,7 @@ void VfoWidget::buildTabContent()
         auto* lbl = new QLabel("DAX Ch");
         lbl->setStyleSheet(kLabelStyle);
         row->addWidget(lbl);
-        m_daxCmb = new QComboBox;
+        m_daxCmb = new GuardedComboBox;
         m_daxCmb->addItems({"Off", "1", "2", "3", "4"});
         AetherSDR::applyComboStyle(m_daxCmb);
         row->addWidget(m_daxCmb, 1);
