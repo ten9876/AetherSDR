@@ -1795,6 +1795,74 @@ void SpectrumWidget::initOverlayPipeline()
     qDebug() << "SpectrumWidget: overlay pipeline created" << w << "x" << h;
 }
 
+void SpectrumWidget::initSpectrumPipeline()
+{
+    QRhi* r = rhi();
+
+    // Dynamic vertex buffers: N × 6 floats (x, y, r, g, b, a) per vertex
+    m_fftLineVbo = r->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer,
+                                 kMaxFftBins * kFftVertStride * sizeof(float));
+    m_fftLineVbo->create();
+
+    m_fftFillVbo = r->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer,
+                                 kMaxFftBins * 2 * kFftVertStride * sizeof(float));
+    m_fftFillVbo->create();
+
+    // No uniforms — color is per-vertex
+    m_fftSrb = r->newShaderResourceBindings();
+    m_fftSrb->setBindings({});
+    m_fftSrb->create();
+
+    QShader vs = loadShader(":/shaders/resources/shaders/spectrum.vert.qsb");
+    QShader fs = loadShader(":/shaders/resources/shaders/spectrum.frag.qsb");
+    if (!vs.isValid() || !fs.isValid()) {
+        qWarning() << "SpectrumWidget: spectrum shader load failed";
+        return;
+    }
+
+    QRhiVertexInputLayout layout;
+    layout.setBindings({{kFftVertStride * sizeof(float)}});  // stride: 6 floats
+    layout.setAttributes({
+        {0, 0, QRhiVertexInputAttribute::Float2, 0},                     // position
+        {0, 1, QRhiVertexInputAttribute::Float4, 2 * sizeof(float)},     // color
+    });
+
+    QRhiGraphicsPipeline::TargetBlend blend;
+    blend.enable = true;
+    blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+    blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    blend.srcAlpha = QRhiGraphicsPipeline::One;
+    blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+
+    // Fill pipeline (triangle strip)
+    m_fftFillPipeline = r->newGraphicsPipeline();
+    m_fftFillPipeline->setShaderStages({
+        {QRhiShaderStage::Vertex, vs},
+        {QRhiShaderStage::Fragment, fs},
+    });
+    m_fftFillPipeline->setVertexInputLayout(layout);
+    m_fftFillPipeline->setTopology(QRhiGraphicsPipeline::TriangleStrip);
+    m_fftFillPipeline->setShaderResourceBindings(m_fftSrb);
+    m_fftFillPipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    m_fftFillPipeline->setTargetBlends({blend});
+    m_fftFillPipeline->create();
+
+    // Line pipeline (line strip)
+    m_fftLinePipeline = r->newGraphicsPipeline();
+    m_fftLinePipeline->setShaderStages({
+        {QRhiShaderStage::Vertex, vs},
+        {QRhiShaderStage::Fragment, fs},
+    });
+    m_fftLinePipeline->setVertexInputLayout(layout);
+    m_fftLinePipeline->setTopology(QRhiGraphicsPipeline::LineStrip);
+    m_fftLinePipeline->setShaderResourceBindings(m_fftSrb);
+    m_fftLinePipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    m_fftLinePipeline->setTargetBlends({blend});
+    m_fftLinePipeline->create();
+
+    qDebug() << "SpectrumWidget: spectrum pipeline created (vertex-colored)";
+}
+
 void SpectrumWidget::initialize(QRhiCommandBuffer* cb)
 {
     if (m_rhiInitialized) return;
@@ -1812,6 +1880,7 @@ void SpectrumWidget::initialize(QRhiCommandBuffer* cb)
 
     initWaterfallPipeline();
     initOverlayPipeline();
+    initSpectrumPipeline();
 
     // Upload VBO data
     batch->uploadStaticBuffer(m_wfVbo, kQuadData);
@@ -1983,16 +2052,85 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             m_overlayStaticDirty = false;
         }
 
-        // Composite static + FFT into dynamic image, upload once
-        std::memcpy(m_overlayDynamic.bits(), m_overlayStatic.constBits(),
-                    m_overlayStatic.sizeInBytes());
-        {
-            QPainter p(&m_overlayDynamic);
-            p.setRenderHint(QPainter::Antialiasing, false);
-            drawSpectrum(p, specRect);
-        }
-        QRhiTextureSubresourceUploadDescription ovDesc(m_overlayDynamic);
+        // Upload static overlay texture every frame (GPU clears on beginPass).
+        // The expensive part — QPainter repaint — is skipped when not dirty.
+        QRhiTextureSubresourceUploadDescription ovDesc(m_overlayStatic);
         batch->uploadTexture(m_ovGpuTex, QRhiTextureUploadEntry(0, 0, ovDesc));
+
+        // Generate FFT spectrum vertices with baked colors
+        if (!m_smoothed.isEmpty() && m_fftLineVbo && m_fftFillVbo) {
+            const int n = qMin(m_smoothed.size(), kMaxFftBins);
+            const float minDbm = m_refLevel - m_dynamicRange;
+            const float maxDbm = m_refLevel;
+            const float range = maxDbm - minDbm;
+            const float yBot = -1.0f;
+            const float yTop = 1.0f;
+
+            // Colors from settings
+            float fr = m_fftFillColor.redF();
+            float fg = m_fftFillColor.greenF();
+            float fb = m_fftFillColor.blueF();
+            float fa = m_fftFillAlpha;
+
+            // Line vertices: N × (x, y, r, g, b, a)
+            QVector<float> lineVerts(n * kFftVertStride);
+            // Fill vertices: 2N × (x, y, r, g, b, a)
+            QVector<float> fillVerts(n * 2 * kFftVertStride);
+
+            for (int i = 0; i < n; ++i) {
+                float x = 2.0f * i / (n - 1) - 1.0f;
+                float t = qBound(0.0f, (m_smoothed[i] - minDbm) / range, 1.0f);
+                float y = yBot + t * (yTop - yBot);
+
+                // Intensity-based color: blue (weak) → cyan → green → yellow → red (strong)
+                // Same 5-stop gradient as a heat map
+                float cr, cg, cb2;
+                if (t < 0.25f) {
+                    float s = t / 0.25f;
+                    cr = 0.0f; cg = s; cb2 = 1.0f;           // blue → cyan
+                } else if (t < 0.5f) {
+                    float s = (t - 0.25f) / 0.25f;
+                    cr = 0.0f; cg = 1.0f; cb2 = 1.0f - s;    // cyan → green
+                } else if (t < 0.75f) {
+                    float s = (t - 0.5f) / 0.25f;
+                    cr = s; cg = 1.0f; cb2 = 0.0f;            // green → yellow
+                } else {
+                    float s = (t - 0.75f) / 0.25f;
+                    cr = 1.0f; cg = 1.0f - s; cb2 = 0.0f;    // yellow → red
+                }
+
+                // Line vertex: intensity-colored at 90% opacity
+                int li = i * kFftVertStride;
+                lineVerts[li]     = x;
+                lineVerts[li + 1] = y;
+                lineVerts[li + 2] = cr;
+                lineVerts[li + 3] = cg;
+                lineVerts[li + 4] = cb2;
+                lineVerts[li + 5] = 0.9f;
+
+                // Fill top vertex (at spectrum line): reduced alpha
+                int fi = i * 2 * kFftVertStride;
+                fillVerts[fi]     = x;
+                fillVerts[fi + 1] = y;
+                fillVerts[fi + 2] = cr;
+                fillVerts[fi + 3] = cg;
+                fillVerts[fi + 4] = cb2;
+                fillVerts[fi + 5] = fa * 0.3f;
+
+                // Fill bottom vertex: fades to dark blue at full alpha
+                fillVerts[fi + 6]  = x;
+                fillVerts[fi + 7]  = yBot;
+                fillVerts[fi + 8]  = 0.0f;
+                fillVerts[fi + 9]  = 0.0f;
+                fillVerts[fi + 10] = 0.3f;
+                fillVerts[fi + 11] = fa;
+            }
+
+            batch->updateDynamicBuffer(m_fftLineVbo, 0,
+                n * kFftVertStride * sizeof(float), lineVerts.constData());
+            batch->updateDynamicBuffer(m_fftFillVbo, 0,
+                n * 2 * kFftVertStride * sizeof(float), fillVerts.constData());
+        }
     }
 
     cb->resourceUpdate(batch);
@@ -2018,6 +2156,32 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
         const QRhiCommandBuffer::VertexInput vbuf(m_wfVbo, 0);
         cb->setVertexInput(0, 1, &vbuf);
         cb->draw(4);
+    }
+
+    // Draw FFT spectrum — viewport restricted to spectrum rect
+    if (m_fftFillPipeline && m_fftLinePipeline && !m_smoothed.isEmpty()) {
+        const int n = qMin(m_smoothed.size(), kMaxFftBins);
+        float specVpX = static_cast<float>(specRect.x()) * dpr;
+        float specVpY = static_cast<float>(h - specRect.bottom() - 1) * dpr;
+        float specVpW = static_cast<float>(specRect.width()) * dpr;
+        float specVpH = static_cast<float>(specRect.height()) * dpr;
+        QRhiViewport specVp(specVpX, specVpY, specVpW, specVpH);
+
+        // Fill pass (colors baked into vertices)
+        cb->setGraphicsPipeline(m_fftFillPipeline);
+        cb->setShaderResources(m_fftSrb);
+        cb->setViewport(specVp);
+        const QRhiCommandBuffer::VertexInput fillVbuf(m_fftFillVbo, 0);
+        cb->setVertexInput(0, 1, &fillVbuf);
+        cb->draw(n * 2);
+
+        // Line pass (colors baked into vertices)
+        cb->setGraphicsPipeline(m_fftLinePipeline);
+        cb->setShaderResources(m_fftSrb);
+        cb->setViewport(specVp);
+        const QRhiCommandBuffer::VertexInput lineVbuf(m_fftLineVbo, 0);
+        cb->setVertexInput(0, 1, &lineVbuf);
+        cb->draw(n);
     }
 
     // Draw overlay quad — full widget viewport, alpha-blended on top
@@ -2090,6 +2254,12 @@ void SpectrumWidget::releaseResources()
     delete m_ovVbo;          m_ovVbo = nullptr;
     delete m_ovGpuTex;       m_ovGpuTex = nullptr;
     delete m_ovSampler;      m_ovSampler = nullptr;
+
+    delete m_fftLinePipeline; m_fftLinePipeline = nullptr;
+    delete m_fftFillPipeline; m_fftFillPipeline = nullptr;
+    delete m_fftSrb;          m_fftSrb = nullptr;
+    delete m_fftLineVbo;      m_fftLineVbo = nullptr;
+    delete m_fftFillVbo;      m_fftFillVbo = nullptr;
 
     m_rhiInitialized = false;
     qDebug() << "SpectrumWidget: QRhi resources released";

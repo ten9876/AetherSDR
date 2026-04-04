@@ -525,7 +525,17 @@ private:
 
     void initWaterfallPipeline();
     void initOverlayPipeline();
+    void initSpectrumPipeline();
     void renderGpuFrame(QRhiCommandBuffer* cb);
+
+    // FFT spectrum GPU resources — vertex color, no uniforms
+    QRhiGraphicsPipeline* m_fftLinePipeline{nullptr};
+    QRhiGraphicsPipeline* m_fftFillPipeline{nullptr};
+    QRhiShaderResourceBindings* m_fftSrb{nullptr};
+    QRhiBuffer* m_fftLineVbo{nullptr};    // dynamic, N × (vec2 pos + vec4 color)
+    QRhiBuffer* m_fftFillVbo{nullptr};    // dynamic, 2N × (vec2 pos + vec4 color)
+    static constexpr int kMaxFftBins = 8192;
+    static constexpr int kFftVertStride = 6; // x, y, r, g, b, a
 #endif
 
     // Mark the static overlay for repaint and schedule a frame update.

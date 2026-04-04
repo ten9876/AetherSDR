@@ -586,6 +586,8 @@ if(AETHER_GPU_SPECTRUM)
             resources/shaders/texturedquad.frag
             resources/shaders/overlay.vert
             resources/shaders/overlay.frag
+            resources/shaders/spectrum.vert
+            resources/shaders/spectrum.frag
     )
 endif()
 
