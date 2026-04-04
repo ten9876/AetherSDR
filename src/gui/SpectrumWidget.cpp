@@ -1823,7 +1823,8 @@ void SpectrumWidget::initialize(QRhiCommandBuffer* cb)
     }
 
     cb->resourceUpdate(batch);
-    m_wfTexDirty = false;
+    m_wfTexFullUpload = false;
+    m_wfLastUploadedRow = m_wfWriteRow;
     m_rhiInitialized = true;
 }
 
@@ -1843,8 +1844,8 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
     auto* batch = r->nextResourceUpdateBatch();
 
     // Upload waterfall texture — full or incremental
-    if (m_wfTexDirty && !m_waterfall.isNull()) {
-        // Resize texture if needed
+    if (!m_waterfall.isNull()) {
+        // Resize texture if needed — full re-upload
         if (m_waterfall.width() != m_wfGpuTexW || m_waterfall.height() != m_wfGpuTexH) {
             m_wfGpuTexW = m_waterfall.width();
             m_wfGpuTexH = m_waterfall.height();
@@ -1855,13 +1856,49 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_wfGpuTex, m_wfSampler),
             });
             m_wfSrb->create();
+            m_wfTexFullUpload = true;
         }
-        // Convert RGB32 (BGRA in memory) → RGBA8888 for GPU upload
-        QImage rgba = m_waterfall.convertToFormat(QImage::Format_RGBA8888);
 
-        QRhiTextureSubresourceUploadDescription desc(rgba);
-        batch->uploadTexture(m_wfGpuTex, QRhiTextureUploadEntry(0, 0, desc));
-        m_wfTexDirty = false;
+        if (m_wfTexFullUpload) {
+            // Full upload (init or resize)
+            QImage rgba = m_waterfall.convertToFormat(QImage::Format_RGBA8888);
+            QRhiTextureSubresourceUploadDescription desc(rgba);
+            batch->uploadTexture(m_wfGpuTex, QRhiTextureUploadEntry(0, 0, desc));
+            m_wfLastUploadedRow = m_wfWriteRow;
+            m_wfTexFullUpload = false;
+        } else if (m_wfWriteRow != m_wfLastUploadedRow) {
+            // Incremental upload — only the rows that changed since last frame
+            const int texH = m_wfGpuTexH;
+            int from = m_wfLastUploadedRow;
+            int to = m_wfWriteRow;
+
+            // Walk backwards from 'from' to 'to' (ring buffer decrements)
+            // Upload each dirty row individually
+            QRhiTextureUploadDescription uploadDesc;
+            QVector<QRhiTextureUploadEntry> entries;
+
+            int row = from;
+            int maxRows = texH;  // safety cap
+            while (row != to && maxRows-- > 0) {
+                row = (row - 1 + texH) % texH;
+                // Extract one scanline from the waterfall QImage, convert to RGBA8
+                const uchar* srcLine = m_waterfall.constScanLine(row);
+                QImage rowImg(reinterpret_cast<const uchar*>(srcLine),
+                              m_wfGpuTexW, 1, m_waterfall.bytesPerLine(),
+                              QImage::Format_RGB32);
+                QImage rowRgba = rowImg.convertToFormat(QImage::Format_RGBA8888);
+
+                QRhiTextureSubresourceUploadDescription desc(rowRgba);
+                desc.setDestinationTopLeft(QPoint(0, row));
+                entries.append(QRhiTextureUploadEntry(0, 0, desc));
+            }
+
+            if (!entries.isEmpty()) {
+                uploadDesc.setEntries(entries.begin(), entries.end());
+                batch->uploadTexture(m_wfGpuTex, uploadDesc);
+            }
+            m_wfLastUploadedRow = m_wfWriteRow;
+        }
     }
 
     // Update waterfall uniforms — just the ring buffer row offset
@@ -2020,7 +2057,6 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
 void SpectrumWidget::render(QRhiCommandBuffer* cb)
 {
     if (!m_rhiInitialized) return;
-    m_wfTexDirty = true;  // always re-upload waterfall (optimize later with row tracking)
     renderGpuFrame(cb);
 }
 

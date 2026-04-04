@@ -508,7 +508,8 @@ private:
     QRhiSampler* m_wfSampler{nullptr};
     int m_wfGpuTexW{0};
     int m_wfGpuTexH{0};
-    bool m_wfTexDirty{true};  // full re-upload needed (resize)
+    bool m_wfTexFullUpload{true};  // full re-upload needed (resize/init)
+    int m_wfLastUploadedRow{-1};   // last row uploaded to GPU (-1 = none)
 
     // Overlay GPU resources (QPainter → QImage → texture)
     QRhiGraphicsPipeline* m_ovPipeline{nullptr};
