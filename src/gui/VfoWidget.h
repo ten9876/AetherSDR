@@ -8,6 +8,7 @@
 #include <QStringList>
 
 class QPushButton;
+class ScrollableLabel;
 class QLabel;
 class QLineEdit;
 class QStackedWidget;
@@ -212,8 +213,8 @@ private:
     // RIT/XIT tab
     QPushButton* m_ritBtn{nullptr};
     QPushButton* m_xitBtn{nullptr};
-    QLabel* m_ritLabel{nullptr};
-    QLabel* m_xitLabel{nullptr};
+    ScrollableLabel* m_ritLabel{nullptr};
+    ScrollableLabel* m_xitLabel{nullptr};
     // DAX tab
     QComboBox* m_daxCmb{nullptr};
 

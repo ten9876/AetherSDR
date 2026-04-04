@@ -784,12 +784,16 @@ void RxApplet::buildUI()
         m_ritMinus = mkLeft();
         row->addWidget(m_ritMinus);
 
-        m_ritLabel = new QLabel("+0 Hz");
+        m_ritLabel = new ScrollableLabel("+0 Hz");
         m_ritLabel->setAlignment(Qt::AlignCenter);
         m_ritLabel->setStyleSheet(
             "QLabel { font-size: 10px; background: #0a0a18; border: 1px solid #1e2e3e; "
             "border-radius: 3px; padding: 0px 2px; }");
         row->addWidget(m_ritLabel, 1);
+        connect(m_ritLabel, &ScrollableLabel::scrolled, this, [this](int dir) {
+            if (m_slice) m_slice->setRit(m_ritOnBtn->isChecked(),
+                m_slice->ritFreq() + dir * RIT_STEP_HZ);
+        });
 
         m_ritPlus = mkRight();
         row->addWidget(m_ritPlus);
@@ -833,12 +837,16 @@ void RxApplet::buildUI()
         m_xitMinus = mkLeft();
         row->addWidget(m_xitMinus);
 
-        m_xitLabel = new QLabel("+0 Hz");
+        m_xitLabel = new ScrollableLabel("+0 Hz");
         m_xitLabel->setAlignment(Qt::AlignCenter);
         m_xitLabel->setStyleSheet(
             "QLabel { font-size: 10px; background: #0a0a18; border: 1px solid #1e2e3e; "
             "border-radius: 3px; padding: 0px 2px; }");
         row->addWidget(m_xitLabel, 1);
+        connect(m_xitLabel, &ScrollableLabel::scrolled, this, [this](int dir) {
+            if (m_slice) m_slice->setXit(m_xitOnBtn->isChecked(),
+                m_slice->xitFreq() + dir * RIT_STEP_HZ);
+        });
 
         m_xitPlus = mkRight();
         row->addWidget(m_xitPlus);
@@ -1511,3 +1519,4 @@ bool RxApplet::eventFilter(QObject* obj, QEvent* ev)
 }
 
 } // namespace AetherSDR
+#include "moc_GuardedSlider.cpp"

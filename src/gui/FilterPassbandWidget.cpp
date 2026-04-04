@@ -104,42 +104,67 @@ void FilterPassbandWidget::paintEvent(QPaintEvent*)
 void FilterPassbandWidget::mousePressEvent(QMouseEvent* ev)
 {
     if (ev->button() != Qt::LeftButton) return;
-    m_dragging = true;
     m_dragStartPos = ev->pos();
     m_dragStartLo = m_lo;
     m_dragStartHi = m_hi;
+
+    // Detect edge grab: ±8px from the dashed vertical lines
+    constexpr int margin = 16, SKIRT = 16, GRAB = 8;
+    const int loLineX = margin + SKIRT + 8;
+    const int hiLineX = width() - margin - SKIRT - 8;
+
+    if (std::abs(ev->pos().x() - loLineX) <= GRAB)
+        m_dragMode = DragLo;
+    else if (std::abs(ev->pos().x() - hiLineX) <= GRAB)
+        m_dragMode = DragHi;
+    else
+        m_dragMode = DragShift;
 }
 
 void FilterPassbandWidget::mouseMoveEvent(QMouseEvent* ev)
 {
-    if (!m_dragging) return;
+    if (m_dragMode == DragNone) return;
 
     const int dx = ev->pos().x() - m_dragStartPos.x();
     const int dy = ev->pos().y() - m_dragStartPos.y();
 
-    // Horizontal drag: move both filter edges (shift passband)
-    // Vertical drag: expand/contract bandwidth symmetrically
-    // Scale: full widget width = ~6000 Hz shift, full height = ~4000 Hz BW change
     const int usableW = width() - 32;
     const int usableH = height();
     const double hzPerPxH = 6000.0 / std::max(usableW, 1);
     const double hzPerPxV = 4000.0 / std::max(usableH, 1);
 
-    int shiftHz = static_cast<int>(dx * hzPerPxH);
-    int bwChange = static_cast<int>(-dy * hzPerPxV);  // drag up = wider
+    int newLo = m_dragStartLo;
+    int newHi = m_dragStartHi;
 
-    // Snap to 50 Hz
-    shiftHz = (shiftHz / 50) * 50;
-    bwChange = (bwChange / 50) * 50;
-
-    int newLo = m_dragStartLo + shiftHz - bwChange / 2;
-    int newHi = m_dragStartHi + shiftHz + bwChange / 2;
+    if (m_dragMode == DragShift) {
+        // Horizontal: shift passband, vertical: symmetric width
+        int shiftHz = static_cast<int>(dx * hzPerPxH);
+        int bwChange = static_cast<int>(-dy * hzPerPxV);
+        shiftHz = (shiftHz / 50) * 50;
+        bwChange = (bwChange / 50) * 50;
+        newLo = m_dragStartLo + shiftHz - bwChange / 2;
+        newHi = m_dragStartHi + shiftHz + bwChange / 2;
+    } else if (m_dragMode == DragLo) {
+        int deltaHz = static_cast<int>(dx * hzPerPxH);
+        deltaHz = (deltaHz / 50) * 50;
+        newLo = m_dragStartLo + deltaHz;
+    } else if (m_dragMode == DragHi) {
+        int deltaHz = static_cast<int>(dx * hzPerPxH);
+        deltaHz = (deltaHz / 50) * 50;
+        newHi = m_dragStartHi + deltaHz;
+    }
 
     // Enforce minimum bandwidth
     if (newHi - newLo < MIN_BW) {
-        int center = (newLo + newHi) / 2;
-        newLo = center - MIN_BW / 2;
-        newHi = center + MIN_BW / 2;
+        if (m_dragMode == DragLo)
+            newLo = newHi - MIN_BW;
+        else if (m_dragMode == DragHi)
+            newHi = newLo + MIN_BW;
+        else {
+            int center = (newLo + newHi) / 2;
+            newLo = center - MIN_BW / 2;
+            newHi = center + MIN_BW / 2;
+        }
     }
 
     // Snap to 50 Hz grid
@@ -156,7 +181,7 @@ void FilterPassbandWidget::mouseMoveEvent(QMouseEvent* ev)
 
 void FilterPassbandWidget::mouseReleaseEvent(QMouseEvent*)
 {
-    m_dragging = false;
+    m_dragMode = DragNone;
 }
 
 } // namespace AetherSDR

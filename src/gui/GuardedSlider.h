@@ -2,6 +2,7 @@
 
 #include <QSlider>
 #include <QComboBox>
+#include <QLabel>
 #include <QWheelEvent>
 
 // QSlider subclass that always consumes wheel events, even at min/max
@@ -25,4 +26,20 @@ public:
         QComboBox::wheelEvent(ev);
         ev->accept();
     }
+};
+
+// QLabel subclass that emits scrolled(int steps) on wheel events and
+// always consumes them. Used for RIT/XIT/pitch numeric displays. (#619)
+class ScrollableLabel : public QLabel {
+    Q_OBJECT
+public:
+    using QLabel::QLabel;
+    void wheelEvent(QWheelEvent* ev) override {
+        int delta = ev->angleDelta().y();
+        if (delta > 0) emit scrolled(1);
+        else if (delta < 0) emit scrolled(-1);
+        ev->accept();
+    }
+signals:
+    void scrolled(int direction);
 };

@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y \
     libgl1-mesa-dev \
     libasound2-dev \
     libfftw3-dev \
+    libhidapi-dev \
     qtkeychain-qt6-dev \
     portaudio19-dev \
     autoconf \

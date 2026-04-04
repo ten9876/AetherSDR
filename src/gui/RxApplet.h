@@ -3,6 +3,7 @@
 #include <QWidget>
 #include <QVector>
 
+class ScrollableLabel;
 namespace AetherSDR { class FilterPassbandWidget; }
 
 class QHBoxLayout;
@@ -151,14 +152,14 @@ private:
     QPushButton* m_ritOnBtn{nullptr};
     QPushButton* m_ritZero{nullptr};
     QPushButton* m_ritMinus{nullptr};
-    QLabel*      m_ritLabel{nullptr};
+    ScrollableLabel* m_ritLabel{nullptr};
     QPushButton* m_ritPlus{nullptr};
 
     // XIT
     QPushButton* m_xitOnBtn{nullptr};
     QPushButton* m_xitZero{nullptr};
     QPushButton* m_xitMinus{nullptr};
-    QLabel*      m_xitLabel{nullptr};
+    ScrollableLabel* m_xitLabel{nullptr};
     QPushButton* m_xitPlus{nullptr};
 
     static constexpr int RIT_STEP_HZ = 10;

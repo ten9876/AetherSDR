@@ -39,7 +39,8 @@ private:
     int m_hi{2800};
     QString m_mode{"USB"};
 
-    bool m_dragging{false};
+    enum DragMode { DragNone, DragShift, DragLo, DragHi };
+    DragMode m_dragMode{DragNone};
     QPoint m_dragStartPos;
     int m_dragStartLo{0};
     int m_dragStartHi{0};
