@@ -18,6 +18,9 @@ RUN apt-get update && apt-get install -y \
     qt6-multimedia-dev \
     qt6-websockets-dev \
     qt6-serialport-dev \
+    qt6-base-private-dev \
+    qt6-shader-baker \
+    qt6-shadertools-dev \
     libgl1-mesa-dev \
     libasound2-dev \
     libfftw3-dev \

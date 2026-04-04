@@ -163,7 +163,7 @@ endif()
 
 # GPU-accelerated spectrum/waterfall rendering via QRhi (#391)
 # Requires: Qt 6.7+ (QRhiWidget), Qt6::ShaderTools (build-time shader compilation)
-option(AETHER_GPU_SPECTRUM "Enable QRhi GPU spectrum rendering" OFF)
+option(AETHER_GPU_SPECTRUM "Enable QRhi GPU spectrum rendering" ON)
 if(AETHER_GPU_SPECTRUM)
     find_package(Qt6 REQUIRED COMPONENTS ShaderTools)
     find_package(Qt6GuiPrivate REQUIRED)
