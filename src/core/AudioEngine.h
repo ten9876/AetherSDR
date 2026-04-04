@@ -233,6 +233,10 @@ private:
     std::vector<int16_t> m_nr2Processed;
     QByteArray m_nr2Output;
 
+    // RX audio buffer handling
+    QTimer*       m_rxTimer{nullptr};
+    QByteArray    m_rxBuffer;
+
     // VITA-49 TX constants
     static constexpr int    TX_SAMPLES_PER_PACKET = 128;  // audio frames per packet
     static constexpr int    TX_PCM_BYTES_PER_PACKET = TX_SAMPLES_PER_PACKET * 2 * 2; // 128 frames × 2ch × int16

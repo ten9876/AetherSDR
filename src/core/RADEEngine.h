@@ -65,6 +65,7 @@ private:
 
     // RX accumulation: rade_nin() RADE_COMP samples
     QByteArray m_rxAccum;
+    QByteArray m_rxFeatAccum;
     QByteArray m_rxOutAccum;
 
     bool m_farganWarmedUp{false};

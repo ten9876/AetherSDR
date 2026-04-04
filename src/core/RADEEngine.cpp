@@ -240,37 +240,35 @@ void RADEEngine::feedRxAudio(int channel, const QByteArray& pcm)
 
         // 4. If features available, synthesize speech via FARGAN
         if (n_out > 0) {
+            m_rxFeatAccum.append(reinterpret_cast<const char*>(&features_out[0]), sizeof(float) * n_out);
+        }
+
+        while (m_rxFeatAccum.size() >= qsizetype(sizeof(float) * NB_TOTAL_FEATURES))
+        {
             // FARGAN warmup: need initial features
             if (!m_farganWarmedUp) {
                 // Feed zeros for warmup
                 float zeros[320] = {0};
                 float warmup_features[5 * NB_TOTAL_FEATURES] = {0};
-                // Copy first set of features for warmup
-                std::memcpy(warmup_features, features_out.data(),
-                            NB_TOTAL_FEATURES * sizeof(float));
                 fargan_cont(fargan, zeros, warmup_features);
                 m_farganWarmedUp = true;
             }
 
             // Process features frame by frame (NB_TOTAL_FEATURES per frame)
-            int nFrames = n_out / NB_TOTAL_FEATURES;
-            speech16k.reserve(speech16k.capacity() + (nFrames * LPCNET_FRAME_SIZE * sizeof(int16_t)));
+            // FARGAN uses only first NB_FEATURES (20) features
+            const float* feat = reinterpret_cast<const float*>(m_rxFeatAccum.constData());
+            float fpcm[LPCNET_FRAME_SIZE];
+            fargan_synthesize(fargan, fpcm, feat);
 
-            for (int f = 0; f < nFrames; ++f) {
-                float* feat = &features_out[f * NB_TOTAL_FEATURES];
-                // FARGAN uses only first NB_FEATURES (20) features
-                float fpcm[LPCNET_FRAME_SIZE];
-                fargan_synthesize(fargan, fpcm, feat);
-
-                // Convert float → int16
-                for (int i = 0; i < LPCNET_FRAME_SIZE; ++i) {
-                    float v = std::floor(0.5f + std::clamp(
-                        32768.0f * fpcm[i], -32767.0f, 32767.0f));
-                    int16_t s = static_cast<int16_t>(v);
-                    speech16k.append(reinterpret_cast<const char*>(&s), sizeof(int16_t));
-                }
+            // Convert float → int16
+            for (int i = 0; i < LPCNET_FRAME_SIZE; ++i) {
+                float v = std::floor(0.5f + std::clamp(
+                    32768.0f * fpcm[i], -32767.0f, 32767.0f));
+                int16_t s = static_cast<int16_t>(v);
+                speech16k.append(reinterpret_cast<const char*>(&s), sizeof(int16_t));
             }
 
+            m_rxFeatAccum.remove(0, sizeof(float) * NB_TOTAL_FEATURES);
         }
 
         nin = rade_nin(m_rade);
@@ -278,7 +276,10 @@ void RADEEngine::feedRxAudio(int channel, const QByteArray& pcm)
 
     // 5. Upsample 16kHz mono → 24kHz stereo for speaker
     if (!speech16k.isEmpty())
-        m_rxOutAccum.append(m_up16to24->processMonoToStereo(reinterpret_cast<const int16_t*>(speech16k.constData()), speech16k.size() / sizeof(int16_t)));
+    {
+        auto tmp = m_up16to24->processMonoToStereo(reinterpret_cast<const int16_t*>(speech16k.constData()), speech16k.size() / sizeof(int16_t));
+        m_rxOutAccum.append(tmp);
+    }
 
     if (m_rxOutAccum.size() >= pcm.size())
     {
