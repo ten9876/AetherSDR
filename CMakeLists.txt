@@ -163,11 +163,17 @@ endif()
 
 # GPU-accelerated spectrum/waterfall rendering via QRhi (#391)
 # Requires: Qt 6.7+ (QRhiWidget), Qt6::ShaderTools (build-time shader compilation)
+# Defaults to ON but auto-disables on Qt < 6.7 (e.g. Ubuntu 24.04 ships Qt 6.4).
 option(AETHER_GPU_SPECTRUM "Enable QRhi GPU spectrum rendering" ON)
 if(AETHER_GPU_SPECTRUM)
-    find_package(Qt6 REQUIRED COMPONENTS ShaderTools)
-    find_package(Qt6GuiPrivate REQUIRED)
-    message(STATUS "GPU spectrum rendering enabled (QRhi)")
+    if(Qt6_VERSION VERSION_LESS "6.7")
+        set(AETHER_GPU_SPECTRUM OFF)
+        message(STATUS "GPU spectrum rendering disabled (requires Qt 6.7+, found ${Qt6_VERSION})")
+    else()
+        find_package(Qt6 REQUIRED COMPONENTS ShaderTools)
+        find_package(Qt6GuiPrivate QUIET)
+        message(STATUS "GPU spectrum rendering enabled (QRhi, Qt ${Qt6_VERSION})")
+    endif()
 else()
     message(STATUS "GPU spectrum rendering disabled (use -DAETHER_GPU_SPECTRUM=ON to enable)")
 endif()
@@ -570,7 +576,9 @@ endif()
 
 if(AETHER_GPU_SPECTRUM)
     target_compile_definitions(AetherSDR PRIVATE AETHER_GPU_SPECTRUM)
-    target_link_libraries(AetherSDR PRIVATE Qt6::GuiPrivate)
+    if(TARGET Qt6::GuiPrivate)
+        target_link_libraries(AetherSDR PRIVATE Qt6::GuiPrivate)
+    endif()
     qt_add_shaders(AetherSDR "aether_shaders"
         PREFIX "/shaders"
         FILES
