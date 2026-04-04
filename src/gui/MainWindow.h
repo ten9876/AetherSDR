@@ -169,7 +169,11 @@ private:
     StreamDeckManager*   m_streamDeck{nullptr};
     QPointer<QDialog>    m_streamDeckDialog;
     QTimer               m_sdRenderTimer;
+    QHash<int, QByteArray> m_sdKeyCache;  // key index → last sent image bytes
+    QByteArray           m_sdTouchCache;  // last sent touchscreen image
     void updateStreamDeckLiveKeys();
+    void sdSendKey(const QString& serial, int key, const QByteArray& img);
+    void sdSendTouch(const QString& serial, const StreamDeckDeviceInfo* info, const QByteArray& img);
 #endif
 #ifdef HAVE_MIDI
     MidiControlManager*  m_midiControl{nullptr};
