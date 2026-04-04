@@ -512,16 +512,28 @@ private:
     int m_wfLastUploadedRow{-1};   // last row uploaded to GPU (-1 = none)
 
     // Overlay GPU resources (QPainter → QImage → texture)
+    // Static: grid, band plan, scales, slice markers, TNF, spots (repainted on state change)
+    // Dynamic: FFT spectrum line (repainted every frame)
     QRhiGraphicsPipeline* m_ovPipeline{nullptr};
     QRhiShaderResourceBindings* m_ovSrb{nullptr};
     QRhiBuffer* m_ovVbo{nullptr};
     QRhiTexture* m_ovGpuTex{nullptr};
     QRhiSampler* m_ovSampler{nullptr};
-    QImage m_overlayImage;
+    QImage m_overlayStatic;     // grid, markers, scales — repainted on change
+    QImage m_overlayDynamic;    // FFT spectrum — repainted every frame
+    bool m_overlayStaticDirty{true};
 
     void initWaterfallPipeline();
     void initOverlayPipeline();
     void renderGpuFrame(QRhiCommandBuffer* cb);
+    // Mark the static overlay for repaint and schedule a frame update.
+    // In non-GPU mode this is just update().
+    void markOverlayDirty() {
+#ifdef AETHER_GPU_SPECTRUM
+        m_overlayStaticDirty = true;
+#endif
+        update();
+    }
 #endif
 };
 

@@ -206,28 +206,28 @@ void SpectrumWidget::setFftFillAlpha(float a) {
     auto& s = AppSettings::instance();
     s.setValue(settingsKey("DisplayFftFillAlpha"), QString::number(m_fftFillAlpha, 'f', 2));
     s.save();
-    update();
+    markOverlayDirty();
 }
 void SpectrumWidget::setFftFillColor(const QColor& c) {
     m_fftFillColor = c;
     auto& s = AppSettings::instance();
     s.setValue(settingsKey("DisplayFftFillColor"), c.name());
     s.save();
-    update();
+    markOverlayDirty();
 }
 void SpectrumWidget::setWfColorGain(int gain) {
     m_wfColorGain = std::clamp(gain, 0, 100);
     auto& s = AppSettings::instance();
     s.setValue(settingsKey("DisplayWfColorGain"), QString::number(m_wfColorGain));
     s.save();
-    update();
+    markOverlayDirty();
 }
 void SpectrumWidget::setWfBlackLevel(int level) {
     m_wfBlackLevel = std::clamp(level, 0, 100);
     auto& s = AppSettings::instance();
     s.setValue(settingsKey("DisplayWfBlackLevel"), QString::number(m_wfBlackLevel));
     s.save();
-    update();
+    markOverlayDirty();
 }
 void SpectrumWidget::setWfAutoBlack(bool on) {
     m_wfAutoBlack = on;
@@ -292,7 +292,7 @@ void SpectrumWidget::clearDisplay()
     if (!m_waterfall.isNull())
         m_waterfall.fill(Qt::black);
     m_wfWriteRow = 0;
-    update();
+    markOverlayDirty();
 }
 
 void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
@@ -304,7 +304,7 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
                  << "bins=" << m_smoothed.size();
     m_centerMhz    = centerMhz;
     m_bandwidthMhz = bandwidthMhz;
-    update();
+    markOverlayDirty();
 }
 
 void SpectrumWidget::setSpectrumFrac(float f)
@@ -313,14 +313,14 @@ void SpectrumWidget::setSpectrumFrac(float f)
     auto& s = AppSettings::instance();
     s.setValue(settingsKey("SpectrumSplitRatio"), QString::number(m_spectrumFrac, 'f', 3));
     s.save();
-    update();
+    markOverlayDirty();
 }
 
 void SpectrumWidget::setDbmRange(float minDbm, float maxDbm)
 {
     m_refLevel     = maxDbm;
     m_dynamicRange = maxDbm - minDbm;
-    update();
+    markOverlayDirty();
 }
 
 // ─── Slice color table (shared via SliceColors.h) ────────────────────────────
@@ -371,7 +371,7 @@ void SpectrumWidget::setSliceOverlay(int sliceId, double freq, int fLow, int fHi
         o.ritOn = ritOn; o.ritFreq = ritFreq;
         o.xitOn = xitOn; o.xitFreq = xitFreq;
     }
-    update();
+    markOverlayDirty();
 }
 
 void SpectrumWidget::setSliceOverlayFreq(int sliceId, double freqMhz)
@@ -388,7 +388,7 @@ void SpectrumWidget::removeSliceOverlay(int sliceId)
 {
     int idx = overlayIndex(sliceId);
     if (idx >= 0) m_sliceOverlays.remove(idx);
-    update();
+    markOverlayDirty();
 }
 
 void SpectrumWidget::setSplitPair(int rxSliceId, int txSliceId)
@@ -403,7 +403,7 @@ void SpectrumWidget::setSplitPair(int rxSliceId, int txSliceId)
         if (rxIdx >= 0) m_sliceOverlays[rxIdx].splitPartnerId = txSliceId;
         if (txIdx >= 0) m_sliceOverlays[txIdx].splitPartnerId = rxSliceId;
     }
-    update();
+    markOverlayDirty();
 }
 
 // ─── Legacy single-slice convenience wrappers ────────────────────────────────
@@ -411,19 +411,19 @@ void SpectrumWidget::setSplitPair(int rxSliceId, int txSliceId)
 void SpectrumWidget::setVfoFrequency(double freqMhz)
 {
     auto* o = const_cast<SliceOverlay*>(activeOverlay());
-    if (o) { o->freqMhz = freqMhz; update(); }
+    if (o) { o->freqMhz = freqMhz; markOverlayDirty(); }
 }
 
 void SpectrumWidget::setVfoFilter(int lowHz, int highHz)
 {
     auto* o = const_cast<SliceOverlay*>(activeOverlay());
-    if (o) { o->filterLowHz = lowHz; o->filterHighHz = highHz; update(); }
+    if (o) { o->filterLowHz = lowHz; o->filterHighHz = highHz; markOverlayDirty(); }
 }
 
 void SpectrumWidget::setSliceInfo(int sliceId, bool isTxSlice)
 {
     int idx = overlayIndex(sliceId);
-    if (idx >= 0) { m_sliceOverlays[idx].isTxSlice = isTxSlice; update(); }
+    if (idx >= 0) { m_sliceOverlays[idx].isTxSlice = isTxSlice; markOverlayDirty(); }
 }
 
 void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
@@ -789,7 +789,7 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
                     m_dynamicRange = 10.0f;
                     m_refLevel = bottom + m_dynamicRange;
                 }
-                update();
+                markOverlayDirty();
                 emit dbmRangeChangeRequested(bottom, m_refLevel);
                 ev->accept();
                 return;
@@ -990,7 +990,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         for (auto& t : m_tnfMarkers) {
             if (t.id == m_draggingTnfId) { t.freqMhz = newFreq; break; }
         }
-        update();
+        markOverlayDirty();
         ev->accept();
         return;
     }
@@ -1009,7 +1009,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
             m_waterfall = std::move(newWf);
             m_wfWriteRow = 0;
         }
-        update();
+        markOverlayDirty();
         ev->accept();
         return;
     }
@@ -1020,7 +1020,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         // Convert pixel drag to dB: full FFT height = full dynamic range
         const float deltaDb = (static_cast<float>(dy) / specH) * m_dynamicRange;
         m_refLevel = m_dbmDragStartRef + deltaDb;
-        update();
+        markOverlayDirty();
         emit dbmRangeChangeRequested(m_refLevel - m_dynamicRange, m_refLevel);
         ev->accept();
         return;
@@ -1043,7 +1043,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         }
         m_bandwidthMhz = newBw;
         m_centerMhz = zoomCenter;
-        update();
+        markOverlayDirty();
         emit bandwidthChangeRequested(newBw);
         emit centerChangeRequested(zoomCenter);
         ev->accept();
@@ -1064,7 +1064,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
             hz = std::clamp(hz, ao->filterLowHz + 10, m_filterMaxHz);
             ao->filterHighHz = hz;
         }
-        update();
+        markOverlayDirty();
         emit filterChangeRequested(ao->filterLowHz, ao->filterHighHz);
         ev->accept();
         return;
@@ -1084,7 +1084,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         const double deltaMhz = -(static_cast<double>(dx) / width()) * m_bandwidthMhz;
         const double newCenter = m_panDragStartCenter + deltaMhz;
         m_centerMhz = newCenter;
-        update();
+        markOverlayDirty();
         emit centerChangeRequested(newCenter);
         ev->accept();
         return;
@@ -1110,7 +1110,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
                 m_hoveringOffScreenIdx = oi; break;
             }
         }
-        if (m_hoveringOffScreenIdx != oldHover) update();
+        if (m_hoveringOffScreenIdx != oldHover) markOverlayDirty();
 
         if (m_hoveringOffScreenIdx >= 0) {
             setCursor(Qt::PointingHandCursor);
@@ -1197,7 +1197,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
     // Track cursor position for frequency label overlay
     if (m_showCursorFreq) {
         m_cursorPos = ev->position().toPoint();
-        update();
+        markOverlayDirty();
     }
 
     // Band plan spot tooltip on hover
@@ -1397,7 +1397,7 @@ void SpectrumWidget::mouseDoubleClickEvent(QMouseEvent* ev)
     for (int oi = 0; oi < m_offScreenRects.size(); ++oi) {
         if (!m_offScreenRects[oi].isNull() && m_offScreenRects[oi].contains(QPoint(mx, y))) {
             m_centerMhz = m_sliceOverlays[oi].freqMhz;
-            update();
+            markOverlayDirty();
             emit centerChangeRequested(m_centerMhz);
             ev->accept();
             return;
@@ -1422,7 +1422,7 @@ void SpectrumWidget::leaveEvent(QEvent* event)
     QWidget::leaveEvent(event);
     if (m_showCursorFreq) {
         m_cursorPos = {-1, -1};
-        update();
+        markOverlayDirty();
     }
 }
 
@@ -1441,7 +1441,7 @@ void SpectrumWidget::setBackgroundImage(const QString& path)
         if (m_bgImage.isNull())
             qWarning() << "SpectrumWidget: failed to load background image:" << path;
     }
-    update();
+    markOverlayDirty();
 }
 
 void SpectrumWidget::wheelEvent(QWheelEvent* ev)
@@ -1788,7 +1788,9 @@ void SpectrumWidget::initOverlayPipeline()
 
     m_ovPipeline->create();
 
-    m_overlayImage = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
+    m_overlayStatic = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
+    m_overlayDynamic = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
+    m_overlayDynamic.fill(Qt::transparent);
 
     qDebug() << "SpectrumWidget: overlay pipeline created" << w << "x" << h;
 }
@@ -1835,11 +1837,13 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
     const int h = height();
     if (w <= 0 || h <= FREQ_SCALE_H + DIVIDER_H + 2) return;
 
-    const int contentH = h - FREQ_SCALE_H;
+    const int chromeH = FREQ_SCALE_H + DIVIDER_H;
+    const int contentH = h - chromeH;
     const int specH = static_cast<int>(contentH * m_spectrumFrac);
-    const int wfH = contentH - specH - DIVIDER_H;
+    const int wfY = specH + DIVIDER_H + FREQ_SCALE_H;
+    const int wfH = h - wfY;
     const QRect specRect(0, 0, w, specH);
-    const QRect wfRect(0, specH + DIVIDER_H, w, wfH);
+    const QRect wfRect(0, wfY, w, wfH);
 
     auto* batch = r->nextResourceUpdateBatch();
 
@@ -1908,21 +1912,26 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
     float uniforms[] = {rowOffset, 0.0f, 0.0f, 0.0f};
     batch->updateDynamicBuffer(m_wfUbo, 0, sizeof(uniforms), uniforms);
 
-    // Render overlay into QImage via QPainter (all the existing draw* methods)
-    if (!m_overlayImage.isNull()) {
-        if (m_overlayImage.size() != QSize(w, h)) {
-            m_overlayImage = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
+    // Render overlays — split into static (on state change) and dynamic (every frame)
+    {
+        // Resize overlay images if needed
+        if (m_overlayStatic.size() != QSize(w, h)) {
+            m_overlayStatic = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
+            m_overlayDynamic = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
+            m_overlayDynamic.fill(Qt::transparent);
             m_ovGpuTex->setPixelSize(QSize(w, h));
             m_ovGpuTex->create();
             m_ovSrb->setBindings({
                 QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_ovGpuTex, m_ovSampler),
             });
             m_ovSrb->create();
+            m_overlayStaticDirty = true;
         }
 
-        m_overlayImage.fill(Qt::transparent);
-        {
-            QPainter p(&m_overlayImage);
+        // Static overlay: only repaint when state changes (markOverlayDirty).
+        if (m_overlayStaticDirty) {
+            m_overlayStatic.fill(Qt::transparent);
+            QPainter p(&m_overlayStatic);
             p.setRenderHint(QPainter::Antialiasing, false);
 
             // Background image
@@ -1938,16 +1947,14 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             }
 
             drawGrid(p, specRect);
-            drawSpectrum(p, specRect);
             if (m_bandPlanFontSize > 0)
                 drawBandPlan(p, specRect);
             drawDbmScale(p, specRect);
 
             // Divider bar
-            const int divY = specH;
-            p.fillRect(0, divY, w, DIVIDER_H, QColor(0x30, 0x40, 0x50));
+            p.fillRect(0, specH, w, DIVIDER_H, QColor(0x30, 0x40, 0x50));
 
-            drawFreqScale(p, QRect(0, specH + DIVIDER_H + wfH, w, FREQ_SCALE_H));
+            drawFreqScale(p, QRect(0, specH + DIVIDER_H, w, FREQ_SCALE_H));
             drawTimeScale(p, wfRect);
             drawTnfMarkers(p, specRect, wfRect);
             if (m_showSpots)
@@ -1972,10 +1979,19 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 p.drawText(specRect.right() - 80,
                            specRect.top() + (m_wnbActive ? 38 : 20), label);
             }
+
+            m_overlayStaticDirty = false;
         }
 
-        // Upload overlay texture
-        QRhiTextureSubresourceUploadDescription ovDesc(m_overlayImage);
+        // Composite static + FFT into dynamic image, upload once
+        std::memcpy(m_overlayDynamic.bits(), m_overlayStatic.constBits(),
+                    m_overlayStatic.sizeInBytes());
+        {
+            QPainter p(&m_overlayDynamic);
+            p.setRenderHint(QPainter::Antialiasing, false);
+            drawSpectrum(p, specRect);
+        }
+        QRhiTextureSubresourceUploadDescription ovDesc(m_overlayDynamic);
         batch->uploadTexture(m_ovGpuTex, QRhiTextureUploadEntry(0, 0, ovDesc));
     }
 
@@ -2500,19 +2516,19 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
 void SpectrumWidget::setTnfMarkers(const QVector<TnfMarker>& markers)
 {
     m_tnfMarkers = markers;
-    update();
+    markOverlayDirty();
 }
 
 void SpectrumWidget::setSpotMarkers(const QVector<SpotMarker>& markers)
 {
     m_spotMarkers = markers;
-    update();
+    markOverlayDirty();
 }
 
 void SpectrumWidget::setTnfGlobalEnabled(bool on)
 {
     m_tnfGlobalEnabled = on;
-    update();
+    markOverlayDirty();
 }
 
 void SpectrumWidget::drawTnfMarkers(QPainter& p, const QRect& specRect, const QRect& wfRect)
