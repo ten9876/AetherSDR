@@ -526,6 +526,8 @@ private:
     void initWaterfallPipeline();
     void initOverlayPipeline();
     void renderGpuFrame(QRhiCommandBuffer* cb);
+#endif
+
     // Mark the static overlay for repaint and schedule a frame update.
     // In non-GPU mode this is just update().
     void markOverlayDirty() {
@@ -534,7 +536,6 @@ private:
 #endif
         update();
     }
-#endif
 };
 
 } // namespace AetherSDR
