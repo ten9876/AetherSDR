@@ -2904,8 +2904,13 @@ void MainWindow::buildUI()
     hbox->addStretch(1);
 
     // ── Right section ────────────────────────────────────────────────────
+    // Reserve consistent width for the compact telemetry stacks so updates
+    // do not cause the status bar to reshuffle as values change.
+    constexpr int kTelemetryStackMinWidth = 84;
+
     // GPS satellites (top) + lock status (bottom) stacked
     auto* gpsStack = new QWidget;
+    gpsStack->setMinimumWidth(kTelemetryStackMinWidth);
     auto* gpsVbox = new QVBoxLayout(gpsStack);
     gpsVbox->setContentsMargins(0, 0, 0, 0);
     gpsVbox->setSpacing(0);
@@ -2923,6 +2928,7 @@ void MainWindow::buildUI()
 
     // PA temp (top) + supply voltage (bottom) stacked
     auto* paStack = new QWidget;
+    paStack->setMinimumWidth(kTelemetryStackMinWidth);
     auto* paVbox = new QVBoxLayout(paStack);
     paVbox->setContentsMargins(0, 0, 0, 0);
     paVbox->setSpacing(0);
@@ -2940,6 +2946,7 @@ void MainWindow::buildUI()
 
     // Network label (top) + quality (bottom) stacked
     auto* netStack = new QWidget;
+    netStack->setMinimumWidth(kTelemetryStackMinWidth);
     netStack->setCursor(Qt::PointingHandCursor);
     auto* netVbox = new QVBoxLayout(netStack);
     netVbox->setContentsMargins(0, 0, 0, 0);
@@ -2990,15 +2997,18 @@ void MainWindow::buildUI()
 
     // Grid square (top) + UTC time (bottom) stacked, right-aligned
     auto* timeStack = new QWidget;
+    timeStack->setMinimumWidth(kTelemetryStackMinWidth);
     auto* timeVbox = new QVBoxLayout(timeStack);
     timeVbox->setContentsMargins(0, 0, 0, 0);
     timeVbox->setSpacing(0);
     m_gridLabel = new QLabel("");
     m_gridLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 12px; }");
-    m_gridLabel->setAlignment(Qt::AlignRight);
+    m_gridLabel->setAlignment(Qt::AlignCenter);
+    m_gridLabel->setMinimumWidth(kTelemetryStackMinWidth);
     m_gpsTimeLabel = new QLabel("");
     m_gpsTimeLabel->setStyleSheet("QLabel { color: #607080; font-size: 12px; }");
-    m_gpsTimeLabel->setAlignment(Qt::AlignRight);
+    m_gpsTimeLabel->setAlignment(Qt::AlignCenter);
+    m_gpsTimeLabel->setMinimumWidth(kTelemetryStackMinWidth);
     timeVbox->addWidget(m_gridLabel);
     timeVbox->addWidget(m_gpsTimeLabel);
     hbox->addWidget(timeStack);
