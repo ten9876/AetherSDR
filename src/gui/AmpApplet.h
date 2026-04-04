@@ -16,10 +16,8 @@ public:
     void setFwdPower(float watts);
     void setSwr(float swr);
     void setTemp(float degC);
-    void setModel(const QString& model);
 
 private:
-    QLabel*  m_titleLabel{nullptr};
     HGauge*  m_fwdGauge{nullptr};
     HGauge*  m_swrGauge{nullptr};
     HGauge*  m_tempGauge{nullptr};

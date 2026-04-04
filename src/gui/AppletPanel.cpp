@@ -59,14 +59,15 @@ public:
         grip->setStyleSheet("QLabel { background: transparent; color: #607080; font-size: 10px; }");
         layout->addWidget(grip);
 
-        auto* lbl = new QLabel(text);
-        lbl->setStyleSheet("QLabel { background: transparent; color: #8aa8c0; "
+        m_label = new QLabel(text);
+        m_label->setStyleSheet("QLabel { background: transparent; color: #8aa8c0; "
                            "font-size: 10px; font-weight: bold; }");
-        layout->addWidget(lbl);
+        layout->addWidget(m_label);
         layout->addStretch();
     }
 
     const QString& appletId() const { return m_appletId; }
+    void setTitle(const QString& text) { m_label->setText(text); }
 
 protected:
     void mousePressEvent(QMouseEvent* ev) override {
@@ -99,6 +100,7 @@ protected:
 private:
     QString m_appletId;
     QPoint  m_dragStartPos;
+    QLabel* m_label{nullptr};
 };
 
 // ── Drop-aware scroll area ──────────────────────────────────────────────────
