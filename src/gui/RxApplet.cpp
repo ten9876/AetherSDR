@@ -424,7 +424,7 @@ void RxApplet::buildUI()
                     else if (ok && freqMhz > 54.0) freqMhz /= 1e3;
                 }
                 if (ok && freqMhz >= 0.001 && freqMhz <= maxMhz)
-                    m_slice->setFrequency(freqMhz);
+                    m_slice->tuneAndRecenter(freqMhz);
             }
             m_freqStack->setCurrentIndex(0);
         });

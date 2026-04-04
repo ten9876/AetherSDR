@@ -479,7 +479,7 @@ void VfoWidget::buildUI()
             }
 
             if (ok && freqMhz >= 0.001 && freqMhz <= maxMhz && m_slice)
-                m_slice->setFrequency(freqMhz);
+                m_slice->tuneAndRecenter(freqMhz);
         }
         m_freqStack->setCurrentIndex(0);  // back to label
     });
@@ -2083,7 +2083,13 @@ void VfoWidget::beginDirectEntry()
         m_freqEdit->selectAll();
     }
     m_freqStack->setCurrentIndex(1);
-    m_freqEdit->setFocus();
+    raise();
+    m_freqEdit->setFocus(Qt::ShortcutFocusReason);
+    QTimer::singleShot(0, m_freqEdit, [edit = m_freqEdit]() {
+        if (!edit) return;
+        edit->setFocus(Qt::ShortcutFocusReason);
+        edit->selectAll();
+    });
 }
 
 void VfoWidget::syncFromSlice()

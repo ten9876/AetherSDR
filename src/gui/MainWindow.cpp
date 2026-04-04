@@ -4915,7 +4915,9 @@ void MainWindow::registerShortcutActions()
         QKeySequence(), [nudgeFreq]() { nudgeFreq(-10000); });
     m_shortcutManager.registerAction("go_to_freq", "Go to Frequency", "Frequency",
         QKeySequence(Qt::Key_G), [this]() {
-            auto* vfo = spectrum() ? spectrum()->vfoWidget() : nullptr;
+            auto* s = activeSlice();
+            auto* sw = s ? spectrumForSlice(s) : nullptr;
+            auto* vfo = (s && sw) ? sw->vfoWidget(s->sliceId()) : nullptr;
             if (vfo) vfo->beginDirectEntry();
         });
 
