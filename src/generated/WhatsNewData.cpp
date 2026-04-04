@@ -6,6 +6,18 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.7.19"), QStringLiteral("2026-04-04"), QStringLiteral("Community Contributions"), {
+            {ChangeCategory::Feature, QStringLiteral("TCI WebSocket server"), QStringLiteral("Full TCI v2.0 protocol: 72 command handlers over a single WebSocket connection CAT control, RX/TX audio streaming, IQ streaming, CW keying, spot injection Per-client audio format negotiation via r8...")},
+            {ChangeCategory::Feature, QStringLiteral("Customizable filter width presets"), QStringLiteral("Right-click any filter button to set a custom width in Hz Exact value stored, display rounded (e.g. 1234 → 1.2K) Per-mode persistence via AppSettings VFO widget (8 presets) and RX applet (6 presets...")},
+            {ChangeCategory::Feature, QStringLiteral("Scrollable stepped controls"), QStringLiteral("Step size, TX Low Cut, TX High Cut respond to mouse scroll wheel RTTY Mark and Space labels respond to mouse scroll wheel")},
+            {ChangeCategory::BugFix, QStringLiteral("RTTY mark/space overlay at wrong frequency"), QStringLiteral("RF_frequency in RTTY mode is the mark (radio applies IF shift), not the carrier Green dashed mark line, red dashed space line (MMTTY convention) VFO center line hidden in RTTY/DIGL, replaced by M/S...")},
+            {ChangeCategory::BugFix, QStringLiteral("Combo box scroll wheel regression"), QStringLiteral("GuardedComboBox now checks popup visibility: ignore wheel when closed, allow when open Fixes both accidental value changes and broken dropdown scrolling")},
+            {ChangeCategory::BugFix, QStringLiteral("Step size not applied to scroll-to-tune on restart"), QStringLiteral("syncStepFromSlice was missing emit stepSizeChanged — SpectrumWidget kept stale value")},
+            {ChangeCategory::BugFix, QStringLiteral("Clock showing 00:00:00z when GPS has no lock"), QStringLiteral("GPS time only used when GPSDO is installed AND locked, otherwise system UTC")},
+            {ChangeCategory::BugFix, QStringLiteral("AI-assisted issue reporter improvements"), QStringLiteral("Supports both bug reports and feature requests Mandatory duplicate check, acceptance criteria section Split submit buttons: \"Submit Your Idea\" / \"Report a Bug\" with correct templates")},
+            {ChangeCategory::BugFix, QStringLiteral("DAX TX latency on Linux/PipeWire"), QStringLiteral("Reduced pipe buffer to 2KB, 5ms precise timer, drain loop")},
+            {ChangeCategory::BugFix, QStringLiteral("RADE DSP guard"), QStringLiteral("Client-side DSP (NR2/RN2/BNR) disabled when RADE is active")},
+        }},
         {QStringLiteral("0.7.18.6"), QStringLiteral("2026-04-04"), QStringLiteral("Native StreamDeck, HID Encoders & UX Polish"), {
             {ChangeCategory::Feature, QStringLiteral("Native StreamDeck support"), QStringLiteral("Auto-detect all Elgato StreamDeck models (Mini through Plus XL) Live key rendering at 10 Hz: frequency, mode, band, TX state, DSP toggles Button actions: band select, mode select, SPLIT, LOCK, MUTE...")},
             {ChangeCategory::Feature, QStringLiteral("USB HID encoder support"), QStringLiteral("Icom RC-28, Griffin PowerMate, Contour ShuttleXpress/ShuttlePro v2 Auto-detect, 5ms poll, hotplug reconnect, configurable buttons udev rules for non-root access")},

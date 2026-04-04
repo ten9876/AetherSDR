@@ -3,6 +3,74 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.19] — 2026-04-04
+
+### TCI Server, RTTY Fix, Community PRs
+
+### New Features
+
+**TCI WebSocket server (#528)**
+- Full TCI v2.0 protocol: 72 command handlers over a single WebSocket connection
+- CAT control, RX/TX audio streaming, IQ streaming, CW keying, spot injection
+- Per-client audio format negotiation via r8brain resampler (8/12/24/48 kHz)
+- Sensor telemetry: S-meter, TX power/SWR/mic
+- Auto-broadcast: VFO, mode, filter, TX state, lock, spot clicks
+- DIGI applet: TCI enable toggle, port, client count
+- Settings menu: Autostart TCI with immediate start/stop
+- Validated with WSJT-X Improved and wscat
+
+**Customizable filter width presets (#675)**
+- Right-click any filter button to set a custom width in Hz
+- Exact value stored, display rounded (e.g. 1234 → 1.2K)
+- Per-mode persistence via AppSettings
+- VFO widget (8 presets) and RX applet (6 presets) stay in sync
+- "Reset to Defaults" reverts to hardcoded presets
+
+**Scrollable stepped controls (#673)**
+- Step size, TX Low Cut, TX High Cut respond to mouse scroll wheel
+- RTTY Mark and Space labels respond to mouse scroll wheel
+
+### Bug Fixes
+
+**RTTY mark/space overlay at wrong frequency (#660, #683)**
+- RF_frequency in RTTY mode is the mark (radio applies IF shift), not the carrier
+- Green dashed mark line, red dashed space line (MMTTY convention)
+- VFO center line hidden in RTTY/DIGL, replaced by M/S lines
+- VFO flag offset past filter edge to not cover passband
+- Filter presets center between mark and space tones
+- "Shift" label renamed to "Space"
+
+**Combo box scroll wheel regression (#676)**
+- GuardedComboBox now checks popup visibility: ignore wheel when closed, allow when open
+- Fixes both accidental value changes and broken dropdown scrolling
+
+**Step size not applied to scroll-to-tune on restart (#666)**
+- syncStepFromSlice was missing emit stepSizeChanged — SpectrumWidget kept stale value
+
+**Clock showing 00:00:00z when GPS has no lock (#682)**
+- GPS time only used when GPSDO is installed AND locked, otherwise system UTC
+
+**AI-assisted issue reporter improvements (#677)**
+- Supports both bug reports and feature requests
+- Mandatory duplicate check, acceptance criteria section
+- Split submit buttons: "Submit Your Idea" / "Report a Bug" with correct templates
+
+**DAX TX latency on Linux/PipeWire (#671)**
+- Reduced pipe buffer to 2KB, 5ms precise timer, drain loop
+
+**RADE DSP guard**
+- Client-side DSP (NR2/RN2/BNR) disabled when RADE is active
+
+### Community Contributions
+
+- @jensenpat: Normalize duplicate shortcut bindings (#665)
+- @jensenpat: Sortable memory dialog columns (#668)
+- @jensenpat: Fix hidapi include dirs on macOS (#669)
+- @jensenpat: PA temperature unit toggle °F/°C (#679)
+- @Chaosuk97: Fix DXCC ADIF parsing and mode inference (#670)
+- @SA7LAV: DAX TX latency fix (#671)
+- @tmiw: RADE RX audio fix — prevent duplicate samples (#687)
+
 ## [v0.7.18.6] — 2026-04-04
 
 ### Native StreamDeck, HID Encoders & UX Polish
