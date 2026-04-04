@@ -8,8 +8,27 @@
 #include <QPushButton>
 #include <QHeaderView>
 #include <QDebug>
+#include <QTimer>
 
 namespace AetherSDR {
+
+namespace {
+
+class MemoryTableItem : public QTableWidgetItem {
+public:
+    using QTableWidgetItem::QTableWidgetItem;
+
+    bool operator<(const QTableWidgetItem& other) const override
+    {
+        const QVariant lhs = data(Qt::UserRole);
+        const QVariant rhs = other.data(Qt::UserRole);
+        if (lhs.isValid() && rhs.isValid())
+            return lhs.toDouble() < rhs.toDouble();
+        return QTableWidgetItem::operator<(other);
+    }
+};
+
+} // namespace
 
 static const QStringList COLUMNS = {
     "Group", "Owner", "Frequency", "Name", "Mode", "Step",
@@ -35,9 +54,27 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->verticalHeader()->setVisible(false);
     m_table->setAlternatingRowColors(true);
+    m_table->setSortingEnabled(false);
     m_table->setStyleSheet(
         "QTableWidget { alternate-background-color: #1a1a2e; }"
         "QTableWidget::item:selected { background: #2060a0; }");
+    auto* header = m_table->horizontalHeader();
+    header->setSectionsClickable(true);
+    header->setSortIndicatorShown(false);
+    header->resizeSection(2, 110);
+    connect(header, &QHeaderView::sectionClicked, this, [this, header](int section) {
+        if (!isSortableColumn(section)) return;
+        if (m_sortColumn == section)
+            m_sortOrder = (m_sortOrder == Qt::AscendingOrder)
+                ? Qt::DescendingOrder : Qt::AscendingOrder;
+        else {
+            m_sortColumn = section;
+            m_sortOrder = Qt::AscendingOrder;
+        }
+        header->setSortIndicatorShown(true);
+        header->setSortIndicator(m_sortColumn, m_sortOrder);
+        m_table->sortItems(m_sortColumn, m_sortOrder);
+    });
     root->addWidget(m_table);
 
     // ── Buttons ───────────────────────────────────────────────────────────
@@ -111,6 +148,7 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
 void MemoryDialog::populateTable()
 {
     const QSignalBlocker blocker(m_table);
+    m_table->setSortingEnabled(false);
     m_table->setRowCount(0);
     const auto& memories = m_model->memories();
 
@@ -122,8 +160,9 @@ void MemoryDialog::populateTable()
         int col = 0;
         m_table->setItem(row, col++, new QTableWidgetItem(m.group));
         m_table->setItem(row, col++, new QTableWidgetItem(m.owner));
-        m_table->setItem(row, col++, new QTableWidgetItem(
-            QString::number(m.freq, 'f', 3)));
+        auto* freqItem = new MemoryTableItem(QString::number(m.freq, 'f', 3));
+        freqItem->setData(Qt::UserRole, m.freq);
+        m_table->setItem(row, col++, freqItem);
         m_table->setItem(row, col++, new QTableWidgetItem(m.name));
         m_table->setItem(row, col++, new QTableWidgetItem(m.mode));
         m_table->setItem(row, col++, new QTableWidgetItem(
@@ -168,6 +207,19 @@ void MemoryDialog::populateTable()
     }
 
     m_table->resizeColumnsToContents();
+    m_table->setColumnWidth(2, std::max(m_table->columnWidth(2), 105));
+    if (isSortableColumn(m_sortColumn)) {
+        auto* header = m_table->horizontalHeader();
+        header->setSortIndicatorShown(true);
+        header->setSortIndicator(m_sortColumn, m_sortOrder);
+        m_table->sortItems(m_sortColumn, m_sortOrder);
+    }
+    m_table->setSortingEnabled(true);
+}
+
+bool MemoryDialog::isSortableColumn(int column) const
+{
+    return column == 2 || column == 3 || column == 4;
 }
 
 void MemoryDialog::onAdd()
