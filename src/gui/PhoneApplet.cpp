@@ -263,24 +263,30 @@ void PhoneApplet::buildUI()
         lowRow->addWidget(txLbl);
 
         m_lowCutDown = new PhoneTriBtn(PhoneTriBtn::Left);
-        connect(m_lowCutDown, &QPushButton::clicked, this, [this]() {
+        auto lowCutDown = [this]() {
             if (m_model) m_model->setTxFilterLow(qMax(0, m_model->txFilterLow() - 50));
-        });
+        };
+        auto lowCutUp = [this]() {
+            if (m_model) m_model->setTxFilterLow(
+                qMin(m_model->txFilterHigh() - 50, m_model->txFilterLow() + 50));
+        };
+        connect(m_lowCutDown, &QPushButton::clicked, this, lowCutDown);
         lowRow->addWidget(m_lowCutDown);
 
-        m_lowCutLabel = new QLabel("50");
+        m_lowCutLabel = new ScrollableLabel("50");
         m_lowCutLabel->setFixedWidth(46);
         m_lowCutLabel->setAlignment(Qt::AlignCenter);
         m_lowCutLabel->setStyleSheet(
             "QLabel { font-size: 11px; color: #c8d8e8; background: #0a0a18; "
             "border: 1px solid #1e2e3e; border-radius: 3px; padding: 1px 3px; }");
+        connect(m_lowCutLabel, &ScrollableLabel::scrolled, this,
+                [lowCutUp, lowCutDown](int dir) {
+            if (dir > 0) lowCutUp(); else lowCutDown();
+        });
         lowRow->addWidget(m_lowCutLabel);
 
         m_lowCutUp = new PhoneTriBtn(PhoneTriBtn::Right);
-        connect(m_lowCutUp, &QPushButton::clicked, this, [this]() {
-            if (m_model) m_model->setTxFilterLow(
-                qMin(m_model->txFilterHigh() - 50, m_model->txFilterLow() + 50));
-        });
+        connect(m_lowCutUp, &QPushButton::clicked, this, lowCutUp);
         lowRow->addWidget(m_lowCutUp);
 
         lowCol->addLayout(lowRow);
@@ -301,25 +307,31 @@ void PhoneApplet::buildUI()
         highRow->setSpacing(2);
 
         m_highCutDown = new PhoneTriBtn(PhoneTriBtn::Left);
-        connect(m_highCutDown, &QPushButton::clicked, this, [this]() {
+        auto highCutDown = [this]() {
             if (m_model) m_model->setTxFilterHigh(
                 qMax(m_model->txFilterLow() + 50, m_model->txFilterHigh() - 50));
-        });
+        };
+        auto highCutUp = [this]() {
+            if (m_model) m_model->setTxFilterHigh(
+                qMin(10000, m_model->txFilterHigh() + 50));
+        };
+        connect(m_highCutDown, &QPushButton::clicked, this, highCutDown);
         highRow->addWidget(m_highCutDown);
 
-        m_highCutLabel = new QLabel("3300");
+        m_highCutLabel = new ScrollableLabel("3300");
         m_highCutLabel->setFixedWidth(46);
         m_highCutLabel->setAlignment(Qt::AlignCenter);
         m_highCutLabel->setStyleSheet(
             "QLabel { font-size: 11px; color: #c8d8e8; background: #0a0a18; "
             "border: 1px solid #1e2e3e; border-radius: 3px; padding: 1px 3px; }");
+        connect(m_highCutLabel, &ScrollableLabel::scrolled, this,
+                [highCutUp, highCutDown](int dir) {
+            if (dir > 0) highCutUp(); else highCutDown();
+        });
         highRow->addWidget(m_highCutLabel);
 
         m_highCutUp = new PhoneTriBtn(PhoneTriBtn::Right);
-        connect(m_highCutUp, &QPushButton::clicked, this, [this]() {
-            if (m_model) m_model->setTxFilterHigh(
-                qMin(10000, m_model->txFilterHigh() + 50));
-        });
+        connect(m_highCutUp, &QPushButton::clicked, this, highCutUp);
         highRow->addWidget(m_highCutUp);
 
         highCol->addLayout(highRow);

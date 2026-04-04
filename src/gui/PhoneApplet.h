@@ -5,6 +5,7 @@
 class QPushButton;
 class QLabel;
 class QSlider;
+class ScrollableLabel;
 
 namespace AetherSDR {
 
@@ -53,12 +54,12 @@ private:
 
     // TX filter
     QSlider* m_lowCutSlider{nullptr};
-    QLabel*  m_lowCutLabel{nullptr};
+    ScrollableLabel* m_lowCutLabel{nullptr};
     QPushButton* m_lowCutDown{nullptr};
     QPushButton* m_lowCutUp{nullptr};
 
     QSlider* m_highCutSlider{nullptr};
-    QLabel*  m_highCutLabel{nullptr};
+    ScrollableLabel* m_highCutLabel{nullptr};
     QPushButton* m_highCutDown{nullptr};
     QPushButton* m_highCutUp{nullptr};
 

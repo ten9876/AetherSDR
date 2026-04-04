@@ -2,6 +2,7 @@
 
 #include <QSlider>
 #include <QComboBox>
+#include <QAbstractItemView>
 #include <QLabel>
 #include <QWheelEvent>
 
@@ -17,14 +18,18 @@ public:
     }
 };
 
-// QComboBox subclass that always consumes wheel events. Prevents
-// accidental mode/antenna/profile changes and event propagation. (#570)
+// QComboBox subclass that only responds to wheel events when the dropdown
+// popup is open. Prevents accidental value changes when scrolling the applet
+// panel, but allows normal wheel scrolling through the list when the user
+// has clicked to open the dropdown. (#570, #676)
 class GuardedComboBox : public QComboBox {
 public:
     using QComboBox::QComboBox;
     void wheelEvent(QWheelEvent* ev) override {
-        QComboBox::wheelEvent(ev);
-        ev->accept();
+        if (view() && view()->isVisible())
+            QComboBox::wheelEvent(ev);  // popup open — scroll the list
+        else
+            ev->ignore();  // popup closed — let parent handle scroll
     }
 };
 

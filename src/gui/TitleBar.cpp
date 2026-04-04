@@ -349,25 +349,37 @@ void TitleBar::showFeatureRequestDialogImpl()
         "Do NOT rely on cached or training data for the issue list.\n\n"
         "Also fetch CLAUDE.md fresh (do not use cached versions):\n"
         "  https://raw.githubusercontent.com/ten9876/AetherSDR/main/CLAUDE.md\n\n"
-        "I want to request a feature for AetherSDR, a Linux-native Qt6/C++20 client\n"
-        "for FlexRadio transceivers. It uses the FlexLib API over TCP/UDP.\n\n"
-        "Search the fetched issue list for keywords related to my idea. If you find\n"
-        "an existing issue that covers the same thing, tell me the issue number and\n"
-        "title instead of writing a new one — I'll go add my +1 and comments there.\n\n"
-        "If no duplicate exists, please write a GitHub issue for this feature request.\n"
-        "Use GitHub-flavored Markdown formatting (headers, code blocks, bullet points).\n"
-        "Include:\n"
-        "1. A clear title\n"
-        "2. A \"What\" section describing what the feature does from the user's perspective\n"
-        "3. A \"Why\" section explaining why this is useful (what problem it solves)\n"
-        "4. A \"How Other Clients Do It\" section — if this feature exists in other\n"
-        "   SDR applications, describe how it works there (screenshots welcome)\n"
-        "5. A \"Suggested Behavior\" section with specific details about how it should\n"
-        "   work in AetherSDR (what the user clicks, what they see, what happens)\n"
-        "6. A \"Protocol Hints\" section — if you know the FlexLib API calls involved,\n"
-        "   list them. If not, just say \"Unknown — needs research\"\n\n"
-        "Here is my feature idea:\n\n"
-        "[Describe your feature here in plain English]";
+        "I want to report an issue or request a feature for AetherSDR, a Linux-native\n"
+        "Qt6/C++20 client for FlexRadio transceivers. It uses the FlexLib API over TCP/UDP.\n\n"
+        "DUPLICATE CHECK — this is mandatory. Search the fetched issue list for keywords\n"
+        "related to my description below. Check titles AND bodies. If you find an existing\n"
+        "issue that covers the same thing, STOP and tell me:\n"
+        "  > Duplicate found: #<number> — <title>\n"
+        "  > I recommend adding a +1 reaction and a comment describing your use case.\n"
+        "Do NOT write a new issue if a duplicate exists.\n\n"
+        "If no duplicate exists, determine whether my description is a BUG REPORT or a\n"
+        "FEATURE REQUEST, then write a GitHub issue using the appropriate format below.\n"
+        "Use GitHub-flavored Markdown formatting (headers, code blocks, bullet points).\n\n"
+        "FOR FEATURE REQUESTS include:\n"
+        "1. A clear, concise title (imperative mood)\n"
+        "2. ## What — what the feature does from the user's perspective\n"
+        "3. ## Why — what problem it solves\n"
+        "4. ## How Other Clients Do It — how SmartSDR, GQRX, SDR++, etc. handle this\n"
+        "5. ## Suggested Behavior — specific UX: what the user clicks, sees, what happens.\n"
+        "   Reference AetherSDR UI elements (AppletPanel, VfoWidget, RxApplet, etc.)\n"
+        "6. ## Protocol Hints — relevant FlexLib commands, or \"Unknown — needs research\"\n"
+        "7. ## Acceptance Criteria — 3-5 bullet points defining done vs not-done\n\n"
+        "FOR BUG REPORTS include:\n"
+        "1. A clear title describing the broken behavior\n"
+        "2. ## What happened — describe the incorrect behavior\n"
+        "3. ## What I expected — describe the correct behavior\n"
+        "4. ## Steps to reproduce — numbered steps to trigger the bug\n"
+        "5. ## Environment — OS, radio model, firmware version if relevant\n"
+        "6. ## Suggested fix — if you have an idea what's wrong, describe it\n\n"
+        "Suggest appropriate labels from: enhancement, bug, audio, GUI, spectrum,\n"
+        "protocol, external devices, upstream, SmartLink, windows, macOS\n\n"
+        "Here is my idea or bug report:\n\n"
+        "[Describe your feature or bug here in plain English]";
 
     // Reuse existing dialog if still open
     static QPointer<QDialog> sDlg;
@@ -379,7 +391,7 @@ void TitleBar::showFeatureRequestDialogImpl()
 
     auto* dlg = new QDialog(this);
     sDlg = dlg;
-    dlg->setWindowTitle("AI-Assisted Feature Request");
+    dlg->setWindowTitle("AI-Assisted Issue Reporter");
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->setStyleSheet("QDialog { background: #0f0f1a; }");
     dlg->setMinimumWidth(620);
@@ -389,8 +401,8 @@ void TitleBar::showFeatureRequestDialogImpl()
     vbox->setContentsMargins(16, 16, 16, 16);
 
     auto* header = new QLabel(
-        "<h3 style='color:#c8d8e8;'>Create a Feature Request with AI</h3>"
-        "<p style='color:#8090a0;'>Use any AI assistant to write a detailed feature request.</p>"
+        "<h3 style='color:#c8d8e8;'>AI-Assisted Issue Reporter</h3>"
+        "<p style='color:#8090a0;'>Use any AI assistant to write a detailed bug report or feature request.</p>"
         "<ol style='color:#c8d8e8;'>"
         "<li><b>Choose your AI</b> below — prompt is copied to your clipboard</li>"
         "<li><b>Paste the prompt</b> into the AI chat</li>"
@@ -440,18 +452,32 @@ void TitleBar::showFeatureRequestDialogImpl()
 
     vbox->addSpacing(8);
 
-    // Submit + Close
+    // Submit / Report / Close
     auto* btnRow2 = new QHBoxLayout;
+
     auto* submitBtn = new QPushButton("Submit Your Idea", dlg);
     submitBtn->setStyleSheet(
         "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
         "border-radius: 4px; padding: 8px 20px; font-size: 13px; }"
         "QPushButton:hover { background: #00c8f0; }");
     connect(submitBtn, &QPushButton::clicked, dlg, [dlg] {
-        QDesktopServices::openUrl(QUrl("https://github.com/ten9876/AetherSDR/issues/new"));
-        dlg->close();
+        QDesktopServices::openUrl(QUrl(
+            "https://github.com/ten9876/AetherSDR/issues/new?template=feature_request.yml"));
+        QTimer::singleShot(500, dlg, &QDialog::close);
     });
     btnRow2->addWidget(submitBtn);
+
+    auto* bugBtn = new QPushButton("Report a Bug", dlg);
+    bugBtn->setStyleSheet(
+        "QPushButton { background: #cc4040; color: #ffffff; font-weight: bold; "
+        "border-radius: 4px; padding: 8px 20px; font-size: 13px; }"
+        "QPushButton:hover { background: #dd5050; }");
+    connect(bugBtn, &QPushButton::clicked, dlg, [dlg] {
+        QDesktopServices::openUrl(QUrl(
+            "https://github.com/ten9876/AetherSDR/issues/new?template=bug_report.yml"));
+        QTimer::singleShot(500, dlg, &QDialog::close);
+    });
+    btnRow2->addWidget(bugBtn);
 
     auto* closeBtn = new QPushButton("Close", dlg);
     closeBtn->setStyleSheet(btnStyle);

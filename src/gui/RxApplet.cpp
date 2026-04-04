@@ -455,26 +455,31 @@ void RxApplet::buildUI()
         row->addWidget(lbl);
 
         m_stepDown  = mkLeft();
-        m_stepLabel = new QLabel(formatStepLabel(m_stepSizes[m_stepIdx]));
+        m_stepLabel = new ScrollableLabel(formatStepLabel(m_stepSizes[m_stepIdx]));
         m_stepLabel->setAlignment(Qt::AlignCenter);
         m_stepLabel->setStyleSheet(
             "QLabel { font-size: 11px; background: #0a0a18; border: 1px solid #1e2e3e; "
             "border-radius: 3px; padding: 1px 2px; }");
         m_stepUp = mkRight();
 
-        connect(m_stepDown, &QPushButton::clicked, this, [this] {
+        auto stepDown = [this] {
             if (m_stepIdx > 0) {
                 m_stepIdx--;
                 m_stepLabel->setText(formatStepLabel(m_stepSizes[m_stepIdx]));
                 emit stepSizeChanged(m_stepSizes[m_stepIdx]);
             }
-        });
-        connect(m_stepUp, &QPushButton::clicked, this, [this] {
+        };
+        auto stepUp = [this] {
             if (m_stepIdx < m_stepSizes.size() - 1) {
                 m_stepIdx++;
                 m_stepLabel->setText(formatStepLabel(m_stepSizes[m_stepIdx]));
                 emit stepSizeChanged(m_stepSizes[m_stepIdx]);
             }
+        };
+        connect(m_stepDown, &QPushButton::clicked, this, stepDown);
+        connect(m_stepUp, &QPushButton::clicked, this, stepUp);
+        connect(m_stepLabel, &ScrollableLabel::scrolled, this, [stepUp, stepDown](int dir) {
+            if (dir > 0) stepUp(); else stepDown();
         });
 
         row->addWidget(m_stepDown);
