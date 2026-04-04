@@ -65,7 +65,8 @@ bool PipeWireAudioBridge::open()
 
     // Poll TX pipe for incoming audio from apps
     m_txReadTimer = new QTimer(this);
-    m_txReadTimer->setInterval(10);
+    m_txReadTimer->setInterval(5);
+    m_txReadTimer->setTimerType(Qt::PreciseTimer);
     connect(m_txReadTimer, &QTimer::timeout, this, &PipeWireAudioBridge::readTxPipe);
     m_txReadTimer->start();
 
@@ -184,6 +185,8 @@ bool PipeWireAudioBridge::loadPipeSink()
         return false;
     }
 
+    // Use a small pipe buffer (2048 bytes ~ 42ms at 24kHz mono s16le)
+    // to keep latency low for digital modes like FT8/FT4.
     uint32_t modIdx = runPactl({
         "load-module", "module-pipe-sink",
         QStringLiteral("file=%1").arg(pipePath),
@@ -192,6 +195,7 @@ bool PipeWireAudioBridge::loadPipeSink()
         QStringLiteral("format=s16le"),
         QStringLiteral("rate=%1").arg(SAMPLE_RATE),
         QStringLiteral("channels=%1").arg(CHANNELS),
+        QStringLiteral("pipe_size=2048"),
     });
 
     if (modIdx == 0) {
@@ -293,32 +297,34 @@ void PipeWireAudioBridge::readTxPipe()
 {
     if (m_tx.fd < 0) return;
 
-    // Read available data from the TX pipe (int16 mono from apps)
-    // Convert to float32 stereo for AudioEngine::feedDaxTxAudio
+    // Drain all available data from the TX pipe (int16 mono from apps).
+    // Reading in a loop avoids bufferbloat when the timer fires late.
     char buf[4096];
-    ssize_t n = ::read(m_tx.fd, buf, sizeof(buf));
-    if (n <= 0) return;
+    for (;;) {
+        ssize_t n = ::read(m_tx.fd, buf, sizeof(buf));
+        if (n <= 0) break;
 
-    // Convert int16 mono → float32 stereo with TX gain
-    int monoSamples = n / sizeof(int16_t);
-    const auto* src = reinterpret_cast<const int16_t*>(buf);
-    QByteArray out(monoSamples * 2 * sizeof(float), Qt::Uninitialized);  // stereo
-    auto* dst = reinterpret_cast<float*>(out.data());
-    for (int i = 0; i < monoSamples; ++i) {
-        float v = (src[i] / 32768.0f) * m_txGain;
-        dst[i * 2]     = v;  // left
-        dst[i * 2 + 1] = v;  // right (duplicate)
-    }
+        // Convert int16 mono → float32 stereo with TX gain
+        int monoSamples = n / sizeof(int16_t);
+        const auto* src = reinterpret_cast<const int16_t*>(buf);
+        QByteArray out(monoSamples * 2 * sizeof(float), Qt::Uninitialized);  // stereo
+        auto* dst = reinterpret_cast<float*>(out.data());
+        for (int i = 0; i < monoSamples; ++i) {
+            float v = (src[i] / 32768.0f) * m_txGain;
+            dst[i * 2]     = v;  // left
+            dst[i * 2 + 1] = v;  // right (duplicate)
+        }
 
-    emit txAudioReady(out);
+        emit txAudioReady(out);
 
-    // TX level meter (every ~100ms)
-    static int txMeterCount = 0;
-    if (++txMeterCount % 10 == 0) {
-        float sum = 0;
-        for (int i = 0; i < monoSamples; ++i)
-            sum += (src[i] / 32768.0f) * (src[i] / 32768.0f);
-        emit daxTxLevel(std::sqrt(sum / std::max(1, monoSamples)));
+        // TX level meter (every ~100ms)
+        static int txMeterCount = 0;
+        if (++txMeterCount % 10 == 0) {
+            float sum = 0;
+            for (int i = 0; i < monoSamples; ++i)
+                sum += (src[i] / 32768.0f) * (src[i] / 32768.0f);
+            emit daxTxLevel(std::sqrt(sum / std::max(1, monoSamples)));
+        }
     }
 }
 
