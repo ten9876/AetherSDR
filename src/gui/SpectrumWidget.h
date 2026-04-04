@@ -10,6 +10,7 @@
 
 #ifdef AETHER_GPU_SPECTRUM
 #include <QRhiWidget>
+#include <rhi/qrhi.h>
 #define SPECTRUM_BASE_CLASS QRhiWidget
 #else
 #define SPECTRUM_BASE_CLASS QWidget
@@ -497,6 +498,29 @@ private:
 
 #ifdef AETHER_GPU_SPECTRUM
     bool m_rhiInitialized{false};
+
+    // Waterfall GPU resources
+    QRhiGraphicsPipeline* m_wfPipeline{nullptr};
+    QRhiShaderResourceBindings* m_wfSrb{nullptr};
+    QRhiBuffer* m_wfVbo{nullptr};
+    QRhiBuffer* m_wfUbo{nullptr};
+    QRhiTexture* m_wfGpuTex{nullptr};
+    QRhiSampler* m_wfSampler{nullptr};
+    int m_wfGpuTexW{0};
+    int m_wfGpuTexH{0};
+    bool m_wfTexDirty{true};  // full re-upload needed (resize)
+
+    // Overlay GPU resources (QPainter → QImage → texture)
+    QRhiGraphicsPipeline* m_ovPipeline{nullptr};
+    QRhiShaderResourceBindings* m_ovSrb{nullptr};
+    QRhiBuffer* m_ovVbo{nullptr};
+    QRhiTexture* m_ovGpuTex{nullptr};
+    QRhiSampler* m_ovSampler{nullptr};
+    QImage m_overlayImage;
+
+    void initWaterfallPipeline();
+    void initOverlayPipeline();
+    void renderGpuFrame(QRhiCommandBuffer* cb);
 #endif
 };
 

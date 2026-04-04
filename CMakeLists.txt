@@ -571,6 +571,14 @@ endif()
 if(AETHER_GPU_SPECTRUM)
     target_compile_definitions(AetherSDR PRIVATE AETHER_GPU_SPECTRUM)
     target_link_libraries(AetherSDR PRIVATE Qt6::GuiPrivate)
+    qt_add_shaders(AetherSDR "aether_shaders"
+        PREFIX "/shaders"
+        FILES
+            resources/shaders/texturedquad.vert
+            resources/shaders/texturedquad.frag
+            resources/shaders/overlay.vert
+            resources/shaders/overlay.frag
+    )
 endif()
 
 if(HAVE_PIPEWIRE)

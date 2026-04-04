@@ -5,6 +5,7 @@
 
 #ifdef AETHER_GPU_SPECTRUM
 #include <rhi/qrhi.h>
+#include <QFile>
 #endif
 
 #include <QPainter>
@@ -1652,9 +1653,148 @@ void SpectrumWidget::pushWaterfallRow(const QVector<float>& bins, int destWidth,
 
 #ifdef AETHER_GPU_SPECTRUM
 
+// Fullscreen quad: position (x,y) + texcoord (u,v)
+static const float kQuadData[] = {
+    -1, -1,  0, 1,   // bottom-left
+     1, -1,  1, 1,   // bottom-right
+    -1,  1,  0, 0,   // top-left
+     1,  1,  1, 0,   // top-right
+};
+
+static QShader loadShader(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        qWarning() << "SpectrumWidget: failed to load shader" << path;
+        return {};
+    }
+    QShader s = QShader::fromSerialized(f.readAll());
+    if (!s.isValid())
+        qWarning() << "SpectrumWidget: invalid shader" << path;
+    return s;
+}
+
+void SpectrumWidget::initWaterfallPipeline()
+{
+    QRhi* r = rhi();
+
+    m_wfVbo = r->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(kQuadData));
+    m_wfVbo->create();
+
+    m_wfUbo = r->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 16);
+    m_wfUbo->create();
+
+    m_wfGpuTexW = qMax(width(), 64);
+    m_wfGpuTexH = qMax(m_waterfall.height(), 64);
+    m_wfGpuTex = r->newTexture(QRhiTexture::RGBA8, QSize(m_wfGpuTexW, m_wfGpuTexH));
+    m_wfGpuTex->create();
+
+    m_wfSampler = r->newSampler(QRhiSampler::Linear, QRhiSampler::Linear,
+                                 QRhiSampler::None,
+                                 QRhiSampler::ClampToEdge, QRhiSampler::Repeat);
+    m_wfSampler->create();
+
+    m_wfSrb = r->newShaderResourceBindings();
+    m_wfSrb->setBindings({
+        QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, m_wfUbo),
+        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_wfGpuTex, m_wfSampler),
+    });
+    m_wfSrb->create();
+
+    QShader vs = loadShader(":/shaders/resources/shaders/texturedquad.vert.qsb");
+    QShader fs = loadShader(":/shaders/resources/shaders/texturedquad.frag.qsb");
+    if (!vs.isValid() || !fs.isValid()) {
+        qWarning() << "SpectrumWidget: waterfall shader load failed";
+        return;
+    }
+
+    m_wfPipeline = r->newGraphicsPipeline();
+    m_wfPipeline->setShaderStages({
+        {QRhiShaderStage::Vertex, vs},
+        {QRhiShaderStage::Fragment, fs},
+    });
+
+    QRhiVertexInputLayout layout;
+    layout.setBindings({{4 * sizeof(float)}});
+    layout.setAttributes({
+        {0, 0, QRhiVertexInputAttribute::Float2, 0},
+        {0, 1, QRhiVertexInputAttribute::Float2, 2 * sizeof(float)},
+    });
+    m_wfPipeline->setVertexInputLayout(layout);
+    m_wfPipeline->setTopology(QRhiGraphicsPipeline::TriangleStrip);
+    m_wfPipeline->setShaderResourceBindings(m_wfSrb);
+    m_wfPipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    m_wfPipeline->create();
+
+    qDebug() << "SpectrumWidget: waterfall pipeline created"
+             << m_wfGpuTexW << "x" << m_wfGpuTexH;
+}
+
+void SpectrumWidget::initOverlayPipeline()
+{
+    QRhi* r = rhi();
+
+    m_ovVbo = r->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, sizeof(kQuadData));
+    m_ovVbo->create();
+
+    int w = qMax(width(), 64);
+    int h = qMax(height(), 64);
+    m_ovGpuTex = r->newTexture(QRhiTexture::RGBA8, QSize(w, h));
+    m_ovGpuTex->create();
+
+    m_ovSampler = r->newSampler(QRhiSampler::Linear, QRhiSampler::Linear,
+                                 QRhiSampler::None,
+                                 QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
+    m_ovSampler->create();
+
+    m_ovSrb = r->newShaderResourceBindings();
+    m_ovSrb->setBindings({
+        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_ovGpuTex, m_ovSampler),
+    });
+    m_ovSrb->create();
+
+    QShader vs = loadShader(":/shaders/resources/shaders/overlay.vert.qsb");
+    QShader fs = loadShader(":/shaders/resources/shaders/overlay.frag.qsb");
+    if (!vs.isValid() || !fs.isValid()) {
+        qWarning() << "SpectrumWidget: overlay shader load failed";
+        return;
+    }
+
+    m_ovPipeline = r->newGraphicsPipeline();
+    m_ovPipeline->setShaderStages({
+        {QRhiShaderStage::Vertex, vs},
+        {QRhiShaderStage::Fragment, fs},
+    });
+
+    QRhiVertexInputLayout layout;
+    layout.setBindings({{4 * sizeof(float)}});
+    layout.setAttributes({
+        {0, 0, QRhiVertexInputAttribute::Float2, 0},
+        {0, 1, QRhiVertexInputAttribute::Float2, 2 * sizeof(float)},
+    });
+    m_ovPipeline->setVertexInputLayout(layout);
+    m_ovPipeline->setTopology(QRhiGraphicsPipeline::TriangleStrip);
+    m_ovPipeline->setShaderResourceBindings(m_ovSrb);
+    m_ovPipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+
+    // Enable alpha blending for overlay compositing
+    QRhiGraphicsPipeline::TargetBlend blend;
+    blend.enable = true;
+    blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+    blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    blend.srcAlpha = QRhiGraphicsPipeline::One;
+    blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    m_ovPipeline->setTargetBlends({blend});
+
+    m_ovPipeline->create();
+
+    m_overlayImage = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
+
+    qDebug() << "SpectrumWidget: overlay pipeline created" << w << "x" << h;
+}
+
 void SpectrumWidget::initialize(QRhiCommandBuffer* cb)
 {
-    Q_UNUSED(cb);
     if (m_rhiInitialized) return;
 
     QRhi* r = rhi();
@@ -1664,20 +1804,241 @@ void SpectrumWidget::initialize(QRhiCommandBuffer* cb)
     }
 
     qDebug() << "SpectrumWidget: QRhi initialized, backend:" << r->backendName();
+
+    // Upload quad vertex data for both pipelines
+    auto* batch = r->nextResourceUpdateBatch();
+
+    initWaterfallPipeline();
+    initOverlayPipeline();
+
+    // Upload VBO data
+    batch->uploadStaticBuffer(m_wfVbo, kQuadData);
+    batch->uploadStaticBuffer(m_ovVbo, kQuadData);
+
+    // Initial full waterfall texture upload (convert RGB32→RGBA8)
+    if (!m_waterfall.isNull()) {
+        QImage rgba = m_waterfall.convertToFormat(QImage::Format_RGBA8888);
+        QRhiTextureSubresourceUploadDescription desc(rgba);
+        batch->uploadTexture(m_wfGpuTex, QRhiTextureUploadEntry(0, 0, desc));
+    }
+
+    cb->resourceUpdate(batch);
+    m_wfTexDirty = false;
     m_rhiInitialized = true;
+}
+
+void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
+{
+    QRhi* r = rhi();
+    const int w = width();
+    const int h = height();
+    if (w <= 0 || h <= FREQ_SCALE_H + DIVIDER_H + 2) return;
+
+    const int contentH = h - FREQ_SCALE_H;
+    const int specH = static_cast<int>(contentH * m_spectrumFrac);
+    const int wfH = contentH - specH - DIVIDER_H;
+    const QRect specRect(0, 0, w, specH);
+    const QRect wfRect(0, specH + DIVIDER_H, w, wfH);
+
+    auto* batch = r->nextResourceUpdateBatch();
+
+    // Upload waterfall texture — full or incremental
+    if (m_wfTexDirty && !m_waterfall.isNull()) {
+        // Resize texture if needed
+        if (m_waterfall.width() != m_wfGpuTexW || m_waterfall.height() != m_wfGpuTexH) {
+            m_wfGpuTexW = m_waterfall.width();
+            m_wfGpuTexH = m_waterfall.height();
+            m_wfGpuTex->setPixelSize(QSize(m_wfGpuTexW, m_wfGpuTexH));
+            m_wfGpuTex->create();
+            m_wfSrb->setBindings({
+                QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::FragmentStage, m_wfUbo),
+                QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_wfGpuTex, m_wfSampler),
+            });
+            m_wfSrb->create();
+        }
+        // Convert RGB32 (BGRA in memory) → RGBA8888 for GPU upload
+        QImage rgba = m_waterfall.convertToFormat(QImage::Format_RGBA8888);
+
+        QRhiTextureSubresourceUploadDescription desc(rgba);
+        batch->uploadTexture(m_wfGpuTex, QRhiTextureUploadEntry(0, 0, desc));
+        m_wfTexDirty = false;
+    }
+
+    // Update waterfall uniforms — just the ring buffer row offset
+    float rowOffset = (m_wfGpuTexH > 0)
+        ? static_cast<float>(m_wfWriteRow) / m_wfGpuTexH
+        : 0.0f;
+    float uniforms[] = {rowOffset, 0.0f, 0.0f, 0.0f};
+    batch->updateDynamicBuffer(m_wfUbo, 0, sizeof(uniforms), uniforms);
+
+    // Render overlay into QImage via QPainter (all the existing draw* methods)
+    if (!m_overlayImage.isNull()) {
+        if (m_overlayImage.size() != QSize(w, h)) {
+            m_overlayImage = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
+            m_ovGpuTex->setPixelSize(QSize(w, h));
+            m_ovGpuTex->create();
+            m_ovSrb->setBindings({
+                QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_ovGpuTex, m_ovSampler),
+            });
+            m_ovSrb->create();
+        }
+
+        m_overlayImage.fill(Qt::transparent);
+        {
+            QPainter p(&m_overlayImage);
+            p.setRenderHint(QPainter::Antialiasing, false);
+
+            // Background image
+            if (!m_bgImage.isNull()) {
+                if (m_bgScaledSize != specRect.size()) {
+                    m_bgScaled = m_bgImage.scaled(specRect.size(),
+                        Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+                    m_bgScaledSize = specRect.size();
+                }
+                p.setOpacity(1.0 - m_bgOpacity / 100.0);
+                p.drawImage(specRect.topLeft(), m_bgScaled);
+                p.setOpacity(1.0);
+            }
+
+            drawGrid(p, specRect);
+            drawSpectrum(p, specRect);
+            if (m_bandPlanFontSize > 0)
+                drawBandPlan(p, specRect);
+            drawDbmScale(p, specRect);
+
+            // Divider bar
+            const int divY = specH;
+            p.fillRect(0, divY, w, DIVIDER_H, QColor(0x30, 0x40, 0x50));
+
+            drawFreqScale(p, QRect(0, specH + DIVIDER_H + wfH, w, FREQ_SCALE_H));
+            drawTimeScale(p, wfRect);
+            drawTnfMarkers(p, specRect, wfRect);
+            if (m_showSpots)
+                drawSpotMarkers(p, specRect);
+            drawSliceMarkers(p, specRect, wfRect);
+            drawOffScreenSlices(p, specRect);
+
+            // WNB / RF gain indicators
+            if (m_wnbActive) {
+                p.setFont(QFont(p.font().family(), 14, QFont::Bold));
+                p.setPen(QColor(0xc8, 0xd8, 0xe8, 180));
+                p.drawText(specRect.right() - 130, specRect.top() + 20,
+                           QStringLiteral("WNB"));
+            }
+            if (m_rfGainValue != 0) {
+                QFont f = p.font();
+                f.setPixelSize(12);
+                p.setFont(f);
+                p.setPen(QColor(0xc8, 0xd8, 0xe8, 140));
+                QString label = QStringLiteral("RF %1%2 dB")
+                    .arg(m_rfGainValue > 0 ? "+" : "").arg(m_rfGainValue);
+                p.drawText(specRect.right() - 80,
+                           specRect.top() + (m_wnbActive ? 38 : 20), label);
+            }
+        }
+
+        // Upload overlay texture
+        QRhiTextureSubresourceUploadDescription ovDesc(m_overlayImage);
+        batch->uploadTexture(m_ovGpuTex, QRhiTextureUploadEntry(0, 0, ovDesc));
+    }
+
+    cb->resourceUpdate(batch);
+
+    // Begin render pass
+    const QColor clearColor(0x0a, 0x0a, 0x14);
+    cb->beginPass(renderTarget(), clearColor, {1.0f, 0});
+
+    const QSize outputSize = renderTarget()->pixelSize();
+    const float dpr = outputSize.width() / static_cast<float>(qMax(1, w));
+
+    // Draw waterfall quad — viewport restricted to waterfall rect
+    if (m_wfPipeline) {
+        cb->setGraphicsPipeline(m_wfPipeline);
+        cb->setShaderResources(m_wfSrb);
+        // QRhiViewport: (x, y, width, height) — y is bottom-up in GL convention
+        float vpX = static_cast<float>(wfRect.x()) * dpr;
+        float vpY = static_cast<float>(h - wfRect.bottom() - 1) * dpr;
+        float vpW = static_cast<float>(wfRect.width()) * dpr;
+        float vpH = static_cast<float>(wfRect.height()) * dpr;
+
+        cb->setViewport({vpX, vpY, vpW, vpH});
+        const QRhiCommandBuffer::VertexInput vbuf(m_wfVbo, 0);
+        cb->setVertexInput(0, 1, &vbuf);
+        cb->draw(4);
+    }
+
+    // Draw overlay quad — full widget viewport, alpha-blended on top
+    if (m_ovPipeline) {
+        cb->setGraphicsPipeline(m_ovPipeline);
+        cb->setShaderResources(m_ovSrb);
+        cb->setViewport({0, 0,
+            static_cast<float>(outputSize.width()),
+            static_cast<float>(outputSize.height())});
+        const QRhiCommandBuffer::VertexInput vbuf(m_ovVbo, 0);
+        cb->setVertexInput(0, 1, &vbuf);
+        cb->draw(4);
+    }
+
+    cb->endPass();
+
+    // Reposition VFO widgets (same as paintEvent)
+    {
+        struct VfoPos { int sliceId; int x; VfoWidget* w; int splitPartner; };
+        QVector<VfoPos> vfos;
+        for (const auto& so : m_sliceOverlays) {
+            if (auto* vw = m_vfoWidgets.value(so.sliceId, nullptr)) {
+                int x = mhzToX(so.freqMhz);
+                if (so.mode == "RTTY" || so.mode == "DIGL") {
+                    double hiMhz = so.freqMhz + so.filterHighHz / 1.0e6;
+                    x = mhzToX(hiMhz) + 4;
+                }
+                vfos.append({so.sliceId, x, vw, so.splitPartnerId});
+            }
+        }
+        std::sort(vfos.begin(), vfos.end(), [](const VfoPos& a, const VfoPos& b) {
+            return a.x < b.x;
+        });
+
+        QMap<int, VfoWidget::FlagDir> dirMap;
+        for (const auto& so : m_sliceOverlays) {
+            if (so.mode == "RTTY" || so.mode == "DIGL")
+                dirMap[so.sliceId] = VfoWidget::ForceRight;
+        }
+
+        if (vfos.size() == 1) {
+            VfoWidget::FlagDir dir = dirMap.value(vfos[0].sliceId, VfoWidget::Auto);
+            vfos[0].w->updatePosition(vfos[0].x, specRect.top(), dir);
+        } else {
+            for (int i = 0; i < vfos.size(); ++i) {
+                VfoWidget::FlagDir dir = dirMap.value(vfos[i].sliceId, VfoWidget::Auto);
+                vfos[i].w->updatePosition(vfos[i].x, specRect.top(), dir);
+            }
+        }
+    }
 }
 
 void SpectrumWidget::render(QRhiCommandBuffer* cb)
 {
     if (!m_rhiInitialized) return;
-
-    const QColor clearColor(0x0a, 0x0a, 0x14);
-    cb->beginPass(renderTarget(), clearColor, {1.0f, 0});
-    cb->endPass();
+    m_wfTexDirty = true;  // always re-upload waterfall (optimize later with row tracking)
+    renderGpuFrame(cb);
 }
 
 void SpectrumWidget::releaseResources()
 {
+    delete m_wfPipeline;     m_wfPipeline = nullptr;
+    delete m_wfSrb;          m_wfSrb = nullptr;
+    delete m_wfVbo;          m_wfVbo = nullptr;
+    delete m_wfUbo;          m_wfUbo = nullptr;
+    delete m_wfGpuTex;       m_wfGpuTex = nullptr;
+    delete m_wfSampler;      m_wfSampler = nullptr;
+
+    delete m_ovPipeline;     m_ovPipeline = nullptr;
+    delete m_ovSrb;          m_ovSrb = nullptr;
+    delete m_ovVbo;          m_ovVbo = nullptr;
+    delete m_ovGpuTex;       m_ovGpuTex = nullptr;
+    delete m_ovSampler;      m_ovSampler = nullptr;
+
     m_rhiInitialized = false;
     qDebug() << "SpectrumWidget: QRhi resources released";
 }
