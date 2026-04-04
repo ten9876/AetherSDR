@@ -1,5 +1,6 @@
 #include "ShortcutManager.h"
 #include "AppSettings.h"
+#include <QHash>
 #include <QWidget>
 #include <QDebug>
 
@@ -69,6 +70,41 @@ void ShortcutManager::loadBindings()
             a.currentKey = QKeySequence(val);
         // else keep default
     }
+
+    bool normalized = false;
+    QHash<QString, int> ownerByKey;
+    for (int i = 0; i < m_actions.size(); ++i) {
+        auto& action = m_actions[i];
+        if (action.currentKey.isEmpty()) continue;
+
+        const QString keyText = action.currentKey.toString();
+        auto it = ownerByKey.find(keyText);
+        if (it == ownerByKey.end()) {
+            ownerByKey.insert(keyText, i);
+            continue;
+        }
+
+        auto& incumbent = m_actions[*it];
+        const bool incumbentCustomized = incumbent.currentKey != incumbent.defaultKey;
+        const bool actionCustomized = action.currentKey != action.defaultKey;
+
+        if (actionCustomized && !incumbentCustomized) {
+            qWarning() << "ShortcutManager: clearing duplicate default binding"
+                       << incumbent.id << "for key" << keyText
+                       << "in favor of customized binding" << action.id;
+            incumbent.currentKey = QKeySequence();
+            *it = i;
+        } else {
+            qWarning() << "ShortcutManager: clearing duplicate binding"
+                       << action.id << "for key" << keyText
+                       << "owned by" << incumbent.id;
+            action.currentKey = QKeySequence();
+        }
+        normalized = true;
+    }
+
+    if (normalized)
+        saveBindings();
 }
 
 void ShortcutManager::saveBindings()
