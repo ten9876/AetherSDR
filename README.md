@@ -66,24 +66,50 @@ Pre-built binaries are available from [Releases](https://github.com/ten9876/Aeth
 
 ## Building from Source
 
-### Dependencies (Linux)
+### Dependencies
+
+Install all dependencies for a full-featured build. Optional packages are noted — the build succeeds without them but the corresponding features are disabled.
 
 ```bash
 # Arch / CachyOS / Manjaro
-sudo pacman -S qt6-base qt6-multimedia cmake ninja pkgconf autoconf automake libtool
+sudo pacman -S qt6-base qt6-multimedia qt6-websockets qt6-serialport \
+  qt6-shadertools cmake ninja pkgconf autoconf automake libtool \
+  fftw portaudio hidapi qtkeychain-qt6
 
 # Ubuntu 24.04+ / Debian / Linux Mint
-sudo apt install qt6-base-dev qt6-multimedia-dev cmake ninja-build pkg-config \
-  autoconf automake libtool gstreamer1.0-pulseaudio gstreamer1.0-plugins-base \
-  libxkbcommon-dev portaudio19-dev libfftw3-dev
+sudo apt install qt6-base-dev qt6-base-private-dev qt6-multimedia-dev \
+  qt6-websockets-dev qt6-serialport-dev qt6-shader-baker qt6-shadertools-dev \
+  cmake ninja-build pkg-config autoconf automake libtool \
+  libfftw3-dev portaudio19-dev libhidapi-dev qtkeychain-qt6-dev \
+  libxkbcommon-dev gstreamer1.0-pulseaudio gstreamer1.0-plugins-base
 
 # Fedora
-sudo dnf install qt6-qtbase-devel qt6-qtmultimedia-devel cmake ninja-build \
-  autoconf automake libtool
+sudo dnf install qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtmultimedia-devel \
+  qt6-qtwebsockets-devel qt6-qtserialport-devel qt6-qtshadertools-devel \
+  cmake ninja-build autoconf automake libtool \
+  fftw3-devel portaudio-devel hidapi-devel qtkeychain-qt6-devel
 
 # macOS (Homebrew)
-brew install qt@6 ninja cmake pkgconf autoconf automake libtool
+brew install qt@6 ninja cmake pkgconf autoconf automake libtool \
+  fftw portaudio hidapi qtkeychain
 ```
+
+<details>
+<summary>What each dependency enables</summary>
+
+| Package | Feature |
+|---------|---------|
+| qt6-base, qt6-multimedia | Core application (required) |
+| qt6-base-private-dev | GPU-accelerated spectrum/waterfall (QRhi) |
+| qt6-shadertools-dev | GPU shader compilation |
+| qt6-websockets-dev | TCI server, FreeDV Reporter spots |
+| qt6-serialport-dev | FlexControl, serial PTT/CW, MIDI controllers |
+| libfftw3-dev | NR2 spectral noise reduction |
+| portaudio19-dev | PortAudio audio backend |
+| libhidapi-dev | StreamDeck, USB HID encoders (RC-28, PowerMate) |
+| qtkeychain-qt6-dev | SmartLink credential persistence |
+
+</details>
 
 > **Linux Mint / Ubuntu note:** If PC audio devices show as "Dummy Output",
 > install `gstreamer1.0-pulseaudio`. For PipeWire systems, also install `gstreamer1.0-pipewire`.

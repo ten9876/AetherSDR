@@ -8,6 +8,14 @@
 #include <QColor>
 #include <QDateTime>
 
+#ifdef AETHER_GPU_SPECTRUM
+#include <QRhiWidget>
+#include <rhi/qrhi.h>
+#define SPECTRUM_BASE_CLASS QRhiWidget
+#else
+#define SPECTRUM_BASE_CLASS QWidget
+#endif
+
 namespace AetherSDR {
 
 class SpectrumOverlayMenu;
@@ -25,7 +33,9 @@ class VfoWidget;
 //   - VFO marker: vertical orange line at the tuned VFO frequency
 //
 // Click anywhere in the spectrum/waterfall area to emit frequencyClicked().
-class SpectrumWidget : public QWidget {
+// When AETHER_GPU_SPECTRUM is enabled, inherits QRhiWidget for GPU-accelerated
+// waterfall rendering. Otherwise falls back to QPainter (QWidget).
+class SpectrumWidget : public SPECTRUM_BASE_CLASS {
     Q_OBJECT
 
 public:
@@ -265,7 +275,13 @@ signals:
     void spotRemoveRequested(int spotIndex);
 
 protected:
+#ifdef AETHER_GPU_SPECTRUM
+    void initialize(QRhiCommandBuffer* cb) override;
+    void render(QRhiCommandBuffer* cb) override;
+    void releaseResources() override;
+#else
     void paintEvent(QPaintEvent* event) override;
+#endif
     void resizeEvent(QResizeEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
@@ -479,6 +495,47 @@ private:
     // Bottom-left waterfall zoom buttons: S(egment), B(and)
     QPushButton* m_zoomSegBtn{nullptr};
     QPushButton* m_zoomBandBtn{nullptr};
+
+#ifdef AETHER_GPU_SPECTRUM
+    bool m_rhiInitialized{false};
+
+    // Waterfall GPU resources
+    QRhiGraphicsPipeline* m_wfPipeline{nullptr};
+    QRhiShaderResourceBindings* m_wfSrb{nullptr};
+    QRhiBuffer* m_wfVbo{nullptr};
+    QRhiBuffer* m_wfUbo{nullptr};
+    QRhiTexture* m_wfGpuTex{nullptr};
+    QRhiSampler* m_wfSampler{nullptr};
+    int m_wfGpuTexW{0};
+    int m_wfGpuTexH{0};
+    bool m_wfTexFullUpload{true};  // full re-upload needed (resize/init)
+    int m_wfLastUploadedRow{-1};   // last row uploaded to GPU (-1 = none)
+
+    // Overlay GPU resources (QPainter → QImage → texture)
+    // Static: grid, band plan, scales, slice markers, TNF, spots (repainted on state change)
+    // Dynamic: FFT spectrum line (repainted every frame)
+    QRhiGraphicsPipeline* m_ovPipeline{nullptr};
+    QRhiShaderResourceBindings* m_ovSrb{nullptr};
+    QRhiBuffer* m_ovVbo{nullptr};
+    QRhiTexture* m_ovGpuTex{nullptr};
+    QRhiSampler* m_ovSampler{nullptr};
+    QImage m_overlayStatic;     // grid, markers, scales — repainted on change
+    QImage m_overlayDynamic;    // FFT spectrum — repainted every frame
+    bool m_overlayStaticDirty{true};
+
+    void initWaterfallPipeline();
+    void initOverlayPipeline();
+    void renderGpuFrame(QRhiCommandBuffer* cb);
+#endif
+
+    // Mark the static overlay for repaint and schedule a frame update.
+    // In non-GPU mode this is just update().
+    void markOverlayDirty() {
+#ifdef AETHER_GPU_SPECTRUM
+        m_overlayStaticDirty = true;
+#endif
+        update();
+    }
 };
 
 } // namespace AetherSDR

@@ -25,7 +25,7 @@ jobs:
           host: 'windows'
           target: 'desktop'
           arch: 'win64_msvc2019_64'
-          modules: 'qtmultimedia qtserialport'
+          modules: 'qtmultimedia qtserialport qtwebsockets qtshadertools'
 
       - name: Install Ninja and Inno Setup
         run: choco install ninja innosetup -y
