@@ -488,7 +488,11 @@ if(HIDAPI_FOUND)
     target_compile_definitions(AetherSDR PRIVATE HAVE_HIDAPI)
     target_sources(AetherSDR PRIVATE
         src/core/HidEncoderManager.cpp
-        src/core/HidDeviceParser.cpp)
+        src/core/HidDeviceParser.cpp
+        src/core/StreamDeckDevice.cpp
+        src/core/StreamDeckManager.cpp
+        src/core/StreamDeckKeyRenderer.cpp
+        src/gui/StreamDeckDialog.cpp)
     target_include_directories(AetherSDR PRIVATE ${HIDAPI_INCLUDE_DIRS})
     target_link_libraries(AetherSDR PRIVATE ${HIDAPI_LIBRARIES})
 else()

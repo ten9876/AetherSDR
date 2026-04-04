@@ -1367,11 +1367,10 @@ void RxApplet::rebuildStepSizes()
 
 void RxApplet::cycleStepUp()
 {
-    if (m_stepIdx < m_stepSizes.size() - 1) {
-        m_stepIdx++;
-        m_stepLabel->setText(formatStepLabel(m_stepSizes[m_stepIdx]));
-        emit stepSizeChanged(m_stepSizes[m_stepIdx]);
-    }
+    if (m_stepSizes.isEmpty()) return;
+    m_stepIdx = (m_stepIdx + 1) % m_stepSizes.size();
+    m_stepLabel->setText(formatStepLabel(m_stepSizes[m_stepIdx]));
+    emit stepSizeChanged(m_stepSizes[m_stepIdx]);
 }
 
 void RxApplet::cycleStepDown()

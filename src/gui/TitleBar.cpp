@@ -59,7 +59,16 @@ TitleBar::TitleBar(QWidget* parent)
             : "QLabel { background: #404858; border-radius: 5px; }");
     });
 
-    // ── Center: App name ────────────────────────────────────────────────────
+    // On Linux/Windows the menu bar occupies the left side, so add a stretch
+    // to center the app name. On macOS the menu is at the OS level, so the
+    // app name stays flush left.
+#ifndef Q_OS_MAC
+    // Linux/Windows: center the identity cluster (menu bar is on the left)
+    m_hbox->addStretch(1);
+    m_hbox->addWidget(m_heartbeat);
+    m_hbox->addSpacing(4);
+#endif
+
     auto* appName = new QLabel("AetherSDR");
     appName->setStyleSheet("QLabel { color: #00b4d8; font-size: 14px; font-weight: bold; }");
     appName->setAlignment(Qt::AlignCenter);
@@ -76,8 +85,12 @@ TitleBar::TitleBar(QWidget* parent)
     m_mfBtn->setCursor(Qt::PointingHandCursor);
     connect(m_mfBtn, &QPushButton::clicked, this, &TitleBar::multiFlexClicked);
     m_hbox->addWidget(m_mfBtn);
+
+#ifdef Q_OS_MAC
+    // macOS: heartbeat after multiFLEX (left-aligned, no menu bar in title)
     m_hbox->addSpacing(4);
     m_hbox->addWidget(m_heartbeat);
+#endif
 
     m_hbox->addStretch(1);
 

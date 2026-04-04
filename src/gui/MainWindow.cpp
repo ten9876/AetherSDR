@@ -79,6 +79,9 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include "core/VersionNumber.h"
+#ifdef HAVE_HIDAPI
+#include "core/StreamDeckKeyRenderer.h"
+#endif
 #include <QPointer>
 #include <QTextEdit>
 #include <QPlainTextEdit>
@@ -1344,6 +1347,317 @@ MainWindow::MainWindow(QWidget* parent)
             this, [](bool connected, const QString& name) {
         qDebug() << "HID encoder:" << (connected ? "connected" : "disconnected") << name;
     });
+
+    // StreamDeck manager
+    m_streamDeck = new StreamDeckManager;
+    m_streamDeck->moveToThread(m_extCtrlThread);
+
+    connect(m_streamDeck, &StreamDeckManager::deviceConnected,
+            this, [this](const QString& serial, const QString& model,
+                     int keys, int cols, int rows, int dials) {
+        qDebug() << "StreamDeck connected:" << model << serial
+                 << keys << "keys" << cols << "x" << rows << dials << "dials";
+
+        // Render test keys on connect
+        auto* info = m_streamDeck->deviceInfo(serial);
+        if (!info || info->keyWidth <= 0) return;
+
+        // Row 1: Band buttons
+        const char* bands[] = {"160m","80m","60m","40m","30m","20m","17m","15m","12m"};
+        for (int i = 0; i < std::min(cols, 9); ++i) {
+            SDKeyStyle s;
+            s.type = SDKeyType::BandButton;
+            s.text = bands[i];
+            s.active = (i == 5);  // 20m active
+            QMetaObject::invokeMethod(m_streamDeck, [this, serial, i, info, s] {
+                m_streamDeck->setKeyImage(serial, i, StreamDeckKeyRenderer::render(*info, s));
+            });
+        }
+
+        // Row 2: Mode buttons + controls
+        const char* modes[] = {"10m","6m","USB","LSB","CW","FT8","AM","FM","SAM"};
+        for (int i = 0; i < std::min(cols, 9); ++i) {
+            SDKeyStyle s;
+            s.type = (i >= 2) ? SDKeyType::ModeButton : SDKeyType::BandButton;
+            s.text = modes[i];
+            s.active = (i == 2);  // USB active
+            QMetaObject::invokeMethod(m_streamDeck, [this, serial, i, cols, info, s] {
+                m_streamDeck->setKeyImage(serial, cols + i, StreamDeckKeyRenderer::render(*info, s));
+            });
+        }
+
+        // Row 3: Frequency display, S-meter, TX controls
+        if (rows >= 3) {
+            // Frequency
+            SDKeyStyle freq;
+            freq.type = SDKeyType::FrequencyDisplay;
+            freq.text = "14.225";
+            freq.subtext = "USB";
+            QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, info, freq] {
+                m_streamDeck->setKeyImage(serial, cols * 2, StreamDeckKeyRenderer::render(*info, freq));
+                m_streamDeck->setKeyImage(serial, cols * 2 + 1, StreamDeckKeyRenderer::render(*info, freq));
+            });
+
+            // S-Meter
+            SDKeyStyle meter;
+            meter.type = SDKeyType::MeterGauge;
+            meter.text = "S-Meter";
+            meter.subtext = "S7 -85dBm";
+            meter.meterValue = 0.55f;
+            QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, info, meter] {
+                m_streamDeck->setKeyImage(serial, cols * 2 + 2, StreamDeckKeyRenderer::render(*info, meter));
+                m_streamDeck->setKeyImage(serial, cols * 2 + 3, StreamDeckKeyRenderer::render(*info, meter));
+            });
+
+            // MOX
+            SDKeyStyle mox;
+            mox.type = SDKeyType::ToggleButton;
+            mox.text = "MOX";
+            mox.active = false;
+            mox.activeColor = QColor(0xCC, 0x20, 0x20);
+            QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, info, mox] {
+                m_streamDeck->setKeyImage(serial, cols * 2 + 5, StreamDeckKeyRenderer::render(*info, mox));
+            });
+
+            // TUNE
+            SDKeyStyle tune;
+            tune.type = SDKeyType::ToggleButton;
+            tune.text = "TUNE";
+            tune.active = false;
+            tune.activeColor = QColor(0xE0, 0xA0, 0x00);
+            QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, info, tune] {
+                m_streamDeck->setKeyImage(serial, cols * 2 + 6, StreamDeckKeyRenderer::render(*info, tune));
+            });
+
+            // ATU
+            SDKeyStyle atu;
+            atu.type = SDKeyType::ToggleButton;
+            atu.text = "ATU";
+            atu.active = true;
+            QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, info, atu] {
+                m_streamDeck->setKeyImage(serial, cols * 2 + 7, StreamDeckKeyRenderer::render(*info, atu));
+            });
+        }
+
+        // Row 4: DSP toggles and status
+        if (rows >= 4) {
+            struct { const char* text; bool active; } row4[] = {
+                {"SPLIT", false}, {"LOCK", false}, {"MUTE", false},
+                {"NR", true}, {"NB", false}, {"ANF", false},
+                {"VOX", false}, {"MONI", false}, {"APD", true}
+            };
+            for (int i = 0; i < std::min(cols, 9); ++i) {
+                SDKeyStyle s;
+                s.type = SDKeyType::ToggleButton;
+                s.text = row4[i].text;
+                s.active = row4[i].active;
+                QMetaObject::invokeMethod(m_streamDeck, [this, serial, i, cols, rows, info, s] {
+                    m_streamDeck->setKeyImage(serial, cols * (rows - 1) + i,
+                                               StreamDeckKeyRenderer::render(*info, s));
+                });
+            }
+        }
+
+        // Touchscreen strip: S-meter bar
+        if (info->touchWidth > 0) {
+            auto tsImg = StreamDeckKeyRenderer::renderTouchscreen(
+                info->touchWidth, info->touchHeight, "S7  -85 dBm  14.225.000 USB", 0.55f);
+            QMetaObject::invokeMethod(m_streamDeck, [this, serial, info, tsImg] {
+                m_streamDeck->setTouchscreenImage(serial, tsImg,
+                    0, 0, info->touchWidth, info->touchHeight);
+            });
+        }
+    });
+    connect(m_streamDeck, &StreamDeckManager::deviceDisconnected,
+            this, [](const QString& serial) {
+        qDebug() << "StreamDeck disconnected:" << serial;
+    });
+    connect(m_streamDeck, &StreamDeckManager::keyPressed,
+            this, [this](const QString&, int key, bool pressed) {
+        if (!pressed) return;  // act on press only
+        auto* s = activeSlice();
+        if (!s) return;
+
+        auto* info = m_streamDeck->deviceInfo(m_streamDeck->deviceSerial(0));
+        if (!info) return;
+        int cols = info->keyCols;
+        int row = key / cols;
+        int col = key % cols;
+
+        // Row 0: Band select
+        if (row == 0) {
+            static const double bandFreqs[] = {
+                1.900, 3.800, 5.357, 7.200, 10.125, 14.225, 18.118, 21.300, 24.940
+            };
+            if (col < 9)
+                s->tuneAndRecenter(bandFreqs[col]);
+        }
+        // Row 1: 10m/6m bands + mode select
+        else if (row == 1) {
+            if (col == 0) s->tuneAndRecenter(28.400);
+            else if (col == 1) s->tuneAndRecenter(50.125);
+            else {
+                static const char* modes[] = {"USB","LSB","CW","FT8","AM","FM","SAM"};
+                if (col - 2 < 7)
+                    s->setMode(modes[col - 2]);
+            }
+        }
+        // Row 2: Controls
+        else if (row == 2) {
+            switch (col) {
+            case 0: case 1: break;  // frequency display — no action
+            case 2:  // SPLIT
+                if (!m_splitActive) {
+                    // Emit splitToggled on active VFO
+                    if (auto* vfo = spectrum()->vfoWidget())
+                        emit vfo->splitToggled();
+                } else {
+                    disableSplit();
+                }
+                break;
+            case 3:  // LOCK
+                s->setLocked(!s->isLocked());
+                break;
+            case 4:  // MUTE
+                m_audio->setMuted(!m_audio->isMuted());
+                break;
+            case 5:  // MOX
+                m_radioModel.setTransmit(!m_radioModel.transmitModel().isTransmitting());
+                break;
+            case 6: {  // TUNE — disabled when TGXL is in Operate mode
+                auto& tuner = m_radioModel.tunerModel();
+                if (tuner.isPresent() && tuner.isOperate())
+                    break;  // TGXL in Operate blocks manual TUNE
+                m_radioModel.sendCommand(QString("transmit tune %1")
+                    .arg(m_radioModel.transmitModel().isTuning() ? 0 : 1));
+                break;
+            }
+            case 7:  // ATU / TGXL autotune
+                if (m_radioModel.tunerModel().isPresent()) {
+                    // TGXL detected — trigger autotune
+                    m_radioModel.sendCommand(
+                        QString("tgxl autotune handle=%1")
+                            .arg(m_radioModel.tunerModel().handle()));
+                } else {
+                    m_radioModel.sendCommand("atu start");
+                }
+                break;
+            case 8: break;  // reserved
+            }
+        }
+        // Row 3: DSP toggles
+        else if (row == 3) {
+            switch (col) {
+            case 0: s->setNb(!s->nbOn()); break;
+            case 1: s->setNr(!s->nrOn()); break;
+            case 2: s->setAnf(!s->anfOn()); break;
+            case 3:  // NR2
+                if (m_audio->nr2Enabled())
+                    QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
+                else
+                    enableNr2WithWisdom();
+                break;
+            case 4:  // RN2
+                QMetaObject::invokeMethod(m_audio, [this]() {
+                    m_audio->setRn2Enabled(!m_audio->rn2Enabled());
+                });
+                break;
+            case 5: s->setApf(!s->apfOn()); break;
+            case 6:  // AGC cycle: off→slow→med→fast→off
+            {
+                QString mode = s->agcMode();
+                if (mode == "off") s->setAgcMode("slow");
+                else if (mode == "slow") s->setAgcMode("med");
+                else if (mode == "med") s->setAgcMode("fast");
+                else s->setAgcMode("off");
+                break;
+            }
+            case 7:  // DAX toggle
+                m_radioModel.transmitModel().setDax(
+                    !m_radioModel.transmitModel().daxOn());
+                break;
+            case 8:  // APD toggle
+                m_radioModel.transmitModel().setApdEnabled(
+                    !m_radioModel.transmitModel().apdEnabled());
+                break;
+            }
+        }
+    });
+    connect(m_streamDeck, &StreamDeckManager::dialTurned,
+            this, [this](const QString&, int dial, int delta) {
+        auto* s = activeSlice();
+        if (!s || s->isLocked()) return;
+
+        switch (dial) {
+        case 0: {  // VFO tuning
+            int stepHz = spectrum() ? spectrum()->stepSize() : 100;
+            double newMhz = s->frequency() + delta * stepHz / 1e6;
+            QString panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
+            if (!panId.isEmpty())
+                m_radioModel.sendCommand(
+                    QString("slice m %1 pan=%2").arg(newMhz, 0, 'f', 6).arg(panId));
+            if (spectrum()) spectrum()->setVfoFrequency(newMhz);
+            break;
+        }
+        case 1: {  // AF gain
+            int gain = qBound(0, static_cast<int>(s->audioGain()) + delta * 2, 100);
+            s->setAudioGain(gain);
+            break;
+        }
+        case 2: {  // RF power
+            int pwr = qBound(0, m_radioModel.transmitModel().rfPower() + delta, 100);
+            m_radioModel.transmitModel().setRfPower(pwr);
+            break;
+        }
+        case 3: {  // Squelch level
+            int sql = qBound(0, s->squelchLevel() + delta * 2, 100);
+            s->setSquelch(s->squelchOn(), sql);
+            break;
+        }
+        case 4: {  // RIT offset
+            s->setRit(s->ritOn(), s->ritFreq() + delta * 10);
+            break;
+        }
+        case 5: {  // XIT offset
+            s->setXit(s->xitOn(), s->xitFreq() + delta * 10);
+            break;
+        }
+        }
+    });
+    connect(m_streamDeck, &StreamDeckManager::dialPressed,
+            this, [this](const QString&, int dial, bool pressed) {
+        if (!pressed) return;
+        auto* s = activeSlice();
+        if (!s) return;
+
+        switch (dial) {
+        case 0:  // VFO dial push: cycle step size
+            if (auto* rx = m_appletPanel->rxApplet()) rx->cycleStepUp();
+            break;
+        case 1:  // AF gain push: toggle mute
+            m_audio->setMuted(!m_audio->isMuted());
+            break;
+        case 2:  // RF power push: toggle TUNE
+            m_radioModel.sendCommand(QString("transmit tune %1")
+                .arg(m_radioModel.transmitModel().isTuning() ? 0 : 1));
+            break;
+        case 3:  // Squelch push: toggle squelch on/off
+            s->setSquelch(!s->squelchOn(), s->squelchLevel());
+            break;
+        case 4:  // RIT push: toggle RIT
+            s->setRit(!s->ritOn(), s->ritFreq());
+            break;
+        case 5:  // XIT push: toggle XIT
+            s->setXit(!s->xitOn(), s->xitFreq());
+            break;
+        }
+    });
+    connect(m_streamDeck, &StreamDeckManager::touchEvent,
+            this, [](const QString&, int type, int x, int y, int xOut, int yOut) {
+        const char* names[] = {"short", "long", "drag"};
+        qDebug() << "StreamDeck touch:" << names[type] << "at" << x << y
+                 << (type == 2 ? QString("→ %1,%2").arg(xOut).arg(yOut) : QString());
+    });
 #endif
 
     // Start the external controller thread — objects are already moved
@@ -1380,6 +1694,14 @@ MainWindow::MainWindow(QWidget* parent)
     QMetaObject::invokeMethod(m_hidEncoder, [this] {
         m_hidEncoder->loadSettings();
     });
+    QMetaObject::invokeMethod(m_streamDeck, [this] {
+        m_streamDeck->start();
+    });
+
+    // Live key update timer — re-renders frequency, S-meter, TX state at 10 Hz
+    m_sdRenderTimer.setInterval(100);
+    connect(&m_sdRenderTimer, &QTimer::timeout, this, &MainWindow::updateStreamDeckLiveKeys);
+    m_sdRenderTimer.start();
 #endif
 
     // ── P/CW applet: mic meters + ALC meter + model ────────────────────────
@@ -1659,6 +1981,7 @@ MainWindow::~MainWindow()
 #endif
 #ifdef HAVE_HIDAPI
     delete m_hidEncoder;
+    delete m_streamDeck;
 #endif
 }
 
@@ -2055,6 +2378,19 @@ void MainWindow::buildMenuBar()
         auto* dlg = new MidiMappingDialog(m_midiControl, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         m_midiDialog = dlg;
+        dlg->show();
+    });
+#endif
+#ifdef HAVE_HIDAPI
+    auto* streamDeckAction = settingsMenu->addAction("StreamDeck...");
+    connect(streamDeckAction, &QAction::triggered, this, [this] {
+        if (m_streamDeckDialog) {
+            m_streamDeckDialog->raise();
+            m_streamDeckDialog->activateWindow();
+            return;
+        }
+        auto* dlg = new StreamDeckDialog(m_streamDeck, this);
+        m_streamDeckDialog = dlg;
         dlg->show();
     });
 #endif
@@ -5958,6 +6294,199 @@ void MainWindow::registerMidiParams()
                 setActiveSlice(slices[prev]->sliceId());
             }
         });
+}
+#endif
+
+#ifdef HAVE_HIDAPI
+void MainWindow::updateStreamDeckLiveKeys()
+{
+    if (!m_streamDeck || m_streamDeck->deviceCount() == 0) return;
+    if (!m_radioModel.isConnected()) return;
+
+    auto* s = activeSlice();
+    if (!s) return;
+
+    QString serial = m_streamDeck->deviceSerial(0);
+    auto* info = m_streamDeck->deviceInfo(serial);
+    if (!info || info->keyWidth <= 0) return;
+
+    int cols = info->keyCols;
+
+    // Row 3, key 0-1: Frequency display
+    {
+        long long hz = static_cast<long long>(std::round(s->frequency() * 1e6));
+        int mhz = static_cast<int>(hz / 1000000);
+        int khz = static_cast<int>((hz / 1000) % 1000);
+        int hzPart = static_cast<int>(hz % 1000);
+
+        SDKeyStyle freq;
+        freq.type = SDKeyType::FrequencyDisplay;
+        freq.text = QString("%1.%2.%3")
+            .arg(mhz).arg(khz, 3, 10, QChar('0')).arg(hzPart, 3, 10, QChar('0'));
+        freq.subtext = s->mode();
+        auto img = StreamDeckKeyRenderer::render(*info, freq);
+        QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, img] {
+            m_streamDeck->setKeyImage(serial, cols * 2, img);
+            m_streamDeck->setKeyImage(serial, cols * 2 + 1, img);
+        });
+    }
+
+    // Row 3, key 2: SPLIT
+    {
+        SDKeyStyle split;
+        split.type = SDKeyType::ToggleButton;
+        split.text = "SPLIT";
+        split.active = m_splitActive;
+        QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, info, split] {
+            m_streamDeck->setKeyImage(serial, cols * 2 + 2,
+                StreamDeckKeyRenderer::render(*info, split));
+        });
+    }
+
+    // Row 3, key 3: LOCK
+    {
+        SDKeyStyle lock;
+        lock.type = SDKeyType::ToggleButton;
+        lock.text = "LOCK";
+        lock.active = s->isLocked();
+        QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, info, lock] {
+            m_streamDeck->setKeyImage(serial, cols * 2 + 3,
+                StreamDeckKeyRenderer::render(*info, lock));
+        });
+    }
+
+    // Row 3, key 4: MUTE
+    {
+        SDKeyStyle mute;
+        mute.type = SDKeyType::ToggleButton;
+        mute.text = "MUTE";
+        mute.active = m_audio->isMuted();
+        mute.activeColor = QColor(0xCC, 0x20, 0x20);
+        QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, info, mute] {
+            m_streamDeck->setKeyImage(serial, cols * 2 + 4,
+                StreamDeckKeyRenderer::render(*info, mute));
+        });
+    }
+
+    // Row 3, key 5: MOX
+    {
+        bool tx = m_radioModel.transmitModel().isTransmitting();
+        SDKeyStyle mox;
+        mox.type = SDKeyType::ToggleButton;
+        mox.text = "MOX";
+        mox.active = tx;
+        mox.activeColor = QColor(0xCC, 0x20, 0x20);
+        auto img = StreamDeckKeyRenderer::render(*info, mox);
+        QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, img] {
+            m_streamDeck->setKeyImage(serial, cols * 2 + 5, img);
+        });
+    }
+
+    // Row 3, key 6: TUNE
+    {
+        bool tuning = m_radioModel.transmitModel().isTuning();
+        SDKeyStyle tune;
+        tune.type = SDKeyType::ToggleButton;
+        tune.text = "TUNE";
+        tune.active = tuning;
+        tune.activeColor = QColor(0xE0, 0xA0, 0x00);
+        auto img = StreamDeckKeyRenderer::render(*info, tune);
+        QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, img] {
+            m_streamDeck->setKeyImage(serial, cols * 2 + 6, img);
+        });
+    }
+
+    // Row 3, key 7: ATU
+    {
+        SDKeyStyle atu;
+        atu.type = SDKeyType::ToggleButton;
+        atu.text = "ATU";
+        atu.active = m_radioModel.transmitModel().atuEnabled();
+        QMetaObject::invokeMethod(m_streamDeck, [this, serial, cols, info, atu] {
+            m_streamDeck->setKeyImage(serial, cols * 2 + 7,
+                StreamDeckKeyRenderer::render(*info, atu));
+        });
+    }
+
+    // Row 3, key 8: (reserved)
+    if (cols > 8) {
+    }
+
+    // Row 4: DSP toggles
+    if (info->keyRows >= 4) {
+        struct { const char* text; bool active; } row4[] = {
+            {"NB",   s->nbOn()},
+            {"NR",   s->nrOn()},
+            {"ANF",  s->anfOn()},
+            {"NR2",  m_audio->nr2Enabled()},
+            {"RN2",  m_audio->rn2Enabled()},
+            {"APF",  s->apfOn()},
+            {"AGC",  s->agcMode() != "off"},
+            {"DAX",  m_radioModel.transmitModel().daxOn()},
+            {"APD",  m_radioModel.transmitModel().apdEnabled()},
+        };
+        for (int i = 0; i < std::min(cols, 9); ++i) {
+            SDKeyStyle ds;
+            ds.type = SDKeyType::ToggleButton;
+            ds.text = row4[i].text;
+            ds.active = row4[i].active;
+            auto img = StreamDeckKeyRenderer::render(*info, ds);
+            int keyIdx = cols * 3 + i;
+            QMetaObject::invokeMethod(m_streamDeck, [this, serial, keyIdx, img] {
+                m_streamDeck->setKeyImage(serial, keyIdx, img);
+            });
+        }
+    }
+
+    // Row 1-2: Update active band/mode highlights
+    {
+        QString band = BandSettings::bandForFrequency(s->frequency());
+        const char* bands[] = {"160m","80m","60m","40m","30m","20m","17m","15m","12m"};
+        for (int i = 0; i < std::min(cols, 9); ++i) {
+            SDKeyStyle bs;
+            bs.type = SDKeyType::BandButton;
+            bs.text = bands[i];
+            bs.active = (band == bands[i]);
+            auto img = StreamDeckKeyRenderer::render(*info, bs);
+            QMetaObject::invokeMethod(m_streamDeck, [this, serial, i, img] {
+                m_streamDeck->setKeyImage(serial, i, img);
+            });
+        }
+
+        const char* modes[] = {"10m","6m","USB","LSB","CW","FT8","AM","FM","SAM"};
+        QString curMode = s->mode();
+        for (int i = 0; i < std::min(cols, 9); ++i) {
+            SDKeyStyle ms;
+            ms.type = (i >= 2) ? SDKeyType::ModeButton : SDKeyType::BandButton;
+            ms.text = modes[i];
+            if (i < 2) {
+                QString b = (i == 0) ? "10m" : "6m";
+                ms.active = (band == b);
+            } else {
+                ms.active = (curMode == modes[i]);
+            }
+            auto img = StreamDeckKeyRenderer::render(*info, ms);
+            QMetaObject::invokeMethod(m_streamDeck, [this, serial, i, cols, img] {
+                m_streamDeck->setKeyImage(serial, cols + i, img);
+            });
+        }
+    }
+
+    // Touchscreen: frequency + mode display
+    if (info->touchWidth > 0) {
+        long long hz = static_cast<long long>(std::round(s->frequency() * 1e6));
+        QString text = QString("  %1.%2.%3  %4")
+            .arg(static_cast<int>(hz / 1000000))
+            .arg(static_cast<int>((hz / 1000) % 1000), 3, 10, QChar('0'))
+            .arg(static_cast<int>(hz % 1000), 3, 10, QChar('0'))
+            .arg(s->mode());
+        auto tsImg = StreamDeckKeyRenderer::renderTouchscreen(
+            info->touchWidth, info->touchHeight, text, 0.0f);
+        QMetaObject::invokeMethod(m_streamDeck, [this, serial, info, tsImg] {
+            m_streamDeck->setTouchscreenImage(serial, tsImg,
+                0, 0, info->touchWidth, info->touchHeight);
+        });
+    }
 }
 #endif
 

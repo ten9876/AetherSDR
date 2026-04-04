@@ -435,6 +435,7 @@ void TransmitModel::loadMicProfile(const QString& name)
 
 void TransmitModel::setVoxEnable(bool on)
 {
+    m_voxEnable = on;  // optimistic update — radio may not echo
     emit commandReady(QString("transmit set vox_enable=%1").arg(on ? 1 : 0));
 }
 
