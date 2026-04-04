@@ -1295,6 +1295,57 @@ MainWindow::MainWindow(QWidget* parent)
         m_midiControl->addBinding(b);
 #endif
 
+#ifdef HAVE_HIDAPI
+    m_hidEncoder = new HidEncoderManager;
+    m_hidEncoder->moveToThread(m_extCtrlThread);
+
+    // HID encoder coalesce timer — same 20ms pattern as FlexControl
+    m_hidCoalesceTimer.setSingleShot(true);
+    m_hidCoalesceTimer.setInterval(20);
+    connect(&m_hidCoalesceTimer, &QTimer::timeout, this, [this]() {
+        if (m_hidPendingSteps == 0) return;
+        auto* s = activeSlice();
+        if (!s || s->isLocked()) { m_hidPendingSteps = 0; return; }
+        int stepHz = spectrum() ? spectrum()->stepSize() : 100;
+        double newMhz = s->frequency() + m_hidPendingSteps * stepHz / 1e6;
+        m_hidPendingSteps = 0;
+        QString panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
+        if (!panId.isEmpty())
+            m_radioModel.sendCommand(
+                QString("slice m %1 pan=%2").arg(newMhz, 0, 'f', 6).arg(panId));
+        if (spectrum()) spectrum()->setVfoFrequency(newMhz);
+    });
+
+    connect(m_hidEncoder, &HidEncoderManager::tuneSteps,
+            this, [this](int steps) {
+        m_hidPendingSteps += steps;
+        if (!m_hidCoalesceTimer.isActive())
+            m_hidCoalesceTimer.start();
+    });
+
+    connect(m_hidEncoder, &HidEncoderManager::buttonPressed,
+            this, [this](int button, int action) {
+        // Reuse same action dispatch as FlexControl
+        QString key = QString("HidEncoderBtn%1Action%2").arg(button).arg(action);
+        QString actionName = AppSettings::instance().value(key, "None").toString();
+        if (actionName == "ToggleMox")
+            m_radioModel.setTransmit(!m_radioModel.transmitModel().isTransmitting());
+        else if (actionName == "ToggleTune") {
+            bool tuning = m_radioModel.transmitModel().isTuning();
+            m_radioModel.sendCommand(QString("transmit tune %1").arg(tuning ? 0 : 1));
+        } else if (actionName == "ToggleMute")
+            m_audio->setMuted(!m_audio->isMuted());
+        else if (actionName == "ToggleLock") {
+            if (auto* s = activeSlice()) s->setLocked(!s->isLocked());
+        }
+    });
+
+    connect(m_hidEncoder, &HidEncoderManager::connectionChanged,
+            this, [](bool connected, const QString& name) {
+        qDebug() << "HID encoder:" << (connected ? "connected" : "disconnected") << name;
+    });
+#endif
+
     // Start the external controller thread — objects are already moved
     m_extCtrlThread->start();
 
@@ -1323,6 +1374,12 @@ MainWindow::MainWindow(QWidget* parent)
             });
         }
     }
+#endif
+
+#ifdef HAVE_HIDAPI
+    QMetaObject::invokeMethod(m_hidEncoder, [this] {
+        m_hidEncoder->loadSettings();
+    });
 #endif
 
     // ── P/CW applet: mic meters + ALC meter + model ────────────────────────
@@ -1599,6 +1656,9 @@ MainWindow::~MainWindow()
 #endif
 #ifdef HAVE_MIDI
     delete m_midiControl;
+#endif
+#ifdef HAVE_HIDAPI
+    delete m_hidEncoder;
 #endif
 }
 

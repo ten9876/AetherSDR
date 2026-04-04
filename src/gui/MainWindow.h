@@ -24,6 +24,9 @@
 #ifdef HAVE_MIDI
 #include "core/MidiControlManager.h"
 #endif
+#ifdef HAVE_HIDAPI
+#include "core/HidEncoderManager.h"
+#endif
 #include "core/ShortcutManager.h"
 #include "core/TgxlConnection.h"
 #include "core/DxccColorProvider.h"
@@ -156,6 +159,11 @@ private:
     FlexControlManager*   m_flexControl{nullptr};
     QTimer               m_flexCoalesceTimer;
     int                  m_flexPendingSteps{0};
+#endif
+#ifdef HAVE_HIDAPI
+    HidEncoderManager*   m_hidEncoder{nullptr};
+    QTimer               m_hidCoalesceTimer;
+    int                  m_hidPendingSteps{0};
 #endif
 #ifdef HAVE_MIDI
     MidiControlManager*  m_midiControl{nullptr};

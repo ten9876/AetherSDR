@@ -1336,7 +1336,7 @@ void VfoWidget::buildTabContent()
             auto* minus = new TriBtn(TriBtn::Left);
             row->addWidget(minus);
 
-            m_ritLabel = new QLabel("+0 Hz");
+            m_ritLabel = new ScrollableLabel("+0 Hz");
             m_ritLabel->setAlignment(Qt::AlignCenter);
             m_ritLabel->setStyleSheet(kHzLabelStyle);
             row->addWidget(m_ritLabel, 1);
@@ -1352,6 +1352,10 @@ void VfoWidget::buildTabContent()
             });
             connect(plus, &QPushButton::clicked, this, [this] {
                 if (m_slice) m_slice->setRit(m_ritBtn->isChecked(), m_slice->ritFreq() + RIT_STEP_HZ);
+            });
+            connect(m_ritLabel, &ScrollableLabel::scrolled, this, [this](int dir) {
+                if (m_slice) m_slice->setRit(m_ritBtn->isChecked(),
+                    m_slice->ritFreq() + dir * RIT_STEP_HZ);
             });
 
             vb->addLayout(row);
@@ -1382,7 +1386,7 @@ void VfoWidget::buildTabContent()
             auto* minus = new TriBtn(TriBtn::Left);
             row->addWidget(minus);
 
-            m_xitLabel = new QLabel("+0 Hz");
+            m_xitLabel = new ScrollableLabel("+0 Hz");
             m_xitLabel->setAlignment(Qt::AlignCenter);
             m_xitLabel->setStyleSheet(kHzLabelStyle);
             row->addWidget(m_xitLabel, 1);
@@ -1398,6 +1402,10 @@ void VfoWidget::buildTabContent()
             });
             connect(plus, &QPushButton::clicked, this, [this] {
                 if (m_slice) m_slice->setXit(m_xitBtn->isChecked(), m_slice->xitFreq() + RIT_STEP_HZ);
+            });
+            connect(m_xitLabel, &ScrollableLabel::scrolled, this, [this](int dir) {
+                if (m_slice) m_slice->setXit(m_xitBtn->isChecked(),
+                    m_slice->xitFreq() + dir * RIT_STEP_HZ);
             });
 
             vb->addLayout(row);
