@@ -26,8 +26,9 @@ jobs:
           arch: 'clang_64'
           modules: 'qtmultimedia qtserialport qtwebsockets qtshadertools'
 
-      - name: Install build tools
-        run: brew install ninja autoconf automake libtool
+      - name: Install build tools and dependencies
+        run: brew install ninja autoconf automake libtool \
+          fftw portaudio hidapi qtkeychain
 
       - name: Generate .icns from PNG
         run: |

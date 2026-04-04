@@ -1507,7 +1507,7 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
 
 void SpectrumWidget::resizeEvent(QResizeEvent* ev)
 {
-    QWidget::resizeEvent(ev);
+    SPECTRUM_BASE_CLASS::resizeEvent(ev);
 
     const int chromeH  = FREQ_SCALE_H + DIVIDER_H;
     const int contentH = height() - chromeH;
