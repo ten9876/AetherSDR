@@ -3,6 +3,93 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.7.18.6] — 2026-04-04
+
+### Native StreamDeck, HID Encoders & UX Polish
+
+### New Features
+
+**Native StreamDeck support (#647)**
+- Auto-detect all Elgato StreamDeck models (Mini through Plus XL)
+- Live key rendering at 10 Hz: frequency, mode, band, TX state, DSP toggles
+- Button actions: band select, mode select, SPLIT, LOCK, MUTE, MOX, TUNE, ATU, DSP toggles
+- Dial actions (Plus/Plus XL): VFO tune, AF gain, RF power, squelch, RIT, XIT
+- Touchscreen: frequency + mode display
+- Image caching: only sends changed keys to device
+- Configuration dialog (Settings → StreamDeck)
+- Brightness control with debounce
+
+**USB HID encoder support (#616)**
+- Icom RC-28, Griffin PowerMate, Contour ShuttleXpress/ShuttlePro v2
+- Auto-detect, 5ms poll, hotplug reconnect, configurable buttons
+- udev rules for non-root access
+
+**Scrollable RIT/XIT controls (#619)**
+- Scroll wheel over Hz label adjusts by 10 Hz steps
+
+**Filter passband edge drag (#628)**
+- Click near left/right edge to drag independently in FilterPassbandWidget
+
+**GuardedComboBox across all applets (#618)**
+- Combo boxes consume scroll wheel events at boundaries
+
+### Bug Fixes
+
+**External 10MHz reference showing as TCXO (#606)**
+- Radio sends `state=external`, we only checked `state=ext`
+
+**TGXL power meter zero with PGXL (#600)**
+- Re-scan AMP meter routing when TGXL handle arrives
+
+**Squelch disabled in CW mode (#285)**
+- Radio locks squelch in CW; controls now dimmed
+
+**AmpApplet double title bar**
+- Removed internal title bar, uses AppletPanel drag title bar
+
+**Platform-aware title bar layout**
+- Centered on Linux/Windows, left-aligned on macOS
+
+**Feature request dialog modeless (#652)**
+- Dialog stays open while using AI in browser
+- Clipboard not overwritten on reopen
+
+**Paginated issue fetch in lightbulb prompt (#650)**
+- AI assistants now paginate through all open issues
+
+**Step cycle wraps (#647)**
+- Dial push step size cycles from max back to min
+
+### Community PRs
+
+**RADE RX audio fix (PR #630 by @tmiw)**
+- Match output sample count to input size
+
+**PC mic TX audio (PR #623 by @boydsoftprez)**
+- Opus VITA-49 padding fix, mono USB mic, r8brain resampling
+
+**TGXL meters from direct TCP (PR #627 by @boydsoftprez)**
+- Parse fwd/swr from port 9010 R responses
+
+**MinGW build fix (PR #622 by @boydsoftprez)**
+- TCP_INFO_v0 and _dupenv_s compatibility
+
+**macOS mic TX (PR #642 by @boydsoftprez)**
+- Platform-aware sample rate negotiation
+
+**macOS title bar (PR #641 by @jensenpat)**
+- Left-align identity cluster on macOS
+
+**Go-to-frequency fix (PR #644 by @jensenpat)**
+- Resolve VFO through active slice, defer focus, tuneAndRecenter
+
+### Documentation
+
+**README** streamlined (357 → 130 lines)
+**CONTRIBUTING.md** rewritten (517 → 213 lines)
+**SECURITY.md** scope updated (SmartLink, WebSocket)
+**Wiki** StreamDeck page added
+
 ## [v0.7.18.3] — 2026-04-03
 
 ### Background Image, Community PRs & Bug Fixes

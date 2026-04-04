@@ -3,6 +3,9 @@
 #include "core/AppSettings.h"
 
 #include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QDialog>
+#include <QPointer>
 #include <QPushButton>
 #include <QSlider>
 #include <QLabel>
@@ -338,16 +341,19 @@ void TitleBar::showFeatureRequestDialog()
 void TitleBar::showFeatureRequestDialogImpl()
 {
     static const QString kPrompt =
-        "Before responding, please read the AetherSDR project context at\n"
-        "https://raw.githubusercontent.com/ten9876/AetherSDR/main/CLAUDE.md\n"
-        "to understand the project's architecture, existing features, and current roadmap.\n\n"
+        "IMPORTANT — before doing anything else, fetch the complete list of open\n"
+        "issues by reading pages sequentially until you get fewer than 100 results:\n"
+        "  Page 1: https://github.com/ten9876/AetherSDR/issues?state=open&per_page=100&page=1\n"
+        "  Page 2: https://github.com/ten9876/AetherSDR/issues?state=open&per_page=100&page=2\n"
+        "  ... continue until a page returns fewer than 100 issues.\n"
+        "Do NOT rely on cached or training data for the issue list.\n\n"
+        "Also fetch CLAUDE.md fresh (do not use cached versions):\n"
+        "  https://raw.githubusercontent.com/ten9876/AetherSDR/main/CLAUDE.md\n\n"
         "I want to request a feature for AetherSDR, a Linux-native Qt6/C++20 client\n"
         "for FlexRadio transceivers. It uses the FlexLib API over TCP/UDP.\n\n"
-        "Before writing the feature request, please check the existing open issues at:\n"
-        "https://github.com/ten9876/AetherSDR/issues\n\n"
-        "Search for keywords related to my idea. If you find an existing issue that\n"
-        "covers the same thing, tell me the issue number and title instead of writing\n"
-        "a new one — I'll go add my +1 and comments there.\n\n"
+        "Search the fetched issue list for keywords related to my idea. If you find\n"
+        "an existing issue that covers the same thing, tell me the issue number and\n"
+        "title instead of writing a new one — I'll go add my +1 and comments there.\n\n"
         "If no duplicate exists, please write a GitHub issue for this feature request.\n"
         "Use GitHub-flavored Markdown formatting (headers, code blocks, bullet points).\n"
         "Include:\n"
@@ -363,49 +369,99 @@ void TitleBar::showFeatureRequestDialogImpl()
         "Here is my feature idea:\n\n"
         "[Describe your feature here in plain English]";
 
-    QMessageBox dlg(this);
-    dlg.setWindowTitle("AI-Assisted Feature Request");
-    dlg.setIcon(QMessageBox::Information);
-    dlg.setText(
-        "<h3>Create a Feature Request with AI</h3>"
-        "<p>Use any AI assistant to help you write a detailed, actionable feature request.</p>"
-        "<ol>"
-        "<li><b>Choose your AI</b> — click one of the buttons below to open it</li>"
-        "<li><b>Paste the prompt</b> — it's been copied to your clipboard</li>"
-        "<li><b>Describe your idea</b> — edit the [bracketed] section at the end</li>"
-        "<li><b>Copy the AI's output</b> and click <b>Submit Your Idea</b> to submit it</li>"
-        "</ol>"
-        "<p style='color:#8aa8c0; font-size:11px;'>"
-        "The prompt asks the AI to check for duplicate issues, reference behavior seen in other applications, "
-        "and include protocol hints — everything we need to implement your idea quickly.</p>");
+    // Reuse existing dialog if still open
+    static QPointer<QDialog> sDlg;
+    if (sDlg) {
+        sDlg->raise();
+        sDlg->activateWindow();
+        return;
+    }
 
-    auto* claudeBtn   = dlg.addButton("Claude", QMessageBox::ActionRole);
-    auto* chatgptBtn  = dlg.addButton("ChatGPT", QMessageBox::ActionRole);
-    auto* geminiBtn   = dlg.addButton("Gemini", QMessageBox::ActionRole);
-    auto* grokBtn     = dlg.addButton("Grok", QMessageBox::ActionRole);
-    auto* perplexBtn  = dlg.addButton("Perplexity", QMessageBox::ActionRole);
-    auto* issueBtn    = dlg.addButton("Submit Your Idea", QMessageBox::ActionRole);
-    dlg.addButton(QMessageBox::Close);
+    auto* dlg = new QDialog(this);
+    sDlg = dlg;
+    dlg->setWindowTitle("AI-Assisted Feature Request");
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setStyleSheet("QDialog { background: #0f0f1a; }");
+    dlg->setMinimumWidth(620);
 
-    // Copy prompt to clipboard immediately
+    auto* vbox = new QVBoxLayout(dlg);
+    vbox->setSpacing(8);
+    vbox->setContentsMargins(16, 16, 16, 16);
+
+    auto* header = new QLabel(
+        "<h3 style='color:#c8d8e8;'>Create a Feature Request with AI</h3>"
+        "<p style='color:#8090a0;'>Use any AI assistant to write a detailed feature request.</p>"
+        "<ol style='color:#c8d8e8;'>"
+        "<li><b>Choose your AI</b> below — prompt is copied to your clipboard</li>"
+        "<li><b>Paste the prompt</b> into the AI chat</li>"
+        "<li><b>Describe your idea</b> — edit the [bracketed] section</li>"
+        "<li><b>Copy the AI's output</b> and click <b>Submit Your Idea</b></li>"
+        "</ol>");
+    header->setWordWrap(true);
+    vbox->addWidget(header);
+
+    // Status label — shows after provider selected
+    auto* statusLabel = new QLabel;
+    statusLabel->setStyleSheet("QLabel { color: #20c060; font-size: 11px; font-weight: bold; }");
+    statusLabel->setAlignment(Qt::AlignCenter);
+    statusLabel->hide();
+    vbox->addWidget(statusLabel);
+
+    // AI provider buttons
+    const QString btnStyle =
+        "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
+        "border-radius: 3px; color: #c8d8e8; font-size: 12px; font-weight: bold; "
+        "padding: 6px 12px; }"
+        "QPushButton:hover { background: #203040; }";
+
+    auto* btnRow1 = new QHBoxLayout;
+    struct { const char* name; const char* url; } providers[] = {
+        {"Claude",     "https://claude.ai/new"},
+        {"ChatGPT",    "https://chat.openai.com/"},
+        {"Gemini",     "https://gemini.google.com/"},
+        {"Grok",       "https://grok.x.ai/"},
+        {"Perplexity", "https://www.perplexity.ai/"},
+    };
+    for (const auto& p : providers) {
+        auto* btn = new QPushButton(p.name, dlg);
+        btn->setStyleSheet(btnStyle);
+        QString url = p.url;
+        connect(btn, &QPushButton::clicked, dlg, [url, statusLabel, &kPrompt] {
+            QApplication::clipboard()->setText(kPrompt);
+            QDesktopServices::openUrl(QUrl(url));
+            statusLabel->setText("Prompt copied to clipboard — paste into the AI, "
+                                 "then come back and click Submit Your Idea");
+            statusLabel->show();
+        });
+        btnRow1->addWidget(btn);
+    }
+    vbox->addLayout(btnRow1);
+
+    vbox->addSpacing(8);
+
+    // Submit + Close
+    auto* btnRow2 = new QHBoxLayout;
+    auto* submitBtn = new QPushButton("Submit Your Idea", dlg);
+    submitBtn->setStyleSheet(
+        "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+        "border-radius: 4px; padding: 8px 20px; font-size: 13px; }"
+        "QPushButton:hover { background: #00c8f0; }");
+    connect(submitBtn, &QPushButton::clicked, dlg, [dlg] {
+        QDesktopServices::openUrl(QUrl("https://github.com/ten9876/AetherSDR/issues/new"));
+        dlg->close();
+    });
+    btnRow2->addWidget(submitBtn);
+
+    auto* closeBtn = new QPushButton("Close", dlg);
+    closeBtn->setStyleSheet(btnStyle);
+    connect(closeBtn, &QPushButton::clicked, dlg, &QDialog::close);
+    btnRow2->addWidget(closeBtn);
+    vbox->addLayout(btnRow2);
+
+    // Copy prompt to clipboard on first open
     QApplication::clipboard()->setText(kPrompt);
 
-    dlg.exec();
-
-    auto* clicked = dlg.clickedButton();
-    if (clicked == claudeBtn) {
-        QDesktopServices::openUrl(QUrl("https://claude.ai/new"));
-    } else if (clicked == chatgptBtn) {
-        QDesktopServices::openUrl(QUrl("https://chat.openai.com/"));
-    } else if (clicked == geminiBtn) {
-        QDesktopServices::openUrl(QUrl("https://gemini.google.com/"));
-    } else if (clicked == grokBtn) {
-        QDesktopServices::openUrl(QUrl("https://grok.x.ai/"));
-    } else if (clicked == perplexBtn) {
-        QDesktopServices::openUrl(QUrl("https://www.perplexity.ai/"));
-    } else if (clicked == issueBtn) {
-        QDesktopServices::openUrl(QUrl("https://github.com/ten9876/AetherSDR/issues/new"));
-    }
+    dlg->show();
 }
 
 void TitleBar::onHeartbeat()

@@ -6,6 +6,21 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.7.18.6"), QStringLiteral("2026-04-04"), QStringLiteral("Native StreamDeck, HID Encoders & UX Polish"), {
+            {ChangeCategory::Feature, QStringLiteral("Native StreamDeck support"), QStringLiteral("Auto-detect all Elgato StreamDeck models (Mini through Plus XL) Live key rendering at 10 Hz: frequency, mode, band, TX state, DSP toggles Button actions: band select, mode select, SPLIT, LOCK, MUTE...")},
+            {ChangeCategory::Feature, QStringLiteral("USB HID encoder support"), QStringLiteral("Icom RC-28, Griffin PowerMate, Contour ShuttleXpress/ShuttlePro v2 Auto-detect, 5ms poll, hotplug reconnect, configurable buttons udev rules for non-root access")},
+            {ChangeCategory::Feature, QStringLiteral("Scrollable RIT/XIT controls"), QStringLiteral("Scroll wheel over Hz label adjusts by 10 Hz steps")},
+            {ChangeCategory::Feature, QStringLiteral("Filter passband edge drag"), QStringLiteral("Click near left/right edge to drag independently in FilterPassbandWidget")},
+            {ChangeCategory::Feature, QStringLiteral("GuardedComboBox across all applets"), QStringLiteral("Combo boxes consume scroll wheel events at boundaries")},
+            {ChangeCategory::BugFix, QStringLiteral("External 10MHz reference showing as TCXO"), QStringLiteral("Radio sends `state=external`, we only checked `state=ext`")},
+            {ChangeCategory::BugFix, QStringLiteral("TGXL power meter zero with PGXL"), QStringLiteral("Re-scan AMP meter routing when TGXL handle arrives")},
+            {ChangeCategory::BugFix, QStringLiteral("Squelch disabled in CW mode"), QStringLiteral("Radio locks squelch in CW; controls now dimmed")},
+            {ChangeCategory::BugFix, QStringLiteral("AmpApplet double title bar"), QStringLiteral("Removed internal title bar, uses AppletPanel drag title bar")},
+            {ChangeCategory::BugFix, QStringLiteral("Platform-aware title bar layout"), QStringLiteral("Centered on Linux/Windows, left-aligned on macOS")},
+            {ChangeCategory::BugFix, QStringLiteral("Feature request dialog modeless"), QStringLiteral("Dialog stays open while using AI in browser Clipboard not overwritten on reopen")},
+            {ChangeCategory::BugFix, QStringLiteral("Paginated issue fetch in lightbulb prompt"), QStringLiteral("AI assistants now paginate through all open issues")},
+            {ChangeCategory::BugFix, QStringLiteral("Step cycle wraps"), QStringLiteral("Dial push step size cycles from max back to min")},
+        }},
         {QStringLiteral("0.7.18.3"), QStringLiteral("2026-04-03"), QStringLiteral("Community PRs"), {
             {ChangeCategory::Feature, QStringLiteral("Background image behind FFT spectrum"), QStringLiteral("Custom background image with adjustable dark overlay (0-100% opacity) Bundled AetherSDR logo as default background Choose/Clear buttons in Display overlay panel, persisted across sessions")},
             {ChangeCategory::Feature, QStringLiteral("Dynamic contributors in About dialog"), QStringLiteral("Live contributor list fetched from GitHub API with scrollable inset Falls back to hardcoded list when offline")},
