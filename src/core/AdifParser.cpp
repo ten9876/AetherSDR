@@ -15,7 +15,8 @@ namespace AetherSDR {
 static QString extractField(const QString& block, const QString& fieldName)
 {
     // e.g. <CALL:6>G3ABC  or <CALL:6:S>G3ABC
-    static const QRegularExpression re(
+    // NOTE: do NOT make this regex static — the pattern depends on fieldName.
+    const QRegularExpression re(
         R"(<)" + QRegularExpression::escape(fieldName) + R"((?::\d+(?::[A-Z])?)?:(\d+)>)",
         QRegularExpression::CaseInsensitiveOption);
     auto m = re.match(block);
@@ -101,8 +102,20 @@ QVector<QsoRecord> AdifParser::parse(const QByteArray& data)
         rec.callsign = extractField(block, "CALL").trimmed().toUpper();
         if (rec.callsign.isEmpty()) continue;
 
-        // Band: prefer explicit <BAND> field, fall back to <FREQ> → freqToBand
+        // Band: prefer explicit <BAND> field, fall back to <FREQ> → freqToBand.
+        // Some loggers export bare numbers ("10", "20") instead of ADIF-standard
+        // labels ("10m", "20m") — normalise those here.
         rec.band = extractField(block, "BAND").trimmed().toLower();
+        if (!rec.band.isEmpty() && !rec.band.endsWith('m') && !rec.band.endsWith("cm")) {
+            static const QHash<QString,QString> bandMap = {
+                {"160","160m"},{"80","80m"},{"60","60m"},{"40","40m"},
+                {"30","30m"},{"20","20m"},{"17","17m"},{"15","15m"},
+                {"12","12m"},{"10","10m"},{"6","6m"},{"4","4m"},
+                {"2","2m"},{"70","70cm"},
+            };
+            const QString mapped = bandMap.value(rec.band);
+            if (!mapped.isEmpty()) rec.band = mapped;
+        }
         if (rec.band.isEmpty()) {
             const QString freqStr = extractField(block, "FREQ").trimmed();
             if (!freqStr.isEmpty()) {

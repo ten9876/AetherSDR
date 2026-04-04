@@ -99,11 +99,51 @@ QString DxccColorProvider::freqToBand(double mhz)
     return {};
 }
 
+// Infer a mode group from frequency using IARU Region 1/2 band-plan segments.
+// Used when a spot carries no explicit mode field.
+static QString inferModeFromFreq(double mhz)
+{
+    // Each entry: { lo, hi, modeGroup }
+    static const struct { double lo, hi; const char* mg; } segs[] = {
+        // 160m
+        {1.800, 1.838, "CW"},    {1.838, 1.840, "DATA"}, {1.840, 2.000, "PHONE"},
+        // 80m
+        {3.500, 3.570, "CW"},    {3.570, 3.600, "DATA"}, {3.600, 4.000, "PHONE"},
+        // 60m  (data/phone only)
+        {5.000, 5.060, "DATA"},  {5.060, 5.600, "PHONE"},
+        // 40m
+        {7.000, 7.040, "CW"},    {7.040, 7.100, "DATA"}, {7.100, 7.300, "PHONE"},
+        // 30m  (CW + data only)
+        {10.100,10.130,"CW"},    {10.130,10.150,"DATA"},
+        // 20m
+        {14.000,14.070,"CW"},    {14.070,14.112,"DATA"}, {14.112,14.350,"PHONE"},
+        // 17m
+        {18.068,18.095,"CW"},    {18.095,18.110,"DATA"}, {18.110,18.168,"PHONE"},
+        // 15m
+        {21.000,21.070,"CW"},    {21.070,21.150,"DATA"}, {21.150,21.450,"PHONE"},
+        // 12m
+        {24.890,24.915,"CW"},    {24.915,24.930,"DATA"}, {24.930,24.990,"PHONE"},
+        // 10m
+        {28.000,28.070,"CW"},    {28.070,28.300,"DATA"}, {28.300,29.700,"PHONE"},
+        // 6m
+        {50.000,50.100,"CW"},    {50.100,50.400,"DATA"}, {50.400,54.000,"PHONE"},
+        // 4m
+        {70.000,70.100,"CW"},    {70.100,70.200,"DATA"}, {70.200,70.500,"PHONE"},
+        // 2m
+        {144.000,144.060,"CW"},  {144.060,144.175,"DATA"},{144.175,148.000,"PHONE"},
+        // 70cm
+        {430.000,430.150,"CW"},  {430.150,430.600,"DATA"},{430.600,440.000,"PHONE"},
+    };
+    for (const auto& s : segs)
+        if (mhz >= s.lo && mhz < s.hi) return s.mg;
+    return "PHONE";  // default for anything outside defined segments
+}
+
 QString DxccColorProvider::normaliseMode(const QString& mode)
 {
     const QString m = mode.toUpper();
     if (m == "CW")   return "CW";
-    if (m == "USB" || m == "LSB" || m == "AM" || m == "FM" || m == "PHONE")
+    if (m == "SSB" || m == "USB" || m == "LSB" || m == "AM" || m == "FM" || m == "PHONE")
         return "PHONE";
     // FT8, RTTY, PSK, etc. -> DATA
     return "DATA";
@@ -119,7 +159,9 @@ DxccStatus DxccColorProvider::statusForSpot(const QString& callsign,
     const QString band = freqToBand(freqMhz);
     if (band.isEmpty()) return DxccStatus::Unknown;
 
-    const QString mg = normaliseMode(mode);
+    // If the spot carries no mode, infer it from frequency using the IARU band plan.
+    // Defaulting unknown modes to DATA would mask phone/CW needs for active FT8 operators.
+    const QString mg = mode.trimmed().isEmpty() ? inferModeFromFreq(freqMhz) : normaliseMode(mode);
     return m_workedStatus.query(prefix, band, mg);
 }
 
