@@ -3,6 +3,10 @@
 #include "VfoWidget.h"
 #include "SliceColors.h"
 
+#ifdef AETHER_GPU_SPECTRUM
+#include <rhi/qrhi.h>
+#endif
+
 #include <QPainter>
 #include <QPainterPath>
 #include <QResizeEvent>
@@ -34,12 +38,14 @@
 namespace AetherSDR {
 
 SpectrumWidget::SpectrumWidget(QWidget* parent)
-    : QWidget(parent)
+    : SPECTRUM_BASE_CLASS(parent)
 {
     setMinimumHeight(150);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setAutoFillBackground(false);
+#ifndef AETHER_GPU_SPECTRUM
     setAttribute(Qt::WA_OpaquePaintEvent);
+#endif
     setCursor(Qt::CrossCursor);
     setMouseTracking(true);
 
@@ -1644,6 +1650,40 @@ void SpectrumWidget::pushWaterfallRow(const QVector<float>& bins, int destWidth,
 
 // ─── Paint ────────────────────────────────────────────────────────────────────
 
+#ifdef AETHER_GPU_SPECTRUM
+
+void SpectrumWidget::initialize(QRhiCommandBuffer* cb)
+{
+    Q_UNUSED(cb);
+    if (m_rhiInitialized) return;
+
+    QRhi* r = rhi();
+    if (!r) {
+        qWarning() << "SpectrumWidget: QRhi initialization failed — no GPU backend";
+        return;
+    }
+
+    qDebug() << "SpectrumWidget: QRhi initialized, backend:" << r->backendName();
+    m_rhiInitialized = true;
+}
+
+void SpectrumWidget::render(QRhiCommandBuffer* cb)
+{
+    if (!m_rhiInitialized) return;
+
+    const QColor clearColor(0x0a, 0x0a, 0x14);
+    cb->beginPass(renderTarget(), clearColor, {1.0f, 0});
+    cb->endPass();
+}
+
+void SpectrumWidget::releaseResources()
+{
+    m_rhiInitialized = false;
+    qDebug() << "SpectrumWidget: QRhi resources released";
+}
+
+#else // !AETHER_GPU_SPECTRUM
+
 void SpectrumWidget::paintEvent(QPaintEvent*)
 {
     if (width() <= 0 || height() <= FREQ_SCALE_H + DIVIDER_H + 2) return;
@@ -1853,6 +1893,8 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
 
     qCDebug(lcPerf) << "paintEvent:" << static_cast<int>(frameTimer.elapsed()) << "ms";
 }
+
+#endif // AETHER_GPU_SPECTRUM
 
 // ─── Grid ─────────────────────────────────────────────────────────────────────
 

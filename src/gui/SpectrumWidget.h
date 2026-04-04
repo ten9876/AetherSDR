@@ -8,6 +8,13 @@
 #include <QColor>
 #include <QDateTime>
 
+#ifdef AETHER_GPU_SPECTRUM
+#include <QRhiWidget>
+#define SPECTRUM_BASE_CLASS QRhiWidget
+#else
+#define SPECTRUM_BASE_CLASS QWidget
+#endif
+
 namespace AetherSDR {
 
 class SpectrumOverlayMenu;
@@ -25,7 +32,9 @@ class VfoWidget;
 //   - VFO marker: vertical orange line at the tuned VFO frequency
 //
 // Click anywhere in the spectrum/waterfall area to emit frequencyClicked().
-class SpectrumWidget : public QWidget {
+// When AETHER_GPU_SPECTRUM is enabled, inherits QRhiWidget for GPU-accelerated
+// waterfall rendering. Otherwise falls back to QPainter (QWidget).
+class SpectrumWidget : public SPECTRUM_BASE_CLASS {
     Q_OBJECT
 
 public:
@@ -265,7 +274,13 @@ signals:
     void spotRemoveRequested(int spotIndex);
 
 protected:
+#ifdef AETHER_GPU_SPECTRUM
+    void initialize(QRhiCommandBuffer* cb) override;
+    void render(QRhiCommandBuffer* cb) override;
+    void releaseResources() override;
+#else
     void paintEvent(QPaintEvent* event) override;
+#endif
     void resizeEvent(QResizeEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
@@ -479,6 +494,10 @@ private:
     // Bottom-left waterfall zoom buttons: S(egment), B(and)
     QPushButton* m_zoomSegBtn{nullptr};
     QPushButton* m_zoomBandBtn{nullptr};
+
+#ifdef AETHER_GPU_SPECTRUM
+    bool m_rhiInitialized{false};
+#endif
 };
 
 } // namespace AetherSDR
