@@ -42,14 +42,17 @@ jobs:
       - name: Install system Qt (ARM only)
         if: matrix.use_aqt == false
         run: |
-          sudo apt-get install -y qt6-base-dev qt6-multimedia-dev
+          sudo apt-get install -y qt6-base-dev qt6-multimedia-dev \
+            qt6-websockets-dev qt6-serialport-dev qt6-base-private-dev \
+            qt6-shader-baker qt6-shadertools-dev \
+            libhidapi-dev portaudio19-dev libfftw3-dev
 
       - name: Install Qt 6.7 via aqtinstall (x86_64)
         if: matrix.use_aqt == true
         run: |
           pip3 install aqtinstall
           aqt install-qt linux desktop 6.7.3 linux_gcc_64 \
-            -m qtmultimedia \
+            -m qtmultimedia qtwebsockets qtserialport qtshadertools \
             --outputdir ${{ github.workspace }}/Qt
           echo "Qt6_DIR=${{ github.workspace }}/Qt/6.7.3/gcc_64/lib/cmake/Qt6" >> $GITHUB_ENV
           echo "CMAKE_PREFIX_PATH=${{ github.workspace }}/Qt/6.7.3/gcc_64" >> $GITHUB_ENV

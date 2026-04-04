@@ -22,7 +22,7 @@ jobs:
           host: 'mac'
           target: 'desktop'
           arch: 'clang_64'
-          modules: 'qtmultimedia qtserialport'
+          modules: 'qtmultimedia qtserialport qtwebsockets qtshadertools'
 
       - name: Install build tools
         run: brew install ninja create-dmg autoconf automake libtool
