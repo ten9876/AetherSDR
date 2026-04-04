@@ -426,8 +426,9 @@ void TitleBar::showFeatureRequestDialogImpl()
         auto* btn = new QPushButton(p.name, dlg);
         btn->setStyleSheet(btnStyle);
         QString url = p.url;
-        connect(btn, &QPushButton::clicked, dlg, [url, statusLabel, &kPrompt] {
-            QApplication::clipboard()->setText(kPrompt);
+        const QString& prompt = kPrompt;  // local ref for lambda capture
+        connect(btn, &QPushButton::clicked, dlg, [url, statusLabel, prompt] {
+            QApplication::clipboard()->setText(prompt);
             QDesktopServices::openUrl(QUrl(url));
             statusLabel->setText("Prompt copied to clipboard — paste into the AI, "
                                  "then come back and click Submit Your Idea");
