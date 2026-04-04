@@ -30,8 +30,8 @@ TitleBar::TitleBar(QWidget* parent)
     m_hbox->setContentsMargins(4, 2, 8, 2);
     m_hbox->setSpacing(6);
 
-    // ── Left: menu bar will be inserted here via setMenuBar() ───────────────
-    m_hbox->addStretch(1);
+    // Keep the identity/status cluster anchored on the left, immediately after
+    // the menu bar once it is inserted via setMenuBar().
 
     // ── Heartbeat indicator ─────────────────────────────────────────────────
     m_heartbeat = new QLabel;
@@ -39,8 +39,6 @@ TitleBar::TitleBar(QWidget* parent)
     m_heartbeat->setStyleSheet(
         "QLabel { background: #404858; border-radius: 5px; }");
     m_heartbeat->setToolTip("Radio discovery heartbeat");
-    m_hbox->addWidget(m_heartbeat);
-    m_hbox->addSpacing(2);
 
     // 100ms timer to return green flash back to grey
     m_heartbeatOffTimer = new QTimer(this);
@@ -78,6 +76,8 @@ TitleBar::TitleBar(QWidget* parent)
     m_mfBtn->setCursor(Qt::PointingHandCursor);
     connect(m_mfBtn, &QPushButton::clicked, this, &TitleBar::multiFlexClicked);
     m_hbox->addWidget(m_mfBtn);
+    m_hbox->addSpacing(4);
+    m_hbox->addWidget(m_heartbeat);
 
     m_hbox->addStretch(1);
 
