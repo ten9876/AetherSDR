@@ -1782,6 +1782,26 @@ MainWindow::MainWindow(QWidget* parent)
     m_appletPanel->catApplet()->setRigctlServers(m_rigctlServers, kCatChannels);
     m_appletPanel->catApplet()->setRigctlPtys(m_rigctlPtys, kCatChannels);
     m_appletPanel->catApplet()->setAudioEngine(m_audio);
+#ifdef HAVE_WEBSOCKETS
+    m_tciServer = new TciServer(&m_radioModel, this);
+    m_tciServer->setAudioEngine(m_audio);
+    m_appletPanel->catApplet()->setTciServer(m_tciServer);
+
+    // Wire slice state changes → TCI broadcasts
+    connect(&m_radioModel, &RadioModel::sliceAdded, this, [this](SliceModel* s) {
+        if (m_tciServer)
+            m_tciServer->wireSlice(s->sliceId(), s);
+    });
+    m_tciServer->wireSpotModel();
+
+    // Wire RX audio from PanadapterStream → TCI server for audio streaming
+    if (m_radioModel.panStream()) {
+        connect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
+                m_tciServer, &TciServer::onRxAudioReady);
+        connect(m_radioModel.panStream(), &PanadapterStream::daxAudioReady,
+                m_tciServer, &TciServer::onDaxAudioReady);
+    }
+#endif
 
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
     // DAX enable button in CatApplet → start/stop DAX bridge
@@ -2722,6 +2742,28 @@ void MainWindow::buildMenuBar()
         s.save();
     });
 
+    auto* autoTciAction = settingsMenu->addAction("Autostart TCI with AetherSDR");
+    autoTciAction->setCheckable(true);
+    autoTciAction->setChecked(
+        AppSettings::instance().value("AutoStartTCI", "False").toString() == "True");
+    connect(autoTciAction, &QAction::toggled, this, [this](bool on) {
+        auto& s = AppSettings::instance();
+        s.setValue("AutoStartTCI", on ? "True" : "False");
+        s.save();
+#ifdef HAVE_WEBSOCKETS
+        if (m_tciServer) {
+            if (on && !m_tciServer->isRunning()) {
+                int port = s.value("TciPort", "50001").toInt();
+                m_tciServer->start(static_cast<quint16>(port));
+            } else if (!on && m_tciServer->isRunning()) {
+                m_tciServer->stop();
+            }
+            if (m_appletPanel && m_appletPanel->catApplet())
+                m_appletPanel->catApplet()->setTciEnabled(on);
+        }
+#endif
+    });
+
     auto* autoDaxAction = settingsMenu->addAction("Autostart DAX with AetherSDR");
     autoDaxAction->setCheckable(true);
     autoDaxAction->setChecked(
@@ -2762,6 +2804,7 @@ void MainWindow::buildMenuBar()
 #endif
             && action != multiFlexAction
             && action != autoRigctlAction && action != autoCatAction
+            && action != autoTciAction
             && action != autoDaxAction && action != lowLatencyDaxTxAction) {
             connect(action, &QAction::triggered, this, [this, action] {
                 statusBar()->showMessage(action->text().remove("...") + " — not yet implemented", 3000);
@@ -3546,6 +3589,18 @@ void MainWindow::onConnectionStateChanged(bool connected)
             if (m_appletPanel && m_appletPanel->catApplet())
                 m_appletPanel->catApplet()->setPtyEnabled(true);
         }
+#ifdef HAVE_WEBSOCKETS
+        // Auto-start TCI WebSocket server if enabled
+        if (as.value("AutoStartTCI", "False").toString() == "True") {
+            if (m_tciServer && !m_tciServer->isRunning()) {
+                int tciPort = as.value("TciPort", "50001").toInt();
+                m_tciServer->start(static_cast<quint16>(tciPort));
+                qDebug() << "AutoStart: TCI on port" << tciPort;
+            }
+            if (m_appletPanel && m_appletPanel->catApplet())
+                m_appletPanel->catApplet()->setTciEnabled(true);
+        }
+#endif
         // Populate XVTR bands after radio status settles, and refresh
         // whenever XVTR config changes (add/remove/rename). (#571)
         auto refreshXvtr = [this]() {

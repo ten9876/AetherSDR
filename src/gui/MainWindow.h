@@ -6,6 +6,9 @@
 #include "core/RadioDiscovery.h"
 #include "core/AudioEngine.h"
 #include "core/RigctlServer.h"
+#ifdef HAVE_WEBSOCKETS
+#include "core/TciServer.h"
+#endif
 #include "core/RigctlPty.h"
 #include "core/SmartLinkClient.h"
 #include "core/WanConnection.h"
@@ -130,6 +133,9 @@ private:
     static constexpr int kCatChannels = 4;
     RigctlServer*     m_rigctlServers[kCatChannels]{};
     RigctlPty*        m_rigctlPtys[kCatChannels]{};
+#ifdef HAVE_WEBSOCKETS
+    TciServer*        m_tciServer{nullptr};
+#endif
     SmartLinkClient   m_smartLink;
     WanConnection     m_wanConnection;
     AntennaGeniusModel m_antennaGenius;

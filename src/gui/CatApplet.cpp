@@ -6,6 +6,9 @@
 #include "core/RigctlServer.h"
 #include "core/RigctlPty.h"
 #include "core/AudioEngine.h"
+#ifdef HAVE_WEBSOCKETS
+#include "core/TciServer.h"
+#endif
 #include "ComboStyle.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
@@ -190,6 +193,73 @@ void CatApplet::buildUI()
     }
 
     root->addLayout(enableRow);
+
+    // ── TCI Section ─────────────────────────────────────────────────────────
+#ifdef HAVE_WEBSOCKETS
+    {
+        auto* lbl = new QLabel("TCI Server");
+        lbl->setStyleSheet("QLabel { color: #8aa8c0; font-size: 10px; font-weight: bold; "
+            "border-top: 1px solid #304050; padding: 3px 6px 1px 6px; }");
+        root->addWidget(lbl);
+    }
+    {
+        auto* tciRow = new QHBoxLayout;
+        tciRow->setSpacing(4);
+
+        m_tciEnable = new QPushButton("Enable");
+        m_tciEnable->setCheckable(true);
+        m_tciEnable->setStyleSheet(kGreenToggle);
+        m_tciEnable->setFixedSize(60, 22);
+        tciRow->addWidget(m_tciEnable);
+
+        m_tciStatus = new QLabel("(stopped)");
+        m_tciStatus->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
+        tciRow->addWidget(m_tciStatus, 1);
+
+        auto* tciPortLabel = new QLabel("Port:");
+        tciPortLabel->setStyleSheet(kDimLabel);
+        tciRow->addWidget(tciPortLabel);
+
+        m_tciPort = new QLineEdit(settings.value("TciPort", "50001").toString());
+        m_tciPort->setStyleSheet(kInsetStyle);
+        m_tciPort->setFixedWidth(46);
+        m_tciPort->setAlignment(Qt::AlignCenter);
+        tciRow->addWidget(m_tciPort);
+
+        root->addLayout(tciRow);
+
+        connect(m_tciPort, &QLineEdit::editingFinished, this, [this]() {
+            int port = m_tciPort->text().toInt();
+            if (port < 1024 || port > 65535) {
+                port = 50001;
+                m_tciPort->setText("50001");
+            }
+            auto& ss = AppSettings::instance();
+            ss.setValue("TciPort", QString::number(port));
+            ss.save();
+            // If running, restart with new port
+            if (m_tciEnable->isChecked() && m_tciServer) {
+                m_tciServer->stop();
+                m_tciServer->start(static_cast<quint16>(port));
+                updateTciStatus();
+            }
+        });
+
+        connect(m_tciEnable, &QPushButton::toggled, this, [this](bool on) {
+            if (!m_tciServer) return;
+            int port = m_tciPort->text().toInt();
+            if (port < 1024 || port > 65535) port = 50001;
+            auto& ss = AppSettings::instance();
+            ss.setValue("TciPort", QString::number(port));
+            ss.save();
+            if (on)
+                m_tciServer->start(static_cast<quint16>(port));
+            else
+                m_tciServer->stop();
+            updateTciStatus();
+        });
+    }
+#endif
 
     // ── DAX Section ─────────────────────────────────────────────────────────
     {
@@ -467,6 +537,32 @@ void CatApplet::setAudioEngine(AudioEngine* audio)
     m_audio = audio;
 }
 
+void CatApplet::setTciServer(TciServer* tci)
+{
+#ifdef HAVE_WEBSOCKETS
+    m_tciServer = tci;
+    if (tci) {
+        connect(tci, &TciServer::clientCountChanged,
+                this, [this]() { updateTciStatus(); });
+    }
+#else
+    (void)tci;
+#endif
+}
+
+void CatApplet::setTciEnabled(bool on)
+{
+#ifdef HAVE_WEBSOCKETS
+    if (m_tciEnable) {
+        QSignalBlocker b(m_tciEnable);
+        m_tciEnable->setChecked(on);
+    }
+    updateTciStatus();
+#else
+    (void)on;
+#endif
+}
+
 void CatApplet::updateChannelStatus(int ch)
 {
     if (ch < 0 || ch >= kChannels) return;
@@ -537,6 +633,27 @@ void CatApplet::setDaxIqLevel(int channel, float rms)
     // Scale RMS to 0-100 for QProgressBar (IQ values are typically 0.0-0.5 range)
     int level = static_cast<int>(std::clamp(rms * 200.0f, 0.0f, 100.0f));
     m_iqMeter[channel - 1]->setValue(level);
+}
+
+void CatApplet::updateTciStatus()
+{
+#ifdef HAVE_WEBSOCKETS
+    if (!m_tciStatus) return;
+    if (!m_tciServer || !m_tciServer->isRunning()) {
+        m_tciStatus->setText("(stopped)");
+        m_tciStatus->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
+    } else {
+        int n = m_tciServer->clientCount();
+        m_tciStatus->setText(
+            QStringLiteral(":%1 (%2 client%3)")
+                .arg(m_tciServer->port())
+                .arg(n)
+                .arg(n == 1 ? "" : "s"));
+        m_tciStatus->setStyleSheet(
+            n > 0 ? "QLabel { color: #00b4d8; font-size: 10px; }"
+                  : "QLabel { color: #8090a0; font-size: 10px; }");
+    }
+#endif
 }
 
 } // namespace AetherSDR

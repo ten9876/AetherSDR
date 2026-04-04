@@ -218,6 +218,8 @@ set(CORE_SOURCES
     src/core/WsjtxClient.cpp
     src/core/PotaClient.cpp
     src/core/RigctlServer.cpp
+    src/core/TciServer.cpp
+    src/core/TciProtocol.cpp
     src/core/FirmwareUploader.cpp
     src/core/DvkWavTransfer.cpp
     src/core/FirmwareStager.cpp

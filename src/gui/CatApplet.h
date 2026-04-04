@@ -16,6 +16,7 @@ class SliceModel;
 class RigctlServer;
 class RigctlPty;
 class AudioEngine;
+class TciServer;
 
 // CAT Applet — 4-channel rigctld TCP + PTY control panel.
 // Each channel (A-D) is bound to a slice index (0-3) and provides
@@ -32,10 +33,12 @@ public:
     void setRigctlServers(RigctlServer** servers, int count);
     void setRigctlPtys(RigctlPty** ptys, int count);
     void setAudioEngine(AudioEngine* audio);
+    void setTciServer(TciServer* tci);
 
     // Sync Enable button state (called by MainWindow on autostart)
     void setTcpEnabled(bool on);
     void setPtyEnabled(bool on);
+    void setTciEnabled(bool on);
     void setDaxEnabled(bool on);
     void setDaxRxLevel(int channel, float rms);
     void setDaxTxLevel(float rms);
@@ -53,16 +56,23 @@ private:
     void buildUI();
     void updateChannelStatus(int ch);
     void updateAllChannelStatus();
+    void updateTciStatus();
 
     RadioModel*    m_model{nullptr};
     RigctlServer*  m_servers[kChannels]{};
     RigctlPty*     m_ptys[kChannels]{};
     AudioEngine*   m_audio{nullptr};
+    TciServer*     m_tciServer{nullptr};
 
     // Global controls
     QPushButton* m_tcpEnable{nullptr};
     QPushButton* m_ptyEnable{nullptr};
     QLineEdit*   m_basePort{nullptr};
+
+    // TCI controls
+    QPushButton* m_tciEnable{nullptr};
+    QLineEdit*   m_tciPort{nullptr};
+    QLabel*      m_tciStatus{nullptr};
 
     // Per-channel status labels
     struct ChannelRow {
