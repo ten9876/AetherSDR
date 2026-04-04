@@ -19,6 +19,7 @@
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QMenu>
+#include <QInputDialog>
 #include <QDoubleSpinBox>
 #include <QSignalBlocker>
 #include <QDir>
@@ -910,7 +911,7 @@ void VfoWidget::buildTabContent()
                 markLbl->setStyleSheet(kDimLabel);
                 markLbl->setAlignment(Qt::AlignCenter);
                 lblRow->addWidget(markLbl, 1);
-                auto* shiftLbl = new QLabel("Shift");
+                auto* shiftLbl = new QLabel("Space");
                 shiftLbl->setStyleSheet(kDimLabel);
                 shiftLbl->setAlignment(Qt::AlignCenter);
                 lblRow->addWidget(shiftLbl, 1);
@@ -923,42 +924,52 @@ void VfoWidget::buildTabContent()
                 selRow->setContentsMargins(0, 0, 0, 0);
                 selRow->setSpacing(4);
 
+                static constexpr int MARK_STEP = 25;
+                static constexpr int SHIFT_STEP = 5;
+
                 // Mark selector: ◀ 2125 ▶
                 auto* markMinus = new TriBtn(TriBtn::Left);
                 selRow->addWidget(markMinus);
-                m_markLabel = new QLabel("2125");
+                m_markLabel = new ScrollableLabel("2125");
                 m_markLabel->setAlignment(Qt::AlignCenter);
                 m_markLabel->setStyleSheet(kStepLabelStyle);
                 selRow->addWidget(m_markLabel, 1);
                 auto* markPlus = new TriBtn(TriBtn::Right);
                 selRow->addWidget(markPlus);
 
+                auto markDown = [this] {
+                    if (m_slice) m_slice->setRttyMark(m_slice->rttyMark() - MARK_STEP);
+                };
+                auto markUp = [this] {
+                    if (m_slice) m_slice->setRttyMark(m_slice->rttyMark() + MARK_STEP);
+                };
+                connect(markMinus, &QPushButton::clicked, this, markDown);
+                connect(markPlus, &QPushButton::clicked, this, markUp);
+                connect(m_markLabel, &ScrollableLabel::scrolled, this,
+                        [markUp, markDown](int dir) { if (dir > 0) markUp(); else markDown(); });
+
                 selRow->addSpacing(4);
 
-                // Shift selector: ◀ 170 ▶
+                // Space selector: ◀ 170 ▶
                 auto* shiftMinus = new TriBtn(TriBtn::Left);
                 selRow->addWidget(shiftMinus);
-                m_shiftLabel = new QLabel("170");
+                m_shiftLabel = new ScrollableLabel("170");
                 m_shiftLabel->setAlignment(Qt::AlignCenter);
                 m_shiftLabel->setStyleSheet(kStepLabelStyle);
                 selRow->addWidget(m_shiftLabel, 1);
                 auto* shiftPlus = new TriBtn(TriBtn::Right);
                 selRow->addWidget(shiftPlus);
 
-                static constexpr int MARK_STEP = 25;
-                static constexpr int SHIFT_STEP = 5;
-                connect(markMinus, &QPushButton::clicked, this, [this] {
-                    if (m_slice) m_slice->setRttyMark(m_slice->rttyMark() - MARK_STEP);
-                });
-                connect(markPlus, &QPushButton::clicked, this, [this] {
-                    if (m_slice) m_slice->setRttyMark(m_slice->rttyMark() + MARK_STEP);
-                });
-                connect(shiftMinus, &QPushButton::clicked, this, [this] {
+                auto shiftDown = [this] {
                     if (m_slice) m_slice->setRttyShift(m_slice->rttyShift() - SHIFT_STEP);
-                });
-                connect(shiftPlus, &QPushButton::clicked, this, [this] {
+                };
+                auto shiftUp = [this] {
                     if (m_slice) m_slice->setRttyShift(m_slice->rttyShift() + SHIFT_STEP);
-                });
+                };
+                connect(shiftMinus, &QPushButton::clicked, this, shiftDown);
+                connect(shiftPlus, &QPushButton::clicked, this, shiftUp);
+                connect(m_shiftLabel, &ScrollableLabel::scrolled, this,
+                        [shiftUp, shiftDown](int dir) { if (dir > 0) shiftUp(); else shiftDown(); });
 
                 rvb->addLayout(selRow);
             }
@@ -2354,8 +2365,19 @@ void VfoWidget::updateModeTab()
     // Update quick-mode button labels and active state
     updateQuickModeButtons();
 
-    // Rebuild filter presets for new mode
-    m_filterWidths = filterPresetsFor(cur).filterWidths;
+    // Load custom filter presets from AppSettings, fall back to defaults
+    QString fkey = QStringLiteral("FilterPresets_%1").arg(cur);
+    QString saved = AppSettings::instance().value(fkey, "").toString();
+    if (!saved.isEmpty()) {
+        m_filterWidths.clear();
+        for (const auto& s : saved.split(',', Qt::SkipEmptyParts)) {
+            bool ok;
+            int w = s.toInt(&ok);
+            if (ok && w > 0) m_filterWidths.append(w);
+        }
+    } else {
+        m_filterWidths = filterPresetsFor(cur).filterWidths;
+    }
     rebuildFilterButtons();
 }
 
@@ -2408,6 +2430,34 @@ void VfoWidget::rebuildFilterButtons()
         connect(btn, &QPushButton::clicked, this, [this, w](bool) {
             applyFilterPreset(w);
         });
+
+        // Right-click to customize this preset
+        btn->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(btn, &QPushButton::customContextMenuRequested, this, [this, i, btn](const QPoint& pos) {
+            QMenu menu;
+            menu.addAction("Set Custom Width...", [this, i] {
+                if (!m_slice) return;
+                bool ok;
+                int hz = QInputDialog::getInt(this, "Custom Filter Width",
+                    "Enter filter width in Hz:", m_filterWidths[i],
+                    10, 20000, 10, &ok);
+                if (!ok) return;
+                m_filterWidths[i] = hz;
+                saveFilterPresets();
+                rebuildFilterButtons();
+                applyFilterPreset(hz);
+            });
+            menu.addAction("Reset to Defaults", [this] {
+                if (!m_slice) return;
+                const QString mode = m_slice->mode();
+                AppSettings::instance().remove(
+                    QStringLiteral("FilterPresets_%1").arg(mode));
+                AppSettings::instance().save();
+                updateModeTab();
+            });
+            menu.exec(btn->mapToGlobal(pos));
+        });
+
         m_filterBtns.append(btn);
         m_filterGrid->addWidget(btn, i / 4, i % 4);
     }
@@ -2458,6 +2508,23 @@ void VfoWidget::rebuildFilterButtons()
 void VfoWidget::updateFilterHighlight()
 {
     if (!m_slice) return;
+
+    // Reload presets from AppSettings in case RxApplet changed them
+    const QString key = QStringLiteral("FilterPresets_%1").arg(m_slice->mode());
+    const QString saved = AppSettings::instance().value(key, "").toString();
+    if (!saved.isEmpty()) {
+        QVector<int> loaded;
+        for (const auto& s : saved.split(',', Qt::SkipEmptyParts)) {
+            bool ok;
+            int w = s.toInt(&ok);
+            if (ok && w > 0) loaded.append(w);
+        }
+        if (loaded != m_filterWidths) {
+            m_filterWidths = loaded;
+            rebuildFilterButtons();
+        }
+    }
+
     const int width = m_slice->filterHigh() - m_slice->filterLow();
     int bestIdx = -1, bestDist = INT_MAX;
     for (int i = 0; i < m_filterWidths.size(); ++i) {
@@ -2480,6 +2547,14 @@ void VfoWidget::applyFilterPreset(int widthHz)
 
     if (mode == "LSB" || mode == "DIGL") {
         lo = -widthHz; hi = 0;
+    } else if (mode == "RTTY") {
+        // RTTY: RF_frequency = mark. Filter is relative to mark.
+        // Space is at -rttyShift. Passband should encompass both tones.
+        // Expand symmetrically around the midpoint between mark(0) and space(-shift).
+        int shift = m_slice->rttyShift();
+        int mid = -shift / 2;
+        lo = mid - widthHz / 2;
+        hi = mid + widthHz / 2;
     } else if (mode == "CW" || mode == "CWL") {
         // Centered on carrier — radio's BFO handles pitch offset
         lo = -widthHz / 2;
@@ -2490,6 +2565,18 @@ void VfoWidget::applyFilterPreset(int widthHz)
         lo = 0; hi = widthHz;
     }
     m_slice->setFilterWidth(lo, hi);
+}
+
+void VfoWidget::saveFilterPresets()
+{
+    if (!m_slice) return;
+    QStringList parts;
+    for (int w : m_filterWidths)
+        parts.append(QString::number(w));
+    auto& s = AppSettings::instance();
+    s.setValue(QStringLiteral("FilterPresets_%1").arg(m_slice->mode()),
+              parts.join(','));
+    s.save();
 }
 
 void VfoWidget::setAntennaList(const QStringList& ants)

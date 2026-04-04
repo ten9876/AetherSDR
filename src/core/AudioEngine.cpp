@@ -226,6 +226,8 @@ void AudioEngine::generateWisdom(std::function<void(int,int,const std::string&)>
 void AudioEngine::setNr2Enabled(bool on)
 {
     if (m_nr2Enabled == on) return;
+    // RADE outputs decoded speech — client-side DSP has no effect
+    if (on && m_radeMode) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
     if (on) {
         // Disable RN2/BNR if on — they're mutually exclusive
@@ -253,6 +255,7 @@ void AudioEngine::setNr2Enabled(bool on)
 void AudioEngine::setRn2Enabled(bool on)
 {
     if (m_rn2Enabled == on) return;
+    if (on && m_radeMode) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
     if (on) {
         // Disable NR2/BNR first — they're mutually exclusive
@@ -280,6 +283,7 @@ void AudioEngine::setRn2Enabled(bool on)
 void AudioEngine::setBnrEnabled(bool on)
 {
     if (m_bnrEnabled == on) return;
+    if (on && m_radeMode) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
     if (on) {
         // Mutual exclusion with NR2 and RN2
@@ -928,6 +932,13 @@ void AudioEngine::setInputDevice(const QAudioDevice& dev)
 void AudioEngine::setRadeMode(bool on)
 {
     m_radeMode = on;
+    // RADE outputs decoded speech — client-side DSP has no effect.
+    // Disable any active DSP when entering RADE mode.
+    if (on) {
+        if (m_nr2Enabled) setNr2Enabled(false);
+        if (m_rn2Enabled) setRn2Enabled(false);
+        if (m_bnrEnabled) setBnrEnabled(false);
+    }
 }
 
 void AudioEngine::sendModemTxAudio(const QByteArray& float32pcm)

@@ -1876,8 +1876,11 @@ MainWindow::MainWindow(QWidget* parent)
         if (!grid.isEmpty())
             m_gridLabel->setText(grid);
 
-        // Use GPS UTC time if available, otherwise system UTC
-        if (!utcTime.isEmpty()) {
+        // Use GPS UTC time only when GPSDO is installed and locked.
+        // GPS with no antenna/lock sends stale "00:00:00Z" — fall back to system clock.
+        if (!utcTime.isEmpty()
+            && m_radioModel.oscState() == "gpsdo"
+            && m_radioModel.oscLocked()) {
             m_gpsTimeLabel->setText(utcTime);
             m_useSystemClock = false;
         } else {

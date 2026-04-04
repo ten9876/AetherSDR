@@ -1708,8 +1708,16 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
         struct VfoPos { int sliceId; int x; VfoWidget* w; int splitPartner; };
         QVector<VfoPos> vfos;
         for (const auto& so : m_sliceOverlays) {
-            if (auto* w = m_vfoWidgets.value(so.sliceId, nullptr))
-                vfos.append({so.sliceId, mhzToX(so.freqMhz), w, so.splitPartnerId});
+            if (auto* w = m_vfoWidgets.value(so.sliceId, nullptr)) {
+                int x = mhzToX(so.freqMhz);
+                // In RTTY/DIGL, anchor the flag past the filter high edge
+                // so it doesn't cover the mark/space passband.
+                if (so.mode == "RTTY" || so.mode == "DIGL") {
+                    double hiMhz = so.freqMhz + so.filterHighHz / 1.0e6;
+                    x = mhzToX(hiMhz) + 4;  // 4px padding past filter edge
+                }
+                vfos.append({so.sliceId, x, w, so.splitPartnerId});
+            }
         }
         std::sort(vfos.begin(), vfos.end(), [](const VfoPos& a, const VfoPos& b) {
             return a.x < b.x;
@@ -1745,14 +1753,21 @@ void SpectrumWidget::paintEvent(QPaintEvent*)
         }
 
         // Second pass: assign remaining (non-split) VFOs
+        // In RTTY/DIGL, force flag to fly right so it doesn't cover M/S passband
+        for (const auto& so : m_sliceOverlays) {
+            if (so.mode == "RTTY" || so.mode == "DIGL")
+                dirMap[so.sliceId] = VfoWidget::ForceRight;
+        }
+
         if (vfos.size() == 1) {
-            vfos[0].w->updatePosition(vfos[0].x, specRect.top());
+            VfoWidget::FlagDir dir = dirMap.value(vfos[0].sliceId, VfoWidget::Auto);
+            vfos[0].w->updatePosition(vfos[0].x, specRect.top(), dir);
         } else {
             for (int i = 0; i < vfos.size(); ++i) {
                 VfoWidget::FlagDir dir = VfoWidget::Auto;
 
                 if (dirMap.contains(vfos[i].sliceId)) {
-                    // Split pair: use pre-assigned direction
+                    // Split pair or RTTY: use pre-assigned direction
                     dir = dirMap[vfos[i].sliceId];
                 } else if (vfos.size() == 2) {
                     dir = (i == 0) ? VfoWidget::ForceLeft : VfoWidget::ForceRight;
@@ -2319,33 +2334,29 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
         p.drawLine(fX1, specRect.top(), fX1, specRect.bottom());
         p.drawLine(fX2, specRect.top(), fX2, specRect.bottom());
 
-        // ── Center line ──────────────────────────────────────────────────
-        int markerX = vfoX;
+        // ── RTTY/DIGL: mark/space lines replace the VFO center line ────
+        const bool isRttyMode = (so.mode == "RTTY" || so.mode == "DIGL");
 
-        p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 220), 2.0));
-        p.drawLine(markerX, specRect.top(), markerX, wfRect.bottom());
-
-        // ── Triangle marker at top ───────────────────────────────────────
-        const int triHalf = 6;
-        const int triH = 10;
-        p.setPen(Qt::NoPen);
-        p.setBrush(col);
-        QPolygon tri;
-        tri << QPoint(markerX - triHalf, specRect.top())
-            << QPoint(markerX + triHalf, specRect.top())
-            << QPoint(markerX, specRect.top() + triH);
-        p.drawPolygon(tri);
-
-        // ── RTTY mark/space lines ──────────────────────────────────────
-        if (so.mode == "RTTY") {
-            const double markMhz  = so.freqMhz + so.rttyMark / 1.0e6;
-            const double spaceMhz = markMhz - so.rttyShift / 1.0e6;
+        if (isRttyMode) {
+            double markMhz, spaceMhz;
+            if (so.mode == "RTTY") {
+                // In RTTY mode, RF_frequency IS the mark (radio applies IF shift).
+                markMhz  = so.freqMhz;
+                spaceMhz = so.freqMhz - so.rttyShift / 1.0e6;
+            } else {
+                // In DIGL mode, RF_frequency is the carrier (no IF shift).
+                markMhz  = so.freqMhz - so.rttyMark / 1.0e6;
+                spaceMhz = markMhz - so.rttyShift / 1.0e6;
+            }
             const int markX  = mhzToX(markMhz);
             const int spaceX = mhzToX(spaceMhz);
 
-            QPen rttyPen(QColor(200, 200, 255, 180), 1, Qt::DashLine);
-            p.setPen(rttyPen);
-            p.drawLine(markX,  specRect.top(), markX,  wfRect.bottom());
+            // Mark line — green, dashed
+            p.setPen(QPen(QColor(0, 200, 80, 200), 1, Qt::DashLine));
+            p.drawLine(markX, specRect.top(), markX, wfRect.bottom());
+
+            // Space line — red, dashed
+            p.setPen(QPen(QColor(220, 60, 60, 200), 1, Qt::DashLine));
             p.drawLine(spaceX, specRect.top(), spaceX, wfRect.bottom());
 
             // Labels at top
@@ -2353,9 +2364,27 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
             f.setPixelSize(10);
             f.setBold(true);
             p.setFont(f);
-            p.setPen(QColor(200, 200, 255, 220));
-            p.drawText(markX + 2,  specRect.top() + 12, "M");
+            p.setPen(QColor(0, 200, 80, 240));
+            p.drawText(markX + 2, specRect.top() + 12, "M");
+            p.setPen(QColor(220, 60, 60, 240));
             p.drawText(spaceX + 2, specRect.top() + 12, "S");
+        } else {
+            // ── Standard VFO center line ─────────────────────────────────
+            int markerX = vfoX;
+
+            p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 220), 2.0));
+            p.drawLine(markerX, specRect.top(), markerX, wfRect.bottom());
+
+            // ── Triangle marker at top ───────────────────────────────────
+            const int triHalf = 6;
+            const int triH = 10;
+            p.setPen(Qt::NoPen);
+            p.setBrush(col);
+            QPolygon tri;
+            tri << QPoint(markerX - triHalf, specRect.top())
+                << QPoint(markerX + triHalf, specRect.top())
+                << QPoint(markerX, specRect.top() + triH);
+            p.drawPolygon(tri);
         }
 
         // ── RIT/XIT offset lines ──────────────────────────────────────

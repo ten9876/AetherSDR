@@ -16,6 +16,8 @@
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QMenu>
+#include <QInputDialog>
+#include "core/AppSettings.h"
 #include <QAction>
 #include <QPainter>
 #include <QWheelEvent>
@@ -136,29 +138,29 @@ struct ModeSettings {
 
 static const ModeSettings& modeSettingsFor(const QString& mode)
 {
-    // USB / LSB (default)
+    // USB / LSB (default) — first 6 of VfoWidget's 8 presets
     static const ModeSettings ssbSettings{
-        {1800, 2100, 2400, 2700, 3300, 6000},
+        {1800, 2100, 2400, 2700, 2900, 3300},
         {1, 10, 50, 100, 500, 1000, 2000, 3000}
     };
     // AM / SAM — double-sideband: width split ±half around carrier
     static const ModeSettings amSettings{
-        {5600, 6000, 8000, 10000, 14000, 20000},
+        {5600, 6000, 8000, 10000, 12000, 14000},
         {250, 500, 2500, 3000, 5000, 9000, 10000}
     };
     // CW
     static const ModeSettings cwSettings{
-        {50, 100, 250, 400, 800, 3000},
+        {50, 100, 250, 400},
         {1, 5, 10, 50, 100, 200, 400}
     };
     // DIGL / DIGU
     static const ModeSettings digSettings{
-        {100, 300, 600, 1000, 3000, 6000},
+        {100, 300, 600, 1000, 1500, 2000},
         {1, 5, 10, 20, 100, 250, 500, 1000}
     };
     // RTTY
     static const ModeSettings rttySettings{
-        {250, 300, 350, 400, 1000, 3000},
+        {250, 300, 350, 400, 500, 1000},
         {1, 5, 10, 20, 100, 250, 500, 1000}
     };
     // FM / NFM / DFM — no filter presets
@@ -1243,6 +1245,14 @@ void RxApplet::applyFilterPreset(int widthHz)
     if (mode == "LSB" || mode == "DIGL") {
         lo = -widthHz;
         hi = 0;
+    } else if (mode == "RTTY") {
+        // RTTY: RF_frequency = mark. Filter is relative to mark.
+        // Space is at -rttyShift. Passband should encompass both tones.
+        // Expand symmetrically around the midpoint between mark(0) and space(-shift).
+        int shift = m_slice ? m_slice->rttyShift() : 170;
+        int mid = -shift / 2;  // midpoint between mark(0) and space(-shift)
+        lo = mid - widthHz / 2;
+        hi = mid + widthHz / 2;
     } else if (mode == "CW" || mode == "CWL") {
         // Centered on carrier — the radio's BFO/demodulator applies the
         // pitch offset internally so signals at 0 Hz are heard at the sidetone.
@@ -1263,7 +1273,28 @@ void RxApplet::applyFilterPreset(int widthHz)
 
 void RxApplet::updateFilterButtons()
 {
-    const int width = m_slice ? (m_slice->filterHigh() - m_slice->filterLow()) : -1;
+    if (!m_slice) return;
+
+    // Reload presets from AppSettings in case VfoWidget changed them.
+    // RxApplet shows at most 6 (first 6 of the shared preset list).
+    static constexpr int kMaxRxFilters = 6;
+    const QString key = QStringLiteral("FilterPresets_%1").arg(m_slice->mode());
+    const QString saved = AppSettings::instance().value(key, "").toString();
+    if (!saved.isEmpty()) {
+        QVector<int> loaded;
+        for (const auto& s : saved.split(',', Qt::SkipEmptyParts)) {
+            bool ok;
+            int w = s.toInt(&ok);
+            if (ok && w > 0) loaded.append(w);
+            if (loaded.size() >= kMaxRxFilters) break;
+        }
+        if (loaded != m_filterWidths) {
+            m_filterWidths = loaded;
+            rebuildFilterButtons();
+        }
+    }
+
+    const int width = m_slice->filterHigh() - m_slice->filterLow();
 
     // Find the single closest matching filter preset
     int bestIdx = -1;
@@ -1299,8 +1330,22 @@ void RxApplet::updateModeSettings(const QString& mode)
 
     const bool isFM = (mode == "FM" || mode == "NFM" || mode == "DFM");
 
-    // Update filter widths and rebuild buttons
-    m_filterWidths = settings.filterWidths;
+    // Load custom filter presets from AppSettings, fall back to defaults.
+    // RxApplet shows at most 6 (first 6 of VfoWidget's 8).
+    static constexpr int kMaxRxFilters = 6;
+    QString key = QStringLiteral("FilterPresets_%1").arg(mode);
+    QString saved = AppSettings::instance().value(key, "").toString();
+    if (!saved.isEmpty()) {
+        m_filterWidths.clear();
+        for (const auto& s : saved.split(',', Qt::SkipEmptyParts)) {
+            bool ok;
+            int w = s.toInt(&ok);
+            if (ok && w > 0) m_filterWidths.append(w);
+            if (m_filterWidths.size() >= kMaxRxFilters) break;
+        }
+    } else {
+        m_filterWidths = settings.filterWidths;
+    }
     rebuildFilterButtons();
     m_filterContainer->setVisible(!m_filterWidths.isEmpty() && !isFM);
 
@@ -1357,9 +1402,69 @@ void RxApplet::rebuildFilterButtons()
         connect(btn, &QPushButton::clicked, this, [this, w](bool) {
             applyFilterPreset(w);
         });
+
+        // Right-click to customize this preset
+        btn->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(btn, &QPushButton::customContextMenuRequested, this, [this, i, btn](const QPoint& pos) {
+            QMenu menu;
+            menu.addAction("Set Custom Width...", [this, i] {
+                if (!m_slice) return;
+                bool ok;
+                int hz = QInputDialog::getInt(this, "Custom Filter Width",
+                    "Enter filter width in Hz:", m_filterWidths[i],
+                    10, 20000, 10, &ok);
+                if (!ok) return;
+                m_filterWidths[i] = hz;
+                saveFilterPresets();
+                rebuildFilterButtons();
+                applyFilterPreset(hz);
+            });
+            menu.addAction("Reset to Defaults", [this] {
+                if (!m_slice) return;
+                const QString mode = m_slice->mode();
+                AppSettings::instance().remove(
+                    QStringLiteral("FilterPresets_%1").arg(mode));
+                AppSettings::instance().save();
+                updateModeSettings(mode);
+            });
+            menu.exec(btn->mapToGlobal(pos));
+        });
+
         m_filterBtns.append(btn);
         m_filterGrid->addWidget(btn, i / 3, i % 3);
     }
+}
+
+void RxApplet::saveFilterPresets()
+{
+    if (!m_slice) return;
+    const QString key = QStringLiteral("FilterPresets_%1").arg(m_slice->mode());
+    auto& s = AppSettings::instance();
+
+    // Preserve VfoWidget's extra entries (7th, 8th) if they exist
+    QVector<int> full;
+    QString existing = s.value(key, "").toString();
+    if (!existing.isEmpty()) {
+        for (const auto& p : existing.split(',', Qt::SkipEmptyParts)) {
+            bool ok;
+            int w = p.toInt(&ok);
+            if (ok && w > 0) full.append(w);
+        }
+    }
+
+    // Replace the first N entries with our (up to 6) values
+    for (int i = 0; i < m_filterWidths.size(); ++i) {
+        if (i < full.size())
+            full[i] = m_filterWidths[i];
+        else
+            full.append(m_filterWidths[i]);
+    }
+
+    QStringList parts;
+    for (int w : full)
+        parts.append(QString::number(w));
+    s.setValue(key, parts.join(','));
+    s.save();
 }
 
 void RxApplet::rebuildStepSizes()
@@ -1416,6 +1521,9 @@ void RxApplet::syncStepFromSlice(int stepHz, const QVector<int>& stepList)
     }
     m_stepIdx = bestIdx;
     m_stepLabel->setText(formatStepLabel(m_stepSizes[m_stepIdx]));
+
+    // Notify SpectrumWidget so scroll-to-tune uses the radio's step size
+    emit stepSizeChanged(m_stepSizes[m_stepIdx]);
 }
 
 void RxApplet::updateAgcCombo()

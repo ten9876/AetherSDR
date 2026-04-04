@@ -104,6 +104,7 @@ private:
     void rebuildFilterButtons();
     void updateFilterHighlight();
     void applyFilterPreset(int widthHz);
+    void saveFilterPresets();
     static QString formatFilterLabel(int hz);
 
     SliceModel*    m_slice{nullptr};
@@ -197,8 +198,8 @@ private:
     QPushButton*   m_fmSimplexBtn{nullptr};
     QPushButton*   m_fmOffsetUp{nullptr};
     QPushButton*   m_fmRevBtn{nullptr};
-    QLabel*  m_markLabel{nullptr};
-    QLabel*  m_shiftLabel{nullptr};
+    ScrollableLabel* m_markLabel{nullptr};
+    ScrollableLabel* m_shiftLabel{nullptr};
     // Mode tab
     QComboBox* m_modeCombo{nullptr};
     QPushButton* m_quickModeBtns[3]{};

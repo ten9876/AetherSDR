@@ -77,6 +77,7 @@ private:
     void updateFilterButtons();
     void updateModeSettings(const QString& mode);
     void rebuildFilterButtons();
+    void saveFilterPresets();
     void rebuildStepSizes();
     void updateAgcCombo();
     void updateOffsetDirButtons();
