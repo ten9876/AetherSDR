@@ -2082,24 +2082,28 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 float t = qBound(0.0f, (m_smoothed[i] - minDbm) / range, 1.0f);
                 float y = yBot + t * (yTop - yBot);
 
-                // Intensity-based color: blue (weak) → cyan → green → yellow → red (strong)
-                // Same 5-stop gradient as a heat map
+                // Per-vertex color: heat map or solid from color picker
                 float cr, cg, cb2;
-                if (t < 0.25f) {
-                    float s = t / 0.25f;
-                    cr = 0.0f; cg = s; cb2 = 1.0f;           // blue → cyan
-                } else if (t < 0.5f) {
-                    float s = (t - 0.25f) / 0.25f;
-                    cr = 0.0f; cg = 1.0f; cb2 = 1.0f - s;    // cyan → green
-                } else if (t < 0.75f) {
-                    float s = (t - 0.5f) / 0.25f;
-                    cr = s; cg = 1.0f; cb2 = 0.0f;            // green → yellow
+                if (m_fftHeatMap) {
+                    // Intensity heat map: blue → cyan → green → yellow → red
+                    if (t < 0.25f) {
+                        float s = t / 0.25f;
+                        cr = 0.0f; cg = s; cb2 = 1.0f;
+                    } else if (t < 0.5f) {
+                        float s = (t - 0.25f) / 0.25f;
+                        cr = 0.0f; cg = 1.0f; cb2 = 1.0f - s;
+                    } else if (t < 0.75f) {
+                        float s = (t - 0.5f) / 0.25f;
+                        cr = s; cg = 1.0f; cb2 = 0.0f;
+                    } else {
+                        float s = (t - 0.75f) / 0.25f;
+                        cr = 1.0f; cg = 1.0f - s; cb2 = 0.0f;
+                    }
                 } else {
-                    float s = (t - 0.75f) / 0.25f;
-                    cr = 1.0f; cg = 1.0f - s; cb2 = 0.0f;    // yellow → red
+                    cr = fr; cg = fg; cb2 = fb;
                 }
 
-                // Line vertex: intensity-colored at 90% opacity
+                // Line vertex
                 int li = i * kFftVertStride;
                 lineVerts[li]     = x;
                 lineVerts[li + 1] = y;
@@ -2117,12 +2121,20 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 fillVerts[fi + 4] = cb2;
                 fillVerts[fi + 5] = fa * 0.3f;
 
-                // Fill bottom vertex: fades to dark blue at full alpha
+                // Fill bottom vertex
                 fillVerts[fi + 6]  = x;
                 fillVerts[fi + 7]  = yBot;
-                fillVerts[fi + 8]  = 0.0f;
-                fillVerts[fi + 9]  = 0.0f;
-                fillVerts[fi + 10] = 0.3f;
+                if (m_fftHeatMap) {
+                    // Fade to dark blue
+                    fillVerts[fi + 8]  = 0.0f;
+                    fillVerts[fi + 9]  = 0.0f;
+                    fillVerts[fi + 10] = 0.3f;
+                } else {
+                    // Same color as fill
+                    fillVerts[fi + 8]  = fr;
+                    fillVerts[fi + 9]  = fg;
+                    fillVerts[fi + 10] = fb;
+                }
                 fillVerts[fi + 11] = fa;
             }
 
@@ -2167,7 +2179,7 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
         float specVpH = static_cast<float>(specRect.height()) * dpr;
         QRhiViewport specVp(specVpX, specVpY, specVpW, specVpH);
 
-        // Fill pass (colors baked into vertices)
+        // Fill pass
         cb->setGraphicsPipeline(m_fftFillPipeline);
         cb->setShaderResources(m_fftSrb);
         cb->setViewport(specVp);
@@ -2175,7 +2187,7 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
         cb->setVertexInput(0, 1, &fillVbuf);
         cb->draw(n * 2);
 
-        // Line pass (colors baked into vertices)
+        // Line pass
         cb->setGraphicsPipeline(m_fftLinePipeline);
         cb->setShaderResources(m_fftSrb);
         cb->setViewport(specVp);
@@ -2184,7 +2196,7 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
         cb->draw(n);
     }
 
-    // Draw overlay quad — full widget viewport, alpha-blended on top
+    // Draw overlay quad — on top of FFT fill/line
     if (m_ovPipeline) {
         cb->setGraphicsPipeline(m_ovPipeline);
         cb->setShaderResources(m_ovSrb);
@@ -2628,16 +2640,22 @@ void SpectrumWidget::drawBandPlan(QPainter& p, const QRect& specRect)
         const int x2 = mhzToX(std::min(seg.highMhz, endMhz));
         if (x2 <= x1) continue;
 
-        // License class contrast: Extra-only = dim, wider access = brighter
+        // License class contrast: Extra-only = dim, wider access = brighter.
+        // Fully opaque — mix segment color with dark background to simulate
+        // the old alpha look without letting FFT fill bleed through.
         const QString& lic = seg.license;
-        int alpha = 150;
-        if (lic == "E")          alpha = 50;
-        else if (lic == "E,G")   alpha = 100;
-        else if (lic.contains("T")) alpha = 150;
-        else if (lic.isEmpty())  alpha = 130; // beacons / no class info
+        float blend = 0.6f;  // how much of the segment color to show
+        if (lic == "E")          blend = 0.20f;
+        else if (lic == "E,G")   blend = 0.40f;
+        else if (lic.contains("T")) blend = 0.60f;
+        else if (lic.isEmpty())  blend = 0.50f;
 
-        QColor fill = seg.color;
-        fill.setAlpha(alpha);
+        const QColor bg(0x0a, 0x0a, 0x14);  // dark background
+        QColor fill(
+            static_cast<int>(seg.color.red()   * blend + bg.red()   * (1.0f - blend)),
+            static_cast<int>(seg.color.green() * blend + bg.green() * (1.0f - blend)),
+            static_cast<int>(seg.color.blue()  * blend + bg.blue()  * (1.0f - blend)),
+            255);
         p.fillRect(x1, bandY, x2 - x1, bandH, fill);
 
         // Draw separator lines between adjacent segments

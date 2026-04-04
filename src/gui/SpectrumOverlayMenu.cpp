@@ -913,6 +913,28 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         });
     }
 
+    // Heat Map toggle
+    {
+        auto* lbl = new QLabel("Heat Map:");
+        lbl->setStyleSheet(labelStyle);
+        grid->addWidget(lbl, row, 0, 1, 2);
+
+        auto* btn = new QPushButton("Off");
+        btn->setCheckable(true);
+        btn->setFixedSize(36, 18);
+        btn->setStyleSheet(
+            "QPushButton { background: #1a2a3a; color: #8090a0; border: 1px solid #304050;"
+            " border-radius: 3px; font-size: 10px; font-weight: bold; }"
+            "QPushButton:checked { background: #006040; color: #00ff88; border: 1px solid #00a060; }");
+        grid->addWidget(btn, row, 2, 1, 2);
+        ++row;
+
+        connect(btn, &QPushButton::toggled, this, [this, btn](bool on) {
+            btn->setText(on ? "On" : "Off");
+            emit fftHeatMapChanged(on);
+        });
+    }
+
     // Weighted Average: label spans col 0-1, button in col 2
     {
         auto* waLbl = new QLabel("Weighted Average:");

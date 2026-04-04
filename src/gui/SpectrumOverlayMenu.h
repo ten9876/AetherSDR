@@ -76,6 +76,7 @@ signals:
     void fftWeightedAverageChanged(bool on);
     void fftFillAlphaChanged(float alpha);
     void fftFillColorChanged(const QColor& color);
+    void fftHeatMapChanged(bool on);
     void wfColorGainChanged(int gain);
     void wfBlackLevelChanged(int level);
     void wfAutoBlackChanged(bool on);
