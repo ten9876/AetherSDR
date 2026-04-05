@@ -34,7 +34,8 @@ public:
     void syncDisplaySettings(int avg, int fps, int fillPct, bool weightedAvg,
                              const QColor& fillColor, int gain, int black,
                              bool autoBlack, int rate,
-                             int floorPos = 75, bool floorEnable = false);
+                             int floorPos = 75, bool floorEnable = false,
+                             bool heatMap = true);
 
     // Set the panadapter ID this overlay belongs to (for +RX routing).
     void setPanId(const QString& id) { m_panId = id; }
@@ -168,6 +169,7 @@ private:
     QLabel*      m_fillLabel{nullptr};
     QPushButton* m_fillColorBtn{nullptr};
     QColor       m_fillColor{0x00, 0xe5, 0xff};  // default cyan
+    QPushButton* m_heatMapBtn{nullptr};
     QPushButton* m_weightedAvgBtn{nullptr};
     QSlider*     m_gainSlider{nullptr};
     QLabel*      m_gainLabel{nullptr};

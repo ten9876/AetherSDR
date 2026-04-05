@@ -141,7 +141,7 @@ public:
     void setFftFps(int fps);
     void setFftFillAlpha(float a);
     void setFftFillColor(const QColor& c);
-    void setFftHeatMap(bool on) { m_fftHeatMap = on; }
+    void setFftHeatMap(bool on);
     float fftFillAlpha() const         { return m_fftFillAlpha; }
     QColor fftFillColor() const        { return m_fftFillColor; }
     bool fftHeatMap() const            { return m_fftHeatMap; }

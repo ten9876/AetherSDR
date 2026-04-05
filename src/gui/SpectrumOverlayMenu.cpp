@@ -919,18 +919,18 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         lbl->setStyleSheet(labelStyle);
         grid->addWidget(lbl, row, 0, 1, 2);
 
-        auto* btn = new QPushButton("Off");
-        btn->setCheckable(true);
-        btn->setFixedSize(36, 18);
-        btn->setStyleSheet(
+        m_heatMapBtn = new QPushButton("Off");
+        m_heatMapBtn->setCheckable(true);
+        m_heatMapBtn->setFixedSize(36, 18);
+        m_heatMapBtn->setStyleSheet(
             "QPushButton { background: #1a2a3a; color: #8090a0; border: 1px solid #304050;"
             " border-radius: 3px; font-size: 10px; font-weight: bold; }"
             "QPushButton:checked { background: #006040; color: #00ff88; border: 1px solid #00a060; }");
-        grid->addWidget(btn, row, 2, 1, 2);
+        grid->addWidget(m_heatMapBtn, row, 2, 1, 2);
         ++row;
 
-        connect(btn, &QPushButton::toggled, this, [this, btn](bool on) {
-            btn->setText(on ? "On" : "Off");
+        connect(m_heatMapBtn, &QPushButton::toggled, this, [this](bool on) {
+            m_heatMapBtn->setText(on ? "On" : "Off");
             emit fftHeatMapChanged(on);
         });
     }
@@ -1075,7 +1075,8 @@ void SpectrumOverlayMenu::buildDisplayPanel()
 void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
                                                bool weightedAvg, const QColor& fillColor,
                                                int gain, int black, bool autoBlack, int rate,
-                                               int floorPos, bool floorEnable)
+                                               int floorPos, bool floorEnable,
+                                               bool heatMap)
 {
     if (!m_avgSlider) return;  // panel not built yet
 
@@ -1088,6 +1089,7 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
     m_fpsSlider->setValue(fps);
     m_fpsLabel->setText(QString::number(fps));
     m_fillSlider->setValue(fillPct);
+    m_fillLabel->setText(QString::number(fillPct));
     m_weightedAvgBtn->setChecked(weightedAvg);
     m_weightedAvgBtn->setText(weightedAvg ? "On" : "Off");
     m_fillColor = fillColor;
@@ -1110,6 +1112,11 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
         m_floorEnableBtn->setChecked(floorEnable);
         m_floorEnableBtn->setText(floorEnable ? "On" : "Off");
         m_floorSlider->setEnabled(floorEnable);
+    }
+    if (m_heatMapBtn) {
+        QSignalBlocker bh(m_heatMapBtn);
+        m_heatMapBtn->setChecked(heatMap);
+        m_heatMapBtn->setText(heatMap ? "On" : "Off");
     }
 }
 

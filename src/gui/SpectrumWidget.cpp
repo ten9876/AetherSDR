@@ -140,6 +140,7 @@ void SpectrumWidget::loadSettings()
     } else {
         m_bandPlanFontSize = s.value("BandPlanFontSize", "6").toInt();
     }
+    m_fftHeatMap     = s.value(settingsKey("DisplayFftHeatMap"), "True").toString() == "True";
     m_singleClickTune = s.value("SingleClickTune", "False").toString() == "True";
 
     // Background image — default to bundled logo, "none" = explicitly cleared
@@ -152,7 +153,8 @@ void SpectrumWidget::loadSettings()
     if (m_overlayMenu)
         m_overlayMenu->syncDisplaySettings(m_fftAverage, m_fftFps,
             static_cast<int>(m_fftFillAlpha * 100), m_fftWeightedAvg, m_fftFillColor,
-            m_wfColorGain, m_wfBlackLevel, m_wfAutoBlack, m_wfLineDuration);
+            m_wfColorGain, m_wfBlackLevel, m_wfAutoBlack, m_wfLineDuration,
+            75, false, m_fftHeatMap);
 }
 
 VfoWidget* SpectrumWidget::addVfoWidget(int sliceId)
@@ -210,6 +212,12 @@ void SpectrumWidget::setFftFps(int fps) {
     m_fftFps = fps;
     auto& s = AppSettings::instance();
     s.setValue(settingsKey("DisplayFftFps"), QString::number(fps));
+    s.save();
+}
+void SpectrumWidget::setFftHeatMap(bool on) {
+    m_fftHeatMap = on;
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("DisplayFftHeatMap"), on ? "True" : "False");
     s.save();
 }
 void SpectrumWidget::setFftFillAlpha(float a) {
@@ -2090,10 +2098,32 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             const float yTop = 1.0f;
 
             // Colors from settings
-            float fr = m_fftFillColor.redF();
-            float fg = m_fftFillColor.greenF();
-            float fb = m_fftFillColor.blueF();
-            float fa = m_fftFillAlpha;
+            const float fr = m_fftFillColor.redF();
+            const float fg = m_fftFillColor.greenF();
+            const float fb = m_fftFillColor.blueF();
+            const float fa = m_fftFillAlpha;
+
+            // Solid fill: slider sweeps from translucent gradient to solid.
+            // At low slider: soft glow under curve (bright top, dark faint base)
+            // At high slider: converges to uniform solid fill color
+            const QColor dk = m_fftFillColor.darker(300);
+            const float topAlpha = fa;
+            const float botAlpha = fa * fa;
+            // Blend bottom color from darker(300) toward fill color as slider increases
+            const float colorBlend = fa;  // 0=full dark, 1=same as top
+            const float dr = fr + (1.0f - colorBlend) * (dk.redF() - fr);
+            const float dg = fg + (1.0f - colorBlend) * (dk.greenF() - fg);
+            const float db = fb + (1.0f - colorBlend) * (dk.blueF() - fb);
+            const float gradRange = yTop - yBot;
+
+            auto yColor = [&](float vy, float* out) {
+                const float gt = (gradRange > 0)
+                    ? qBound(0.0f, (yTop - vy) / gradRange, 1.0f) : 0.0f;
+                out[0] = fr + gt * (dr - fr);
+                out[1] = fg + gt * (dg - fg);
+                out[2] = fb + gt * (db - fb);
+                out[3] = topAlpha + gt * (botAlpha - topAlpha);
+            };
 
             // Line vertices: N × (x, y, r, g, b, a)
             QVector<float> lineVerts(n * kFftVertStride);
@@ -2135,30 +2165,28 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 lineVerts[li + 4] = cb2;
                 lineVerts[li + 5] = 0.9f;
 
-                // Fill top vertex (at spectrum line): reduced alpha
+                // Fill vertices
                 int fi = i * 2 * kFftVertStride;
                 fillVerts[fi]     = x;
                 fillVerts[fi + 1] = y;
-                fillVerts[fi + 2] = cr;
-                fillVerts[fi + 3] = cg;
-                fillVerts[fi + 4] = cb2;
-                fillVerts[fi + 5] = fa * 0.3f;
+                fillVerts[fi + 6] = x;
+                fillVerts[fi + 7] = yBot;
 
-                // Fill bottom vertex
-                fillVerts[fi + 6]  = x;
-                fillVerts[fi + 7]  = yBot;
                 if (m_fftHeatMap) {
-                    // Fade to dark blue
+                    // Heatmap: line color at top, fade to dark blue at base
+                    fillVerts[fi + 2] = cr;
+                    fillVerts[fi + 3] = cg;
+                    fillVerts[fi + 4] = cb2;
+                    fillVerts[fi + 5] = fa * 0.3f;
                     fillVerts[fi + 8]  = 0.0f;
                     fillVerts[fi + 9]  = 0.0f;
                     fillVerts[fi + 10] = 0.3f;
+                    fillVerts[fi + 11] = fa;
                 } else {
-                    // Same color as fill
-                    fillVerts[fi + 8]  = fr;
-                    fillVerts[fi + 9]  = fg;
-                    fillVerts[fi + 10] = fb;
+                    // Solid: Y-based gradient (bright at line, dark+faint at base)
+                    yColor(y, &fillVerts[fi + 2]);
+                    yColor(yBot, &fillVerts[fi + 8]);
                 }
-                fillVerts[fi + 11] = fa;
             }
 
             batch->updateDynamicBuffer(m_fftLineVbo, 0,
