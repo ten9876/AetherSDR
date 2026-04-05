@@ -60,8 +60,8 @@ private:
     bool                 m_synced{false};
 
     // TX accumulation: 12 frames of NB_TOTAL_FEATURES = 432 floats
+    QByteArray m_txAccum;
     QByteArray m_txFeatAccum;
-    int        m_txFrameCount{0};
 
     // RX accumulation: rade_nin() RADE_COMP samples
     QByteArray m_rxAccum;

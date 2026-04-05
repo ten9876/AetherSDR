@@ -60,8 +60,8 @@ bool RADEEngine::start()
     m_down24to16 = std::make_unique<Resampler>(24000, 16000);
     m_up16to24   = std::make_unique<Resampler>(16000, 24000);
 
+    m_txAccum.clear();
     m_txFeatAccum.clear();
-    m_txFrameCount = 0;
     m_rxAccum.clear();
     m_synced = false;
 
@@ -95,8 +95,8 @@ void RADEEngine::stop()
     m_rade = nullptr;
     rade_finalize();
 
+    m_txAccum.clear();
     m_txFeatAccum.clear();
-    m_txFrameCount = 0;
     m_rxAccum.clear();
     m_synced = false;
     m_farganWarmedUp = false;
@@ -126,8 +126,8 @@ bool RADEEngine::isSynced() const
 void RADEEngine::resetTx()
 {
 #ifdef HAVE_RADE
+    m_txAccum.clear();
     m_txFeatAccum.clear();
-    m_txFrameCount = 0;
 #endif
 }
 
@@ -140,33 +140,34 @@ void RADEEngine::feedTxAudio(const QByteArray& pcm)
     QByteArray mono16k = m_down24to16->processStereoToMono(reinterpret_cast<const int16_t*>(pcm.constData()), pcm.size() / 4);
 
     // 2. Process 10ms frames (LPCNET_FRAME_SIZE = 160 samples @ 16kHz)
-    const auto* samples = reinterpret_cast<const int16_t*>(mono16k.constData());
-    int totalSamples = mono16k.size() / 2;
-    int pos = 0;
+    m_txAccum.append(reinterpret_cast<const char*>(mono16k.constData()), mono16k.size());
+    while ((m_txAccum.size() / sizeof(int16_t)) >= LPCNET_FRAME_SIZE) {
+        auto sampleArray = m_txAccum.left(LPCNET_FRAME_SIZE * sizeof(int16_t));
+        const int16_t* samples = reinterpret_cast<const int16_t*>(sampleArray.constData());
+        m_txAccum.remove(0, sampleArray.size());
 
-    while (pos + LPCNET_FRAME_SIZE <= totalSamples) {
         // Extract features for one 10ms frame
         float features[NB_TOTAL_FEATURES];
         // opus uses opus_int16 which is int16_t
         lpcnet_compute_single_frame_features(
             m_lpcnetEnc,
-            const_cast<int16_t*>(&samples[pos]),
+            const_cast<int16_t*>(samples),
             features, 0 /*arch=auto*/);
-        pos += LPCNET_FRAME_SIZE;
 
         // Accumulate features (RADE needs n_features_in features per call)
         m_txFeatAccum.append(reinterpret_cast<const char*>(features),
                              NB_TOTAL_FEATURES * sizeof(float));
-        m_txFrameCount++;
 
         // RADE encoder needs 12 feature frames (120ms)
         int n_features_in = rade_n_features_in_out(m_rade);
-        if (m_txFrameCount * NB_TOTAL_FEATURES >= n_features_in) {
-            int n_tx_out = rade_n_tx_out(m_rade);
+        int n_tx_out = rade_n_tx_out(m_rade);
+        while ((m_txFeatAccum.size() / sizeof(float)) >= qsizetype(n_features_in)) {
             std::vector<RADE_COMP> tx_out(n_tx_out);
 
             rade_tx(m_rade, tx_out.data(),
                     reinterpret_cast<float*>(m_txFeatAccum.data()));
+
+            m_txFeatAccum.remove(0, n_features_in * sizeof(float));
 
             // 3. Convert RADE_COMP → 8kHz mono int16 (take real part)
             QByteArray modem8k(n_tx_out * 2, Qt::Uninitialized);
@@ -189,9 +190,6 @@ void RADEEngine::feedTxAudio(const QByteArray& pcm)
                 dst[i] = src[i] / 32768.0f;
 
             emit txModemReady(float32pcm);
-
-            m_txFeatAccum.clear();
-            m_txFrameCount = 0;
         }
     }
 #else
