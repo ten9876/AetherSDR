@@ -26,6 +26,7 @@ private:
     RadioModel* m_model;
 
     QPushButton* m_spotsToggle;
+    QPushButton* m_memoriesToggle;
     QSlider*     m_levelsSlider;
     QLabel*      m_levelsValue;
     QSlider*     m_positionSlider;
@@ -42,6 +43,7 @@ private:
     QLabel*      m_totalSpotsLabel;
 
     bool   m_spotsEnabled{true};
+    bool   m_memoriesEnabled{false};
     bool   m_overrideColors{false};
     bool   m_overrideBg{true};
     bool   m_overrideBgAutoMode{true};

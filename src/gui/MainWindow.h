@@ -120,6 +120,11 @@ private:
                                 std::shared_ptr<QStringList> panIds, int created);
     void updatePaTempLabel();
     void setPaTempDisplayUnit(bool useFahrenheit);
+    void syncMemorySpot(int memoryIndex);
+    void removeMemorySpot(int memoryIndex);
+    void clearMemorySpotFeed();
+    void rebuildMemorySpotFeed();
+    void activateMemorySpot(int memoryIndex);
 
     BandSnapshot captureCurrentBandState() const;
     void restoreBandState(const BandSnapshot& snap);

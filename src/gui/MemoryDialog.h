@@ -16,6 +16,7 @@ public:
 
 private:
     void populateTable();
+    void submitCellEdit(int row, int col);
     void onAdd();
     void onSelect();
     void onRemove();

@@ -1552,6 +1552,7 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
 
     auto& s = AppSettings::instance();
     bool spotsEnabled     = s.value("IsSpotsEnabled", "True").toString() == "True";
+    bool memoriesEnabled  = s.value("IsMemorySpotsEnabled", "False").toString() == "True";
     bool overrideColors   = s.value("IsSpotsOverrideColorsEnabled", "False").toString() == "True";
     bool overrideBg       = s.value("IsSpotsOverrideBackgroundColorsEnabled", "True").toString() == "True";
     bool overrideBgAuto   = s.value("IsSpotsOverrideToAutoBackgroundColorEnabled", "True").toString() == "True";
@@ -1594,6 +1595,23 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
         save("IsSpotsEnabled", on ? "True" : "False");
     });
     grid->addWidget(spotsToggle, row++, 1, Qt::AlignLeft);
+
+    // ── Memory feed visibility ──────────────────────────────────────────
+    grid->addWidget(new QLabel("Memories:"), row, 0);
+    auto* memoriesToggle = new QPushButton(memoriesEnabled ? "Enabled" : "Disabled");
+    memoriesToggle->setCheckable(true);
+    memoriesToggle->setChecked(memoriesEnabled);
+    memoriesToggle->setFixedWidth(80);
+    memoriesToggle->setToolTip(
+        "Show radio memory channels as a spot-like feed on the panadapter.");
+    memoriesToggle->setStyleSheet(
+        "QPushButton { background: #206030; color: white; border: 1px solid #305040; padding: 3px; }"
+        "QPushButton:!checked { background: #603020; }");
+    connect(memoriesToggle, &QPushButton::toggled, this, [memoriesToggle, save](bool on) {
+        memoriesToggle->setText(on ? "Enabled" : "Disabled");
+        save("IsMemorySpotsEnabled", on ? "True" : "False");
+    });
+    grid->addWidget(memoriesToggle, row++, 1, Qt::AlignLeft);
 
     // ── Auto-switch mode on spot click (#424) ───────────────────────────
     grid->addWidget(new QLabel("Auto Mode:"), row, 0);

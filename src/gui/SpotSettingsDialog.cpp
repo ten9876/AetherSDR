@@ -14,11 +14,13 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
     : QDialog(parent), m_model(model)
 {
     setWindowTitle("Spot Settings");
-    setFixedSize(380, 480);
+    setMinimumSize(380, 520);
+    resize(380, 520);
 
     // Load persisted settings
     auto& s = AppSettings::instance();
     m_spotsEnabled       = s.value("IsSpotsEnabled", "True").toString() == "True";
+    m_memoriesEnabled    = s.value("IsMemorySpotsEnabled", "False").toString() == "True";
     m_overrideColors     = s.value("IsSpotsOverrideColorsEnabled", "False").toString() == "True";
     m_overrideBg         = s.value("IsSpotsOverrideBackgroundColorsEnabled", "True").toString() == "True";
     m_overrideBgAutoMode = s.value("IsSpotsOverrideToAutoBackgroundColorEnabled", "True").toString() == "True";
@@ -64,6 +66,24 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
         save("IsSpotsEnabled", on ? "True" : "False");
     });
     grid->addWidget(m_spotsToggle, row++, 1, Qt::AlignLeft);
+
+    // ── Memories: Enabled/Disabled ──────────────────────────────────────
+    grid->addWidget(new QLabel("Memories:"), row, 0);
+    m_memoriesToggle = new QPushButton(m_memoriesEnabled ? "Enabled" : "Disabled");
+    m_memoriesToggle->setCheckable(true);
+    m_memoriesToggle->setChecked(m_memoriesEnabled);
+    m_memoriesToggle->setFixedWidth(80);
+    m_memoriesToggle->setToolTip(
+        "Show radio memory channels as a spot-like feed on the panadapter.");
+    m_memoriesToggle->setStyleSheet(
+        "QPushButton { background: #206030; color: white; border: 1px solid #305040; padding: 3px; }"
+        "QPushButton:!checked { background: #603020; }");
+    connect(m_memoriesToggle, &QPushButton::toggled, this, [this, save](bool on) {
+        m_memoriesEnabled = on;
+        m_memoriesToggle->setText(on ? "Enabled" : "Disabled");
+        save("IsMemorySpotsEnabled", on ? "True" : "False");
+    });
+    grid->addWidget(m_memoriesToggle, row++, 1, Qt::AlignLeft);
 
     // ── Levels slider ───────────────────────────────────────────────────
     grid->addWidget(new QLabel("Levels:"), row, 0);

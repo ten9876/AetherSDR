@@ -259,7 +259,9 @@ signals:
     // Emitted when a power amplifier (e.g. PGXL) is detected or lost.
     void amplifierChanged(bool present);
     void ampStateChanged();   // amplifier operate/bypass changed
+    void memoryChanged(int index);
     void memoryRemoved(int index);
+    void memoriesCleared();
     void audioOutputChanged();
     // Emitted when TX ownership changes in Multi-Flex (another client transmitting)
     void txOwnerChanged(bool ownedByUs, const QString& otherStation);

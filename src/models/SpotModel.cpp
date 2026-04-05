@@ -63,4 +63,9 @@ void SpotModel::clear()
     emit spotsCleared();
 }
 
+void SpotModel::refresh()
+{
+    emit spotsRefreshed();
+}
+
 } // namespace AetherSDR

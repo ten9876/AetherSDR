@@ -34,12 +34,14 @@ public:
     void applySpotStatus(int index, const QMap<QString, QString>& kvs);
     void removeSpot(int index);
     void clear();
+    void refresh();
 
 signals:
     void spotAdded(const SpotData& spot);
     void spotUpdated(const SpotData& spot);
     void spotRemoved(int index);
     void spotsCleared();
+    void spotsRefreshed();
     void spotTriggered(int index, const QString& panId);
 
 private:

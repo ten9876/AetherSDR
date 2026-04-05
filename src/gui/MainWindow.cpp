@@ -106,8 +106,47 @@ namespace AetherSDR {
 // ─── Shortcut guard (file-scope for use as std::function<bool()>) ───────────
 
 static constexpr const char* kPaTempUnitSettingKey = "PaTempDisplayUnit";
+static constexpr int kMemorySpotIdBase = 1000000;
 
 static bool s_keyboardShortcutsEnabled = false;
+
+static int memorySpotId(int memoryIndex)
+{
+    return -(kMemorySpotIdBase + memoryIndex);
+}
+
+static int memoryIndexFromSpotId(int spotIndex)
+{
+    if (spotIndex > -kMemorySpotIdBase)
+        return -1;
+    return -spotIndex - kMemorySpotIdBase;
+}
+
+static QString memorySpotLabel(const MemoryEntry& memory)
+{
+    if (!memory.name.trimmed().isEmpty())
+        return memory.name.trimmed();
+    if (!memory.group.trimmed().isEmpty())
+        return memory.group.trimmed();
+    return QString("Memory %1").arg(memory.index);
+}
+
+static QString memorySpotComment(const MemoryEntry& memory)
+{
+    QStringList parts;
+    if (!memory.group.trimmed().isEmpty())
+        parts << QString("Group: %1").arg(memory.group.trimmed());
+    if (!memory.owner.trimmed().isEmpty())
+        parts << QString("Owner: %1").arg(memory.owner.trimmed());
+    if (!memory.mode.trimmed().isEmpty())
+        parts << QString("Mode: %1").arg(memory.mode.trimmed());
+    if (memory.rxFilterLow != 0 || memory.rxFilterHigh != 0) {
+        parts << QString("Filter: %1..%2 Hz")
+                    .arg(memory.rxFilterLow)
+                    .arg(memory.rxFilterHigh);
+    }
+    return parts.join(" | ");
+}
 
 static bool isTextInputFocused()
 {
@@ -168,7 +207,7 @@ MainWindow::MainWindow(QWidget* parent)
         }
     }
     connect(&m_dxccProvider, &DxccColorProvider::importFinished,
-            this, [this](int, int) { emit m_radioModel.spotModel().spotsCleared(); });
+            this, [this](int, int) { m_radioModel.spotModel().refresh(); });
 
     // Install event filter on the application to intercept Space PTT
     // before child widgets (buttons, combos) consume the key event.
@@ -516,6 +555,14 @@ MainWindow::MainWindow(QWidget* parent)
             this, &MainWindow::onSliceAdded);
     connect(&m_radioModel, &RadioModel::sliceRemoved,
             this, &MainWindow::onSliceRemoved);
+    connect(&m_radioModel, &RadioModel::memoryChanged,
+            this, &MainWindow::syncMemorySpot);
+    connect(&m_radioModel, &RadioModel::memoryRemoved,
+            this, &MainWindow::removeMemorySpot);
+    connect(&m_radioModel, &RadioModel::memoriesCleared,
+            this, &MainWindow::clearMemorySpotFeed);
+    connect(&m_radioModel.spotModel(), &SpotModel::spotsCleared,
+            this, &MainWindow::rebuildMemorySpotFeed);
 
     // ── TX audio stream: set stream ID for DAX TX path ──────────────────
     // DAX TX audio is sent via PanadapterStream::sendToRadio() (the
@@ -2501,6 +2548,9 @@ void MainWindow::buildMenuBar()
                 sw->setSpotBgColor(bgColor);
                 sw->setSpotBgOpacity(bgOpacity);
             }
+            // Rebuild markers so source-level visibility changes, such as the
+            // Memories feed toggle, apply immediately without mutating the cache.
+            m_radioModel.spotModel().refresh();
         };
         connect(dlg, &DxClusterDialog::settingsChanged, this, refreshSpots);
         connect(dlg, &DxClusterDialog::connectRequested,
@@ -3794,6 +3844,75 @@ void MainWindow::onConnectionError(const QString& msg)
     statusBar()->showMessage("Connection error: " + msg, 5000);
 }
 
+void MainWindow::syncMemorySpot(int memoryIndex)
+{
+    auto it = m_radioModel.memories().constFind(memoryIndex);
+    if (it == m_radioModel.memories().constEnd()) {
+        removeMemorySpot(memoryIndex);
+        return;
+    }
+
+    const MemoryEntry& memory = it.value();
+    if (memory.freq <= 0.0) {
+        removeMemorySpot(memoryIndex);
+        return;
+    }
+
+    QMap<QString, QString> kvs;
+    kvs["callsign"] = memorySpotLabel(memory).replace(' ', QChar(0x7f));
+    kvs["rx_freq"] = QString::number(memory.freq, 'f', 6);
+    kvs["tx_freq"] = QString::number(memory.freq, 'f', 6);
+    kvs["source"] = "Memory";
+    kvs["mode"] = memory.mode;
+    kvs["color"] = "#FFFFC857";
+    const QString comment = memorySpotComment(memory);
+    if (!comment.isEmpty())
+        kvs["comment"] = QString(comment).replace(' ', QChar(0x7f));
+
+    m_radioModel.spotModel().applySpotStatus(memorySpotId(memoryIndex), kvs);
+}
+
+void MainWindow::removeMemorySpot(int memoryIndex)
+{
+    m_radioModel.spotModel().removeSpot(memorySpotId(memoryIndex));
+}
+
+void MainWindow::clearMemorySpotFeed()
+{
+    QVector<int> ids;
+    const auto& spots = m_radioModel.spotModel().spots();
+    for (auto it = spots.cbegin(); it != spots.cend(); ++it) {
+        if (it.value().source == "Memory")
+            ids.append(it.key());
+    }
+    for (int id : ids)
+        m_radioModel.spotModel().removeSpot(id);
+}
+
+void MainWindow::rebuildMemorySpotFeed()
+{
+    for (auto it = m_radioModel.memories().cbegin(); it != m_radioModel.memories().cend(); ++it)
+        syncMemorySpot(it.key());
+}
+
+void MainWindow::activateMemorySpot(int memoryIndex)
+{
+    if (auto* slice = activeSlice(); !slice || slice->isLocked())
+        return;
+
+    const auto it = m_radioModel.memories().constFind(memoryIndex);
+    if (it == m_radioModel.memories().constEnd())
+        return;
+
+    m_radioModel.sendCommand(QString("memory apply %1").arg(memoryIndex));
+
+    // The radio should push the rest of the applied memory state, but keep the
+    // local tuning step in sync immediately so wheel/click snap follows along.
+    if (it->step > 0 && activeSlice())
+        m_radioModel.sendCommand(QString("slice set %1 step=%2")
+            .arg(activeSlice()->sliceId()).arg(it->step));
+}
+
 void MainWindow::onSliceAdded(SliceModel* s)
 {
     // During layout transition, spectrums are being destroyed/recreated — skip
@@ -4468,13 +4587,20 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     auto rebuildSpots = [this, swGuard]() {
         if (!swGuard) return;  // widget destroyed (layout change)
         auto* s = &m_radioModel.spotModel();
+        const bool showMemories =
+            AppSettings::instance().value("IsMemorySpotsEnabled", "False").toString() == "True";
         QVector<SpectrumWidget::SpotMarker> markers;
         for (const auto& spot : s->spots()) {
-            qint64 tsMs = (spot.timestamp.isValid() && spot.timestamp.toMSecsSinceEpoch() > 0)
-                ? spot.timestamp.toMSecsSinceEpoch()
-                : spot.addedMs;
+            if (spot.source == "Memory" && !showMemories)
+                continue;
+            qint64 tsMs = 0;
+            if (spot.source != "Memory") {
+                tsMs = (spot.timestamp.isValid() && spot.timestamp.toMSecsSinceEpoch() > 0)
+                    ? spot.timestamp.toMSecsSinceEpoch()
+                    : spot.addedMs;
+            }
             QColor dxccCol;
-            if (m_dxccProvider.isEnabled())
+            if (m_dxccProvider.isEnabled() && spot.source != "Memory")
                 dxccCol = m_dxccProvider.colorForSpot(spot.callsign, spot.rxFreqMhz, spot.mode);
             markers.append({spot.index, spot.callsign, spot.rxFreqMhz, spot.color, spot.mode,
                             dxccCol, spot.source, spot.spotterCallsign, spot.comment, tsMs});
@@ -4485,6 +4611,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     connect(spots, &SpotModel::spotUpdated, this, rebuildSpots);
     connect(spots, &SpotModel::spotRemoved, this, rebuildSpots);
     connect(spots, &SpotModel::spotsCleared,this, rebuildSpots);
+    connect(spots, &SpotModel::spotsRefreshed, this, rebuildSpots);
     {
         auto& s = AppSettings::instance();
         sw->setShowSpots(s.value("IsSpotsEnabled", "True").toString() == "True");
@@ -4653,6 +4780,17 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 
     // ── Spot trigger — notify the radio when a spot label is clicked (#341)
     connect(sw, &SpectrumWidget::spotTriggered, this, [this](int spotIndex) {
+        const auto& spots = m_radioModel.spotModel().spots();
+        auto it = spots.find(spotIndex);
+        if (it == spots.end()) return;
+
+        if (it->source == "Memory") {
+            int memoryIndex = memoryIndexFromSpotId(spotIndex);
+            if (memoryIndex >= 0)
+                activateMemorySpot(memoryIndex);
+            return;
+        }
+
         m_radioModel.sendCommand(QString("spot trigger %1").arg(spotIndex));
 
         // Auto-switch mode from spot metadata (#424)
@@ -4660,9 +4798,6 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             return;
         auto* s = activeSlice();
         if (!s) return;
-        const auto& spots = m_radioModel.spotModel().spots();
-        auto it = spots.find(spotIndex);
-        if (it == spots.end()) return;
 
         // Extract mode: prefer explicit mode field, fall back to comment text
         QString spotMode = it->mode.toUpper().trimmed();

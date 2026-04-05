@@ -1049,6 +1049,10 @@ void RadioModel::onDisconnected()
     m_panadapters.clear();
     m_activePanId.clear();
     m_ownedSliceIds.clear();
+    if (!m_memories.isEmpty()) {
+        m_memories.clear();
+        emit memoriesCleared();
+    }
     m_clientStations.clear();
     m_clientInfoMap.clear();
     emit otherClientsChanged(0, {});
@@ -1277,6 +1281,8 @@ void RadioModel::handleMemoryStatus(int index, const QMap<QString, QString>& kvs
         else if (k == "digl_offset")     m.diglOffset = v.toInt();
         else if (k == "digu_offset")     m.diguOffset = v.toInt();
     }
+
+    emit memoryChanged(index);
 }
 
 // ─── Raw message handler (for meter status with '#' separators) ──────────────
