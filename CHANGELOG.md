@@ -3,6 +3,62 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.2] — 2026-04-05
+
+### PGXL Integration, PROC Fix, GPU Polish
+
+### New Features
+
+**PGXL direct connection**
+- Direct TCP connection to PowerGeniusXL on port 9008
+- Amplifier applet: drain current, mains voltage, MEffA status
+- OPERATE/STANDBY button matching TGXL style
+- S-Meter power gauge fed from PGXL peakfwd during TX
+- TX mode driven by PGXL state (TRANSMIT_A/B)
+- 5 Hz poll rate for responsive metering
+
+**UTC date in status bar (#713)**
+- Stacked date (yyyy-MM-dd) above time in status bar
+
+**4m band support (#695)**
+- 70 MHz band definition for FLEX-6700 XVTR (Region 1)
+
+**Memory spots on panadapter (#704)**
+- Saved memories as clickable spots, toggle in SpotHub Display
+
+### Bug Fixes
+
+**PROC/compander fix (#661, #667)**
+- PROC button now sends compander commands (was speech_processor)
+- NOR/DX/DX+ slider sends compander_level
+- Mic profile PROC level restores correctly
+
+**S-Meter reads 0W during TX with PGXL**
+- Exciter txMetersChanged skipped when amplifier present
+- S-Meter TX mode driven from PGXL state, not moxChanged
+
+**GPU rendering polish (#722, #725, #726, #729, #730, #731)**
+- Cursor frequency label restored in GPU mode
+- WNB/RF gain indicators update correctly (markOverlayDirty)
+- Waterfall syncs on band change
+- Fill gradient matches QPainter fallback (bright at line, dark at base)
+- Heatmap toggle persisted in AppSettings
+
+**Batch memory spot removal (#708)**
+- Signal blocked during loop, single rebuild after
+
+**Dark/Light theme toggle removed (#686)**
+- Placeholder menu item was confusing users
+
+### Build System
+
+- macOS: arm64 only (Intel via Rosetta), dropped PKG installer
+
+### Community Contributions
+
+- @boydsoftprez — GPU fill gradient, cursor label, WNB/waterfall sync
+- @jensenpat — memory spots on panadapter
+
 ## [v0.8.1] — 2026-04-05
 
 ### macOS Metal Fix + Memory Spots

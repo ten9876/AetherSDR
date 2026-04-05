@@ -6,6 +6,17 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.8.2"), QStringLiteral("2026-04-05"), QStringLiteral("Build System"), {
+            {ChangeCategory::Feature, QStringLiteral("PGXL direct connection"), QStringLiteral("Direct TCP connection to PowerGeniusXL on port 9008 Amplifier applet: drain current, mains voltage, MEffA status OPERATE/STANDBY button matching TGXL style S-Meter power gauge fed from PGXL peakfwd...")},
+            {ChangeCategory::Feature, QStringLiteral("UTC date in status bar"), QStringLiteral("Stacked date (yyyy-MM-dd) above time in status bar")},
+            {ChangeCategory::Feature, QStringLiteral("4m band support"), QStringLiteral("70 MHz band definition for FLEX-6700 XVTR (Region 1)")},
+            {ChangeCategory::Feature, QStringLiteral("Memory spots on panadapter"), QStringLiteral("Saved memories as clickable spots, toggle in SpotHub Display")},
+            {ChangeCategory::BugFix, QStringLiteral("PROC/compander fix"), QStringLiteral("PROC button now sends compander commands (was speech_processor) NOR/DX/DX+ slider sends compander_level Mic profile PROC level restores correctly")},
+            {ChangeCategory::BugFix, QStringLiteral("S-Meter reads 0W during TX with PGXL"), QStringLiteral("Exciter txMetersChanged skipped when amplifier present S-Meter TX mode driven from PGXL state, not moxChanged")},
+            {ChangeCategory::BugFix, QStringLiteral("GPU rendering polish"), QStringLiteral("Cursor frequency label restored in GPU mode WNB/RF gain indicators update correctly (markOverlayDirty) Waterfall syncs on band change Fill gradient matches QPainter fallback (bright at line, dark a...")},
+            {ChangeCategory::BugFix, QStringLiteral("Batch memory spot removal"), QStringLiteral("Signal blocked during loop, single rebuild after")},
+            {ChangeCategory::BugFix, QStringLiteral("Dark/Light theme toggle removed"), QStringLiteral("Placeholder menu item was confusing users")},
+        }},
         {QStringLiteral("0.8.1"), QStringLiteral("2026-04-05"), QStringLiteral("Build System"), {
             {ChangeCategory::BugFix, QStringLiteral("GPU rendering on macOS Metal"), QStringLiteral("Set Metal API explicitly and WA_NativeWindow for QRhiWidget QRhiWidget in a RasterSurface hierarchy silently fails without a native NSView macOS workflows switched from aqtinstall to Homebrew-only ...")},
             {ChangeCategory::BugFix, QStringLiteral("Memory spots on panadapter"), QStringLiteral("Radio memories displayed as clickable spots on the panadapter Click to tune + apply mode/step/filter from saved memory Toggle in SpotHub Display settings Full sync: add/edit/remove in Memory dialog...")},
