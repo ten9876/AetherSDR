@@ -228,6 +228,16 @@ else()
     message(STATUS "NVIDIA BNR disabled (use -DENABLE_BNR=ON to enable)")
 endif()
 
+# libspecbleach NR4 — bundled spectral noise reduction (LGPL-2.1)
+option(ENABLE_SPECBLEACH "Enable NR4 spectral bleach noise reduction" ON)
+if(ENABLE_SPECBLEACH)
+    file(GLOB_RECURSE SPECBLEACH_SOURCES third_party/libspecbleach/src/*.c)
+    message(STATUS "NR4 (libspecbleach) enabled — ${CMAKE_SOURCE_DIR}/third_party/libspecbleach")
+else()
+    set(SPECBLEACH_SOURCES "")
+    message(STATUS "NR4 (libspecbleach) disabled")
+endif()
+
 # Sources
 set(CORE_SOURCES
     src/core/AppSettings.cpp
@@ -253,6 +263,7 @@ set(CORE_SOURCES
     src/core/DvkWavTransfer.cpp
     src/core/FirmwareStager.cpp
     src/core/RNNoiseFilter.cpp
+    src/core/SpecbleachFilter.cpp
     src/core/CwDecoder.cpp
     src/core/Resampler.cpp
     src/core/NvidiaBnrFilter.cpp
@@ -423,7 +434,7 @@ endif()
 
 qt_add_resources(RESOURCES resources.qrc)
 
-add_executable(AetherSDR ${ALL_SOURCES} ${RNNOISE_SOURCES} ${GGMORSE_SOURCES} ${RADE_SOURCES} ${BNR_SOURCES} ${RESOURCES})
+add_executable(AetherSDR ${ALL_SOURCES} ${RNNOISE_SOURCES} ${GGMORSE_SOURCES} ${RADE_SOURCES} ${BNR_SOURCES} ${SPECBLEACH_SOURCES} ${RESOURCES})
 
 # Windows: GUI app (no console window) + icon resource
 if(WIN32)
@@ -588,6 +599,20 @@ if(ENABLE_BNR)
         ${GRPC_INCLUDE_DIRS}
         ${PROTOBUF_INCLUDE_DIRS})
     target_link_libraries(AetherSDR PRIVATE ${GRPC_LIBRARIES} ${PROTOBUF_LIBRARIES})
+endif()
+
+if(ENABLE_SPECBLEACH)
+    target_compile_definitions(AetherSDR PRIVATE HAVE_SPECBLEACH)
+    target_include_directories(AetherSDR PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/libspecbleach/include
+        ${CMAKE_SOURCE_DIR}/third_party/libspecbleach/src)
+    # libspecbleach uses fftwf (float precision FFTW3)
+    find_library(FFTW3F_LIB fftw3f HINTS /opt/homebrew/lib /usr/local/lib)
+    if(FFTW3F_LIB)
+        target_link_libraries(AetherSDR PRIVATE ${FFTW3F_LIB})
+    else()
+        message(WARNING "fftw3f not found — NR4 will fail to link")
+    endif()
 endif()
 
 if(AETHER_GPU_SPECTRUM)
