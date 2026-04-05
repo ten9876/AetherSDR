@@ -7,6 +7,9 @@
 #include "core/CommandParser.h"
 #include "models/PanadapterModel.h"
 #include "SpectrumWidget.h"
+#ifdef AETHER_GPU_SPECTRUM
+#include <QRhiWidget>
+#endif
 #include "SpectrumOverlayMenu.h"
 #include "VfoWidget.h"
 #include "AppletPanel.h"
@@ -3173,6 +3176,7 @@ void MainWindow::buildUI()
     vbox->addWidget(m_titleBar);
     vbox->addWidget(m_splitter, 1);
     setCentralWidget(central);
+
     auto* splitter = m_splitter;
 
     // Connection panel — modeless dialog with standard decorations (#560, #574)

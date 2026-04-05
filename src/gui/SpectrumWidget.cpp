@@ -44,7 +44,18 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     setMinimumHeight(150);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setAutoFillBackground(false);
-#ifndef AETHER_GPU_SPECTRUM
+#ifdef AETHER_GPU_SPECTRUM
+    // Explicitly request Metal on macOS.
+#  ifdef Q_OS_MAC
+    setApi(QRhiWidget::Api::Metal);
+    // WA_NativeWindow forces Qt to create a dedicated native NSView for this widget.
+    // Without it, QRhiWidget embedded in a QWidget hierarchy (especially one whose
+    // backing store was created before this widget was added) fails to obtain a QRhi
+    // context because the parent window's surface type is RasterSurface, not MetalSurface.
+    // A native window gives QRhiWidget its own Metal-capable surface to render into.
+    setAttribute(Qt::WA_NativeWindow);
+#  endif
+#else
     setAttribute(Qt::WA_OpaquePaintEvent);
 #endif
     setCursor(Qt::CrossCursor);
