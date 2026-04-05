@@ -661,8 +661,8 @@ MainWindow::MainWindow(QWidget* parent)
         // will be set again by the first arriving tile.
 #ifdef HAVE_RADE
         if (m_radeSliceId >= 0 && m_radeEngine && m_radeEngine->isActive()) {
+            m_audio->setRadeMode(tx);
             if (!tx) {
-                m_audio->setRadeMode(false);
                 m_radeEngine->resetTx();
             }
         }
