@@ -1762,7 +1762,10 @@ void SpectrumWidget::initOverlayPipeline()
 
     int w = qMax(width(), 64);
     int h = qMax(height(), 64);
-    m_ovGpuTex = r->newTexture(QRhiTexture::RGBA8, QSize(w, h));
+    const qreal dpr = devicePixelRatioF();
+    const int pw = static_cast<int>(w * dpr);
+    const int ph = static_cast<int>(h * dpr);
+    m_ovGpuTex = r->newTexture(QRhiTexture::RGBA8, QSize(pw, ph));
     m_ovGpuTex->create();
 
     m_ovSampler = r->newSampler(QRhiSampler::Linear, QRhiSampler::Linear,
@@ -1811,11 +1814,13 @@ void SpectrumWidget::initOverlayPipeline()
 
     m_ovPipeline->create();
 
-    m_overlayStatic = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
-    m_overlayDynamic = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
+    m_overlayStatic = QImage(pw, ph, QImage::Format_RGBA8888_Premultiplied);
+    m_overlayStatic.setDevicePixelRatio(dpr);
+    m_overlayDynamic = QImage(pw, ph, QImage::Format_RGBA8888_Premultiplied);
+    m_overlayDynamic.setDevicePixelRatio(dpr);
     m_overlayDynamic.fill(Qt::transparent);
 
-    qDebug() << "SpectrumWidget: overlay pipeline created" << w << "x" << h;
+    qDebug() << "SpectrumWidget: overlay pipeline created" << pw << "x" << ph << "dpr:" << dpr;
 }
 
 void SpectrumWidget::initSpectrumPipeline()
@@ -1937,6 +1942,20 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
     const QRect specRect(0, 0, w, specH);
     const QRect wfRect(0, wfY, w, wfH);
 
+    // Detect display state changes that may bypass markOverlayDirty()
+    {
+        static double lastCenter = 0, lastBw = 0;
+        static float lastRef = 0, lastDyn = 0, lastFrac = 0;
+        if (m_centerMhz != lastCenter || m_bandwidthMhz != lastBw ||
+            m_refLevel != lastRef || m_dynamicRange != lastDyn ||
+            m_spectrumFrac != lastFrac) {
+            markOverlayDirty();
+            lastCenter = m_centerMhz; lastBw = m_bandwidthMhz;
+            lastRef = m_refLevel; lastDyn = m_dynamicRange;
+            lastFrac = m_spectrumFrac;
+        }
+    }
+
     auto* batch = r->nextResourceUpdateBatch();
 
     // Upload waterfall texture — full or incremental
@@ -2007,11 +2026,16 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
     // Render overlays — split into static (on state change) and dynamic (every frame)
     {
         // Resize overlay images if needed
-        if (m_overlayStatic.size() != QSize(w, h)) {
-            m_overlayStatic = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
-            m_overlayDynamic = QImage(w, h, QImage::Format_RGBA8888_Premultiplied);
+        const qreal dpr = devicePixelRatioF();
+        const int pw = static_cast<int>(w * dpr);
+        const int ph = static_cast<int>(h * dpr);
+        if (m_overlayStatic.size() != QSize(pw, ph)) {
+            m_overlayStatic = QImage(pw, ph, QImage::Format_RGBA8888_Premultiplied);
+            m_overlayStatic.setDevicePixelRatio(dpr);
+            m_overlayDynamic = QImage(pw, ph, QImage::Format_RGBA8888_Premultiplied);
+            m_overlayDynamic.setDevicePixelRatio(dpr);
             m_overlayDynamic.fill(Qt::transparent);
-            m_ovGpuTex->setPixelSize(QSize(w, h));
+            m_ovGpuTex->setPixelSize(QSize(pw, ph));
             m_ovGpuTex->create();
             m_ovSrb->setBindings({
                 QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_ovGpuTex, m_ovSampler),
@@ -2073,12 +2097,15 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             }
 
             m_overlayStaticDirty = false;
+            m_overlayNeedsUpload = true;
         }
 
-        // Upload static overlay texture every frame (GPU clears on beginPass).
-        // The expensive part — QPainter repaint — is skipped when not dirty.
-        QRhiTextureSubresourceUploadDescription ovDesc(m_overlayStatic);
-        batch->uploadTexture(m_ovGpuTex, QRhiTextureUploadEntry(0, 0, ovDesc));
+        // Upload overlay texture only when content changed
+        if (m_overlayNeedsUpload) {
+            QRhiTextureSubresourceUploadDescription ovDesc(m_overlayStatic);
+            batch->uploadTexture(m_ovGpuTex, QRhiTextureUploadEntry(0, 0, ovDesc));
+            m_overlayNeedsUpload = false;
+        }
 
         // Generate FFT spectrum vertices with baked colors
         if (!m_smoothed.isEmpty() && m_fftLineVbo && m_fftFillVbo) {

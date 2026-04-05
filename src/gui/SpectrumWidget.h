@@ -525,6 +525,7 @@ private:
     QImage m_overlayStatic;     // grid, markers, scales — repainted on change
     QImage m_overlayDynamic;    // FFT spectrum — repainted every frame
     bool m_overlayStaticDirty{true};
+    bool m_overlayNeedsUpload{true};
 
     void initWaterfallPipeline();
     void initOverlayPipeline();
