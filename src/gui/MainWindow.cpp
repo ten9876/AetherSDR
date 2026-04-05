@@ -1918,6 +1918,9 @@ MainWindow::MainWindow(QWidget* parent)
         if (m_tciServer)
             m_tciServer->wireSlice(s->sliceId(), s);
     });
+    // Wire existing slices (radio may already be connected with slices)
+    for (auto* s : m_radioModel.slices())
+        m_tciServer->wireSlice(s->sliceId(), s);
     m_tciServer->wireSpotModel();
 
     // Wire RX audio from PanadapterStream → TCI server for audio streaming

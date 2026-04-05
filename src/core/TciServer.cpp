@@ -602,9 +602,13 @@ void TciServer::sendInitBurst(QWebSocket* client)
     }
     if (!protocol) return;
 
+    // TCI protocol requires one command per WebSocket message.
+    // Split the concatenated burst into individual messages.
     QString burst = protocol->generateInitBurst();
-    client->sendTextMessage(burst);
-    qCDebug(lcCat) << "TCI: sent init burst," << burst.count(';') << "commands";
+    const auto commands = burst.split(';', Qt::SkipEmptyParts);
+    for (const auto& cmd : commands)
+        client->sendTextMessage(cmd + ';');
+    qCDebug(lcCat) << "TCI: sent init burst," << commands.size() << "commands";
 }
 
 void TciServer::broadcast(const QString& msg)
