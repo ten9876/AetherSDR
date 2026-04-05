@@ -4567,6 +4567,15 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     // Set panId on the overlay menu so +RX routes to the correct pan
     menu->setPanId(applet->panId());
 
+    // Restore per-pan cursor freq state from AppSettings
+    {
+        auto& s = AppSettings::instance();
+        bool cursorFreq = s.value(sw->settingsKey("CursorFreqLabel"), "False").toString() == "True";
+        sw->setShowCursorFreq(cursorFreq);
+        if (menu->cursorFreqButton())
+            menu->cursorFreqButton()->setChecked(cursorFreq);
+    }
+
     // ── Pan activation: clicking on this pan makes it active ─────────────
     connect(applet, &PanadapterApplet::activated,
             m_panStack, &PanadapterStack::setActivePan);
