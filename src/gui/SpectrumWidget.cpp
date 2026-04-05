@@ -228,21 +228,23 @@ void SpectrumWidget::setFftFillColor(const QColor& c) {
 }
 void SpectrumWidget::setWfColorGain(int gain) {
     int clamped = std::clamp(gain, 0, 100);
-    if (clamped == m_wfColorGain) return;
-    m_wfColorGain = clamped;
-    auto& s = AppSettings::instance();
-    s.setValue(settingsKey("DisplayWfColorGain"), QString::number(m_wfColorGain));
-    s.save();
-    update();  // Waterfall only — no overlay repaint needed
+    if (clamped != m_wfColorGain) {
+        m_wfColorGain = clamped;
+        auto& s = AppSettings::instance();
+        s.setValue(settingsKey("DisplayWfColorGain"), QString::number(m_wfColorGain));
+        s.save();
+    }
+    update();
 }
 void SpectrumWidget::setWfBlackLevel(int level) {
     int clamped = std::clamp(level, 0, 100);
-    if (clamped == m_wfBlackLevel) return;
-    m_wfBlackLevel = clamped;
-    auto& s = AppSettings::instance();
-    s.setValue(settingsKey("DisplayWfBlackLevel"), QString::number(m_wfBlackLevel));
-    s.save();
-    update();  // Waterfall only — no overlay repaint needed
+    if (clamped != m_wfBlackLevel) {
+        m_wfBlackLevel = clamped;
+        auto& s = AppSettings::instance();
+        s.setValue(settingsKey("DisplayWfBlackLevel"), QString::number(m_wfBlackLevel));
+        s.save();
+    }
+    update();
 }
 void SpectrumWidget::setWfAutoBlack(bool on) {
     m_wfAutoBlack = on;
@@ -1961,13 +1963,17 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
     {
         static double lastCenter = 0, lastBw = 0;
         static float lastRef = 0, lastDyn = 0, lastFrac = 0;
+        static bool lastWnb = false;
+        static int lastRfGain = 0;
         if (m_centerMhz != lastCenter || m_bandwidthMhz != lastBw ||
             m_refLevel != lastRef || m_dynamicRange != lastDyn ||
-            m_spectrumFrac != lastFrac) {
+            m_spectrumFrac != lastFrac ||
+            m_wnbActive != lastWnb || m_rfGainValue != lastRfGain) {
             markOverlayDirty();
             lastCenter = m_centerMhz; lastBw = m_bandwidthMhz;
             lastRef = m_refLevel; lastDyn = m_dynamicRange;
             lastFrac = m_spectrumFrac;
+            lastWnb = m_wnbActive; lastRfGain = m_rfGainValue;
         }
     }
 

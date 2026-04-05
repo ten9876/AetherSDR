@@ -111,8 +111,8 @@ public:
     // WNB and RF gain state for on-screen indicators.
     bool wnbActive()   const { return m_wnbActive; }
     int  rfGainValue() const { return m_rfGainValue; }
-    void setWnbActive(bool on) { m_wnbActive = on; update(); }
-    void setRfGain(int gain) { m_rfGainValue = gain; update(); }
+    void setWnbActive(bool on) { m_wnbActive = on; markOverlayDirty(); }
+    void setRfGain(int gain) { m_rfGainValue = gain; markOverlayDirty(); }
 
     // NB Waterfall Blanker (#277) — client-side impulse suppression
     void setWfBlankerEnabled(bool on);
