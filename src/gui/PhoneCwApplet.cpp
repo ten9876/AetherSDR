@@ -678,10 +678,10 @@ void PhoneCwApplet::updateMeters(float micLevel, float compLevel,
 
 void PhoneCwApplet::updateCompression(float compPeak)
 {
-    // TODO (#345): Compression meter disabled — raw COMPPEAK reads as a reversed
-    // level meter, not gain reduction. Need to determine correct gain reduction
-    // calculation. See docs/tx-audio-signal-path.md for meter details.
-    Q_UNUSED(compPeak);
+    // compPeak is gain reduction in dB (0.0 = none, -25.0 = heavy compression).
+    // Calculated in MeterModel as AFTEREQ - COMPPEAK (both smoothed, α=0.3).
+    // Gauge is reversed: fills right-to-left as compression increases.
+    m_compGauge->setValue(compPeak);
 }
 
 void PhoneCwApplet::updateAlc(float alc)
