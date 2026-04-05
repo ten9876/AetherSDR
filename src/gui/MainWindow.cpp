@@ -864,7 +864,7 @@ MainWindow::MainWindow(QWidget* parent)
                     .value("PanadapterLayout", "1").toString();
                 // Only rearrange if the saved layout matches the pan count
                 static const QMap<QString, int> layoutPanCount = {
-                    {"2v", 2}, {"2h", 2}, {"2h1", 3}, {"12h", 3}, {"2x2", 4}, {"1", 1}
+                    {"1", 1}, {"2v", 2}, {"2h", 2}, {"2h1", 3}, {"12h", 3}, {"3v", 3}, {"2x2", 4}, {"4v", 4}
                 };
                 if (layoutPanCount.value(saved, 1) == panCount)
                     m_panStack->rearrangeLayout(saved);
