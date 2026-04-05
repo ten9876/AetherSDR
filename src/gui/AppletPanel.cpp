@@ -11,6 +11,7 @@
 #include "EqApplet.h"
 #include "CatApplet.h"
 #include "AntennaGeniusApplet.h"
+#include "MeterApplet.h"
 #include "models/SliceModel.h"
 #include <QComboBox>
 #include <QLabel>
@@ -33,7 +34,7 @@
 namespace AetherSDR {
 
 const QStringList AppletPanel::kDefaultOrder = {
-    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "DIGI", "AG"
+    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "DIGI", "MTR", "AG"
 };
 
 // ── Drag-handle title bar ───────────────────────────────────────────────────
@@ -423,6 +424,9 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
     m_catApplet = new CatApplet;
     m_appletOrder.append(makeEntry("DIGI", "Digital Mode Controls", m_catApplet, false));
+
+    m_meterApplet = new MeterApplet;
+    m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false));
 
     m_agApplet = new AntennaGeniusApplet;
     {

@@ -310,6 +310,7 @@ set(GUI_SOURCES
     src/gui/CwxPanel.cpp
     src/gui/DvkPanel.cpp
     src/gui/AmpApplet.cpp
+    src/gui/MeterApplet.cpp
     src/gui/ProfileManagerDialog.cpp
     src/gui/PanadapterApplet.cpp
     src/gui/PanadapterStack.cpp

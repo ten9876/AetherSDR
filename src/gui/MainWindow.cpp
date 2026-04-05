@@ -31,6 +31,7 @@
 #include "DvkPanel.h"
 #include "core/DvkWavTransfer.h"
 #include "AmpApplet.h"
+#include "MeterApplet.h"
 #include "ProfileManagerDialog.h"
 #include "SupportDialog.h"
 #include "ShortcutDialog.h"
@@ -1257,6 +1258,9 @@ MainWindow::MainWindow(QWidget* parent)
     });
     connect(&m_radioModel.transmitModel(), &TransmitModel::maxPowerLevelChanged,
             this, updatePowerScale);
+
+    // ── Meter applet: all meters consolidated ──────────────────────────────
+    m_appletPanel->meterApplet()->setMeterModel(&m_radioModel.meterModel());
 
     // ── TX applet: meters + model ───────────────────────────────────────────
     connect(&m_radioModel.meterModel(), &MeterModel::txMetersChanged,
