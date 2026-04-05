@@ -15,17 +15,39 @@ jobs:
         include:
           - runner: macos-15
             label: apple-silicon
-          - runner: macos-13
+          - runner: macos-15-intel
             label: intel
     runs-on: ${{ matrix.runner }}
 
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install all dependencies via Homebrew
+      - name: Install dependencies via Homebrew
         run: |
-          brew install qt@6 ninja create-dmg autoconf automake libtool \
+          brew install ninja create-dmg autoconf automake libtool \
             fftw portaudio hidapi qtkeychain
+          # Apple Silicon: use Homebrew Qt (targets current OS, fine for arm64)
+          # Intel: build Qt from source targeting macOS 13 (Ventura) so the
+          # bundled frameworks work on 2017 iMacs that can't upgrade past 13.
+          if [ "${{ matrix.label }}" = "apple-silicon" ]; then
+            brew install qt@6
+          fi
+
+      - name: Build Qt from source (Intel only)
+        if: matrix.label == 'intel'
+        run: |
+          git clone --depth 1 --branch v6.7.3 https://code.qt.io/qt/qt5.git qt-src
+          cd qt-src
+          perl init-repository --module-subset=qtbase,qtmultimedia,qtwebsockets,qtserialport,qtshadertools
+          cd ..
+          mkdir qt-build && cd qt-build
+          ../qt-src/configure -prefix $PWD/../qt-install \
+            -release -opensource -confirm-license \
+            -nomake examples -nomake tests \
+            QMAKE_MACOSX_DEPLOYMENT_TARGET=13.0 \
+            -- -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+          cmake --build . --parallel $(sysctl -n hw.ncpu)
+          cmake --install .
 
       - name: Generate .icns from PNG
         run: |
@@ -44,10 +66,17 @@ jobs:
 
       - name: Configure
         run: |
+          if [ "${{ matrix.label }}" = "intel" ]; then
+            QT_PREFIX="$PWD/qt-install"
+            DEPLOY_TARGET="13.0"
+          else
+            QT_PREFIX="$(brew --prefix)"
+            DEPLOY_TARGET="14.0"
+          fi
           cmake -B build -G "Unix Makefiles" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET="11.0" \
-            -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY_TARGET" \
+            -DCMAKE_PREFIX_PATH="$QT_PREFIX;$(brew --prefix)"
 
       - name: Build
         run: cmake --build build -j$(sysctl -n hw.ncpu)
@@ -60,7 +89,12 @@ jobs:
 
       - name: Bundle Qt frameworks
         run: |
-          macdeployqt build/AetherSDR.app \
+          if [ "${{ matrix.label }}" = "intel" ]; then
+            DEPLOYQT="$PWD/qt-install/bin/macdeployqt"
+          else
+            DEPLOYQT="$(brew --prefix qt@6)/bin/macdeployqt"
+          fi
+          "$DEPLOYQT" build/AetherSDR.app \
             -verbose=1 \
             -always-overwrite
 
