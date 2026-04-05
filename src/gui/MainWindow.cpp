@@ -3053,13 +3053,6 @@ void MainWindow::buildMenuBar()
         m_shortcutManager.rebuildShortcuts(this, shortcutGuard);
     });
 
-    viewMenu->addSeparator();
-    auto* themeAct = viewMenu->addAction("Toggle Dark/Light Theme");
-    connect(themeAct, &QAction::triggered, this, [this]{
-        // Placeholder — full theme switching left as an exercise
-        applyDarkTheme();
-    });
-
     auto* helpMenu = menuBar()->addMenu("&Help");
     helpMenu->addAction("Support...", this, [this]() {
         SupportDialog dlg(this);

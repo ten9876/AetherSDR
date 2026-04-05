@@ -10,18 +10,7 @@ permissions:
 
 jobs:
   build-dmg:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14
-            arch: arm64
-            arch_label: apple-silicon
-          - runner: macos-13
-            arch: x86_64
-            arch_label: intel
-
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-14
 
     steps:
       - uses: actions/checkout@v6
@@ -109,7 +98,7 @@ jobs:
             --icon "AetherSDR.app" 150 190 \
             --hide-extension "AetherSDR.app" \
             --app-drop-link 450 190 \
-            "AetherSDR-${{ github.ref_name }}-macOS-${{ matrix.arch_label }}.dmg" \
+            "AetherSDR-${{ github.ref_name }}-macOS-apple-silicon.dmg" \
             "build/AetherSDR.app" \
           || true
 
@@ -119,7 +108,7 @@ jobs:
         run: |
           codesign --force --timestamp \
             --sign "Developer ID Application" \
-            AetherSDR-${{ github.ref_name }}-macOS-${{ matrix.arch_label }}.dmg
+            AetherSDR-${{ github.ref_name }}-macOS-apple-silicon.dmg
 
       - name: Notarize DMG
         env:
@@ -128,19 +117,19 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           xcrun notarytool submit \
-            AetherSDR-${{ github.ref_name }}-macOS-${{ matrix.arch_label }}.dmg \
+            AetherSDR-${{ github.ref_name }}-macOS-apple-silicon.dmg \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait --timeout 600
           xcrun stapler staple \
-            AetherSDR-${{ github.ref_name }}-macOS-${{ matrix.arch_label }}.dmg
+            AetherSDR-${{ github.ref_name }}-macOS-apple-silicon.dmg
           echo "Notarization and stapling complete"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: macOS-DMG-${{ matrix.arch_label }}
+          name: macOS-DMG-apple-silicon
           path: AetherSDR-*.dmg
 
       - name: Attach to release

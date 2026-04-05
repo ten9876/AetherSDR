@@ -59,8 +59,7 @@ Pre-built binaries are available from [Releases](https://github.com/ten9876/Aeth
 |----------|----------|-------|
 | **Linux x86_64** | `AetherSDR-*-x86_64.AppImage` | Single file, no install needed. `chmod +x` and run. |
 | **Linux ARM** | `AetherSDR-*-aarch64.AppImage` | Raspberry Pi, ARM laptops. `chmod +x` and run. |
-| **macOS (Apple Silicon)** | `AetherSDR-*-macOS-apple-silicon.dmg` | M1/M2/M3/M4. Drag to Applications. Signed & notarized. |
-| **macOS (Intel)** | `AetherSDR-*-macOS-intel.dmg` | Intel Macs. Drag to Applications. Signed & notarized. |
+| **macOS** | `AetherSDR-*-macOS-apple-silicon.dmg` | Apple Silicon (M1+). Intel Macs via Rosetta. Signed & notarized. |
 | **Windows Installer** | `AetherSDR-*-Windows-x64-setup.exe` | Setup wizard with Start Menu shortcut and uninstaller. |
 | **Windows Portable** | `AetherSDR-*-Windows-x64-portable.zip` | No install needed. Extract and run. |
 
