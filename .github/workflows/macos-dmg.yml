@@ -10,7 +10,14 @@ permissions:
 
 jobs:
   build-dmg:
-    runs-on: macos-14
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            label: apple-silicon
+          - runner: macos-15-intel
+            label: intel
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - uses: actions/checkout@v6
@@ -99,7 +106,7 @@ jobs:
             --icon "AetherSDR.app" 150 110 \
             --hide-extension "AetherSDR.app" \
             --app-drop-link 450 110 \
-            "AetherSDR-${{ github.ref_name }}-macOS-apple-silicon.dmg" \
+            "AetherSDR-${{ github.ref_name }}-macOS-${{ matrix.label }}.dmg" \
             "build/AetherSDR.app" \
           || true
 
@@ -109,7 +116,7 @@ jobs:
         run: |
           codesign --force --timestamp \
             --sign "Developer ID Application" \
-            AetherSDR-${{ github.ref_name }}-macOS-apple-silicon.dmg
+            AetherSDR-${{ github.ref_name }}-macOS-${{ matrix.label }}.dmg
 
       - name: Notarize DMG
         env:
@@ -118,19 +125,19 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           xcrun notarytool submit \
-            AetherSDR-${{ github.ref_name }}-macOS-apple-silicon.dmg \
+            AetherSDR-${{ github.ref_name }}-macOS-${{ matrix.label }}.dmg \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait --timeout 600
           xcrun stapler staple \
-            AetherSDR-${{ github.ref_name }}-macOS-apple-silicon.dmg
+            AetherSDR-${{ github.ref_name }}-macOS-${{ matrix.label }}.dmg
           echo "Notarization and stapling complete"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: macOS-DMG-apple-silicon
+          name: macOS-DMG-${{ matrix.label }}
           path: AetherSDR-*.dmg
 
       - name: Attach to release

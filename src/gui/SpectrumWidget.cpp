@@ -38,6 +38,77 @@
 
 namespace AetherSDR {
 
+// ─── Waterfall color scheme gradient presets ─────────────────────────────────
+
+static constexpr WfGradientStop kDefaultStops[] = {
+    {0.00f,   0,   0,   0},   // black
+    {0.15f,   0,   0, 128},   // dark blue
+    {0.30f,   0,  64, 255},   // blue
+    {0.45f,   0, 200, 255},   // cyan
+    {0.60f,   0, 220,   0},   // green
+    {0.80f, 255, 255,   0},   // yellow
+    {1.00f, 255,   0,   0},   // red
+};
+static constexpr WfGradientStop kGrayscaleStops[] = {
+    {0.00f,   0,   0,   0},
+    {1.00f, 255, 255, 255},
+};
+static constexpr WfGradientStop kBlueGreenStops[] = {
+    {0.00f,   0,   0,   0},
+    {0.25f,   0,  30, 120},
+    {0.50f,   0, 100, 180},
+    {0.75f,   0, 200, 130},
+    {1.00f, 220, 255, 220},
+};
+static constexpr WfGradientStop kFireStops[] = {
+    {0.00f,   0,   0,   0},
+    {0.25f, 128,   0,   0},
+    {0.50f, 220,  80,   0},
+    {0.75f, 255, 200,   0},
+    {1.00f, 255, 255, 220},
+};
+static constexpr WfGradientStop kPlasmaStops[] = {
+    {0.00f,   0,   0,   0},
+    {0.25f,  80,   0, 140},
+    {0.50f, 200,   0, 120},
+    {0.75f, 240, 120,   0},
+    {1.00f, 255, 255,  80},
+};
+
+const WfGradientStop* wfSchemeStops(WfColorScheme scheme, int& count)
+{
+    switch (scheme) {
+    case WfColorScheme::Grayscale: count = 2; return kGrayscaleStops;
+    case WfColorScheme::BlueGreen: count = 5; return kBlueGreenStops;
+    case WfColorScheme::Fire:      count = 5; return kFireStops;
+    case WfColorScheme::Plasma:    count = 5; return kPlasmaStops;
+    default:                       count = 7; return kDefaultStops;
+    }
+}
+
+const char* wfSchemeName(WfColorScheme scheme)
+{
+    switch (scheme) {
+    case WfColorScheme::Grayscale: return "Grayscale";
+    case WfColorScheme::BlueGreen: return "Blue-Green";
+    case WfColorScheme::Fire:      return "Fire";
+    case WfColorScheme::Plasma:    return "Plasma";
+    default:                       return "Default";
+    }
+}
+
+// Interpolate a normalized value t (0–1) through the given gradient stops.
+static QRgb interpolateGradient(float t, const WfGradientStop* stops, int n)
+{
+    int i = 0;
+    while (i < n - 2 && stops[i + 1].pos < t) ++i;
+    const float seg = (t - stops[i].pos) / (stops[i + 1].pos - stops[i].pos);
+    const int r = static_cast<int>(stops[i].r + seg * (stops[i + 1].r - stops[i].r));
+    const int g = static_cast<int>(stops[i].g + seg * (stops[i + 1].g - stops[i].g));
+    const int b = static_cast<int>(stops[i].b + seg * (stops[i + 1].b - stops[i].b));
+    return qRgb(qBound(0, r, 255), qBound(0, g, 255), qBound(0, b, 255));
+}
+
 SpectrumWidget::SpectrumWidget(QWidget* parent)
     : SPECTRUM_BASE_CLASS(parent)
 {
@@ -141,6 +212,9 @@ void SpectrumWidget::loadSettings()
         m_bandPlanFontSize = s.value("BandPlanFontSize", "6").toInt();
     }
     m_fftHeatMap     = s.value(settingsKey("DisplayFftHeatMap"), "True").toString() == "True";
+    m_wfColorScheme  = static_cast<WfColorScheme>(
+        std::clamp(s.value(settingsKey("DisplayWfColorScheme"), "0").toInt(),
+                   0, static_cast<int>(WfColorScheme::Count) - 1));
     m_singleClickTune = s.value("SingleClickTune", "False").toString() == "True";
 
     // Background image — default to bundled logo, "none" = explicitly cleared
@@ -154,7 +228,7 @@ void SpectrumWidget::loadSettings()
         m_overlayMenu->syncDisplaySettings(m_fftAverage, m_fftFps,
             static_cast<int>(m_fftFillAlpha * 100), m_fftWeightedAvg, m_fftFillColor,
             m_wfColorGain, m_wfBlackLevel, m_wfAutoBlack, m_wfLineDuration,
-            75, false, m_fftHeatMap);
+            75, false, m_fftHeatMap, static_cast<int>(m_wfColorScheme));
 }
 
 VfoWidget* SpectrumWidget::addVfoWidget(int sliceId)
@@ -267,6 +341,18 @@ void SpectrumWidget::setWfLineDuration(int ms) {
     s.save();
     // Re-calibrate the time scale for the new rate
     resetWfTimeScale();
+}
+
+void SpectrumWidget::setWfColorScheme(int scheme) {
+    auto clamped = static_cast<WfColorScheme>(
+        std::clamp(scheme, 0, static_cast<int>(WfColorScheme::Count) - 1));
+    if (clamped != m_wfColorScheme) {
+        m_wfColorScheme = clamped;
+        auto& s = AppSettings::instance();
+        s.setValue(settingsKey("DisplayWfColorScheme"), QString::number(static_cast<int>(m_wfColorScheme)));
+        s.save();
+    }
+    update();
 }
 
 // ── NB Waterfall Blanker setters (#277) ──────────────────────────────────────
@@ -1609,27 +1695,9 @@ QRgb SpectrumWidget::dbmToRgb(float dbm) const
 
     const float t = qBound(0.0f, (dbm - effectiveMin) / (effectiveMax - effectiveMin), 1.0f);
 
-    // Multi-stop gradient: black → blue → cyan → green → yellow → red
-    struct Stop { float pos; int r, g, b; };
-    static constexpr Stop stops[] = {
-        {0.00f,   0,   0,   0},   // black  (noise floor)
-        {0.15f,   0,   0, 128},   // dark blue
-        {0.30f,   0,  64, 255},   // blue
-        {0.45f,   0, 200, 255},   // cyan
-        {0.60f,   0, 220,   0},   // green
-        {0.80f, 255, 255,   0},   // yellow
-        {1.00f, 255,   0,   0},   // red     (strong signal)
-    };
-    static constexpr int N = sizeof(stops) / sizeof(stops[0]);
-
-    // Find the two stops bracketing t and interpolate.
-    int i = 0;
-    while (i < N - 2 && stops[i + 1].pos < t) ++i;
-    const float seg = (t - stops[i].pos) / (stops[i + 1].pos - stops[i].pos);
-    const int r = static_cast<int>(stops[i].r + seg * (stops[i + 1].r - stops[i].r));
-    const int g = static_cast<int>(stops[i].g + seg * (stops[i + 1].g - stops[i].g));
-    const int b = static_cast<int>(stops[i].b + seg * (stops[i + 1].b - stops[i].b));
-    return qRgb(qBound(0, r, 255), qBound(0, g, 255), qBound(0, b, 255));
+    int n = 0;
+    const auto* stops = wfSchemeStops(m_wfColorScheme, n);
+    return interpolateGradient(t, stops, n);
 }
 
 // Map native waterfall tile intensity to RGB.
@@ -1654,26 +1722,9 @@ QRgb SpectrumWidget::intensityToRgb(float intensity) const
 
     const float t = qBound(0.0f, (intensity - blackThresh) / rangeWidth, 1.0f);
 
-    // Same gradient as dbmToRgb
-    struct Stop { float pos; int r, g, b; };
-    static constexpr Stop stops[] = {
-        {0.00f,   0,   0,   0},
-        {0.15f,   0,   0, 128},
-        {0.30f,   0,  64, 255},
-        {0.45f,   0, 200, 255},
-        {0.60f,   0, 220,   0},
-        {0.80f, 255, 255,   0},
-        {1.00f, 255,   0,   0},
-    };
-    static constexpr int N = sizeof(stops) / sizeof(stops[0]);
-
-    int i = 0;
-    while (i < N - 2 && stops[i + 1].pos < t) ++i;
-    const float seg = (t - stops[i].pos) / (stops[i + 1].pos - stops[i].pos);
-    const int r = static_cast<int>(stops[i].r + seg * (stops[i + 1].r - stops[i].r));
-    const int g = static_cast<int>(stops[i].g + seg * (stops[i + 1].g - stops[i].g));
-    const int b = static_cast<int>(stops[i].b + seg * (stops[i + 1].b - stops[i].b));
-    return qRgb(qBound(0, r, 255), qBound(0, g, 255), qBound(0, b, 255));
+    int n = 0;
+    const auto* stops = wfSchemeStops(m_wfColorScheme, n);
+    return interpolateGradient(t, stops, n);
 }
 
 // ─── Waterfall update ─────────────────────────────────────────────────────────
@@ -2355,7 +2406,30 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             return a.x < b.x;
         });
 
+        const int panelW = vfos.isEmpty() ? 0 : vfos[0].w->width();
+        const int specW = specRect.width();
+
+        // First pass: assign directions for split pairs
         QMap<int, VfoWidget::FlagDir> dirMap;
+        for (int i = 0; i < vfos.size(); ++i) {
+            if (vfos[i].splitPartner < 0) continue;
+            if (dirMap.contains(vfos[i].sliceId)) continue;
+            int pi = -1;
+            for (int j = 0; j < vfos.size(); ++j) {
+                if (vfos[j].sliceId == vfos[i].splitPartner) { pi = j; break; }
+            }
+            if (pi < 0) continue;
+            int leftIdx  = (vfos[i].x <= vfos[pi].x) ? i : pi;
+            int rightIdx = (leftIdx == i) ? pi : i;
+            dirMap[vfos[leftIdx].sliceId]  = VfoWidget::ForceLeft;
+            dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceRight;
+            if (vfos[leftIdx].x < panelW)
+                dirMap[vfos[leftIdx].sliceId] = VfoWidget::ForceRight;
+            if (vfos[rightIdx].x + panelW > specW)
+                dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceLeft;
+        }
+
+        // Second pass: RTTY/DIGL force right
         for (const auto& so : m_sliceOverlays) {
             if (so.mode == "RTTY" || so.mode == "DIGL")
                 dirMap[so.sliceId] = VfoWidget::ForceRight;
@@ -2366,7 +2440,26 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             vfos[0].w->updatePosition(vfos[0].x, specRect.top(), dir);
         } else {
             for (int i = 0; i < vfos.size(); ++i) {
-                VfoWidget::FlagDir dir = dirMap.value(vfos[i].sliceId, VfoWidget::Auto);
+                VfoWidget::FlagDir dir = VfoWidget::Auto;
+                if (dirMap.contains(vfos[i].sliceId)) {
+                    dir = dirMap[vfos[i].sliceId];
+                } else if (vfos.size() == 2) {
+                    dir = (i == 0) ? VfoWidget::ForceLeft : VfoWidget::ForceRight;
+                    if (i == 0 && vfos[i].x < panelW) dir = VfoWidget::ForceRight;
+                    if (i == 1 && vfos[i].x + panelW > specW) dir = VfoWidget::ForceLeft;
+                } else {
+                    if (i == 0) {
+                        dir = VfoWidget::ForceLeft;
+                        if (vfos[i].x < panelW) dir = VfoWidget::ForceRight;
+                    } else if (i == vfos.size() - 1) {
+                        dir = VfoWidget::ForceRight;
+                        if (vfos[i].x + panelW > specW) dir = VfoWidget::ForceLeft;
+                    } else {
+                        int gapLeft = vfos[i].x - vfos[i-1].x;
+                        int gapRight = vfos[i+1].x - vfos[i].x;
+                        dir = (gapLeft >= gapRight) ? VfoWidget::ForceLeft : VfoWidget::ForceRight;
+                    }
+                }
                 vfos[i].w->updatePosition(vfos[i].x, specRect.top(), dir);
             }
         }
@@ -2987,13 +3080,15 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
         int mIdx = static_cast<int>(&spot - &m_spotMarkers[0]);
         m_spotClickRects.append({labelRect, spot.freqMhz, mIdx});
 
-        // Background pill
-        int bgAlpha = m_spotBgOpacity * 255 / 100;
-        QColor bgCol = m_spotBgColor;
-        bgCol.setAlpha(bgAlpha);
-        p.setPen(Qt::NoPen);
-        p.setBrush(bgCol);
-        p.drawRoundedRect(labelRect, 3, 3);
+        // Background pill — only draw when override background is enabled (#768)
+        if (m_spotOverrideBg) {
+            int bgAlpha = m_spotBgOpacity * 255 / 100;
+            QColor bgCol = m_spotBgColor;
+            bgCol.setAlpha(bgAlpha);
+            p.setPen(Qt::NoPen);
+            p.setBrush(bgCol);
+            p.drawRoundedRect(labelRect, 3, 3);
+        }
 
         // Text
         p.setPen(col);

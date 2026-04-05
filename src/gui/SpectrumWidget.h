@@ -21,6 +21,25 @@ namespace AetherSDR {
 class SpectrumOverlayMenu;
 class VfoWidget;
 
+// Waterfall color scheme presets.
+enum class WfColorScheme : int {
+    Default = 0,   // black → dark blue → blue → cyan → green → yellow → red
+    Grayscale,     // black → white
+    BlueGreen,     // black → blue → teal → green → white
+    Fire,          // black → red → orange → yellow → white
+    Plasma,        // black → purple → magenta → orange → yellow
+    Count          // sentinel — number of schemes
+};
+
+// Gradient stop used by waterfall color mapping.
+struct WfGradientStop { float pos; int r, g, b; };
+
+// Returns the gradient stops for a given color scheme.
+const WfGradientStop* wfSchemeStops(WfColorScheme scheme, int& count);
+
+// Returns the display name for a color scheme.
+const char* wfSchemeName(WfColorScheme scheme);
+
 // Panadapter / spectrum display widget.
 //
 // Layout (top to bottom):
@@ -154,11 +173,13 @@ public:
     void setWfBlackLevel(int level);
     void setWfAutoBlack(bool on);
     void setWfLineDuration(int ms);
+    void setWfColorScheme(int scheme);
     void resetWfTimeScale();
     int   wfColorGain() const          { return m_wfColorGain; }
     int   wfBlackLevel() const         { return m_wfBlackLevel; }
     bool  wfAutoBlack() const          { return m_wfAutoBlack; }
     int   wfLineDuration() const       { return m_wfLineDuration; }
+    int   wfColorScheme() const        { return static_cast<int>(m_wfColorScheme); }
 
     // Set slice info for the off-screen VFO indicator (legacy single-slice).
     void setSliceInfo(int sliceId, bool isTxSlice);
@@ -231,6 +252,7 @@ public:
     void setSpotMaxLevels(int n) { m_spotMaxLevels = n; update(); }
     void setSpotStartPct(int pct) { m_spotStartPct = pct; update(); }
     void setSpotOverrideColors(bool on) { m_spotOverrideColors = on; update(); }
+    void setSpotOverrideBg(bool on) { m_spotOverrideBg = on; update(); }
     void setSpotColor(const QColor& c) { m_spotColor = c; update(); }
     void setSpotBgColor(const QColor& c) { m_spotBgColor = c; update(); }
     void setSpotBgOpacity(int pct) { m_spotBgOpacity = pct; update(); }
@@ -366,6 +388,7 @@ private:
     int   m_wfColorGain{50};         // 0-100, maps intensity to color range
     int   m_wfBlackLevel{15};        // 0-125, intensity floor (below = black)
     bool  m_wfAutoBlack{true};
+    WfColorScheme m_wfColorScheme{WfColorScheme::Default};
     float m_autoBlackThresh{145.0f}; // client-side auto-black: tracked noise floor
     int   m_wfLineDuration{100};     // ms per waterfall row
 
@@ -483,6 +506,7 @@ private:
     int  m_spotMaxLevels{3};
     int  m_spotStartPct{50};      // % down from top of spectrum
     bool   m_spotOverrideColors{false};
+    bool   m_spotOverrideBg{true};
     QColor m_spotColor{Qt::yellow};
     QColor m_spotBgColor{Qt::black};
     int    m_spotBgOpacity{48};

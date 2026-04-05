@@ -35,7 +35,7 @@ public:
                              const QColor& fillColor, int gain, int black,
                              bool autoBlack, int rate,
                              int floorPos = 75, bool floorEnable = false,
-                             bool heatMap = true);
+                             bool heatMap = true, int colorScheme = 0);
 
     // Set the panadapter ID this overlay belongs to (for +RX routing).
     void setPanId(const QString& id) { m_panId = id; }
@@ -86,6 +86,7 @@ signals:
     void wfBlackLevelChanged(int level);
     void wfAutoBlackChanged(bool on);
     void wfLineDurationChanged(int ms);
+    void wfColorSchemeChanged(int scheme);
     void noiseFloorPositionChanged(int pos);
     void noiseFloorEnableChanged(bool on);
     // Emitted when user selects a band from the sub-panel.
@@ -180,6 +181,7 @@ private:
     QSlider*     m_blackSlider{nullptr};
     QLabel*      m_blackLabel{nullptr};
     QPushButton* m_autoBlackBtn{nullptr};
+    QComboBox*   m_colorSchemeCmb{nullptr};
     QSlider*     m_rateSlider{nullptr};
     QLabel*      m_rateLabel{nullptr};
     // NB Waterfall Blanker (#277)

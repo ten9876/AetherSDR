@@ -1,5 +1,6 @@
 #include "SpectrumOverlayMenu.h"
 #include "DspParamPopup.h"
+#include "SpectrumWidget.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "models/SliceModel.h"
@@ -1028,6 +1029,22 @@ void SpectrumOverlayMenu::buildDisplayPanel()
     ++row;
 
     // ── Waterfall section ─────────────────────────────────────────────────
+    // Color scheme selector
+    {
+        auto* lbl = new QLabel("Scheme:");
+        lbl->setStyleSheet(labelStyle);
+        grid->addWidget(lbl, row, 0, 1, 2);
+        m_colorSchemeCmb = new QComboBox;
+        m_colorSchemeCmb->setFixedHeight(18);
+        m_colorSchemeCmb->setStyleSheet(comboStyleSheet());
+        for (int i = 0; i < static_cast<int>(WfColorScheme::Count); ++i)
+            m_colorSchemeCmb->addItem(wfSchemeName(static_cast<WfColorScheme>(i)));
+        grid->addWidget(m_colorSchemeCmb, row, 2, 1, 2);
+        connect(m_colorSchemeCmb, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int idx) { emit wfColorSchemeChanged(idx); });
+        ++row;
+    }
+
     makeRow("Gain:", 0, 100, 50, m_gainSlider, m_gainLabel);
     connect(m_gainSlider, &QSlider::valueChanged, this, [this](int v) {
         m_gainLabel->setText(QString::number(v));
@@ -1146,6 +1163,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
     if (m_autoBlackBtn) m_autoBlackBtn->setToolTip("Automatically adjusts the waterfall black level to match the current noise floor.");
     m_rateSlider->setToolTip("Waterfall line duration. Lower values scroll faster.");
     if (m_wfBlankerThreshSlider) m_wfBlankerThreshSlider->setToolTip("Waterfall noise blanking threshold. Higher values blank more aggressively.");
+    if (m_colorSchemeCmb) m_colorSchemeCmb->setToolTip("Selects the waterfall color palette.");
     if (m_cursorFreqBtn) m_cursorFreqBtn->setToolTip("Shows the frequency at the mouse cursor position on the panadapter.");
     if (m_bgOpacitySlider) m_bgOpacitySlider->setToolTip("Opacity of the background image overlay.");
     if (m_floorEnableBtn) m_floorEnableBtn->setToolTip("Shows a noise floor reference line on the spectrum display.");
@@ -1158,7 +1176,7 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
                                                bool weightedAvg, const QColor& fillColor,
                                                int gain, int black, bool autoBlack, int rate,
                                                int floorPos, bool floorEnable,
-                                               bool heatMap)
+                                               bool heatMap, int colorScheme)
 {
     if (!m_avgSlider) return;  // panel not built yet
 
@@ -1199,6 +1217,10 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
         QSignalBlocker bh(m_heatMapBtn);
         m_heatMapBtn->setChecked(heatMap);
         m_heatMapBtn->setText(heatMap ? "On" : "Off");
+    }
+    if (m_colorSchemeCmb) {
+        QSignalBlocker bc(m_colorSchemeCmb);
+        m_colorSchemeCmb->setCurrentIndex(colorScheme);
     }
 }
 

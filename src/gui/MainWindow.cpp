@@ -1375,8 +1375,10 @@ MainWindow::MainWindow(QWidget* parent)
         } else if (actionName == "ToggleMox") {
             m_radioModel.setTransmit(!m_radioModel.transmitModel().isTransmitting());
         } else if (actionName == "ToggleTune") {
-            bool tuning = m_radioModel.transmitModel().isTuning();
-            m_radioModel.sendCommand(QString("transmit tune %1").arg(tuning ? 0 : 1));
+            if (m_radioModel.transmitModel().isTuning())
+                m_radioModel.transmitModel().stopTune();
+            else
+                m_radioModel.transmitModel().startTune();
         } else if (actionName == "ToggleMute") {
             m_audio->setMuted(!m_audio->isMuted());
         } else if (actionName == "ToggleLock") {
@@ -1484,8 +1486,10 @@ MainWindow::MainWindow(QWidget* parent)
         if (actionName == "ToggleMox")
             m_radioModel.setTransmit(!m_radioModel.transmitModel().isTransmitting());
         else if (actionName == "ToggleTune") {
-            bool tuning = m_radioModel.transmitModel().isTuning();
-            m_radioModel.sendCommand(QString("transmit tune %1").arg(tuning ? 0 : 1));
+            if (m_radioModel.transmitModel().isTuning())
+                m_radioModel.transmitModel().stopTune();
+            else
+                m_radioModel.transmitModel().startTune();
         } else if (actionName == "ToggleMute")
             m_audio->setMuted(!m_audio->isMuted());
         else if (actionName == "ToggleLock") {
@@ -1684,8 +1688,10 @@ MainWindow::MainWindow(QWidget* parent)
                 auto& tuner = m_radioModel.tunerModel();
                 if (tuner.isPresent() && tuner.isOperate())
                     break;  // TGXL in Operate blocks manual TUNE
-                m_radioModel.sendCommand(QString("transmit tune %1")
-                    .arg(m_radioModel.transmitModel().isTuning() ? 0 : 1));
+                if (m_radioModel.transmitModel().isTuning())
+                    m_radioModel.transmitModel().stopTune();
+                else
+                    m_radioModel.transmitModel().startTune();
                 break;
             }
             case 7:  // ATU / TGXL autotune
@@ -1794,8 +1800,10 @@ MainWindow::MainWindow(QWidget* parent)
             m_audio->setMuted(!m_audio->isMuted());
             break;
         case 2:  // RF power push: toggle TUNE
-            m_radioModel.sendCommand(QString("transmit tune %1")
-                .arg(m_radioModel.transmitModel().isTuning() ? 0 : 1));
+            if (m_radioModel.transmitModel().isTuning())
+                m_radioModel.transmitModel().stopTune();
+            else
+                m_radioModel.transmitModel().startTune();
             break;
         case 3:  // Squelch push: toggle squelch on/off
             s->setSquelch(!s->squelchOn(), s->squelchLevel());
@@ -2648,6 +2656,7 @@ void MainWindow::buildMenuBar()
                 sw->setSpotMaxLevels(levels);
                 sw->setSpotStartPct(position);
                 sw->setSpotOverrideColors(override);
+                sw->setSpotOverrideBg(s.value("IsSpotsOverrideBackgroundColorsEnabled", "True").toString() == "True");
                 sw->setSpotColor(spotColor);
                 sw->setSpotBgColor(bgColor);
                 sw->setSpotBgOpacity(bgOpacity);
@@ -4259,10 +4268,11 @@ void MainWindow::onSliceAdded(SliceModel* s)
             // Update CWX/DVK indicator availability for new mode
             updateKeyerAvailability(mode);
 
-            // Disable client-side DSP in digital modes — NR2/RN2/BNR would
-            // corrupt the data signal passing through DAX (#534)
-            bool isDigital = (mode == "DIGU" || mode == "DIGL" || mode == "RTTY");
-            if (isDigital) {
+            // Disable client-side DSP in digital and CW modes — NR2/RN2/BNR
+            // corrupt digital data (#534) and suppress CW tones (#784)
+            bool disableDsp = (mode == "DIGU" || mode == "DIGL" || mode == "RTTY"
+                            || mode == "CW"   || mode == "CWL");
+            if (disableDsp) {
                 if (m_audio->nr2Enabled())
                     QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
                 if (m_audio->rn2Enabled())
@@ -4797,6 +4807,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setSpotMaxLevels(s.value("SpotsMaxLevel", "3").toInt());
         sw->setSpotStartPct(s.value("SpotsStartingHeightPercentage", "50").toInt());
         sw->setSpotOverrideColors(s.value("IsSpotsOverrideColorsEnabled", "False").toString() == "True");
+        sw->setSpotOverrideBg(s.value("IsSpotsOverrideBackgroundColorsEnabled", "True").toString() == "True");
     }
 
     // ── Per-pan display controls (client-side) ───────────────────────────
@@ -4844,6 +4855,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         m_radioModel.sendCommand(
             QString("display pan set %1 weighted_average=%2").arg(applet->panId()).arg(on ? 1 : 0));
     });
+    connect(menu, &SpectrumOverlayMenu::wfColorSchemeChanged,
+            sw, &SpectrumWidget::setWfColorScheme);
     connect(menu, &SpectrumOverlayMenu::wfColorGainChanged,
             this, [this, applet, sw](int v) {
         sw->setWfColorGain(v);
@@ -5815,8 +5828,10 @@ void MainWindow::registerShortcutActions()
     m_shortcutManager.registerAction("tune_toggle", "TUNE Toggle", "TX",
         QKeySequence(), [this]() {
             if (!m_radioModel.isConnected()) return;
-            bool tuning = m_radioModel.transmitModel().isTuning();
-            m_radioModel.sendCommand(QString("transmit tune %1").arg(tuning ? 0 : 1));
+            if (m_radioModel.transmitModel().isTuning())
+                m_radioModel.transmitModel().stopTune();
+            else
+                m_radioModel.transmitModel().startTune();
         });
 
     // ── Audio ───────────────────────────────────────────────────────────
@@ -6784,7 +6799,10 @@ void MainWindow::registerMidiParams()
 
     reg("tx.tune", "TUNE", "TX", P::Toggle, 0, 1,
         [this](float v) {
-            m_radioModel.sendCommand(QString("transmit tune %1").arg(v > 0.5f ? 1 : 0));
+            if (v > 0.5f)
+                m_radioModel.transmitModel().startTune();
+            else
+                m_radioModel.transmitModel().stopTune();
         },
         [this]() -> float { return m_radioModel.transmitModel().isTuning() ? 1 : 0; });
 
