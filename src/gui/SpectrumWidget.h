@@ -129,7 +129,7 @@ public:
     bool showCursorFreq() const { return m_showCursorFreq; }
     void setBackgroundImage(const QString& path);
     QString backgroundImagePath() const { return m_bgImagePath; }
-    void setBackgroundOpacity(int pct) { m_bgOpacity = qBound(0, pct, 100); update(); }
+    void setBackgroundOpacity(int pct) { m_bgOpacity = qBound(0, pct, 100); markOverlayDirty(); }
     int backgroundOpacity() const { return m_bgOpacity; }
     bool showBandPlan() const { return m_bandPlanFontSize > 0; }
     int  bandPlanFontSize() const { return m_bandPlanFontSize; }
