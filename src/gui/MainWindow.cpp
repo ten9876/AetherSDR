@@ -398,7 +398,11 @@ MainWindow::MainWindow(QWidget* parent)
         else if (spot.source == "FreeDV")
             lifetimeMs = as.value("FreeDvSpotLifetime", 120).toInt() * 1000;  // HAVE_WEBSOCKETS
         else
-            lifetimeMs = as.value("DxClusterSpotLifetime", 30).toInt() * 60000;
+        {
+            int sec = as.value("DxClusterSpotLifetimeSec", 0).toInt();
+            if (sec <= 0) sec = as.value("DxClusterSpotLifetime", 30).toInt() * 60;
+            lifetimeMs = sec * 1000;
+        }
         auto it = m_spotDedup.find(spot.dxCall);
         if (it != m_spotDedup.end()) {
             bool sameFreq = std::abs(it->freqMhz - spot.freqMhz) < 0.001;
@@ -422,7 +426,8 @@ MainWindow::MainWindow(QWidget* parent)
                      + " spotter_callsign=" + spot.spotterCall
                      + " lifetime_seconds=" + QString::number(
                            spot.lifetimeSec > 0 ? spot.lifetimeSec
-                           : AppSettings::instance().value("DxClusterSpotLifetime", 30).toInt() * 60);
+                           : [&]() { int s = AppSettings::instance().value("DxClusterSpotLifetimeSec", 0).toInt();
+                                     return s > 0 ? s : AppSettings::instance().value("DxClusterSpotLifetime", 30).toInt() * 60; }());
         if (!spot.comment.isEmpty())
             cmd += " comment=" + QString(spot.comment).replace(' ', QChar(0x7f));
         // Apply source-specific color if not already set

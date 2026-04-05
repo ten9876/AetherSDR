@@ -30,7 +30,10 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
     m_spotColor  = QColor(s.value("SpotsOverrideColor", "#FFFF00").toString());
     m_bgColor    = QColor(s.value("SpotsOverrideBgColor", "#000000").toString());
     m_bgOpacity  = s.value("SpotsBackgroundOpacity", 48).toInt();
-    int lifetimeMin = s.value("DxClusterSpotLifetime", 30).toInt();
+    // Migrate from old minutes key to new seconds key
+    int lifetimeSec = s.value("DxClusterSpotLifetimeSec", 0).toInt();
+    if (lifetimeSec <= 0)
+        lifetimeSec = s.value("DxClusterSpotLifetime", 30).toInt() * 60;
 
     auto* root = new QVBoxLayout(this);
 
@@ -136,29 +139,41 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
     });
     grid->addLayout(fontRow, row++, 1);
 
-    // ── Spot Lifetime slider ──────────────────────────────────────────
+    // ── Spot Lifetime slider (non-linear: seconds → minutes → hours) ──
     grid->addWidget(new QLabel("Spot Lifetime:"), row, 0);
     auto* lifeRow = new QHBoxLayout;
-    auto* lifetimeSlider = new GuardedSlider(Qt::Horizontal);
-    lifetimeSlider->setRange(1, 1440);
-    lifetimeSlider->setValue(lifetimeMin);
-    auto formatLifetime = [](int mins) -> QString {
-        if (mins < 60)
-            return QString("%1 min%2").arg(mins).arg(mins == 1 ? "" : "s");
-        int hrs = mins / 60;
-        int rem = mins % 60;
-        if (rem == 0)
-            return QString("%1 hr%2").arg(hrs).arg(hrs == 1 ? "" : "s");
-        return QString("%1 hr%2 %3 min%4").arg(hrs).arg(hrs == 1 ? "" : "s").arg(rem).arg(rem == 1 ? "" : "s");
+
+    static QVector<int> lifeSteps;
+    if (lifeSteps.isEmpty()) {
+        for (int s = 10; s <= 55; s += 5)  lifeSteps.append(s);        // 10–55 sec
+        for (int m = 5;  m <= 55; m += 5)  lifeSteps.append(m * 60);   // 5–55 min
+        for (int h = 1;  h <= 24; h++)      lifeSteps.append(h * 3600); // 1–24 hr
+    }
+    auto formatLifetime = [](int secs) -> QString {
+        if (secs < 60)   return QString("%1 sec").arg(secs);
+        if (secs < 3600) return QString("%1 min%2").arg(secs / 60).arg(secs / 60 == 1 ? "" : "s");
+        int hrs = secs / 3600;
+        if (hrs == 24) return QStringLiteral("1 day");
+        return QString("%1 hr%2").arg(hrs).arg(hrs == 1 ? "" : "s");
     };
-    auto* lifetimeValue = new QLabel(formatLifetime(lifetimeMin));
+    // Find closest step index for the saved value
+    int lifeIdx = 0;
+    for (int i = 0; i < lifeSteps.size(); ++i)
+        if (std::abs(lifeSteps[i] - lifetimeSec) < std::abs(lifeSteps[lifeIdx] - lifetimeSec))
+            lifeIdx = i;
+
+    auto* lifetimeSlider = new GuardedSlider(Qt::Horizontal);
+    lifetimeSlider->setRange(0, lifeSteps.size() - 1);
+    lifetimeSlider->setValue(lifeIdx);
+    auto* lifetimeValue = new QLabel(formatLifetime(lifeSteps[lifeIdx]));
     lifetimeValue->setFixedWidth(90);
     lifetimeValue->setAlignment(Qt::AlignRight);
     lifeRow->addWidget(lifetimeSlider);
     lifeRow->addWidget(lifetimeValue);
-    connect(lifetimeSlider, &QSlider::valueChanged, this, [save, lifetimeValue, formatLifetime](int v) {
-        lifetimeValue->setText(formatLifetime(v));
-        save("DxClusterSpotLifetime", QString::number(v));
+    connect(lifetimeSlider, &QSlider::valueChanged, this, [save, lifetimeValue, formatLifetime](int idx) {
+        int secs = lifeSteps.value(idx, 1800);
+        lifetimeValue->setText(formatLifetime(secs));
+        save("DxClusterSpotLifetimeSec", QString::number(secs));
     });
     grid->addLayout(lifeRow, row++, 1);
 
