@@ -117,6 +117,7 @@ private:
     void toggleMinimalMode(bool on);
     void updateKeyerAvailability(const QString& mode);
     void showNr2ParamPopup(const QPoint& globalPos);
+    void showNr4ParamPopup(const QPoint& globalPos);
     void applyPanLayout(const QString& layoutId);
     void createPansSequentially(const QString& layoutId, int total,
                                 std::shared_ptr<QStringList> panIds, int created);

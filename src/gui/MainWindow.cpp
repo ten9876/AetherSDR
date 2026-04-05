@@ -1032,10 +1032,24 @@ MainWindow::MainWindow(QWidget* parent)
             }
         }
     };
+    auto syncNr4 = [this](bool on) {
+        if (m_panStack) {
+            for (auto* applet : m_panStack->allApplets()) {
+                auto* sw = applet->spectrumWidget();
+                if (auto* vfo = sw->vfoWidget(m_activeSliceId)) {
+                    QSignalBlocker sb(vfo->nr4Button());
+                    vfo->nr4Button()->setChecked(on);
+                }
+                if (auto* btn = sw->overlayMenu()->dspNr4Button())
+                    { QSignalBlocker sb(btn); btn->setChecked(on); }
+            }
+        }
+    };
     connect(m_audio, &AudioEngine::nr2EnabledChanged, this, syncNr2);
     connect(m_audio, &AudioEngine::rn2EnabledChanged, this, syncRn2);
     connect(m_audio, &AudioEngine::bnrEnabledChanged, this, syncBnr);
-    // NR2/RN2/BNR DSP controls now only in VFO DSP tab and spectrum overlay.
+    connect(m_audio, &AudioEngine::nr4EnabledChanged, this, syncNr4);
+    // NR2/RN2/BNR/NR4 DSP controls now only in VFO DSP tab and spectrum overlay.
     // RxApplet DSP buttons removed — no sync wiring needed.
 
 #ifdef HAVE_RADE
@@ -2176,6 +2190,7 @@ void MainWindow::closeEvent(QCloseEvent* event)
     // Save client-side DSP state before destructor disables them
     s.setValue("ClientNr2Enabled", m_audio->nr2Enabled() ? "True" : "False");
     s.setValue("ClientRn2Enabled", m_audio->rn2Enabled() ? "True" : "False");
+    s.setValue("ClientNr4Enabled", m_audio->nr4Enabled() ? "True" : "False");
     // BNR not persisted — requires manual enable each session
 
     s.save();
@@ -2920,6 +2935,28 @@ void MainWindow::buildMenuBar()
         });
         connect(dlg, &AetherDspDialog::nr2QsppChanged, this, [this](float v) {
             QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2Qspp(v); });
+        });
+        // Wire NR4 parameter signals to AudioEngine
+        connect(dlg, &AetherDspDialog::nr4ReductionChanged, this, [this](float v) {
+            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4ReductionAmount(v); });
+        });
+        connect(dlg, &AetherDspDialog::nr4SmoothingChanged, this, [this](float v) {
+            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4SmoothingFactor(v); });
+        });
+        connect(dlg, &AetherDspDialog::nr4WhiteningChanged, this, [this](float v) {
+            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4WhiteningFactor(v); });
+        });
+        connect(dlg, &AetherDspDialog::nr4AdaptiveNoiseChanged, this, [this](bool on) {
+            QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr4AdaptiveNoise(on); });
+        });
+        connect(dlg, &AetherDspDialog::nr4NoiseMethodChanged, this, [this](int m) {
+            QMetaObject::invokeMethod(m_audio, [this, m]() { m_audio->setNr4NoiseEstimationMethod(m); });
+        });
+        connect(dlg, &AetherDspDialog::nr4MaskingDepthChanged, this, [this](float v) {
+            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4MaskingDepth(v); });
+        });
+        connect(dlg, &AetherDspDialog::nr4SuppressionChanged, this, [this](float v) {
+            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4SuppressionStrength(v); });
         });
         m_dspDialog = dlg;
         dlg->show();
@@ -4071,6 +4108,8 @@ void MainWindow::onSliceAdded(SliceModel* s)
                 enableNr2WithWisdom();
             else if (settings.value("ClientRn2Enabled", "False").toString() == "True")
                 QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setRn2Enabled(true); });
+            else if (settings.value("ClientNr4Enabled", "False").toString() == "True")
+                QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr4Enabled(true); });
             // BNR not auto-restored — requires manual enable each session
 
             // Deferred CW decoder restart after profile load (#305).
@@ -4232,6 +4271,8 @@ void MainWindow::onSliceAdded(SliceModel* s)
                 if (m_audio->bnrEnabled())
                     QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setBnrEnabled(false); });
 #endif
+                if (m_audio->nr4Enabled())
+                    QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr4Enabled(false); });
             }
         }
     });
@@ -5126,6 +5167,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 // Client-side DSP
                 settings.setValue(pfx + "NR2",  m_audio->nr2Enabled() ? "True" : "False");
                 settings.setValue(pfx + "RN2",  m_audio->rn2Enabled() ? "True" : "False");
+                settings.setValue(pfx + "NR4",  m_audio->nr4Enabled() ? "True" : "False");
                 // BNR not persisted per-band — requires manual enable
                 // AGC
                 settings.setValue(pfx + "AgcMode",      s->agcMode());
@@ -5211,9 +5253,11 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             // Client-side DSP
             bool nr2Saved = settings.value(pfx + "NR2", "False").toString() == "True";
             bool rn2Saved = settings.value(pfx + "RN2", "False").toString() == "True";
+            bool nr4Saved = settings.value(pfx + "NR4", "False").toString() == "True";
             // BNR not restored per-band
             if (nr2Saved != m_audio->nr2Enabled()) QMetaObject::invokeMethod(m_audio, [this, nr2Saved]() { m_audio->setNr2Enabled(nr2Saved); });
             if (rn2Saved != m_audio->rn2Enabled()) QMetaObject::invokeMethod(m_audio, [this, rn2Saved]() { m_audio->setRn2Enabled(rn2Saved); });
+            if (nr4Saved != m_audio->nr4Enabled()) QMetaObject::invokeMethod(m_audio, [this, nr4Saved]() { m_audio->setNr4Enabled(nr4Saved); });
 
             // AGC
             QString agcMode = settings.value(pfx + "AgcMode", "").toString();
@@ -5346,6 +5390,13 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             this, [this](float ratio) {
         m_audio->setBnrIntensity(ratio);
     });
+    connect(menu, &SpectrumOverlayMenu::nr4Toggled,
+            this, [this](bool on) {
+        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr4Enabled(on); });
+        // VFO button sync happens via AudioEngine::nr4EnabledChanged signal
+    });
+    connect(menu, &SpectrumOverlayMenu::nr4RightClicked,
+            this, [this](const QPoint& pos) { showNr4ParamPopup(pos); });
 }
 
 void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
@@ -5451,6 +5502,11 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     connect(w, &VfoWidget::bnrToggled, this, [this](bool on) {
         QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setBnrEnabled(on); });
     });
+    connect(w, &VfoWidget::nr4Toggled, this, [this](bool on) {
+        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr4Enabled(on); });
+    });
+    connect(w, &VfoWidget::nr4RightClicked,
+            this, [this](const QPoint& pos) { showNr4ParamPopup(pos); });
 
 #ifdef HAVE_RADE
     connect(w, &VfoWidget::radeActivated, this, [this](bool on, int sliceId) {
@@ -5850,16 +5906,23 @@ void MainWindow::registerShortcutActions()
             auto* s = activeSlice();
             if (s) s->setNb(!s->nbOn());
         });
-    m_shortcutManager.registerAction("nr_cycle", "NR Cycle (Off/NR/NR2)", "DSP",
+    m_shortcutManager.registerAction("nr_cycle", "NR Cycle (Off/NR/NR2/NR4)", "DSP",
         QKeySequence(), [this]() {
             auto* s = activeSlice();
             if (!s) return;
-            if (m_audio->nr2Enabled()) {
+            if (m_audio->nr4Enabled()) {
+                // NR4 → off
+                QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr4Enabled(false); });
+            } else if (m_audio->nr2Enabled()) {
+                // NR2 → NR4
                 QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
+                QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr4Enabled(true); });
             } else if (s->nrOn()) {
+                // NR → NR2
                 s->setNr(false);
                 enableNr2WithWisdom();
             } else {
+                // off → NR
                 s->setNr(true);
             }
         });
@@ -5966,6 +6029,134 @@ void MainWindow::showNr2ParamPopup(const QPoint& globalPos)
             });
             connect(dlg, &AetherDspDialog::nr2QsppChanged, this, [this](float v) {
                 QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2Qspp(v); });
+            });
+            // Wire NR4 parameter signals
+            connect(dlg, &AetherDspDialog::nr4ReductionChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4ReductionAmount(v); });
+            });
+            connect(dlg, &AetherDspDialog::nr4SmoothingChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4SmoothingFactor(v); });
+            });
+            connect(dlg, &AetherDspDialog::nr4WhiteningChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4WhiteningFactor(v); });
+            });
+            connect(dlg, &AetherDspDialog::nr4AdaptiveNoiseChanged, this, [this](bool on) {
+                QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr4AdaptiveNoise(on); });
+            });
+            connect(dlg, &AetherDspDialog::nr4NoiseMethodChanged, this, [this](int m) {
+                QMetaObject::invokeMethod(m_audio, [this, m]() { m_audio->setNr4NoiseEstimationMethod(m); });
+            });
+            connect(dlg, &AetherDspDialog::nr4MaskingDepthChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4MaskingDepth(v); });
+            });
+            connect(dlg, &AetherDspDialog::nr4SuppressionChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4SuppressionStrength(v); });
+            });
+            m_dspDialog = dlg;
+            dlg->show();
+        },
+        nullptr  // Reset handled by individual control resetters
+    );
+
+    popup->showAt(globalPos);
+}
+
+void MainWindow::showNr4ParamPopup(const QPoint& globalPos)
+{
+    auto& s = AppSettings::instance();
+    auto* popup = new DspParamPopup(this);
+
+    popup->addSlider("Reduction (dB)", 0, 400,
+        static_cast<int>(s.value("NR4ReductionAmount", "10.0").toFloat() * 10),
+        [](int v) { return QString::number(v / 10.0f, 'f', 1); },
+        [this](int v) {
+            float val = v / 10.0f;
+            auto& s = AppSettings::instance();
+            s.setValue("NR4ReductionAmount", QString::number(val, 'f', 1));
+            s.save();
+            QMetaObject::invokeMethod(m_audio, [this, val]() { m_audio->setNr4ReductionAmount(val); });
+        });
+
+    popup->addSlider("Smoothing (%)", 0, 100,
+        static_cast<int>(s.value("NR4SmoothingFactor", "0.0").toFloat()),
+        [](int v) { return QString::number(v); },
+        [this](int v) {
+            auto& s = AppSettings::instance();
+            s.setValue("NR4SmoothingFactor", QString::number(static_cast<float>(v), 'f', 1));
+            s.save();
+            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4SmoothingFactor(static_cast<float>(v)); });
+        });
+
+    popup->addSlider("Masking Depth", 0, 100,
+        static_cast<int>(s.value("NR4MaskingDepth", "0.50").toFloat() * 100),
+        [](int v) { return QString::number(v / 100.0f, 'f', 2); },
+        [this](int v) {
+            float val = v / 100.0f;
+            auto& s = AppSettings::instance();
+            s.setValue("NR4MaskingDepth", QString::number(val, 'f', 2));
+            s.save();
+            QMetaObject::invokeMethod(m_audio, [this, val]() { m_audio->setNr4MaskingDepth(val); });
+        });
+
+    popup->addSlider("Suppression", 0, 100,
+        static_cast<int>(s.value("NR4SuppressionStrength", "0.50").toFloat() * 100),
+        [](int v) { return QString::number(v / 100.0f, 'f', 2); },
+        [this](int v) {
+            float val = v / 100.0f;
+            auto& s = AppSettings::instance();
+            s.setValue("NR4SuppressionStrength", QString::number(val, 'f', 2));
+            s.save();
+            QMetaObject::invokeMethod(m_audio, [this, val]() { m_audio->setNr4SuppressionStrength(val); });
+        });
+
+    popup->addCheckbox("Adaptive Noise",
+        s.value("NR4AdaptiveNoise", "True").toString() == "True",
+        [this](bool on) {
+            auto& s = AppSettings::instance();
+            s.setValue("NR4AdaptiveNoise", on ? "True" : "False");
+            s.save();
+            QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr4AdaptiveNoise(on); });
+        });
+
+    popup->finalize(
+        [this]() {
+            // Open AetherDSP Settings dialog (NR4 tab)
+            if (m_dspDialog) {
+                m_dspDialog->raise();
+                m_dspDialog->activateWindow();
+                return;
+            }
+            auto* dlg = new AetherDspDialog(m_audio, this);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            connect(dlg, &AetherDspDialog::nr2GainMaxChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2GainMax(v); });
+            });
+            connect(dlg, &AetherDspDialog::nr2GainSmoothChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2GainSmooth(v); });
+            });
+            connect(dlg, &AetherDspDialog::nr2QsppChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2Qspp(v); });
+            });
+            connect(dlg, &AetherDspDialog::nr4ReductionChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4ReductionAmount(v); });
+            });
+            connect(dlg, &AetherDspDialog::nr4SmoothingChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4SmoothingFactor(v); });
+            });
+            connect(dlg, &AetherDspDialog::nr4WhiteningChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4WhiteningFactor(v); });
+            });
+            connect(dlg, &AetherDspDialog::nr4AdaptiveNoiseChanged, this, [this](bool on) {
+                QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr4AdaptiveNoise(on); });
+            });
+            connect(dlg, &AetherDspDialog::nr4NoiseMethodChanged, this, [this](int m) {
+                QMetaObject::invokeMethod(m_audio, [this, m]() { m_audio->setNr4NoiseEstimationMethod(m); });
+            });
+            connect(dlg, &AetherDspDialog::nr4MaskingDepthChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4MaskingDepth(v); });
+            });
+            connect(dlg, &AetherDspDialog::nr4SuppressionChanged, this, [this](float v) {
+                QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4SuppressionStrength(v); });
             });
             m_dspDialog = dlg;
             dlg->show();
@@ -6552,6 +6743,10 @@ void MainWindow::registerMidiParams()
         [this](float v) { QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setRn2Enabled(v > 0.5f); }); },
         [this]() -> float { return m_audio->rn2Enabled() ? 1 : 0; });
 
+    reg("rx.nr4Enable", "NR4 (Spectral Bleach)", "RX", P::Toggle, 0, 1,
+        [this](float v) { QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4Enabled(v > 0.5f); }); },
+        [this]() -> float { return m_audio->nr4Enabled() ? 1 : 0; });
+
     reg("rx.stepUp", "Step Size Up", "RX", P::Trigger, 0, 1,
         [this](float) { if (auto* rx = m_appletPanel->rxApplet()) rx->cycleStepUp(); });
 
@@ -6847,6 +7042,7 @@ void MainWindow::updateStreamDeckLiveKeys()
             {"ANF",  s->anfOn()},
             {"NR2",  m_audio->nr2Enabled()},
             {"RN2",  m_audio->rn2Enabled()},
+            {"NR4",  m_audio->nr4Enabled()},
             {"APF",  s->apfOn()},
             {"AGC",  s->agcMode() != "off"},
             {"DAX",  m_radioModel.transmitModel().daxOn()},

@@ -115,13 +115,15 @@ public:
     bool rn2Enabled() const { return m_rn2Enabled.load(); }
 
     // Client-side NR4 (libspecbleach spectral noise reduction)
-#ifdef HAVE_SPECBLEACH
     Q_INVOKABLE void setNr4Enabled(bool on);
     bool nr4Enabled() const { return m_nr4Enabled.load(); }
     void setNr4ReductionAmount(float dB);
     void setNr4SmoothingFactor(float pct);
     void setNr4WhiteningFactor(float pct);
-#endif
+    void setNr4AdaptiveNoise(bool on);
+    void setNr4NoiseEstimationMethod(int method);
+    void setNr4MaskingDepth(float v);
+    void setNr4SuppressionStrength(float v);
 
     // Client-side BNR (NVIDIA NIM GPU noise removal)
     Q_INVOKABLE void setBnrEnabled(bool on);
@@ -234,8 +236,8 @@ private:
     // Client-side NR4 (libspecbleach)
 #ifdef HAVE_SPECBLEACH
     std::unique_ptr<SpecbleachFilter> m_nr4;
-    std::atomic<bool> m_nr4Enabled{false};
 #endif
+    std::atomic<bool> m_nr4Enabled{false};
 
     // Client-side RN2 (RNNoise)
     std::unique_ptr<RNNoiseFilter> m_rn2;

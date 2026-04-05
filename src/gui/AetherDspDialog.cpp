@@ -224,16 +224,191 @@ void AetherDspDialog::buildNr2Tab(QTabWidget* tabs)
     tabs->addTab(page, "NR2");
 }
 
-// ── NR4 Tab (placeholder — Phase 2) ─────────────────────────────────────────
+// ── NR4 Tab (libspecbleach) ──────────────────────────────────────────────────
 
 void AetherDspDialog::buildNr4Tab(QTabWidget* tabs)
 {
     auto* page = new QWidget;
     auto* vbox = new QVBoxLayout(page);
-    auto* lbl = new QLabel("NR4 (Spectral Bleach) — coming soon");
-    lbl->setAlignment(Qt::AlignCenter);
-    lbl->setStyleSheet("QLabel { color: #506070; font-size: 14px; }");
-    vbox->addWidget(lbl);
+
+    auto labelStyle = QStringLiteral("QLabel { color: #8090a0; font-size: 11px; }");
+    auto valStyle   = QStringLiteral("QLabel { color: #c8d8e8; font-size: 11px; min-width: 40px; }");
+
+    // Noise Estimation Method
+    auto* methodGroup = new QGroupBox("Noise Estimation Method");
+    auto* methodLayout = new QHBoxLayout(methodGroup);
+    m_nr4MethodGroup = new QButtonGroup(this);
+    const char* methodLabels[] = {"SPP-MMSE", "Brandt", "Martin"};
+    for (int i = 0; i < 3; ++i) {
+        auto* rb = new QRadioButton(methodLabels[i]);
+        m_nr4MethodGroup->addButton(rb, i);
+        methodLayout->addWidget(rb);
+    }
+    m_nr4MethodGroup->button(0)->setChecked(true);
+    connect(m_nr4MethodGroup, &QButtonGroup::idClicked, this, [this](int id) {
+        auto& s = AppSettings::instance();
+        s.setValue("NR4NoiseEstimationMethod", QString::number(id));
+        s.save();
+        emit nr4NoiseMethodChanged(id);
+    });
+    vbox->addWidget(methodGroup);
+
+    // Adaptive Noise
+    m_nr4AdaptiveCheck = new QCheckBox("Adaptive Noise Estimation");
+    m_nr4AdaptiveCheck->setChecked(true);
+    connect(m_nr4AdaptiveCheck, &QCheckBox::toggled, this, [this](bool on) {
+        auto& s = AppSettings::instance();
+        s.setValue("NR4AdaptiveNoise", on ? "True" : "False");
+        s.save();
+        emit nr4AdaptiveNoiseChanged(on);
+    });
+    vbox->addWidget(m_nr4AdaptiveCheck);
+
+    // Sliders
+    auto* sliderGrid = new QGridLayout;
+    int row = 0;
+
+    // Reduction Amount (0–40 dB)
+    {
+        auto* lbl = new QLabel("Reduction (dB):");
+        lbl->setStyleSheet(labelStyle);
+        sliderGrid->addWidget(lbl, row, 0);
+        m_nr4ReductionSlider = new GuardedSlider(Qt::Horizontal);
+        m_nr4ReductionSlider->setRange(0, 400);  // 0.0–40.0
+        m_nr4ReductionSlider->setValue(100);      // default 10.0
+        m_nr4ReductionSlider->setStyleSheet(kSliderStyle);
+        sliderGrid->addWidget(m_nr4ReductionSlider, row, 1);
+        m_nr4ReductionLabel = new QLabel("10.0");
+        m_nr4ReductionLabel->setStyleSheet(valStyle);
+        m_nr4ReductionLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        sliderGrid->addWidget(m_nr4ReductionLabel, row, 2);
+        connect(m_nr4ReductionSlider, &QSlider::valueChanged, this, [this](int v) {
+            float val = v / 10.0f;
+            m_nr4ReductionLabel->setText(QString::number(val, 'f', 1));
+            auto& s = AppSettings::instance();
+            s.setValue("NR4ReductionAmount", QString::number(val, 'f', 1));
+            s.save();
+            emit nr4ReductionChanged(val);
+        });
+        ++row;
+    }
+
+    // Smoothing Factor (0–100%)
+    {
+        auto* lbl = new QLabel("Smoothing (%):");
+        lbl->setStyleSheet(labelStyle);
+        sliderGrid->addWidget(lbl, row, 0);
+        m_nr4SmoothingSlider = new GuardedSlider(Qt::Horizontal);
+        m_nr4SmoothingSlider->setRange(0, 100);
+        m_nr4SmoothingSlider->setValue(0);  // default 0%
+        m_nr4SmoothingSlider->setStyleSheet(kSliderStyle);
+        sliderGrid->addWidget(m_nr4SmoothingSlider, row, 1);
+        m_nr4SmoothingLabel = new QLabel("0");
+        m_nr4SmoothingLabel->setStyleSheet(valStyle);
+        m_nr4SmoothingLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        sliderGrid->addWidget(m_nr4SmoothingLabel, row, 2);
+        connect(m_nr4SmoothingSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_nr4SmoothingLabel->setText(QString::number(v));
+            auto& s = AppSettings::instance();
+            s.setValue("NR4SmoothingFactor", QString::number(static_cast<float>(v), 'f', 1));
+            s.save();
+            emit nr4SmoothingChanged(static_cast<float>(v));
+        });
+        ++row;
+    }
+
+    // Whitening Factor (0–100%)
+    {
+        auto* lbl = new QLabel("Whitening (%):");
+        lbl->setStyleSheet(labelStyle);
+        sliderGrid->addWidget(lbl, row, 0);
+        m_nr4WhiteningSlider = new GuardedSlider(Qt::Horizontal);
+        m_nr4WhiteningSlider->setRange(0, 100);
+        m_nr4WhiteningSlider->setValue(0);  // default 0%
+        m_nr4WhiteningSlider->setStyleSheet(kSliderStyle);
+        sliderGrid->addWidget(m_nr4WhiteningSlider, row, 1);
+        m_nr4WhiteningLabel = new QLabel("0");
+        m_nr4WhiteningLabel->setStyleSheet(valStyle);
+        m_nr4WhiteningLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        sliderGrid->addWidget(m_nr4WhiteningLabel, row, 2);
+        connect(m_nr4WhiteningSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_nr4WhiteningLabel->setText(QString::number(v));
+            auto& s = AppSettings::instance();
+            s.setValue("NR4WhiteningFactor", QString::number(static_cast<float>(v), 'f', 1));
+            s.save();
+            emit nr4WhiteningChanged(static_cast<float>(v));
+        });
+        ++row;
+    }
+
+    // Masking Depth (0.0–1.0)
+    {
+        auto* lbl = new QLabel("Masking Depth:");
+        lbl->setStyleSheet(labelStyle);
+        sliderGrid->addWidget(lbl, row, 0);
+        m_nr4MaskingSlider = new GuardedSlider(Qt::Horizontal);
+        m_nr4MaskingSlider->setRange(0, 100);  // 0.00–1.00
+        m_nr4MaskingSlider->setValue(50);       // default 0.50
+        m_nr4MaskingSlider->setStyleSheet(kSliderStyle);
+        sliderGrid->addWidget(m_nr4MaskingSlider, row, 1);
+        m_nr4MaskingLabel = new QLabel("0.50");
+        m_nr4MaskingLabel->setStyleSheet(valStyle);
+        m_nr4MaskingLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        sliderGrid->addWidget(m_nr4MaskingLabel, row, 2);
+        connect(m_nr4MaskingSlider, &QSlider::valueChanged, this, [this](int v) {
+            float val = v / 100.0f;
+            m_nr4MaskingLabel->setText(QString::number(val, 'f', 2));
+            auto& s = AppSettings::instance();
+            s.setValue("NR4MaskingDepth", QString::number(val, 'f', 2));
+            s.save();
+            emit nr4MaskingDepthChanged(val);
+        });
+        ++row;
+    }
+
+    // Suppression Strength (0.0–1.0)
+    {
+        auto* lbl = new QLabel("Suppression:");
+        lbl->setStyleSheet(labelStyle);
+        sliderGrid->addWidget(lbl, row, 0);
+        m_nr4SuppressionSlider = new GuardedSlider(Qt::Horizontal);
+        m_nr4SuppressionSlider->setRange(0, 100);  // 0.00–1.00
+        m_nr4SuppressionSlider->setValue(50);       // default 0.50
+        m_nr4SuppressionSlider->setStyleSheet(kSliderStyle);
+        sliderGrid->addWidget(m_nr4SuppressionSlider, row, 1);
+        m_nr4SuppressionLabel = new QLabel("0.50");
+        m_nr4SuppressionLabel->setStyleSheet(valStyle);
+        m_nr4SuppressionLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        sliderGrid->addWidget(m_nr4SuppressionLabel, row, 2);
+        connect(m_nr4SuppressionSlider, &QSlider::valueChanged, this, [this](int v) {
+            float val = v / 100.0f;
+            m_nr4SuppressionLabel->setText(QString::number(val, 'f', 2));
+            auto& s = AppSettings::instance();
+            s.setValue("NR4SuppressionStrength", QString::number(val, 'f', 2));
+            s.save();
+            emit nr4SuppressionChanged(val);
+        });
+        ++row;
+    }
+
+    vbox->addLayout(sliderGrid);
+
+    // Reset button
+    auto* resetBtn = new QPushButton("Reset Defaults");
+    connect(resetBtn, &QPushButton::clicked, this, [this]() {
+        m_nr4MethodGroup->button(0)->setChecked(true);   // SPP-MMSE
+        m_nr4AdaptiveCheck->setChecked(true);
+        m_nr4ReductionSlider->setValue(100);              // 10.0 dB
+        m_nr4SmoothingSlider->setValue(0);                // 0%
+        m_nr4WhiteningSlider->setValue(0);                // 0%
+        m_nr4MaskingSlider->setValue(50);                 // 0.50
+        m_nr4SuppressionSlider->setValue(50);             // 0.50
+    });
+    auto* btnRow = new QHBoxLayout;
+    btnRow->addStretch();
+    btnRow->addWidget(resetBtn);
+    vbox->addLayout(btnRow);
+
     vbox->addStretch();
     tabs->addTab(page, "NR4");
 }
@@ -294,6 +469,34 @@ void AetherDspDialog::syncFromEngine()
     int qspp = static_cast<int>(s.value("NR2Qspp", "0.20").toFloat() * 100);
     m_nr2QsppSlider->setValue(qspp);
     m_nr2QsppLabel->setText(QString::number(qspp / 100.0f, 'f', 2));
+
+    // NR4 sync
+    int noiseMethod = s.value("NR4NoiseEstimationMethod", "0").toInt();
+    if (auto* btn = m_nr4MethodGroup->button(noiseMethod))
+        btn->setChecked(true);
+
+    bool adaptive = s.value("NR4AdaptiveNoise", "True").toString() == "True";
+    m_nr4AdaptiveCheck->setChecked(adaptive);
+
+    int reduction = static_cast<int>(s.value("NR4ReductionAmount", "10.0").toFloat() * 10);
+    m_nr4ReductionSlider->setValue(reduction);
+    m_nr4ReductionLabel->setText(QString::number(reduction / 10.0f, 'f', 1));
+
+    int smoothing = static_cast<int>(s.value("NR4SmoothingFactor", "0.0").toFloat());
+    m_nr4SmoothingSlider->setValue(smoothing);
+    m_nr4SmoothingLabel->setText(QString::number(smoothing));
+
+    int whitening = static_cast<int>(s.value("NR4WhiteningFactor", "0.0").toFloat());
+    m_nr4WhiteningSlider->setValue(whitening);
+    m_nr4WhiteningLabel->setText(QString::number(whitening));
+
+    int masking = static_cast<int>(s.value("NR4MaskingDepth", "0.50").toFloat() * 100);
+    m_nr4MaskingSlider->setValue(masking);
+    m_nr4MaskingLabel->setText(QString::number(masking / 100.0f, 'f', 2));
+
+    int suppression = static_cast<int>(s.value("NR4SuppressionStrength", "0.50").toFloat() * 100);
+    m_nr4SuppressionSlider->setValue(suppression);
+    m_nr4SuppressionLabel->setText(QString::number(suppression / 100.0f, 'f', 2));
 }
 
 } // namespace AetherSDR

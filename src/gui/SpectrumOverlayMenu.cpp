@@ -371,9 +371,10 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
         {&S::setAnfl, &S::anflChanged},  // 9
         {&S::setAnft, &S::anftChanged},  // 10
         {nullptr,     nullptr},           // 11 — BNR (client-side, wired separately)
+        {nullptr,     nullptr},           // 12 — NR4 (client-side, wired separately)
     };
 
-    for (int i = 0; i < 11; ++i) {
+    for (int i = 0; i < 12; ++i) {
         if (!toggleDefs[i].setter) continue;  // skip NR2/RN2
         auto* btn = m_dspRows[i].btn;
         auto setter = toggleDefs[i].setter;
@@ -470,6 +471,21 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
     if (m_dspRows[11].valueLbl) m_dspRows[11].valueLbl->setVisible(false);
 #endif
 
+    // NR4 (client-side, index 12) — emit signal for MainWindow to handle
+    connect(m_dspRows[12].btn, &QPushButton::toggled, this, [this](bool on) {
+        if (!m_updatingFromModel)
+            emit nr4Toggled(on);
+    });
+    // NR4 right-click → parameter popup
+    m_dspRows[12].btn->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_dspRows[12].btn, &QPushButton::customContextMenuRequested,
+            this, [this](const QPoint& pos) {
+        emit nr4RightClicked(m_dspRows[12].btn->mapToGlobal(pos));
+    });
+#ifndef HAVE_SPECBLEACH
+    m_dspRows[12].btn->setVisible(false);
+#endif
+
     // DAX
     connect(m_slice, &SliceModel::daxChannelChanged, this, [this](int ch) {
         m_updatingFromModel = true;
@@ -529,6 +545,7 @@ void SpectrumOverlayMenu::buildDspPanel()
         {"ANFL", true},   // 9
         {"ANFT", false},  // 10
         {"BNR",  true},   // 11 — client-side NVIDIA NIM (intensity slider)
+        {"NR4",  false},  // 12 — client-side spectral bleach (libspecbleach)
     };
 
     for (const auto& def : defs) {
@@ -1378,6 +1395,11 @@ QPushButton* SpectrumOverlayMenu::dspRn2Button() const
 QPushButton* SpectrumOverlayMenu::dspBnrButton() const
 {
     return m_dspRows.size() > 11 ? m_dspRows[11].btn : nullptr;
+}
+
+QPushButton* SpectrumOverlayMenu::dspNr4Button() const
+{
+    return m_dspRows.size() > 12 ? m_dspRows[12].btn : nullptr;
 }
 
 bool SpectrumOverlayMenu::eventFilter(QObject* obj, QEvent* event)

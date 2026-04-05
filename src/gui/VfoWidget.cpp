@@ -837,9 +837,13 @@ void VfoWidget::buildTabContent()
         m_anflBtn = makeDsp("ANFL");
         m_anftBtn = makeDsp("ANFT");
         m_bnrBtn  = makeDsp("BNR");
+        m_nr4Btn  = makeDsp("NR4");
         m_apfBtn->hide();  // only visible in CW mode
 #ifndef HAVE_BNR
         m_bnrBtn->hide();
+#endif
+#ifndef HAVE_SPECBLEACH
+        m_nr4Btn->hide();
 #endif
 
         // Initial layout: 4-column grid (APF hidden, BNR only with HAVE_BNR)
@@ -855,6 +859,7 @@ void VfoWidget::buildTabContent()
         m_dspGrid->addWidget(m_anflBtn, 2, 1);
         m_dspGrid->addWidget(m_anftBtn, 2, 2);
         m_dspGrid->addWidget(m_bnrBtn,  2, 3);
+        m_dspGrid->addWidget(m_nr4Btn,  3, 0);
         dspVb->addLayout(m_dspGrid);
 
         // APF level slider (hidden unless CW mode)
@@ -1179,6 +1184,11 @@ void VfoWidget::buildTabContent()
         connect(m_rnnBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setRnn(on); });
         connect(m_rn2Btn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit rn2Toggled(on); });
         connect(m_bnrBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit bnrToggled(on); });
+        connect(m_nr4Btn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit nr4Toggled(on); });
+        m_nr4Btn->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_nr4Btn, &QPushButton::customContextMenuRequested, this, [this](const QPoint& pos) {
+            emit nr4RightClicked(m_nr4Btn->mapToGlobal(pos));
+        });
         connect(m_nrfBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setNrf(on); });
         connect(m_anflBtn, &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setAnfl(on); });
         connect(m_anftBtn, &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setAnft(on); });
@@ -1806,6 +1816,9 @@ void VfoWidget::setSlice(SliceModel* slice)
 #ifdef HAVE_BNR
         m_bnrBtn->setVisible(!isFm);
 #endif
+#ifdef HAVE_SPECBLEACH
+        m_nr4Btn->setVisible(!isFm);
+#endif
         m_nrfBtn->setVisible(!isFm);
         relayoutDspGrid();
         if (m_tabStack->isVisible()) adjustSize();
@@ -2243,6 +2256,9 @@ void VfoWidget::syncFromSlice()
 #ifdef HAVE_BNR
     m_bnrBtn->setVisible(!isFm);
 #endif
+#ifdef HAVE_SPECBLEACH
+    m_nr4Btn->setVisible(!isFm);
+#endif
     m_nrlBtn->setVisible(!isFm);
     m_nrsBtn->setVisible(!isFm);
     m_nrfBtn->setVisible(!isFm);
@@ -2315,7 +2331,7 @@ void VfoWidget::relayoutDspGrid()
 {
     // Remove all widgets from the grid (without deleting them)
     QPushButton* all[] = {m_nrBtn, m_nr2Btn, m_nbBtn, m_anfBtn, m_apfBtn, m_nrlBtn,
-                          m_nrsBtn, m_rnnBtn, m_rn2Btn, m_nrfBtn, m_anflBtn, m_anftBtn, m_bnrBtn};
+                          m_nrsBtn, m_rnnBtn, m_rn2Btn, m_nrfBtn, m_anflBtn, m_anftBtn, m_bnrBtn, m_nr4Btn};
     for (auto* btn : all)
         m_dspGrid->removeWidget(btn);
 

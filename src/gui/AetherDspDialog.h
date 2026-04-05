@@ -34,6 +34,14 @@ signals:
     void nr2GainMaxChanged(float value);
     void nr2GainSmoothChanged(float value);
     void nr2QsppChanged(float value);
+    // NR4 parameter changes
+    void nr4ReductionChanged(float dB);
+    void nr4SmoothingChanged(float pct);
+    void nr4WhiteningChanged(float pct);
+    void nr4AdaptiveNoiseChanged(bool on);
+    void nr4NoiseMethodChanged(int method);
+    void nr4MaskingDepthChanged(float value);
+    void nr4SuppressionChanged(float value);
 
 private:
     void buildNr2Tab(QTabWidget* tabs);
@@ -53,6 +61,20 @@ private:
     QLabel*       m_nr2SmoothLabel{nullptr};
     QSlider*      m_nr2QsppSlider{nullptr};
     QLabel*       m_nr2QsppLabel{nullptr};
+
+    // NR4 controls
+    QSlider*      m_nr4ReductionSlider{nullptr};
+    QLabel*       m_nr4ReductionLabel{nullptr};
+    QSlider*      m_nr4SmoothingSlider{nullptr};
+    QLabel*       m_nr4SmoothingLabel{nullptr};
+    QSlider*      m_nr4WhiteningSlider{nullptr};
+    QLabel*       m_nr4WhiteningLabel{nullptr};
+    QCheckBox*    m_nr4AdaptiveCheck{nullptr};
+    QButtonGroup* m_nr4MethodGroup{nullptr};
+    QSlider*      m_nr4MaskingSlider{nullptr};
+    QLabel*       m_nr4MaskingLabel{nullptr};
+    QSlider*      m_nr4SuppressionSlider{nullptr};
+    QLabel*       m_nr4SuppressionLabel{nullptr};
 };
 
 } // namespace AetherSDR
