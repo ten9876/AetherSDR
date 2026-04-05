@@ -92,12 +92,13 @@ jobs:
           create-dmg \
             --volname "AetherSDR" \
             --volicon "docs/AetherSDR.icns" \
+            --background "docs/logo-invert.png" \
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
-            --icon "AetherSDR.app" 150 190 \
+            --icon "AetherSDR.app" 150 110 \
             --hide-extension "AetherSDR.app" \
-            --app-drop-link 450 190 \
+            --app-drop-link 450 110 \
             "AetherSDR-${{ github.ref_name }}-macOS-apple-silicon.dmg" \
             "build/AetherSDR.app" \
           || true
