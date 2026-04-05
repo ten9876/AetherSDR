@@ -243,8 +243,8 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
       m_radioModel(radioModel), m_dxccProvider(dxccProvider)
 {
     setWindowTitle("SpotHub");
-    setMinimumSize(620, 500);
-    resize(700, 580);
+    setMinimumSize(680, 560);
+    resize(760, 640);
 
     auto* root = new QVBoxLayout(this);
     root->setSpacing(0);

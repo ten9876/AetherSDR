@@ -2631,6 +2631,7 @@ void MainWindow::buildMenuBar()
                 sw->setSpotMaxLevels(levels);
                 sw->setSpotStartPct(position);
                 sw->setSpotOverrideColors(override);
+                sw->setSpotOverrideBg(s.value("IsSpotsOverrideBackgroundColorsEnabled", "True").toString() == "True");
                 sw->setSpotColor(spotColor);
                 sw->setSpotBgColor(bgColor);
                 sw->setSpotBgOpacity(bgOpacity);
@@ -4731,6 +4732,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setSpotMaxLevels(s.value("SpotsMaxLevel", "3").toInt());
         sw->setSpotStartPct(s.value("SpotsStartingHeightPercentage", "50").toInt());
         sw->setSpotOverrideColors(s.value("IsSpotsOverrideColorsEnabled", "False").toString() == "True");
+        sw->setSpotOverrideBg(s.value("IsSpotsOverrideBackgroundColorsEnabled", "True").toString() == "True");
     }
 
     // ── Per-pan display controls (client-side) ───────────────────────────

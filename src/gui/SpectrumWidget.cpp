@@ -2406,7 +2406,30 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             return a.x < b.x;
         });
 
+        const int panelW = vfos.isEmpty() ? 0 : vfos[0].w->width();
+        const int specW = specRect.width();
+
+        // First pass: assign directions for split pairs
         QMap<int, VfoWidget::FlagDir> dirMap;
+        for (int i = 0; i < vfos.size(); ++i) {
+            if (vfos[i].splitPartner < 0) continue;
+            if (dirMap.contains(vfos[i].sliceId)) continue;
+            int pi = -1;
+            for (int j = 0; j < vfos.size(); ++j) {
+                if (vfos[j].sliceId == vfos[i].splitPartner) { pi = j; break; }
+            }
+            if (pi < 0) continue;
+            int leftIdx  = (vfos[i].x <= vfos[pi].x) ? i : pi;
+            int rightIdx = (leftIdx == i) ? pi : i;
+            dirMap[vfos[leftIdx].sliceId]  = VfoWidget::ForceLeft;
+            dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceRight;
+            if (vfos[leftIdx].x < panelW)
+                dirMap[vfos[leftIdx].sliceId] = VfoWidget::ForceRight;
+            if (vfos[rightIdx].x + panelW > specW)
+                dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceLeft;
+        }
+
+        // Second pass: RTTY/DIGL force right
         for (const auto& so : m_sliceOverlays) {
             if (so.mode == "RTTY" || so.mode == "DIGL")
                 dirMap[so.sliceId] = VfoWidget::ForceRight;
@@ -2417,7 +2440,26 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             vfos[0].w->updatePosition(vfos[0].x, specRect.top(), dir);
         } else {
             for (int i = 0; i < vfos.size(); ++i) {
-                VfoWidget::FlagDir dir = dirMap.value(vfos[i].sliceId, VfoWidget::Auto);
+                VfoWidget::FlagDir dir = VfoWidget::Auto;
+                if (dirMap.contains(vfos[i].sliceId)) {
+                    dir = dirMap[vfos[i].sliceId];
+                } else if (vfos.size() == 2) {
+                    dir = (i == 0) ? VfoWidget::ForceLeft : VfoWidget::ForceRight;
+                    if (i == 0 && vfos[i].x < panelW) dir = VfoWidget::ForceRight;
+                    if (i == 1 && vfos[i].x + panelW > specW) dir = VfoWidget::ForceLeft;
+                } else {
+                    if (i == 0) {
+                        dir = VfoWidget::ForceLeft;
+                        if (vfos[i].x < panelW) dir = VfoWidget::ForceRight;
+                    } else if (i == vfos.size() - 1) {
+                        dir = VfoWidget::ForceRight;
+                        if (vfos[i].x + panelW > specW) dir = VfoWidget::ForceLeft;
+                    } else {
+                        int gapLeft = vfos[i].x - vfos[i-1].x;
+                        int gapRight = vfos[i+1].x - vfos[i].x;
+                        dir = (gapLeft >= gapRight) ? VfoWidget::ForceLeft : VfoWidget::ForceRight;
+                    }
+                }
                 vfos[i].w->updatePosition(vfos[i].x, specRect.top(), dir);
             }
         }
@@ -3038,13 +3080,15 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
         int mIdx = static_cast<int>(&spot - &m_spotMarkers[0]);
         m_spotClickRects.append({labelRect, spot.freqMhz, mIdx});
 
-        // Background pill
-        int bgAlpha = m_spotBgOpacity * 255 / 100;
-        QColor bgCol = m_spotBgColor;
-        bgCol.setAlpha(bgAlpha);
-        p.setPen(Qt::NoPen);
-        p.setBrush(bgCol);
-        p.drawRoundedRect(labelRect, 3, 3);
+        // Background pill — only draw when override background is enabled (#768)
+        if (m_spotOverrideBg) {
+            int bgAlpha = m_spotBgOpacity * 255 / 100;
+            QColor bgCol = m_spotBgColor;
+            bgCol.setAlpha(bgAlpha);
+            p.setPen(Qt::NoPen);
+            p.setBrush(bgCol);
+            p.drawRoundedRect(labelRect, 3, 3);
+        }
 
         // Text
         p.setPen(col);
