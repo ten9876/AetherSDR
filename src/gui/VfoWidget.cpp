@@ -1539,7 +1539,13 @@ void VfoWidget::updatePosition(int vfoX, int specTop, FlagDir dir)
         }
     }
 
-    move(x, specTop);
+    // Skip all moves if position unchanged — prevents repaint cascade on QRhiWidget
+    const QPoint newPos(x, specTop);
+    if (pos() == newPos && m_lastOnLeft == onLeft)
+        return;
+    m_lastOnLeft = onLeft;
+
+    move(newPos);
 
     // Position close/lock/record/play buttons stacked vertically on the side opposite the marker
     if (m_closeSliceBtn && m_lockVfoBtn) {
@@ -1553,21 +1559,17 @@ void VfoWidget::updatePosition(int vfoX, int specTop, FlagDir dir)
 
         int btnY = specTop;
         m_closeSliceBtn->move(btnX, btnY);
-        m_closeSliceBtn->raise();
         btnY += btnSize + gap;
 
         m_lockVfoBtn->move(btnX, btnY);
-        m_lockVfoBtn->raise();
         btnY += btnSize + gap;
 
         if (m_recordBtn) {
             m_recordBtn->move(btnX, btnY);
-            m_recordBtn->raise();
             btnY += btnSize + gap;
         }
         if (m_playBtn) {
             m_playBtn->move(btnX, btnY);
-            m_playBtn->raise();
         }
     }
 }

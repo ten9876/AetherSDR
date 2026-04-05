@@ -111,6 +111,7 @@ private:
     TransmitModel* m_txModel{nullptr};
     QStringList    m_antList;
     bool           m_updatingFromModel{false};
+    bool           m_lastOnLeft{true};
     float          m_signalDbm{-130.0f};
 
     // Header row
