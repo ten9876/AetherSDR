@@ -2111,6 +2111,26 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                            specRect.top() + (m_wnbActive ? 38 : 20), label);
             }
 
+            // Cursor frequency label (#726)
+            if (m_showCursorFreq && m_cursorPos.x() >= 0
+                && m_cursorPos.y() >= 0) {
+                const double freqMhz = xToMhz(m_cursorPos.x());
+                const QString label = QString::number(freqMhz, 'f', 6);
+                QFont f = p.font();
+                f.setPointSize(9);
+                p.setFont(f);
+                const QFontMetrics fm(f);
+                const int tw = fm.horizontalAdvance(label) + 8;
+                const int th = fm.height() + 4;
+                int lx = m_cursorPos.x() + 12;
+                if (lx + tw > w) lx = m_cursorPos.x() - tw - 4;
+                int ly = m_cursorPos.y() - th - 4;
+                if (ly < 0) ly = m_cursorPos.y() + 16;
+                p.fillRect(lx, ly, tw, th, QColor(0x0f, 0x0f, 0x1a, 200));
+                p.setPen(QColor(0xc8, 0xd8, 0xe8));
+                p.drawText(lx + 4, ly + fm.ascent() + 2, label);
+            }
+
             m_overlayStaticDirty = false;
             m_overlayNeedsUpload = true;
         }
