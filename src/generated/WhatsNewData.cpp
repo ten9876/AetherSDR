@@ -6,6 +6,22 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.8.0"), QStringLiteral("2026-04-04"), QStringLiteral("GPU-Accelerated Rendering — The Performance Release"), {
+            {ChangeCategory::Feature, QStringLiteral("TCI WebSocket server"), QStringLiteral("Full TCI v2.0 protocol: 72 command handlers over a single WebSocket connection CAT control, RX/TX audio streaming with r8brain resampling, IQ streaming Sensor telemetry, CW keyer, spot injection DI...")},
+            {ChangeCategory::Feature, QStringLiteral("Customizable filter width presets"), QStringLiteral("Right-click any filter button to set custom width in Hz Per-mode persistence, synced between VFO widget and RX applet")},
+            {ChangeCategory::Feature, QStringLiteral("Scrollable stepped controls"), QStringLiteral("Step size, TX Low Cut/High Cut, RTTY Mark/Space respond to scroll wheel")},
+            {ChangeCategory::Feature, QStringLiteral("PA temperature unit toggle"), QStringLiteral("Click PA temp label to toggle °F/°C")},
+            {ChangeCategory::BugFix, QStringLiteral("RTTY mark/space overlay"), QStringLiteral("RF_frequency in RTTY mode is the mark (radio applies IF shift) Green dashed M line, red dashed S line (MMTTY convention) VFO flag offset past filter edge, \"Shift\" → \"Space\" label")},
+            {ChangeCategory::BugFix, QStringLiteral("Combo box scroll wheel regression"), QStringLiteral("Popup visibility check: ignore wheel when closed, allow when open")},
+            {ChangeCategory::BugFix, QStringLiteral("Step size not applied on restart"), QStringLiteral("syncStepFromSlice missing emit stepSizeChanged")},
+            {ChangeCategory::BugFix, QStringLiteral("Clock 00:00:00z with GPS no lock"), QStringLiteral("GPS time only used when GPSDO installed AND locked")},
+            {ChangeCategory::BugFix, QStringLiteral("DAX TX latency on PipeWire"), QStringLiteral("2KB pipe buffer, 5ms precise timer, drain loop")},
+            {ChangeCategory::BugFix, QStringLiteral("AI-assisted issue reporter"), QStringLiteral("Bug report + feature request templates, duplicate check")},
+            {ChangeCategory::BugFix, QStringLiteral("RADE DSP guard"), QStringLiteral("NR2/RN2/BNR disabled when RADE active")},
+            {ChangeCategory::BugFix, QStringLiteral("RADE RX audio fix"), QStringLiteral("Prevents VITA-49 audio fighting RADE decoded speech")},
+            {ChangeCategory::BugFix, QStringLiteral("DXCC ADIF parsing"), QStringLiteral("Static regex caching bug, band normalization, mode inference")},
+            {ChangeCategory::BugFix, QStringLiteral("Shortcut dedup"), QStringLiteral("Duplicate key bindings resolved on load")},
+        }},
         {QStringLiteral("0.7.19"), QStringLiteral("2026-04-04"), QStringLiteral("Community Contributions"), {
             {ChangeCategory::Feature, QStringLiteral("TCI WebSocket server"), QStringLiteral("Full TCI v2.0 protocol: 72 command handlers over a single WebSocket connection CAT control, RX/TX audio streaming, IQ streaming, CW keying, spot injection Per-client audio format negotiation via r8...")},
             {ChangeCategory::Feature, QStringLiteral("Customizable filter width presets"), QStringLiteral("Right-click any filter button to set a custom width in Hz Exact value stored, display rounded (e.g. 1234 → 1.2K) Per-mode persistence via AppSettings VFO widget (8 presets) and RX applet (6 presets...")},

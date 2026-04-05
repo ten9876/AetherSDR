@@ -33,7 +33,7 @@ cmake --build build -j$(nproc)
 
 Dependencies (Arch): `qt6-base qt6-multimedia cmake ninja pkgconf autoconf automake libtool`
 
-Current version: **0.7.19** (set in both `CMakeLists.txt` and `README.md`).
+Current version: **0.8.0** (set in both `CMakeLists.txt` and `README.md`).
 
 ---
 
@@ -131,7 +131,7 @@ src/
     ├── TitleBar            — Menu bar + PC Audio + master/HP volume + TX owner + Feature Request
     ├── ConnectionPanel     — Floating radio list + connect/disconnect popup
     ├── PanadapterStack     — Vertical QSplitter hosting N PanadapterApplets
-    ├── SpectrumWidget      — FFT spectrum + scrolling waterfall + frequency scale
+    ├── SpectrumWidget      — GPU-accelerated FFT spectrum + waterfall (QRhiWidget)
     ├── SpectrumOverlayMenu — Left-side DSP/display overlay on spectrum
     ├── VfoWidget           — VFO display: frequency, mode, filter, DSP tabs, passband
     ├── SupportDialog       — Per-module logging toggles, log viewer, AI-assisted bug reports
@@ -310,7 +310,7 @@ SPOT PIPELINES:                             ◄── SPOT WORKER THREAD
 
 | Thread | Components | CPU | Creation | Notes |
 |--------|-----------|-----|----------|-------|
-| **Main** | paintEvent, RadioModel, all sub-models, all GUI widgets | ~97% | Qt default | Dominated by QPainter waterfall blit |
+| **Main** | QRhi render(), RadioModel, all sub-models, all GUI widgets | ~28% | Qt default | GPU waterfall + FFT; QPainter overlay cached |
 | **Connection** | RadioConnection, QTcpSocket, kernel TCP_INFO RTT | ~0% | moveToThread | Heap-allocated, init() slot pattern |
 | **Audio** | AudioEngine, NR2/RN2 DSP, QAudioSink/Source, TX encoding | ~1.5% | moveToThread | std::atomic flags, recursive_mutex for DSP lifecycle |
 | **Network** | PanadapterStream, QUdpSocket, VITA-49 parsing, per-stream stats | ~0.3% | moveToThread | QMutex guards stream ID sets |
@@ -343,9 +343,18 @@ on the main thread — GUI accesses models directly with no pointer indirection.
 Each worker thread has a single responsibility and communicates exclusively via
 auto-queued signals. The main thread handles only paintEvent + model updates.
 
-**Remaining bottleneck:** Main thread at ~97% is entirely QPainter waterfall
-rendering (`p.drawImage()` blit). With waterfall closed, main thread drops to
-2-3%. GPU offload (#391) is the path to resolving this.
+**GPU-accelerated rendering (#391):** When `AETHER_GPU_SPECTRUM=ON` (default),
+`SpectrumWidget` inherits `QRhiWidget` instead of `QWidget`. The waterfall is
+a GPU texture with incremental row uploads (~6KB/frame via ring buffer offset
+in fragment shader). The FFT spectrum is a vertex buffer with per-vertex heat
+map colors (blue→cyan→green→yellow→red). Overlays (grid, band plan, scales,
+markers) are painted by QPainter into a cached QImage, uploaded as a texture
+only when state changes. Main thread CPU reduced from ~97% to ~28%.
+
+**Key QRhi lesson:** `fract()` must be in the fragment shader, not vertex
+shader. Per-vertex `fract()` when UV spans 0→1 produces identical values
+at both vertices (`fract(0+offset) == fract(1+offset)`), resulting in
+constant UV across the quad.
 
 ---
 

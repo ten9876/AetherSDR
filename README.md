@@ -10,7 +10,7 @@
 
 AetherSDR brings FlexRadio operation to Linux without Wine or virtual machines. Built from the ground up with Qt6 and C++20, it speaks the SmartSDR protocol natively and aims to replicate the full SmartSDR experience.
 
-**Current version: 0.7.19** | [Download](https://github.com/ten9876/AetherSDR/releases/latest) | [Discussions](https://github.com/ten9876/AetherSDR/discussions) | [What's New](https://github.com/ten9876/AetherSDR/releases)
+**Current version: 0.8.0** | [Download](https://github.com/ten9876/AetherSDR/releases/latest) | [Discussions](https://github.com/ten9876/AetherSDR/discussions) | [What's New](https://github.com/ten9876/AetherSDR/releases)
 
 > **Cross-platform downloads available:** Linux AppImage, macOS universal DMG, Windows installer and portable ZIP.
 > Linux is the primary supported platform. macOS and Windows builds are provided as a courtesy.
@@ -23,6 +23,7 @@ AetherSDR brings FlexRadio operation to Linux without Wine or virtual machines. 
 
 ## Highlights
 
+- **GPU-accelerated rendering** — QRhi waterfall + FFT spectrum on GPU (OpenGL/Metal/D3D11), 71% CPU reduction, heat map FFT display
 - **Multi-slice operation** — color-coded VFO overlays, independent TX assignment, diversity mode with ESC beamforming
 - **Multi-panadapter** — up to 4 pans with 6 layout options, per-pan display controls, native VITA-49 waterfall tiles
 - **Full RX/TX controls** — filter presets, AGC, DSP, EQ, mic/compression gauges, TX profiles, ATU, TUNE/MOX
@@ -32,6 +33,7 @@ AetherSDR brings FlexRadio operation to Linux without Wine or virtual machines. 
 - **DAX virtual audio** — 4 RX + 1 TX channels for WSJT-X, fldigi, VARA, JS8Call (Linux PulseAudio/PipeWire, macOS CoreAudio)
 - **DAX IQ streaming** — raw I/Q to SDR apps at 24/48/96/192 kHz
 - **SmartLink remote operation** — Auth0 login, TLS command channel, WAN UDP streaming with credential persistence
+- **TCI server** — full TCI v2.0 protocol over WebSocket: CAT + audio + IQ + CW + spots in one connection
 - **CAT control** — 4-channel rigctld TCP + virtual serial ports, CW macros for contest loggers
 - **MIDI controller mapping** — Learn mode, 50+ parameters, named profiles
 - **FlexControl USB tuning knob** — auto-detect, acceleration, configurable buttons

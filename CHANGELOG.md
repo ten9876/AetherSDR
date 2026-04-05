@@ -3,6 +3,95 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.0] — 2026-04-04
+
+### GPU-Accelerated Rendering — The Performance Release
+
+**This release transforms AetherSDR's rendering pipeline from CPU-bound QPainter
+to GPU-accelerated QRhi, reducing main thread CPU usage from 97% to 28%.**
+
+### GPU Rendering (#391)
+
+**GPU-accelerated spectrum/waterfall via QRhi**
+- Waterfall rendered as GPU texture with incremental row uploads (~6KB/frame)
+- Ring buffer scrolling via fragment shader — zero CPU memmove
+- FFT spectrum as GPU vertex buffer with per-vertex colors
+- Overlays (grid, band plan, scales, markers) cached as QPainter texture, uploaded only on state change
+- Platform-agnostic: OpenGL (Linux), Metal (macOS), D3D11 (Windows)
+
+**Heat map FFT display**
+- Intensity-based gradient: blue (weak) → cyan → green → yellow → red (strong)
+- Fill gradient fades from full at bottom to transparent at spectrum line
+- Toggle between heat map and solid color mode in Display panel
+- Fill slider controls opacity in both modes
+
+### New Features
+
+**TCI WebSocket server (#528)**
+- Full TCI v2.0 protocol: 72 command handlers over a single WebSocket connection
+- CAT control, RX/TX audio streaming with r8brain resampling, IQ streaming
+- Sensor telemetry, CW keyer, spot injection
+- DIGI applet controls, autostart option
+- First FlexRadio client with built-in TCI
+
+**Customizable filter width presets (#675)**
+- Right-click any filter button to set custom width in Hz
+- Per-mode persistence, synced between VFO widget and RX applet
+
+**Scrollable stepped controls (#673)**
+- Step size, TX Low Cut/High Cut, RTTY Mark/Space respond to scroll wheel
+
+**PA temperature unit toggle (#679)**
+- Click PA temp label to toggle °F/°C
+
+### Bug Fixes
+
+**RTTY mark/space overlay (#660, #683)**
+- RF_frequency in RTTY mode is the mark (radio applies IF shift)
+- Green dashed M line, red dashed S line (MMTTY convention)
+- VFO flag offset past filter edge, "Shift" → "Space" label
+
+**Combo box scroll wheel regression (#676)**
+- Popup visibility check: ignore wheel when closed, allow when open
+
+**Step size not applied on restart (#666)**
+- syncStepFromSlice missing emit stepSizeChanged
+
+**Clock 00:00:00z with GPS no lock (#682)**
+- GPS time only used when GPSDO installed AND locked
+
+**DAX TX latency on PipeWire (#671)**
+- 2KB pipe buffer, 5ms precise timer, drain loop
+
+**AI-assisted issue reporter (#677)**
+- Bug report + feature request templates, duplicate check
+
+**RADE DSP guard**
+- NR2/RN2/BNR disabled when RADE active
+
+**RADE RX audio fix (#687)**
+- Prevents VITA-49 audio fighting RADE decoded speech
+
+**DXCC ADIF parsing (#670)**
+- Static regex caching bug, band normalization, mode inference
+
+**Shortcut dedup (#665)**
+- Duplicate key bindings resolved on load
+
+### Build System
+
+- GPU rendering enabled by default, auto-disables on Qt < 6.7
+- All release workflows updated with qtwebsockets, qtshadertools
+- CI Docker image includes Qt6 private headers and shader tools
+- Comprehensive dependency list in README for all platforms
+
+### Community Contributions
+
+- @jensenpat — shortcut dedup, sortable memory, macOS hidapi, PA temp toggle
+- @Chaosuk97 — DXCC ADIF parsing
+- @SA7LAV — DAX TX latency fix
+- @tmiw — RADE RX audio fix
+
 ## [v0.7.19] — 2026-04-04
 
 ### TCI Server, RTTY Fix, Community PRs
