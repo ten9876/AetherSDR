@@ -7,6 +7,16 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+# macOS: ensure Homebrew lib/include paths are in the search path
+# (universal builds with CMAKE_OSX_ARCHITECTURES may not search /opt/homebrew by default)
+if(APPLE)
+    execute_process(COMMAND brew --prefix OUTPUT_VARIABLE HOMEBREW_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(HOMEBREW_PREFIX)
+        link_directories("${HOMEBREW_PREFIX}/lib")
+        include_directories("${HOMEBREW_PREFIX}/include")
+    endif()
+endif()
+
 # Build type
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo)
