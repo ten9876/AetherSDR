@@ -4196,10 +4196,11 @@ void MainWindow::onSliceAdded(SliceModel* s)
             // Update CWX/DVK indicator availability for new mode
             updateKeyerAvailability(mode);
 
-            // Disable client-side DSP in digital modes — NR2/RN2/BNR would
-            // corrupt the data signal passing through DAX (#534)
-            bool isDigital = (mode == "DIGU" || mode == "DIGL" || mode == "RTTY");
-            if (isDigital) {
+            // Disable client-side DSP in digital and CW modes — NR2/RN2/BNR
+            // corrupt digital data (#534) and suppress CW tones (#784)
+            bool disableDsp = (mode == "DIGU" || mode == "DIGL" || mode == "RTTY"
+                            || mode == "CW"   || mode == "CWL");
+            if (disableDsp) {
                 if (m_audio->nr2Enabled())
                     QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
                 if (m_audio->rn2Enabled())
