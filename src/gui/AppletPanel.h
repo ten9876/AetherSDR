@@ -61,6 +61,10 @@ public:
     // Reset applet order to default
     void resetOrder();
 
+    // Global controls lock — disables wheel/mouse on sidebar sliders (#745)
+    bool controlsLocked() const;
+    void setControlsLocked(bool locked);
+
     // Ordered applet entry for drag-reorder support
     struct AppletEntry {
         QString id;
@@ -96,6 +100,7 @@ private:
     QVBoxLayout* m_stack{nullptr};
     QScrollArea* m_scrollArea{nullptr};
     QWidget*     m_dropIndicator{nullptr};
+    QPushButton* m_lockBtn{nullptr};   // controls-lock toggle (#745)
 
     // Ordered list of applets (drag-reorderable)
     QVector<AppletEntry> m_appletOrder;

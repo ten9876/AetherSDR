@@ -64,10 +64,11 @@ private:
 };
 
 // Slider that resets to a default value on double-click.
-class ResetSlider : public QSlider {
+// Extends GuardedSlider for controls-lock support (#745).
+class ResetSlider : public GuardedSlider {
 public:
     explicit ResetSlider(int resetVal, Qt::Orientation o, QWidget* parent = nullptr)
-        : QSlider(o, parent), m_resetVal(resetVal) {}
+        : GuardedSlider(o, parent), m_resetVal(resetVal) {}
 protected:
     void mouseDoubleClickEvent(QMouseEvent*) override { setValue(m_resetVal); }
 private:

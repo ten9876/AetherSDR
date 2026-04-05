@@ -363,6 +363,26 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         return {id, wrapper, titleBar, btn};
     };
 
+    // Controls lock toggle — disables wheel/mouse on sidebar sliders (#745)
+    {
+        m_lockBtn = new QPushButton("\U0001F513", btnRow1);  // 🔓
+        m_lockBtn->setCheckable(true);
+        m_lockBtn->setToolTip("Lock sidebar controls — prevent accidental\n"
+                              "value changes while scrolling");
+        m_lockBtn->setStyleSheet(
+            "QPushButton { font-size: 13px; padding: 2px 4px; "
+            "background: #1a2a3a; border: 1px solid #203040; border-radius: 3px; }"
+            "QPushButton:checked { background: #c04040; border: 1px solid #e06060; }");
+        bool locked = settings.value("ControlsLocked", "False").toString() == "True";
+        m_lockBtn->setChecked(locked);
+        ControlsLock::setLocked(locked);
+        if (locked) m_lockBtn->setText("\U0001F512");  // 🔒
+        btnLayout1->addWidget(m_lockBtn);
+        connect(m_lockBtn, &QPushButton::toggled, this, [this](bool on) {
+            setControlsLocked(on);
+        });
+    }
+
     // ANLG / VU button — toggles the S-Meter section (not in the reorderable stack)
     {
         auto* anlgBtn = new QPushButton("VU", btnRow1);
@@ -572,6 +592,19 @@ void AppletPanel::setAgVisible(bool visible)
         m_agBtn->setChecked(false);
         m_agBtn->hide();
     }
+}
+
+bool AppletPanel::controlsLocked() const
+{
+    return ControlsLock::isLocked();
+}
+
+void AppletPanel::setControlsLocked(bool locked)
+{
+    ControlsLock::setLocked(locked);
+    m_lockBtn->setText(locked ? "\U0001F512" : "\U0001F513");  // 🔒 / 🔓
+    m_lockBtn->setChecked(locked);
+    AppSettings::instance().setValue("ControlsLocked", locked ? "True" : "False");
 }
 
 void AppletPanel::setSlice(SliceModel* slice)
