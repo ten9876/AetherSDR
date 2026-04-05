@@ -6032,14 +6032,6 @@ void MainWindow::showNr2ParamPopup(const QPoint& globalPos)
     auto& s = AppSettings::instance();
     auto* popup = new DspParamPopup(this);
 
-    popup->addRadioGroup("Gain:", {"Lin", "Log", "Gam"},
-        s.value("NR2GainMethod", "2").toInt(),
-        [this](int id) {
-            auto& s = AppSettings::instance();
-            s.setValue("NR2GainMethod", QString::number(id));
-            s.save();
-        });
-
     popup->addSlider("Smoothing",  50, 98,
         static_cast<int>(s.value("NR2GainSmooth", "0.85").toFloat() * 100),
         [](int v) { return QString::number(v / 100.0f, 'f', 2); },
@@ -6049,14 +6041,6 @@ void MainWindow::showNr2ParamPopup(const QPoint& globalPos)
             s.setValue("NR2GainSmooth", QString::number(val, 'f', 2));
             s.save();
             QMetaObject::invokeMethod(m_audio, [this, val]() { m_audio->setNr2GainSmooth(val); });
-        });
-
-    popup->addCheckbox("AE Filter",
-        s.value("NR2AeFilter", "True").toString() == "True",
-        [](bool on) {
-            auto& s = AppSettings::instance();
-            s.setValue("NR2AeFilter", on ? "True" : "False");
-            s.save();
         });
 
     popup->finalize(

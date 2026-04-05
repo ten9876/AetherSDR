@@ -27,10 +27,7 @@ public:
     void syncFromEngine();
 
 signals:
-    // NR2 parameter changes
-    void nr2GainMethodChanged(int method);
-    void nr2NpeMethodChanged(int method);
-    void nr2AeFilterChanged(bool on);
+    // NR2 parameter changes (GainMethod, NpeMethod, AeFilter not yet wired to SpectralNR)
     void nr2GainMaxChanged(float value);
     void nr2GainSmoothChanged(float value);
     void nr2QsppChanged(float value);

@@ -90,12 +90,8 @@ void AetherDspDialog::buildNr2Tab(QTabWidget* tabs)
     m_nr2GainGroup->button(2)->setToolTip("Gamma distribution model matching typical speech amplitude patterns.");
     m_nr2GainGroup->button(3)->setToolTip("Noise reduction model trained on real speech and noise samples.");
     m_nr2GainGroup->button(2)->setChecked(true);  // Gamma default
-    connect(m_nr2GainGroup, &QButtonGroup::idClicked, this, [this](int id) {
-        auto& s = AppSettings::instance();
-        s.setValue("NR2GainMethod", QString::number(id));
-        s.save();
-        emit nr2GainMethodChanged(id);
-    });
+    gainGroup->setEnabled(false);
+    gainGroup->setToolTip("Not yet wired to SpectralNR — reserved for future use.");
     vbox->addWidget(gainGroup);
 
     // NPE Method
@@ -112,24 +108,16 @@ void AetherDspDialog::buildNr2Tab(QTabWidget* tabs)
     m_nr2NpeGroup->button(1)->setToolTip("Minimum Mean Squared Error \u2014 minimizes the expected noise estimation error.");
     m_nr2NpeGroup->button(2)->setToolTip("Non-Stationary estimation \u2014 adapts to noise that changes over time.");
     m_nr2NpeGroup->button(0)->setChecked(true);  // OSMS default
-    connect(m_nr2NpeGroup, &QButtonGroup::idClicked, this, [this](int id) {
-        auto& s = AppSettings::instance();
-        s.setValue("NR2NpeMethod", QString::number(id));
-        s.save();
-        emit nr2NpeMethodChanged(id);
-    });
+    npeGroup->setEnabled(false);
+    npeGroup->setToolTip("Not yet wired to SpectralNR — reserved for future use.");
     vbox->addWidget(npeGroup);
 
     // AE Filter
     m_nr2AeCheck = new QCheckBox("AE Filter (artifact elimination)");
     m_nr2AeCheck->setToolTip("Reduces ringing and musical artifacts typical of frequency-domain noise reduction.");
     m_nr2AeCheck->setChecked(true);
-    connect(m_nr2AeCheck, &QCheckBox::toggled, this, [this](bool on) {
-        auto& s = AppSettings::instance();
-        s.setValue("NR2AeFilter", on ? "True" : "False");
-        s.save();
-        emit nr2AeFilterChanged(on);
-    });
+    m_nr2AeCheck->setEnabled(false);
+    m_nr2AeCheck->setToolTip("Not yet wired to SpectralNR — reserved for future use.");
     vbox->addWidget(m_nr2AeCheck);
 
     // Sliders: GainMax, GainSmooth, Q_SPP
