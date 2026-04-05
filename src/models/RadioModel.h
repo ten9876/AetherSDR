@@ -20,6 +20,7 @@
 #include <QObject>
 #include <QString>
 #include <QList>
+#include <QJsonObject>
 #include <QMap>
 #include <QSet>
 
@@ -167,6 +168,7 @@ public:
     void loadGlobalProfile(const QString& name);
     void resetPanState();
     void createAudioStream();
+    QJsonObject troubleshootingSnapshot() const;
 
     // Memory channel cache
     const QMap<int, MemoryEntry>& memories() const { return m_memories; }

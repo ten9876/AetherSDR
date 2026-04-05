@@ -34,6 +34,7 @@
 #include "MeterApplet.h"
 #include "ProfileManagerDialog.h"
 #include "SupportDialog.h"
+#include "SliceTroubleshootingDialog.h"
 #include "ShortcutDialog.h"
 #include "MultiFlexDialog.h"
 #include "WhatsNewDialog.h"
@@ -3133,6 +3134,10 @@ void MainWindow::buildMenuBar()
     helpMenu->addAction("Support...", this, [this]() {
         SupportDialog dlg(this);
         dlg.setRadioModel(&m_radioModel);
+        dlg.exec();
+    });
+    helpMenu->addAction("Slice Troubleshooting...", this, [this]() {
+        SliceTroubleshootingDialog dlg(&m_radioModel, this);
         dlg.exec();
     });
     helpMenu->addAction("What's New...", this, [this]() {

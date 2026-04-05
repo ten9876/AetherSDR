@@ -1,9 +1,31 @@
 #include "MeterModel.h"
 #include "core/LogManager.h"
 #include <QDebug>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <cmath>
 
 namespace AetherSDR {
+
+namespace {
+
+QJsonObject meterToJson(const MeterDef& def, bool hasValue, float value)
+{
+    QJsonObject obj;
+    obj["index"] = def.index;
+    obj["source"] = def.source;
+    obj["source_index"] = def.sourceIndex;
+    obj["name"] = def.name;
+    obj["unit"] = def.unit;
+    obj["low"] = def.low;
+    obj["high"] = def.high;
+    obj["description"] = def.description;
+    obj["has_value"] = hasValue;
+    obj["value"] = hasValue ? QJsonValue(value) : QJsonValue();
+    return obj;
+}
+
+} // namespace
 
 MeterModel::MeterModel(QObject* parent)
     : QObject(parent)
@@ -277,6 +299,34 @@ int MeterModel::findMeter(const QString& source, const QString& name, int source
 float MeterModel::value(int index) const
 {
     return m_values.value(index, 0.0f);
+}
+
+QJsonArray MeterModel::allMeters() const
+{
+    QJsonArray meters;
+    for (auto it = m_defs.constBegin(); it != m_defs.constEnd(); ++it) {
+        const auto valueIt = m_values.constFind(it.key());
+        const bool hasValue = valueIt != m_values.constEnd();
+        meters.append(meterToJson(*it, hasValue, hasValue ? valueIt.value() : 0.0f));
+    }
+    return meters;
+}
+
+QJsonArray MeterModel::metersForSource(const QString& source, int sourceIndex) const
+{
+    QJsonArray meters;
+    for (auto it = m_defs.constBegin(); it != m_defs.constEnd(); ++it) {
+        const MeterDef& def = *it;
+        if (def.source != source)
+            continue;
+        if (sourceIndex >= 0 && def.sourceIndex != sourceIndex)
+            continue;
+
+        const auto valueIt = m_values.constFind(it.key());
+        const bool hasValue = valueIt != m_values.constEnd();
+        meters.append(meterToJson(def, hasValue, hasValue ? valueIt.value() : 0.0f));
+    }
+    return meters;
 }
 
 } // namespace AetherSDR

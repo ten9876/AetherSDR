@@ -2,14 +2,105 @@
 #include "core/CommandParser.h"
 #include "core/AppSettings.h"
 #include "core/LogManager.h"
+#include <QCoreApplication>
 #include <QDebug>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QDateTime>
+#include <QSysInfo>
 #include <QtEndian>
+#include <algorithm>
 #include <cmath>
 #include "core/AppSettings.h"
 
 namespace AetherSDR {
+
+namespace {
+
+QJsonArray toJsonArray(const QStringList& values)
+{
+    QJsonArray array;
+    for (const QString& value : values)
+        array.append(value);
+    return array;
+}
+
+QJsonArray toJsonArray(const QVector<int>& values)
+{
+    QJsonArray array;
+    for (int value : values)
+        array.append(value);
+    return array;
+}
+
+QJsonArray toJsonArray(const QSet<int>& values)
+{
+    QList<int> sorted = values.values();
+    std::sort(sorted.begin(), sorted.end());
+
+    QJsonArray array;
+    for (int value : sorted)
+        array.append(value);
+    return array;
+}
+
+QString atuStatusToString(ATUStatus status)
+{
+    switch (status) {
+    case ATUStatus::None:         return "None";
+    case ATUStatus::NotStarted:   return "NotStarted";
+    case ATUStatus::InProgress:   return "InProgress";
+    case ATUStatus::Bypass:       return "Bypass";
+    case ATUStatus::Successful:   return "Successful";
+    case ATUStatus::OK:           return "OK";
+    case ATUStatus::FailBypass:   return "FailBypass";
+    case ATUStatus::Fail:         return "Fail";
+    case ATUStatus::Aborted:      return "Aborted";
+    case ATUStatus::ManualBypass: return "ManualBypass";
+    }
+    return "Unknown";
+}
+
+QJsonObject panToJson(const PanadapterModel* pan, const QString& activePanId)
+{
+    QJsonObject obj;
+    obj["pan_id"] = pan->panId();
+    obj["active"] = pan->panId() == activePanId;
+    obj["waterfall_id"] = pan->waterfallId();
+    obj["center_mhz"] = pan->centerMhz();
+    obj["bandwidth_mhz"] = pan->bandwidthMhz();
+    obj["min_dbm"] = pan->minDbm();
+    obj["max_dbm"] = pan->maxDbm();
+    obj["antennas"] = toJsonArray(pan->antList());
+    obj["rf_gain"] = pan->rfGain();
+    obj["rf_gain_low"] = pan->rfGainLow();
+    obj["rf_gain_high"] = pan->rfGainHigh();
+    obj["rf_gain_step"] = pan->rfGainStep();
+    obj["preamp"] = pan->preamp();
+    obj["wnb_active"] = pan->wnbActive();
+    obj["wnb_level"] = pan->wnbLevel();
+    obj["resized"] = pan->isResized();
+    obj["waterfall_configured"] = pan->isWaterfallConfigured();
+    return obj;
+}
+
+QJsonObject clientInfoToJson(quint32 handle,
+                             quint32 ourHandle,
+                             quint32 txHandle,
+                             const RadioModel::ClientInfo& info)
+{
+    QJsonObject obj;
+    obj["role"] = (handle == ourHandle) ? "current_app" : "other_client";
+    obj["owns_tx"] = (txHandle != 0 && handle == txHandle);
+    obj["program"] = info.program;
+    obj["local_ptt"] = info.localPtt;
+    obj["tx_antenna"] = info.txAntenna;
+    obj["tx_freq_mhz"] = info.txFreqMhz;
+    return obj;
+}
+
+} // namespace
 
 RadioModel::RadioModel(QObject* parent)
     : QObject(parent)
@@ -2517,6 +2608,383 @@ void RadioModel::createAudioStream()
                 emit txAudioStreamReady(id);
             }
         });
+}
+
+QJsonObject RadioModel::troubleshootingSnapshot() const
+{
+    QJsonObject snapshot;
+    snapshot["schema_version"] = 1;
+    snapshot["captured_at"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    snapshot["captured_from"] = "AetherSDR in-memory application state";
+    snapshot["note"] =
+        "This snapshot is built from the app's cached radio, panadapter, slice, "
+        "and meter models. It does not query the radio directly.";
+    snapshot["privacy"] =
+        "Sensitive identifiers are omitted by design, including radio name, "
+        "nickname, callsign, serial numbers, MAC/IP addresses, GPS data, and "
+        "client station names.";
+
+    QJsonObject app;
+    app["name"] = QCoreApplication::applicationName();
+    app["version"] = QCoreApplication::applicationVersion();
+    app["qt_version"] = qVersion();
+    app["os"] = QSysInfo::prettyProductName();
+    app["cpu_arch"] = QSysInfo::currentCpuArchitecture();
+    snapshot["app"] = app;
+
+    QJsonObject radio;
+    radio["connected"] = isConnected();
+    radio["transport"] = isWan() ? "WAN" : "LAN";
+    radio["model"] = m_model;
+    radio["software_version"] = m_version;
+    radio["protocol_version"] = m_protocolVersion;
+    radio["region"] = m_region;
+    radio["radio_options"] = m_radioOptions;
+    radio["max_slices"] = m_maxSlices;
+    radio["full_duplex_enabled"] = m_fullDuplex;
+    radio["binaural_rx"] = m_binauralRx;
+    radio["mute_local_audio_when_remote"] = m_muteLocalWhenRemote;
+    radio["low_latency_digital_modes"] = m_lowLatencyDigital;
+    radio["enforce_private_ip_connections"] = m_enforcePrivateIp;
+    radio["remote_on_enabled"] = m_remoteOnEnabled;
+    radio["mf_enable"] = m_multiFlexEnabled;
+    radio["rtty_mark_default"] = m_rttyMarkDefault;
+    radio["antenna_list"] = toJsonArray(m_antList);
+    radio["owned_slice_ids"] = toJsonArray(m_ownedSliceIds);
+    radio["global_profile_count"] = m_globalProfiles.size();
+    radio["active_global_profile_set"] = !m_activeGlobalProfile.trimmed().isEmpty();
+
+    QJsonObject oscillator;
+    oscillator["setting"] = m_oscSetting;
+    oscillator["locked"] = m_oscLocked;
+    oscillator["ext_present"] = m_extPresent;
+    oscillator["tcxo_present"] = m_tcxoPresent;
+    radio["oscillator"] = oscillator;
+
+    QJsonObject audioOutputs;
+    audioOutputs["lineout_gain"] = m_lineoutGain;
+    audioOutputs["lineout_mute"] = m_lineoutMute;
+    audioOutputs["headphone_gain"] = m_headphoneGain;
+    audioOutputs["headphone_mute"] = m_headphoneMute;
+    audioOutputs["front_speaker_mute"] = m_frontSpeakerMute;
+    radio["audio_outputs"] = audioOutputs;
+
+    QJsonObject filterSharpness;
+    filterSharpness["voice_level"] = m_filterVoice;
+    filterSharpness["voice_auto"] = m_filterVoiceAuto;
+    filterSharpness["cw_level"] = m_filterCw;
+    filterSharpness["cw_auto"] = m_filterCwAuto;
+    filterSharpness["digital_level"] = m_filterDigital;
+    filterSharpness["digital_auto"] = m_filterDigitalAuto;
+    radio["filter_sharpness"] = filterSharpness;
+
+    QJsonObject amplifier;
+    amplifier["present"] = m_hasAmplifier;
+    amplifier["handle"] = m_ampHandle;
+    amplifier["model"] = m_ampModel;
+    amplifier["operate"] = m_ampOperate;
+    radio["amplifier"] = amplifier;
+
+    QJsonObject ownership;
+    ownership["tx_owned_by_us"] = m_txOwnedByUs;
+    QJsonArray clients;
+    QSet<quint32> seenHandles;
+    const quint32 ourHandle = ourClientHandle();
+    for (auto it = m_clientStations.cbegin(); it != m_clientStations.cend(); ++it) {
+        clients.append(clientInfoToJson(it.key(), ourHandle, m_txClientHandle,
+                                        m_clientInfoMap.value(it.key())));
+        seenHandles.insert(it.key());
+    }
+    for (auto it = m_clientInfoMap.cbegin(); it != m_clientInfoMap.cend(); ++it) {
+        if (seenHandles.contains(it.key()))
+            continue;
+        clients.append(clientInfoToJson(it.key(), ourHandle, m_txClientHandle,
+                                        it.value()));
+    }
+    ownership["clients"] = clients;
+    ownership["client_count"] = clients.size();
+    ownership["multiple_clients_present"] = clients.size() > 1;
+    radio["ownership"] = ownership;
+
+    auto categoryStatsToJson = [this](PanadapterStream::StreamCategory cat) {
+        const auto stats = categoryStats(cat);
+        QJsonObject obj;
+        obj["bytes"] = static_cast<qint64>(stats.bytes);
+        obj["packets"] = stats.packets;
+        obj["errors"] = stats.errors;
+        return obj;
+    };
+
+    QJsonObject network;
+    network["quality"] = networkQuality();
+    network["last_ping_rtt_ms"] = m_lastPingRtt;
+    network["max_ping_rtt_ms"] = m_maxPingRtt;
+    network["packet_drop_count"] = packetDropCount();
+    network["packet_total_count"] = packetTotalCount();
+    network["rx_bytes"] = static_cast<qint64>(rxBytes());
+    network["tx_bytes"] = static_cast<qint64>(txBytes());
+    QJsonObject streamCategories;
+    streamCategories["audio"] = categoryStatsToJson(PanadapterStream::CatAudio);
+    streamCategories["fft"] = categoryStatsToJson(PanadapterStream::CatFFT);
+    streamCategories["waterfall"] = categoryStatsToJson(PanadapterStream::CatWaterfall);
+    streamCategories["meter"] = categoryStatsToJson(PanadapterStream::CatMeter);
+    streamCategories["dax"] = categoryStatsToJson(PanadapterStream::CatDAX);
+    network["stream_categories"] = streamCategories;
+    radio["network"] = network;
+
+    QJsonObject telemetry;
+    telemetry["pa_temp_c"] = m_meterModel.paTemp();
+    telemetry["supply_volts"] = m_meterModel.supplyVolts();
+    telemetry["tx_forward_power_w"] = m_meterModel.fwdPower();
+    telemetry["tx_swr"] = m_meterModel.swr();
+    telemetry["alc"] = m_meterModel.alc();
+    telemetry["mic_level_dbfs"] = m_meterModel.micLevel();
+    telemetry["mic_peak_dbfs"] = m_meterModel.micPeak();
+    telemetry["comp_level_db"] = m_meterModel.compLevel();
+    telemetry["comp_peak_db"] = m_meterModel.compPeak();
+    radio["telemetry"] = telemetry;
+
+    snapshot["radio"] = radio;
+
+    QJsonObject transmit;
+
+    QJsonObject txPower;
+    txPower["rf_power"] = m_transmitModel.rfPower();
+    txPower["tune_power"] = m_transmitModel.tunePower();
+    txPower["max_power_level"] = m_transmitModel.maxPowerLevel();
+    txPower["tune_mode"] = m_transmitModel.tuneMode();
+    txPower["show_tx_in_waterfall"] = m_transmitModel.showTxInWaterfall();
+    txPower["tuning"] = m_transmitModel.isTuning();
+    txPower["mox"] = m_transmitModel.isMox();
+    txPower["transmitting"] = m_transmitModel.isTransmitting();
+    transmit["power"] = txPower;
+
+    QJsonObject mic;
+    mic["selection"] = m_transmitModel.micSelection();
+    mic["level"] = m_transmitModel.micLevel();
+    mic["mic_acc"] = m_transmitModel.micAcc();
+    mic["speech_processor_enable"] = m_transmitModel.speechProcessorEnable();
+    mic["speech_processor_level"] = m_transmitModel.speechProcessorLevel();
+    mic["compander_on"] = m_transmitModel.companderOn();
+    mic["compander_level"] = m_transmitModel.companderLevel();
+    mic["dax_on"] = m_transmitModel.daxOn();
+    mic["sb_monitor"] = m_transmitModel.sbMonitor();
+    mic["mon_gain_sb"] = m_transmitModel.monGainSb();
+    mic["mic_boost"] = m_transmitModel.micBoost();
+    mic["mic_bias"] = m_transmitModel.micBias();
+    mic["met_in_rx"] = m_transmitModel.metInRx();
+    mic["sync_cwx"] = m_transmitModel.syncCwx();
+    mic["am_carrier_level"] = m_transmitModel.amCarrierLevel();
+    mic["dexp_on"] = m_transmitModel.dexpOn();
+    mic["dexp_level"] = m_transmitModel.dexpLevel();
+    mic["tx_filter_low"] = m_transmitModel.txFilterLow();
+    mic["tx_filter_high"] = m_transmitModel.txFilterHigh();
+    transmit["mic"] = mic;
+
+    QJsonObject vox;
+    vox["enabled"] = m_transmitModel.voxEnable();
+    vox["level"] = m_transmitModel.voxLevel();
+    vox["delay"] = m_transmitModel.voxDelay();
+    transmit["vox"] = vox;
+
+    QJsonObject cw;
+    cw["speed_wpm"] = m_transmitModel.cwSpeed();
+    cw["pitch_hz"] = m_transmitModel.cwPitch();
+    cw["break_in"] = m_transmitModel.cwBreakIn();
+    cw["delay_ms"] = m_transmitModel.cwDelay();
+    cw["sidetone"] = m_transmitModel.cwSidetone();
+    cw["iambic"] = m_transmitModel.cwIambic();
+    cw["iambic_mode"] = m_transmitModel.cwIambicMode();
+    cw["swap_paddles"] = m_transmitModel.cwSwapPaddles();
+    cw["cwl_enabled"] = m_transmitModel.cwlEnabled();
+    cw["monitor_gain"] = m_transmitModel.monGainCw();
+    transmit["cw"] = cw;
+
+    QJsonObject interlock;
+    interlock["acc_tx_delay"] = m_transmitModel.accTxDelay();
+    interlock["tx1_delay"] = m_transmitModel.tx1Delay();
+    interlock["tx2_delay"] = m_transmitModel.tx2Delay();
+    interlock["tx3_delay"] = m_transmitModel.tx3Delay();
+    interlock["tx_delay"] = m_transmitModel.txDelay();
+    interlock["timeout"] = m_transmitModel.interlockTimeout();
+    interlock["acc_tx_req_polarity"] = m_transmitModel.accTxReqPolarity();
+    interlock["rca_tx_req_polarity"] = m_transmitModel.rcaTxReqPolarity();
+    transmit["interlock"] = interlock;
+
+    QJsonObject atu;
+    atu["enabled"] = m_transmitModel.atuEnabled();
+    atu["status"] = atuStatusToString(m_transmitModel.atuStatus());
+    atu["memories_enabled"] = m_transmitModel.memoriesEnabled();
+    atu["using_memory"] = m_transmitModel.usingMemory();
+    transmit["atu"] = atu;
+
+    QJsonObject apd;
+    apd["enabled"] = m_transmitModel.apdEnabled();
+    apd["configurable"] = m_transmitModel.apdConfigurable();
+    apd["equalizer_active"] = m_transmitModel.apdEqualizerActive();
+    transmit["apd"] = apd;
+
+    QJsonObject profiles;
+    profiles["tx_profile_count"] = m_transmitModel.profileList().size();
+    profiles["active_tx_profile_set"] = !m_transmitModel.activeProfile().trimmed().isEmpty();
+    profiles["mic_profile_count"] = m_transmitModel.micProfileList().size();
+    profiles["active_mic_profile_set"] = !m_transmitModel.activeMicProfile().trimmed().isEmpty();
+    profiles["mic_inputs"] = toJsonArray(m_transmitModel.micInputList());
+    transmit["profiles"] = profiles;
+
+    snapshot["transmit"] = transmit;
+
+    QJsonArray panadapters;
+    for (auto it = m_panadapters.cbegin(); it != m_panadapters.cend(); ++it)
+        panadapters.append(panToJson(it.value(), m_activePanId));
+    snapshot["panadapters"] = panadapters;
+
+    auto txBandInfoToJson = [](const TxBandInfo& band) {
+        QJsonObject obj;
+        obj["band_id"] = band.bandId;
+        obj["band_name"] = band.bandName;
+        obj["rf_power"] = band.rfPower;
+        obj["tune_power"] = band.tunePower;
+        obj["inhibit"] = band.inhibit;
+        obj["hw_alc"] = band.hwAlc;
+        obj["acc_tx_req"] = band.accTxReq;
+        obj["rca_tx_req"] = band.rcaTxReq;
+        obj["acc_tx"] = band.accTx;
+        obj["tx1"] = band.tx1;
+        obj["tx2"] = band.tx2;
+        obj["tx3"] = band.tx3;
+        return obj;
+    };
+
+    QJsonArray txBands;
+    for (auto it = m_txBandSettings.cbegin(); it != m_txBandSettings.cend(); ++it)
+        txBands.append(txBandInfoToJson(it.value()));
+    snapshot["tx_band_settings"] = txBands;
+
+    QJsonArray allMeters = m_meterModel.allMeters();
+    QJsonArray globalMeters;
+    int sliceMeterCount = 0;
+    for (const QJsonValue& value : allMeters) {
+        const QJsonObject meter = value.toObject();
+        if (meter["source"].toString() == "SLC")
+            ++sliceMeterCount;
+        else
+            globalMeters.append(meter);
+    }
+    snapshot["global_meters"] = globalMeters;
+
+    QList<SliceModel*> sortedSlices = m_slices;
+    std::sort(sortedSlices.begin(), sortedSlices.end(), [](SliceModel* lhs, SliceModel* rhs) {
+        return lhs->sliceId() < rhs->sliceId();
+    });
+
+    QJsonArray slices;
+    for (SliceModel* sliceModel : sortedSlices) {
+        QJsonObject slice;
+        slice["slice_id"] = sliceModel->sliceId();
+        slice["pan_id"] = sliceModel->panId();
+        slice["frequency_mhz"] = sliceModel->frequency();
+        slice["mode"] = sliceModel->mode();
+        slice["mode_list"] = toJsonArray(sliceModel->modeList());
+        slice["active"] = sliceModel->isActive();
+        slice["tx_slice"] = sliceModel->isTxSlice();
+
+        QJsonObject filter;
+        filter["low_hz"] = sliceModel->filterLow();
+        filter["high_hz"] = sliceModel->filterHigh();
+        slice["filter"] = filter;
+
+        QJsonObject audio;
+        audio["gain"] = sliceModel->audioGain();
+        audio["pan"] = sliceModel->audioPan();
+        audio["mute"] = sliceModel->audioMute();
+        slice["audio"] = audio;
+
+        slice["rf_gain"] = sliceModel->rfGain();
+
+        QJsonObject antennas;
+        antennas["rx"] = sliceModel->rxAntenna();
+        antennas["tx"] = sliceModel->txAntenna();
+        slice["antennas"] = antennas;
+
+        QJsonObject control;
+        control["locked"] = sliceModel->isLocked();
+        control["qsk"] = sliceModel->qskOn();
+        control["record_on"] = sliceModel->recordOn();
+        control["play_on"] = sliceModel->playOn();
+        control["play_enabled"] = sliceModel->playEnabled();
+        slice["control"] = control;
+
+        QJsonObject dsp;
+        dsp["agc_mode"] = sliceModel->agcMode();
+        dsp["agc_threshold"] = sliceModel->agcThreshold();
+        dsp["nb"] = QJsonObject{{"enabled", sliceModel->nbOn()}, {"level", sliceModel->nbLevel()}};
+        dsp["nr"] = QJsonObject{{"enabled", sliceModel->nrOn()}, {"level", sliceModel->nrLevel()}};
+        dsp["anf"] = QJsonObject{{"enabled", sliceModel->anfOn()}, {"level", sliceModel->anfLevel()}};
+        dsp["lms_nr"] = QJsonObject{{"enabled", sliceModel->nrlOn()}, {"level", sliceModel->nrlLevel()}};
+        dsp["speex_nr"] = QJsonObject{{"enabled", sliceModel->nrsOn()}, {"level", sliceModel->nrsLevel()}};
+        dsp["rnnoise"] = sliceModel->rnnOn();
+        dsp["nrf"] = QJsonObject{{"enabled", sliceModel->nrfOn()}, {"level", sliceModel->nrfLevel()}};
+        dsp["lms_anf"] = QJsonObject{{"enabled", sliceModel->anflOn()}, {"level", sliceModel->anflLevel()}};
+        dsp["anft"] = sliceModel->anftOn();
+        dsp["apf"] = QJsonObject{{"enabled", sliceModel->apfOn()}, {"level", sliceModel->apfLevel()}};
+        slice["dsp"] = dsp;
+
+        QJsonObject diversity;
+        diversity["enabled"] = sliceModel->diversity();
+        diversity["is_parent"] = sliceModel->isDiversityParent();
+        diversity["is_child"] = sliceModel->isDiversityChild();
+        diversity["index"] = sliceModel->diversityIndex();
+        diversity["esc_enabled"] = sliceModel->escEnabled();
+        diversity["esc_gain"] = sliceModel->escGain();
+        diversity["esc_phase_shift_deg"] = sliceModel->escPhaseShift();
+        slice["diversity"] = diversity;
+
+        QJsonObject tuning;
+        tuning["squelch_on"] = sliceModel->squelchOn();
+        tuning["squelch_level"] = sliceModel->squelchLevel();
+        tuning["rit_on"] = sliceModel->ritOn();
+        tuning["rit_hz"] = sliceModel->ritFreq();
+        tuning["xit_on"] = sliceModel->xitOn();
+        tuning["xit_hz"] = sliceModel->xitFreq();
+        tuning["step_hz"] = sliceModel->stepHz();
+        tuning["step_list"] = toJsonArray(sliceModel->stepList());
+        slice["tuning"] = tuning;
+
+        QJsonObject digital;
+        digital["dax_channel"] = sliceModel->daxChannel();
+        digital["rtty_mark_hz"] = sliceModel->rttyMark();
+        digital["rtty_shift_hz"] = sliceModel->rttyShift();
+        digital["digl_offset_hz"] = sliceModel->diglOffset();
+        digital["digu_offset_hz"] = sliceModel->diguOffset();
+        slice["digital"] = digital;
+
+        QJsonObject fm;
+        fm["tone_mode"] = sliceModel->fmToneMode();
+        fm["tone_value"] = sliceModel->fmToneValue();
+        fm["repeater_offset_dir"] = sliceModel->repeaterOffsetDir();
+        fm["repeater_offset_mhz"] = sliceModel->fmRepeaterOffsetFreq();
+        fm["tx_offset_mhz"] = sliceModel->txOffsetFreq();
+        fm["deviation_hz"] = sliceModel->fmDeviation();
+        slice["fm"] = fm;
+
+        if (PanadapterModel* pan = panadapter(sliceModel->panId()))
+            slice["panadapter_state"] = panToJson(pan, m_activePanId);
+
+        slice["meters"] = m_meterModel.metersForSource("SLC", sliceModel->sliceId());
+        slices.append(slice);
+    }
+    snapshot["slices"] = slices;
+
+    QJsonObject counts;
+    counts["panadapters"] = panadapters.size();
+    counts["slices"] = slices.size();
+    counts["meters_total"] = allMeters.size();
+    counts["global_meters"] = globalMeters.size();
+    counts["slice_meters"] = sliceMeterCount;
+    snapshot["counts"] = counts;
+
+    return snapshot;
 }
 
 } // namespace AetherSDR

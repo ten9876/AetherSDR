@@ -330,6 +330,7 @@ set(GUI_SOURCES
     src/gui/AntennaGeniusApplet.cpp
     src/gui/TitleBar.cpp
     src/gui/SupportDialog.cpp
+    src/gui/SliceTroubleshootingDialog.cpp
     src/gui/KeyboardMapWidget.cpp
     src/gui/ShortcutDialog.cpp
     src/gui/MultiFlexDialog.cpp

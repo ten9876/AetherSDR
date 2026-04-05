@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QMap>
+#include <QJsonArray>
 #include <QString>
 
 namespace AetherSDR {
@@ -58,6 +59,10 @@ public:
 
     // Current converted value for a meter index. Returns 0 if unknown.
     float value(int index) const;
+
+    // Snapshot helpers for diagnostics and issue reporting.
+    QJsonArray allMeters() const;
+    QJsonArray metersForSource(const QString& source, int sourceIndex = -1) const;
 
     // Convenience: S-meter (slice LEVEL meter) in dBm.
     float sLevel() const { return m_sLevel; }
