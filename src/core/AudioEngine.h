@@ -93,6 +93,7 @@ public:
     void setDaxTxUseRadioRoute(bool on);
     bool daxTxUseRadioRoute() const { return m_daxTxUseRadioRoute.load(); }
     void setTransmitting(bool tx);
+    void setRadioTransmitting(bool tx);  // raw interlock state (regardless of TX ownership)
     void clearTxAccumulators() { m_txAccumulator.clear(); m_txFloatAccumulator.clear(); m_daxPreTxBuffer.clear(); }
     Q_INVOKABLE void feedDaxTxAudio(const QByteArray& float32pcm);
 
@@ -182,7 +183,8 @@ private:
     std::atomic<float> m_pcMicGain{1.0f};     // client-side PC mic gain (0.0-1.0)
     std::atomic<bool>  m_daxTxMode{false};    // DAX TX mode: VirtualAudioBridge handles TX
     std::atomic<bool>  m_daxTxUseRadioRoute{false}; // false = low-latency route (dax=0)
-    std::atomic<bool>  m_transmitting{false}; // true when radio is in TX (MOX on)
+    std::atomic<bool>  m_transmitting{false}; // true when radio is in TX AND we own TX
+    std::atomic<bool>  m_radioTransmitting{false}; // true when radio is in TX (any owner)
     std::atomic<bool>  m_opusTxEnabled{false}; // Opus TX encoding for SmartLink
     std::unique_ptr<class OpusCodec> m_opusTxCodec; // lazy-init on first TX with Opus
     QByteArray    m_opusTxAccumulator;  // accumulate stereo samples for Opus frame

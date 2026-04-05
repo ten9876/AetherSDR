@@ -286,6 +286,8 @@ signals:
     void remoteTxStreamReady(quint32 streamId);
     // Audio TX gate for sample pipeline (separate from optimistic MOX UI state).
     void txAudioGateChanged(bool transmitting);
+    // Raw interlock TX state (regardless of ownership — for DAX passthrough).
+    void radioTransmittingChanged(bool transmitting);
     // Emitted when global profile list or active profile changes.
     void globalProfilesChanged();
     // Emitted on each successful ping response from the radio.

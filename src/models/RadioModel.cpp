@@ -1964,6 +1964,11 @@ void RadioModel::onStatusReceived(const QString& object,
         if (kvs.contains("state")) {
             const QString state = kvs["state"].toUpper();
 
+            // Emit raw radio TX state regardless of ownership — used by DAX
+            // passthrough when an external app triggers PTT (#752).
+            const bool radioTx = (state == "TRANSMITTING");
+            emit radioTransmittingChanged(radioTx);
+
             if (!m_txOwnedByUs || (!m_txRequested && !m_transmitModel.isTuning())) {
                 // Another client owns TX, or local unkey requested:
                 // force local TX/audio gate off through all interlock states.

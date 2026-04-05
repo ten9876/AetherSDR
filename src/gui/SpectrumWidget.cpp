@@ -1524,6 +1524,9 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
         m_scrollAccum += ev->pixelDelta().y();
         steps = m_scrollAccum / 15;
         m_scrollAccum -= steps * 15;
+        // Clamp to ±1: on Linux/libinput regular mice often report pixelDelta
+        // (e.g. 120px per notch) which would produce 8 steps and an 8× jump.
+        steps = qBound(-1, steps, 1);
     } else {
         // Standard mouse wheel: angleDelta is in 1/8° units, one notch = 120.
         // Some desktops (KDE Plasma, Cinnamon) send inflated deltas
@@ -1546,7 +1549,12 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
 
     const auto* ao = activeOverlay();
     const double vfoMhz = ao ? ao->freqMhz : m_centerMhz;
-    const double newMhz = snapToStep(vfoMhz + steps * m_stepHz / 1e6, m_stepHz);
+    // Snap the base frequency to the step grid first, then add the delta.
+    // This ensures every scroll moves by exactly m_stepHz rather than snapping
+    // the destination, which would cause an alignment artifact on the first
+    // scroll (e.g. step=500 Hz at .100 MHz → effective 400 Hz jump).
+    const double baseMhz = snapToStep(vfoMhz, m_stepHz);
+    const double newMhz  = baseMhz + steps * m_stepHz / 1e6;
     emit frequencyClicked(newMhz);
     ev->accept();
 }

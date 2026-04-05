@@ -975,6 +975,11 @@ void AudioEngine::setTransmitting(bool tx)
     }
 }
 
+void AudioEngine::setRadioTransmitting(bool tx)
+{
+    m_radioTransmitting = tx;
+}
+
 void AudioEngine::setDaxTxUseRadioRoute(bool on)
 {
     if (m_daxTxUseRadioRoute == on) return;
@@ -1019,7 +1024,10 @@ void AudioEngine::feedDaxTxAudio(const QByteArray& float32pcm)
         // exactly like voice TX (PCC 0x03E3 float32 stereo).
         constexpr int FLOAT_BYTES_PER_PKT = TX_SAMPLES_PER_PACKET * 2 * sizeof(float);
 
-        if (!m_transmitting) {
+        // Gate on raw radio TX state, not ownership. When an external app
+        // (WSJT-X) triggers PTT, m_transmitting is false (we don't own TX)
+        // but the radio IS transmitting and needs our DAX audio. (#752)
+        if (!m_radioTransmitting) {
             // Deterministic edge behavior: do not carry pre-TX audio history.
             // Any backlog here directly appears as TX start/stop mismatch.
             m_daxPreTxBuffer.clear();

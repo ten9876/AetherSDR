@@ -25,8 +25,50 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QTimer>
 
 namespace AetherSDR {
+
+// Read the last N lines of a file without loading the entire thing.
+static QStringList tailFile(const QString& path, int maxLines = 500)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+
+    // For small files, just read everything
+    if (f.size() < 64 * 1024) {
+        QStringList lines;
+        while (!f.atEnd()) {
+            QString line = QString::fromUtf8(f.readLine()).trimmed();
+            if (!line.isEmpty())
+                lines.append(line);
+        }
+        if (lines.size() > maxLines)
+            lines = lines.mid(lines.size() - maxLines);
+        return lines;
+    }
+
+    // For large files, seek backwards to find enough newlines
+    constexpr qint64 CHUNK = 8192;
+    qint64 pos = f.size();
+    QByteArray tail;
+    int nlCount = 0;
+    while (pos > 0 && nlCount <= maxLines) {
+        qint64 readSize = qMin(CHUNK, pos);
+        pos -= readSize;
+        f.seek(pos);
+        QByteArray chunk = f.read(readSize);
+        tail.prepend(chunk);
+        nlCount += chunk.count('\n');
+    }
+    QStringList all = QString::fromUtf8(tail).split('\n', Qt::SkipEmptyParts);
+    for (auto& s : all) s = s.trimmed();
+    all.removeAll(QString());
+    if (all.size() > maxLines)
+        all = all.mid(all.size() - maxLines);
+    return all;
+}
 
 // ── SpotTableModel ──────────────────────────────────────────────────────────
 
@@ -275,39 +317,20 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
         m_console->appendPlainText("--- Error: " + err + " ---");
     });
 
-    // Load existing log file into console and replay spots into table
-    QFile logFile(clusterClient->logFilePath());
-    if (logFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        // Static regex — same as DxClusterClient::parseDxSpotLine
-        static const QRegularExpression rx(
-            R"(^DX\s+de\s+(\S+?):\s+(\d+\.?\d*)\s+(\S+)\s+(.*?)\s+(\d{4})Z)",
-            QRegularExpression::CaseInsensitiveOption);
-
-        while (!logFile.atEnd()) {
-            QString line = QString::fromUtf8(logFile.readLine()).trimmed();
-            if (line.isEmpty()) continue;
-            m_console->appendPlainText(line);
-
-            // Try to parse as spot for the table
-            auto match = rx.match(line);
-            if (match.hasMatch()) {
-                DxSpot spot;
-                spot.spotterCall = match.captured(1);
-                spot.freqMhz = match.captured(2).toDouble() / 1000.0;
-                spot.dxCall = match.captured(3);
-                spot.comment = match.captured(4).trimmed();
-                QString timeStr = match.captured(5);
-                spot.utcTime = QTime(timeStr.left(2).toInt(), timeStr.mid(2, 2).toInt());
-                if (spot.freqMhz > 0.0 && !spot.dxCall.isEmpty()) {
-                    spot.source = "Cluster";
-                    m_spotModel->addSpot(spot);
-                }
-            }
-        }
-        // Scroll console to bottom
-        auto* sb = m_console->verticalScrollBar();
-        sb->setValue(sb->maximum());
-    }
+    // Defer log file loading until after the dialog is shown (#748).
+    // Reads only the last 500 lines per file to avoid blocking on large logs.
+    auto clusterLogPath = clusterClient->logFilePath();
+    auto rbnLogPath = rbnClient->logFilePath();
+    auto wsjtxLogPath = wsjtxClient->logFilePath();
+    auto potaLogPath = potaClient->logFilePath();
+    QString freedvLogPath;
+#ifdef HAVE_WEBSOCKETS
+    freedvLogPath = freedvClient->logFilePath();
+#endif
+    QTimer::singleShot(0, this, [this, clusterLogPath, rbnLogPath,
+                                  wsjtxLogPath, potaLogPath, freedvLogPath]() {
+        loadLogFiles(clusterLogPath, rbnLogPath, wsjtxLogPath, potaLogPath, freedvLogPath);
+    });
 
     // ── Live updates from RBN client ──────────────────────────────────
     connect(rbnClient, &DxClusterClient::rawLineReceived, this, [this, isAtBottom](const QString& line) {
@@ -346,36 +369,7 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
         m_rbnConsole->appendPlainText("--- Error: " + err + " ---");
     });
 
-    // Load RBN log file into console and replay spots
-    QFile rbnLogFile(rbnClient->logFilePath());
-    if (rbnLogFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        static const QRegularExpression rx2(
-            R"(^DX\s+de\s+(\S+?):\s+(\d+\.?\d*)\s+(\S+)\s+(.*?)\s+(\d{4})Z)",
-            QRegularExpression::CaseInsensitiveOption);
-
-        while (!rbnLogFile.atEnd()) {
-            QString line = QString::fromUtf8(rbnLogFile.readLine()).trimmed();
-            if (line.isEmpty()) continue;
-            m_rbnConsole->appendPlainText(line);
-
-            auto match = rx2.match(line);
-            if (match.hasMatch()) {
-                DxSpot spot;
-                spot.spotterCall = match.captured(1);
-                spot.freqMhz = match.captured(2).toDouble() / 1000.0;
-                spot.dxCall = match.captured(3);
-                spot.comment = match.captured(4).trimmed();
-                QString timeStr = match.captured(5);
-                spot.utcTime = QTime(timeStr.left(2).toInt(), timeStr.mid(2, 2).toInt());
-                if (spot.freqMhz > 0.0 && !spot.dxCall.isEmpty()) {
-                    spot.source = "RBN";
-                    m_spotModel->addSpot(spot);
-                }
-            }
-        }
-        auto* sb = m_rbnConsole->verticalScrollBar();
-        sb->setValue(sb->maximum());
-    }
+    // RBN log loaded in deferred loadLogFiles() (#748)
 
     // ── Live updates from WSJT-X client ───────────────────────────────
     connect(wsjtxClient, &WsjtxClient::rawLineReceived, this, [this, isAtBottom](const QString& line) {
@@ -448,19 +442,7 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
         m_wsjtxConsole->appendPlainText("--- Stopped ---");
     });
 
-    // Load WSJT-X log file and replay spots
-    QFile wsjtxLogFile(wsjtxClient->logFilePath());
-    if (wsjtxLogFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        // WSJT-X log lines: "HH:mm:ss  CALL  FREQ kHz  SNR dB  message"
-        // Spots don't follow DX de format — just display in console, parse from fields
-        while (!wsjtxLogFile.atEnd()) {
-            QString line = QString::fromUtf8(wsjtxLogFile.readLine()).trimmed();
-            if (line.isEmpty()) continue;
-            m_wsjtxConsole->appendPlainText(line);
-        }
-        auto* sb = m_wsjtxConsole->verticalScrollBar();
-        sb->setValue(sb->maximum());
-    }
+    // WSJT-X log loaded in deferred loadLogFiles() (#748)
 
     // ── Live updates from POTA client ─────────────────────────────────
     connect(potaClient, &PotaClient::rawLineReceived, this, [this, isAtBottom](const QString& line) {
@@ -496,17 +478,7 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
         m_potaStatusLabel->setText(QString("Polling... (%1 active, %2 new)").arg(total).arg(newCount));
     });
 
-    // Load POTA log
-    QFile potaLogFile(potaClient->logFilePath());
-    if (potaLogFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        while (!potaLogFile.atEnd()) {
-            QString line = QString::fromUtf8(potaLogFile.readLine()).trimmed();
-            if (line.isEmpty()) continue;
-            m_potaConsole->appendPlainText(line);
-        }
-        auto* sb = m_potaConsole->verticalScrollBar();
-        sb->setValue(sb->maximum());
-    }
+    // POTA log loaded in deferred loadLogFiles() (#748)
 
 #ifdef HAVE_WEBSOCKETS
     // ── Live updates from FreeDV client ───────────────────────────────
@@ -546,17 +518,7 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
         }
     });
 
-    // Load FreeDV log
-    QFile freedvLogFile(freedvClient->logFilePath());
-    if (freedvLogFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        while (!freedvLogFile.atEnd()) {
-            QString line = QString::fromUtf8(freedvLogFile.readLine()).trimmed();
-            if (line.isEmpty()) continue;
-            m_freedvConsole->appendPlainText(line);
-        }
-        auto* sb = m_freedvConsole->verticalScrollBar();
-        sb->setValue(sb->maximum());
-    }
+    // FreeDV log loaded in deferred loadLogFiles() (#748)
 #endif
 
     // Scroll spot table to show newest entries
@@ -568,6 +530,77 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
         btn->setAutoDefault(false);
 
     updateStatus();
+}
+
+void DxClusterDialog::loadLogFiles(const QString& clusterLog, const QString& rbnLog,
+                                    const QString& wsjtxLog, const QString& potaLog,
+                                    const QString& freedvLog)
+{
+    static const QRegularExpression rx(
+        R"(^DX\s+de\s+(\S+?):\s+(\d+\.?\d*)\s+(\S+)\s+(.*?)\s+(\d{4})Z)",
+        QRegularExpression::CaseInsensitiveOption);
+
+    auto parseSpots = [&](const QStringList& lines, const QString& source) {
+        QVector<DxSpot> spots;
+        for (const auto& line : lines) {
+            auto match = rx.match(line);
+            if (match.hasMatch()) {
+                DxSpot spot;
+                spot.spotterCall = match.captured(1);
+                spot.freqMhz = match.captured(2).toDouble() / 1000.0;
+                spot.dxCall = match.captured(3);
+                spot.comment = match.captured(4).trimmed();
+                QString timeStr = match.captured(5);
+                spot.utcTime = QTime(timeStr.left(2).toInt(), timeStr.mid(2, 2).toInt());
+                if (spot.freqMhz > 0.0 && !spot.dxCall.isEmpty()) {
+                    spot.source = source;
+                    spots.append(spot);
+                }
+            }
+        }
+        return spots;
+    };
+
+    auto loadConsole = [](QPlainTextEdit* console, const QStringList& lines) {
+        if (!console || lines.isEmpty()) return;
+        console->setPlainText(lines.join('\n'));
+        auto* sb = console->verticalScrollBar();
+        sb->setValue(sb->maximum());
+    };
+
+    // Cluster log — parse spots + display in console
+    auto clusterLines = tailFile(clusterLog);
+    loadConsole(m_console, clusterLines);
+    auto clusterSpots = parseSpots(clusterLines, "Cluster");
+
+    // RBN log — parse spots + display in console
+    auto rbnLines = tailFile(rbnLog);
+    loadConsole(m_rbnConsole, rbnLines);
+    auto rbnSpots = parseSpots(rbnLines, "RBN");
+
+    // WSJT-X log — display only (no DX de format)
+    loadConsole(m_wsjtxConsole, tailFile(wsjtxLog));
+
+    // POTA log — display only
+    loadConsole(m_potaConsole, tailFile(potaLog));
+
+    // FreeDV log — display only
+#ifdef HAVE_WEBSOCKETS
+    if (!freedvLog.isEmpty())
+        loadConsole(m_freedvConsole, tailFile(freedvLog));
+#else
+    Q_UNUSED(freedvLog);
+#endif
+
+    // Batch all spots into the model at once
+    QVector<DxSpot> allSpots;
+    allSpots.reserve(clusterSpots.size() + rbnSpots.size());
+    allSpots.append(clusterSpots);
+    allSpots.append(rbnSpots);
+    if (!allSpots.isEmpty())
+        m_spotModel->addSpots(allSpots);
+
+    m_spotTable->scrollToBottom();
 }
 
 void DxClusterDialog::buildClusterTab(QTabWidget* tabs)

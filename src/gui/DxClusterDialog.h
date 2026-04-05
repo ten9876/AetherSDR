@@ -119,6 +119,9 @@ private:
 #endif
     void buildSpotListTab(QTabWidget* tabs);
     void buildDisplayTab(QTabWidget* tabs);
+    void loadLogFiles(const QString& clusterLog, const QString& rbnLog,
+                      const QString& wsjtxLog, const QString& potaLog,
+                      const QString& freedvLog = {});
 
     DxClusterClient* m_client;
     DxClusterClient* m_rbnClient;
