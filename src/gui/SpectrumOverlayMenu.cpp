@@ -566,41 +566,59 @@ void SpectrumOverlayMenu::buildDspPanel()
         {"NR4",  false},  // 12 — client-side spectral bleach (libspecbleach)
     };
 
-    for (const auto& def : defs) {
-        auto* row = new QHBoxLayout;
-        row->setSpacing(4);
-
-        auto* btn = new QPushButton(def.label);
+    // First pass: create all buttons and collect toggle-only (no slider) indices
+    QVector<int> toggleOnlyIndices;
+    constexpr int N = sizeof(defs) / sizeof(defs[0]);
+    for (int i = 0; i < N; ++i) {
+        DspRow dspRow;
+        auto* btn = new QPushButton(defs[i].label);
         btn->setCheckable(true);
         btn->setFixedSize(40, 20);
         btn->setStyleSheet(dspBtnStyle);
-        row->addWidget(btn);
-
-        DspRow dspRow;
         dspRow.btn = btn;
+        m_dspRows.append(dspRow);
+        if (!defs[i].hasLevel)
+            toggleOnlyIndices.append(i);
+    }
 
-        if (def.hasLevel) {
-            auto* slider = new GuardedSlider(Qt::Horizontal);
-            slider->setRange(0, 100);
-            slider->setValue(50);
-            slider->setStyleSheet(kSliderStyle);
-            row->addWidget(slider, 1);
-
-            auto* lbl = new QLabel("50");
-            lbl->setStyleSheet(kLabelStyle);
-            lbl->setFixedWidth(22);
-            lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-            row->addWidget(lbl);
-
-            slider->installEventFilter(this);
-            dspRow.slider = slider;
-            dspRow.valueLbl = lbl;
-        } else {
-            row->addStretch(1);
+    // Toggle-only buttons in a compact flow row at the top
+    if (!toggleOnlyIndices.isEmpty()) {
+        auto* toggleRow = new QHBoxLayout;
+        toggleRow->setSpacing(4);
+        for (int idx : toggleOnlyIndices) {
+            m_dspRows[idx].btn->setMinimumSize(0, 20);
+            m_dspRows[idx].btn->setMaximumHeight(20);
+            m_dspRows[idx].btn->setFixedWidth(QWIDGETSIZE_MAX);  // undo fixed 40px
+            toggleRow->addWidget(m_dspRows[idx].btn, 1);
         }
+        vbox->addLayout(toggleRow);
+    }
+
+    // Slider rows for buttons with level controls
+    for (int i = 0; i < N; ++i) {
+        if (!defs[i].hasLevel) continue;
+
+        auto* row = new QHBoxLayout;
+        row->setSpacing(4);
+        row->addWidget(m_dspRows[i].btn);
+
+        auto* slider = new GuardedSlider(Qt::Horizontal);
+        slider->setRange(0, 100);
+        slider->setValue(50);
+        slider->setStyleSheet(kSliderStyle);
+        row->addWidget(slider, 1);
+
+        auto* lbl = new QLabel("50");
+        lbl->setStyleSheet(kLabelStyle);
+        lbl->setFixedWidth(22);
+        lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        row->addWidget(lbl);
+
+        slider->installEventFilter(this);
+        m_dspRows[i].slider = slider;
+        m_dspRows[i].valueLbl = lbl;
 
         vbox->addLayout(row);
-        m_dspRows.append(dspRow);
     }
 
     // DSP button tooltips
