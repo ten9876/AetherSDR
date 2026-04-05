@@ -248,6 +248,7 @@ set(CORE_SOURCES
     src/core/RigctlServer.cpp
     src/core/TciServer.cpp
     src/core/TciProtocol.cpp
+    src/core/PgxlConnection.cpp
     src/core/FirmwareUploader.cpp
     src/core/DvkWavTransfer.cpp
     src/core/FirmwareStager.cpp

@@ -87,6 +87,8 @@ public:
     bool              hasAmplifier() const { return m_hasAmplifier; }
     bool              ampOperate()   const { return m_ampOperate; }
     QString           ampHandle()    const { return m_ampHandle; }
+    QString           ampIp()        const { return m_ampIp; }
+    QString           ampModel()     const { return m_ampModel; }
 
     // Getters
     QString name()    const { return m_name; }
@@ -417,6 +419,8 @@ private:
 
     bool    m_hasAmplifier{false};  // true if a power amp (PGXL) is detected
     QString m_ampHandle;             // amplifier handle for commands
+    QString m_ampIp;                 // amplifier IP for direct connection
+    QString m_ampModel;              // "PowerGeniusXL"
     bool    m_ampOperate{false};
 
     // GPS state

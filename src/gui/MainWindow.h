@@ -34,6 +34,7 @@
 #endif
 #include "core/ShortcutManager.h"
 #include "core/TgxlConnection.h"
+#include "core/PgxlConnection.h"
 #include "core/DxccColorProvider.h"
 
 #include <QMainWindow>
@@ -147,6 +148,7 @@ private:
     WanConnection     m_wanConnection;
     AntennaGeniusModel m_antennaGenius;
     TgxlConnection    m_tgxlConn;        // direct TCP 9010 to TGXL for manual relay control
+    PgxlConnection    m_pgxlConn;        // direct TCP 9008 to PGXL for telemetry
     BandPlanManager*  m_bandPlanMgr{nullptr};
     CwDecoder         m_cwDecoder;
     DxClusterClient*   m_dxCluster{nullptr};
@@ -252,6 +254,7 @@ private:
     QLabel* m_tgxlIndicator{nullptr};
     QLabel* m_pgxlIndicator{nullptr};
     QLabel* m_txIndicator{nullptr};
+    QLabel* m_gpsDateLabel{nullptr};
     QLabel* m_gpsTimeLabel{nullptr};
 
     // Active slice tracking for multi-slice support

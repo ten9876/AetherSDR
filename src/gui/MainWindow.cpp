@@ -5,6 +5,7 @@
 #include "PanadapterStack.h"
 #include "PanLayoutDialog.h"
 #include "core/CommandParser.h"
+#include "core/LogManager.h"
 #include "models/PanadapterModel.h"
 #include "SpectrumWidget.h"
 #ifdef AETHER_GPU_SPECTRUM
@@ -1097,7 +1098,12 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->sMeterWidget()->setLevel(dbm);
     });
     connect(&m_radioModel.meterModel(), &MeterModel::txMetersChanged,
-            m_appletPanel->sMeterWidget(), &SMeterWidget::setTxMeters);
+            this, [this](float fwdPwr, float swr) {
+        // When amplifier is present, ampMetersChanged feeds the S-Meter
+        // with amplifier output power. Skip exciter meters to avoid overwriting.
+        if (!m_radioModel.hasAmplifier())
+            m_appletPanel->sMeterWidget()->setTxMeters(fwdPwr, swr);
+    });
     connect(&m_radioModel.meterModel(), &MeterModel::micMetersChanged,
             m_appletPanel->sMeterWidget(), &SMeterWidget::setMicMeters);
     connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
@@ -1137,6 +1143,58 @@ MainWindow::MainWindow(QWidget* parent)
         if (tuner->isPresent() && !tuner->tgxlIp().isEmpty() && !m_tgxlConn.isConnected()) {
             m_tgxlConn.connectToTgxl(tuner->tgxlIp());
         }
+    });
+
+    // Auto-connect to PGXL when detected
+    connect(&m_radioModel, &RadioModel::amplifierChanged, this, [this](bool present) {
+        if (present && !m_radioModel.ampIp().isEmpty() && !m_pgxlConn.isConnected()) {
+            m_pgxlConn.connectToPgxl(m_radioModel.ampIp());
+        } else if (!present) {
+            m_pgxlConn.disconnect();
+        }
+    });
+    // PGXL status → AmpApplet (direct telemetry: vac, id, temp, state, etc.)
+    connect(&m_pgxlConn, &PgxlConnection::statusUpdated, this, [this](const QMap<QString, QString>& kvs) {
+        qCDebug(lcTuner) << "PGXL status:" << kvs;
+        auto* amp = m_appletPanel->ampApplet();
+        if (kvs.contains("temp"))
+            amp->setTemp(kvs["temp"].toFloat());
+        if (kvs.contains("id"))
+            amp->setDrainCurrent(kvs["id"].toFloat());
+        if (kvs.contains("vac"))
+            amp->setMainsVoltage(kvs["vac"].toInt());
+        if (kvs.contains("state"))
+            amp->setState(kvs["state"]);
+        if (kvs.contains("meffa"))
+            amp->setMeff(kvs["meffa"]);
+        // Convert PGXL dBm to watts and feed S-Meter alongside radio meters.
+        // Use peakfwd (actual peak power) not fwd (floor/minimum).
+        if (kvs.contains("peakfwd") && m_radioModel.hasAmplifier()) {
+            float dbm = kvs["peakfwd"].toFloat();
+            float watts = std::pow(10.0f, (dbm - 30.0f) / 10.0f);
+            qCDebug(lcTuner) << "PGXL→SMeter: peakfwd=" << dbm << "dBm =" << watts << "W";
+            float swr = 1.0f;
+            if (kvs.contains("swr")) {
+                float rl = std::abs(kvs["swr"].toFloat());
+                float rho = std::pow(10.0f, -rl / 20.0f);
+                swr = (rho < 0.999f) ? (1.0f + rho) / (1.0f - rho) : 99.0f;
+            }
+            // Ensure S-Meter is in TX mode when PGXL reports transmitting
+            if (kvs.value("state").startsWith("TRANSMIT"))
+                m_appletPanel->sMeterWidget()->setTransmitting(true);
+            else if (kvs.contains("state") && !kvs.value("state").startsWith("TRANSMIT"))
+                m_appletPanel->sMeterWidget()->setTransmitting(false);
+            m_appletPanel->sMeterWidget()->setTxMeters(watts, swr);
+        }
+    });
+    connect(&m_pgxlConn, &PgxlConnection::connected, this, [this]() {
+        qDebug() << "PGXL direct connection established, version:" << m_pgxlConn.version();
+    });
+    // OPERATE button → PGXL standby/operate command via radio amplifier API
+    connect(m_appletPanel->ampApplet(), &AmpApplet::operateToggled, this, [this](bool on) {
+        if (!m_radioModel.ampHandle().isEmpty())
+            m_radioModel.sendCommand(
+                QString("amplifier set %1 operate=%2").arg(m_radioModel.ampHandle()).arg(on ? 1 : 0));
     });
 
     // Switch Fwd Power gauge scale based on radio max power and amplifier presence.
@@ -1190,8 +1248,12 @@ MainWindow::MainWindow(QWidget* parent)
         m_appletPanel->ampApplet()->setSwr(swr);
         m_appletPanel->ampApplet()->setTemp(temp);
         // When PGXL is present, S-Meter TX power shows amplifier output, not exciter
-        if (m_radioModel.hasAmplifier())
+        if (m_radioModel.hasAmplifier()) {
             m_appletPanel->sMeterWidget()->setTxMeters(fwdPwr, swr);
+            static int ampDbg = 0;
+            if (++ampDbg % 50 == 1)
+                qCDebug(lcTuner) << "AMP→SMeter: fwd=" << fwdPwr << "W swr=" << swr;
+        }
     });
     connect(&m_radioModel.transmitModel(), &TransmitModel::maxPowerLevelChanged,
             this, updatePowerScale);
@@ -1779,7 +1841,7 @@ MainWindow::MainWindow(QWidget* parent)
 
             // Compression gauge: 5fps throttle, gated on PROC, both mic paths
             if (++(*compThrottle) % 4 == 0) {
-                float comp = m_radioModel.transmitModel().speechProcessorEnable() ? compPeak : 0.0f;
+                float comp = m_radioModel.transmitModel().companderOn() ? compPeak : 0.0f;
                 m_appletPanel->phoneCwApplet()->updateCompression(comp);
             }
         });
@@ -1941,8 +2003,10 @@ MainWindow::MainWindow(QWidget* parent)
     // System clock fallback when no GPS is installed
     auto* clockTimer = new QTimer(this);
     connect(clockTimer, &QTimer::timeout, this, [this] {
+        auto utc = QDateTime::currentDateTimeUtc();
+        m_gpsDateLabel->setText(utc.toString("yyyy-MM-dd"));
         if (m_useSystemClock)
-            m_gpsTimeLabel->setText(QDateTime::currentDateTimeUtc().toString("HH:mm:ssZ"));
+            m_gpsTimeLabel->setText(utc.toString("HH:mm:ssZ"));
     });
     clockTimer->start(1000);
 
@@ -3543,11 +3607,16 @@ void MainWindow::buildUI()
     m_gridLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 12px; }");
     m_gridLabel->setAlignment(Qt::AlignCenter);
     m_gridLabel->setMinimumWidth(kTelemetryStackMinWidth);
+    m_gpsDateLabel = new QLabel("");
+    m_gpsDateLabel->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
+    m_gpsDateLabel->setAlignment(Qt::AlignCenter);
+    m_gpsDateLabel->setMinimumWidth(kTelemetryStackMinWidth);
     m_gpsTimeLabel = new QLabel("");
     m_gpsTimeLabel->setStyleSheet("QLabel { color: #607080; font-size: 12px; }");
     m_gpsTimeLabel->setAlignment(Qt::AlignCenter);
     m_gpsTimeLabel->setMinimumWidth(kTelemetryStackMinWidth);
     timeVbox->addWidget(m_gridLabel);
+    timeVbox->addWidget(m_gpsDateLabel);
     timeVbox->addWidget(m_gpsTimeLabel);
     hbox->addWidget(timeStack);
 
@@ -3783,6 +3852,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_tnfIndicator->setStyleSheet("QLabel { color: #404858; font-weight: bold; font-size: 24px; }");
         m_tgxlIndicator->setVisible(false);
         m_tgxlConn.disconnect();
+        m_pgxlConn.disconnect();
         m_pgxlIndicator->setVisible(false);
         m_txIndicator->setStyleSheet("QLabel { color: rgba(255,255,255,128); font-weight: bold; font-size: 21px; }");
         m_txIndicator->setText("TX");
@@ -3882,8 +3952,13 @@ void MainWindow::clearMemorySpotFeed()
         if (it.value().source == "Memory")
             ids.append(it.key());
     }
+    // Block signals during batch removal to avoid N marker rebuilds (#708)
+    m_radioModel.spotModel().blockSignals(true);
     for (int id : ids)
         m_radioModel.spotModel().removeSpot(id);
+    m_radioModel.spotModel().blockSignals(false);
+    if (!ids.isEmpty())
+        emit m_radioModel.spotModel().spotsRefreshed();
 }
 
 void MainWindow::rebuildMemorySpotFeed()
@@ -6403,7 +6478,7 @@ void MainWindow::registerMidiParams()
 
     reg("phone.procEnable", "Speech Processor", "Phone/CW", P::Toggle, 0, 1,
         [this](float v) { m_radioModel.transmitModel().setSpeechProcessorEnable(v > 0.5f); },
-        [this]() -> float { return m_radioModel.transmitModel().speechProcessorEnable() ? 1 : 0; });
+        [this]() -> float { return m_radioModel.transmitModel().companderOn() ? 1 : 0; });
 
     reg("phone.daxEnable", "DAX", "Phone/CW", P::Toggle, 0, 1,
         [this](float v) { m_radioModel.transmitModel().setDax(v > 0.5f); },

@@ -1725,7 +1725,10 @@ void RadioModel::onStatusReceived(const QString& object,
                 m_ampHandle = handle;
                 if (!m_hasAmplifier) {
                     m_hasAmplifier = true;
-                    qCDebug(lcProtocol) << "RadioModel: power amplifier detected, model=" << model;
+                    m_ampIp = kvs.value("ip");
+                    m_ampModel = model;
+                    qCDebug(lcProtocol) << "RadioModel: power amplifier detected, model=" << model
+                                       << "ip=" << m_ampIp;
                     emit amplifierChanged(true);
                 }
             }
@@ -1733,7 +1736,8 @@ void RadioModel::onStatusReceived(const QString& object,
                 const QString state = kvs.value("state").toUpper();
                 if (!state.isEmpty()) {
                     // PGXL states: IDLE = on/ready, STANDBY = off, POWERUP = transitioning
-                    bool op = (state == "IDLE" || state == "OPERATE");
+                    bool op = (state == "IDLE" || state == "OPERATE"
+                               || state.startsWith("TRANSMIT"));
                     if (m_ampOperate != op) {
                         m_ampOperate = op;
                         emit ampStateChanged();

@@ -609,10 +609,10 @@ void PhoneCwApplet::syncPhoneFromModel()
         m_micLevelLabel->setText(QString::number(m_model->micLevel()));
     }
     m_accBtn->setChecked(m_model->micAcc());
-    m_procBtn->setChecked(m_model->speechProcessorEnable());
+    m_procBtn->setChecked(m_model->companderOn());
 
     {
-        int level = m_model->speechProcessorLevel();
+        int level = m_model->companderLevel();
         int pos = (level <= 25) ? 0 : (level <= 75) ? 1 : 2;
         m_procSlider->setValue(pos);
     }
