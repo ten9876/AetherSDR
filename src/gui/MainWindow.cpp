@@ -37,6 +37,7 @@
 #include "SliceTroubleshootingDialog.h"
 #include "ShortcutDialog.h"
 #include "MultiFlexDialog.h"
+#include "HelpDialog.h"
 #include "WhatsNewDialog.h"
 #include "models/SliceModel.h"
 #include "models/MeterModel.h"
@@ -3139,6 +3140,39 @@ void MainWindow::buildMenuBar()
     });
 
     auto* helpMenu = menuBar()->addMenu("&Help");
+    helpMenu->addAction("Getting Started...", this, [this]() {
+        auto* dlg = new HelpDialog("Getting Started", ":/help/getting-started.md", this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setModal(false);
+        dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
+    });
+    helpMenu->addAction("AetherSDR Help...", this, [this]() {
+        auto* dlg = new HelpDialog("AetherSDR Help", ":/help/aethersdr-help.md", this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setModal(false);
+        dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
+    });
+    helpMenu->addAction("Understanding Data Modes...", this, [this]() {
+        auto* dlg = new HelpDialog("Understanding Data Modes", ":/help/understanding-data-modes.md", this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setModal(false);
+        dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
+    });
+    helpMenu->addAction("Contributing to AetherSDR...", this, [this]() {
+        auto* dlg = new HelpDialog("Contributing to AetherSDR", ":/help/contributing-to-aethersdr.md", this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setModal(false);
+        dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
+    });
+    helpMenu->addSeparator();
     helpMenu->addAction("Support...", this, [this]() {
         SupportDialog dlg(this);
         dlg.setRadioModel(&m_radioModel);
