@@ -17,17 +17,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Qt6 (universal frameworks via aqtinstall)
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.7.*'
-          host: 'mac'
-          target: 'desktop'
-          arch: 'clang_64'
-          modules: 'qtmultimedia qtserialport qtwebsockets qtshadertools'
-
-      - name: Install build tools and dependencies
-        run: brew install ninja autoconf automake libtool fftw portaudio hidapi qtkeychain
+      - name: Install all dependencies via Homebrew
+        run: |
+          brew install qt@6 ninja autoconf automake libtool \
+            fftw portaudio hidapi qtkeychain
 
       - name: Generate .icns from PNG
         run: |
@@ -101,7 +94,6 @@ jobs:
           cp -R build/AetherSDR.app pkg-staging/app/
           cp -R build-hal/AetherSDRDAX.driver pkg-staging/hal/
 
-          # postinstall: restart CoreAudio so virtual device appears
           cat > pkg-staging/scripts/postinstall << 'EOF'
           #!/bin/bash
           launchctl kickstart -kp system/com.apple.audio.coreaudiod 2>/dev/null || true
@@ -109,7 +101,6 @@ jobs:
           EOF
           chmod +x pkg-staging/scripts/postinstall
 
-          # Welcome page
           cat > pkg-staging/resources/welcome.html << 'EOF'
           <html><body>
           <h1>AetherSDR</h1>

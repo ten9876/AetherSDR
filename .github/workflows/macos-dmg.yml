@@ -15,17 +15,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Qt6 (universal frameworks via aqtinstall)
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.7.*'
-          host: 'mac'
-          target: 'desktop'
-          arch: 'clang_64'
-          modules: 'qtmultimedia qtserialport qtwebsockets qtshadertools'
-
-      - name: Install build tools and dependencies
-        run: brew install ninja create-dmg autoconf automake libtool fftw portaudio hidapi qtkeychain
+      - name: Install all dependencies via Homebrew
+        run: |
+          brew install qt@6 ninja create-dmg autoconf automake libtool \
+            fftw portaudio hidapi qtkeychain
 
       - name: Generate .icns from PNG
         run: |
@@ -70,14 +63,11 @@ jobs:
           APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
         run: |
-          # Decode certificate
           echo "$APPLE_CERT_BASE64" | base64 --decode > cert.p12
-          # Create temporary keychain
           security create-keychain -p "" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "" build.keychain
           security set-keychain-settings build.keychain
-          # Import certificate
           security import cert.p12 -k build.keychain -P "$APPLE_CERT_PASSWORD" \
             -T /usr/bin/codesign -T /usr/bin/productsign
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
@@ -87,17 +77,14 @@ jobs:
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Sign all frameworks and dylibs first, then the app bundle
           find build/AetherSDR.app -name "*.dylib" -o -name "*.framework" -type d | while read item; do
             codesign --force --options runtime --timestamp \
               --sign "Developer ID Application" "$item" 2>/dev/null || true
           done
-          # Sign the main executable and app bundle (with mic entitlement for TX audio)
           codesign --force --deep --options runtime --timestamp \
             --entitlements macos/AetherSDR.entitlements \
             --sign "Developer ID Application" \
             build/AetherSDR.app
-          # Verify
           codesign --verify --deep --strict build/AetherSDR.app
           echo "Code signing verified successfully"
 
@@ -114,7 +101,7 @@ jobs:
             --app-drop-link 450 190 \
             "AetherSDR-${{ github.ref_name }}-macOS-universal.dmg" \
             "build/AetherSDR.app" \
-          || true  # create-dmg returns 2 on success with no code sign
+          || true
 
       - name: Sign DMG
         env:
@@ -136,7 +123,6 @@ jobs:
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait --timeout 600
-          # Staple the notarization ticket to the DMG
           xcrun stapler staple \
             AetherSDR-${{ github.ref_name }}-macOS-universal.dmg
           echo "Notarization and stapling complete"
