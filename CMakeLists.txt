@@ -171,7 +171,12 @@ if(AETHER_GPU_SPECTRUM)
         message(STATUS "GPU spectrum rendering disabled (requires Qt 6.7+, found ${Qt6_VERSION})")
     else()
         find_package(Qt6 REQUIRED COMPONENTS ShaderTools)
-        find_package(Qt6GuiPrivate QUIET)
+        # Qt6GuiPrivate provides QRhi headers. On Qt 6.7+, try to find it
+        # but don't fail — the headers may be accessible without it.
+        # Skip on macOS to avoid Homebrew/aqtinstall Qt version conflicts.
+        if(NOT APPLE)
+            find_package(Qt6GuiPrivate QUIET)
+        endif()
         message(STATUS "GPU spectrum rendering enabled (QRhi, Qt ${Qt6_VERSION})")
     endif()
 else()
