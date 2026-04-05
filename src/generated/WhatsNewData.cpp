@@ -6,6 +6,10 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.8.1"), QStringLiteral("2026-04-05"), QStringLiteral("Build System"), {
+            {ChangeCategory::BugFix, QStringLiteral("GPU rendering on macOS Metal"), QStringLiteral("Set Metal API explicitly and WA_NativeWindow for QRhiWidget QRhiWidget in a RasterSurface hierarchy silently fails without a native NSView macOS workflows switched from aqtinstall to Homebrew-only ...")},
+            {ChangeCategory::BugFix, QStringLiteral("Memory spots on panadapter"), QStringLiteral("Radio memories displayed as clickable spots on the panadapter Click to tune + apply mode/step/filter from saved memory Toggle in SpotHub Display settings Full sync: add/edit/remove in Memory dialog...")},
+        }},
         {QStringLiteral("0.8.0"), QStringLiteral("2026-04-04"), QStringLiteral("GPU-Accelerated Rendering — The Performance Release"), {
             {ChangeCategory::Feature, QStringLiteral("TCI WebSocket server"), QStringLiteral("Full TCI v2.0 protocol: 72 command handlers over a single WebSocket connection CAT control, RX/TX audio streaming with r8brain resampling, IQ streaming Sensor telemetry, CW keyer, spot injection DI...")},
             {ChangeCategory::Feature, QStringLiteral("Customizable filter width presets"), QStringLiteral("Right-click any filter button to set custom width in Hz Per-mode persistence, synced between VFO widget and RX applet")},

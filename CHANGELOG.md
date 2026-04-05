@@ -3,6 +3,29 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.1] — 2026-04-05
+
+### macOS Metal Fix + Memory Spots
+
+### Bug Fixes
+
+**GPU rendering on macOS Metal (#702, #714)**
+- Set Metal API explicitly and WA_NativeWindow for QRhiWidget
+- QRhiWidget in a RasterSurface hierarchy silently fails without a native NSView
+- macOS workflows switched from aqtinstall to Homebrew-only Qt (eliminates version conflicts)
+
+**Memory spots on panadapter (#704)**
+- Radio memories displayed as clickable spots on the panadapter
+- Click to tune + apply mode/step/filter from saved memory
+- Toggle in SpotHub Display settings
+- Full sync: add/edit/remove in Memory dialog updates spots immediately
+
+### Build System
+
+- macOS: dropped aqtinstall, Homebrew-only for all dependencies
+- macOS: added Homebrew prefix to CMAKE_PREFIX_PATH for linker discovery
+- macOS: skip Qt6GuiPrivate find_package on Apple to avoid Homebrew/Qt conflicts
+
 ## [v0.8.0] — 2026-04-04
 
 ### GPU-Accelerated Rendering — The Performance Release
