@@ -74,7 +74,10 @@ void SMeterWidget::setTxMeters(float fwdPower, float swr)
     m_txPower = m_txPower + SMOOTH_ALPHA * (fwdPower - m_txPower);
     m_txSwr   = m_txSwr   + SMOOTH_ALPHA * (swr - m_txSwr);
 
-    if (m_transmitting && (m_txMode == TxMode::Power || m_txMode == TxMode::SWR))
+    // Repaint whenever TX power data arrives — either because moxChanged set
+    // m_transmitting, or because RF power is flowing regardless (e.g. VOX,
+    // hardware-keyed CW, or interlock race where setTransmitting arrives late).
+    if (m_transmitting || m_txPower > 0.5f)
         update();
 }
 
@@ -94,6 +97,12 @@ void SMeterWidget::setMicMeters(float micLevel, float compLevel, float micPeak, 
 void SMeterWidget::setTransmitting(bool tx)
 {
     m_transmitting = tx;
+    if (!tx) {
+        // Clear TX values immediately on un-key so the needle snaps back to RX
+        // rather than decaying slowly through the smoothing filter.
+        m_txPower = 0.0f;
+        m_txSwr   = 1.0f;
+    }
     update();
 }
 
@@ -401,9 +410,12 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     // Needle originates from needleCy (just below widget) rather than the
     // arc center, so the pivot is barely out of frame.
     // When transmitting, needle tracks the selected TX meter instead of RX.
+    // Also switches to TX display when RF power is flowing even if m_transmitting
+    // hasn't been set yet (VOX, hardware CW, interlock timing race).
     {
+        const bool effectiveTx = m_transmitting || m_txPower > 0.5f;
         float frac;
-        if (m_transmitting)
+        if (effectiveTx)
             frac = txValueToFraction(currentTxValue());
         else if (m_rxMode == RxMode::SMeterPeak)
             frac = dbmToFraction(m_peakDbm);
@@ -425,8 +437,8 @@ void SMeterWidget::paintEvent(QPaintEvent*)
         p.drawLine(QPointF(cx, needleCy), QPointF(tipX, tipY));
     }
 
-    // -- Draw peak marker (small triangle) -- only in RX S-Meter Peak mode ----
-    if (!m_transmitting && m_rxMode == RxMode::SMeterPeak
+    // Draw peak marker (small triangle) — only in RX S-Meter Peak mode
+    if (!(m_transmitting || m_txPower > 0.5f) && m_rxMode == RxMode::SMeterPeak
         && m_peakDbm > m_levelDbm + 1.0f) {
         const float frac = dbmToFraction(m_peakDbm);
         const float angle = fractionToAngle(frac);
@@ -480,7 +492,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     valFont.setBold(true);
     const QFontMetrics vfm(valFont);
 
-    if (m_transmitting) {
+    if (m_transmitting || m_txPower > 0.5f) {
         // TX mode: show TX source label (center), mode name (left), value (right)
         static const char* txLabels[] = {"Power", "SWR", "Level", "Compression"};
         const QString srcLabel = txLabels[static_cast<int>(m_txMode)];
