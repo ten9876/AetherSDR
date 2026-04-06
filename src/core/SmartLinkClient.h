@@ -114,10 +114,13 @@ private:
     bool    m_authenticated{false};
 
     // SmartLink server TLS connection
-    QSslSocket m_socket;
-    QByteArray m_readBuffer;
+    // Keep the timer/connection state alive longer than the socket so a
+    // destructor-driven QSslSocket::disconnected emission cannot touch
+    // already-destroyed state.
     QTimer     m_pingTimer;
     bool       m_serverConnected{false};
+    QSslSocket m_socket;
+    QByteArray m_readBuffer;
 
     // User info from server
     QString m_publicIp;

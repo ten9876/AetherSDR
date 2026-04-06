@@ -31,6 +31,7 @@ SmartLinkClient::SmartLinkClient(QObject* parent)
 
 SmartLinkClient::~SmartLinkClient()
 {
+    QObject::disconnect(&m_socket, nullptr, this, nullptr);
     disconnect();
 }
 
