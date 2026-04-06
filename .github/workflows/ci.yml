@@ -70,7 +70,7 @@ jobs:
           else { Write-Host "No FFTW setup script — skipping" }
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_RADE=OFF
 
       - name: Build
         run: cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
