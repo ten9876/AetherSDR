@@ -6,9 +6,10 @@ set(NNET_H "${SOURCE_DIR}/dnn/nnet.h")
 file(READ "${NNET_H}" content)
 
 # 1. Add RADE_EXPORT fallback definition after #define NNET_H_
+# MSVC: __attribute__ not supported; for static lib, RADE_EXPORT is empty
 string(REPLACE
     "#define NNET_H_\n"
-    "#define NNET_H_\n\n#ifndef RADE_EXPORT\n#define RADE_EXPORT __attribute__((visibility(\"default\")))\n#endif /* RADE_EXPORT */\n"
+    "#define NNET_H_\n\n#ifndef RADE_EXPORT\n#ifdef _MSC_VER\n#define RADE_EXPORT\n#else\n#define RADE_EXPORT __attribute__((visibility(\"default\")))\n#endif\n#endif /* RADE_EXPORT */\n"
     content "${content}")
 
 # 2. Add RADE_EXPORT to function declarations

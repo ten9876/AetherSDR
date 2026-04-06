@@ -23,6 +23,19 @@ When helping with AetherSDR:
 - **Read `CONTRIBUTING.md`** for full contributor guidelines, coding conventions,
   and the AI-to-AI debugging protocol (open a GitHub issue for cross-agent coordination)
 
+## C++ Style Guide
+
+- **No `goto`** — use early returns, break, or restructure the logic
+- **No raw `new`/`delete`** — use `std::unique_ptr`, `std::make_unique`, or Qt parent ownership
+- **No `#define` macros for constants** — use `constexpr` or `static constexpr`
+- **Braces on all control flow** — even single-line `if`/`else`/`for`/`while`
+- **`auto` sparingly** — use explicit types unless the type is obvious from context (e.g. `auto* ptr = new Foo` is fine, `auto x = foo()` is not)
+- **Naming**: classes `PascalCase`, methods/variables `camelCase`, constants `kPascalCase`, member variables `m_camelCase`
+- **Platform guards**: use `#ifdef Q_OS_WIN` / `Q_OS_MAC` / `Q_OS_LINUX`, not `_WIN32` or `__APPLE__`
+- **Don't remove code you didn't add** — if rebasing, ensure upstream changes are preserved. Review the diff before submitting.
+- **Atomic parameters for cross-thread DSP** — main thread writes via `std::atomic`, audio thread reads. Never hold a mutex in the audio callback for parameter updates.
+- **Error handling**: log with `qCWarning(lcCategory)`, don't throw exceptions
+
 ## Build
 
 ```bash

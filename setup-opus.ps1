@@ -21,6 +21,10 @@ $OpusSrcUrl  = "https://downloads.xiph.org/releases/opus/opus-${OpusVersion}.tar
 $OutDir      = "third_party\opus"
 $TarFile     = "third_party\opus-${OpusVersion}.tar.gz"
 $VsVars      = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+# Also try BuildTools edition (installed via winget)
+if (-not (Test-Path $VsVars)) {
+    $VsVars = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+}
 
 # ── Check if already set up ──────────────────────────────────────────────
 if (Test-Path "$OutDir\lib\opus.lib") {

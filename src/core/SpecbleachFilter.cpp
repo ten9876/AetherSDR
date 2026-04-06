@@ -31,6 +31,7 @@ SpecbleachFilter::~SpecbleachFilter()
 
 void SpecbleachFilter::reset()
 {
+    m_frameCount = 0;
     if (m_handle)
         specbleach_reset_noise_profile(m_handle);
 }
@@ -81,8 +82,16 @@ QByteArray SpecbleachFilter::process(const QByteArray& pcm24kStereo)
     for (int i = 0; i < monoSamples; ++i)
         m_monoIn[i] = (in[i * 2] + in[i * 2 + 1]) / (2.0f * 32768.0f);
 
-    // Process
+    // Process — feed audio to build noise profile even during learning
     specbleach_process(m_handle, monoSamples, m_monoIn.data(), m_monoOut.data());
+
+    // During the learning period, pass original audio through so the user
+    // hears unprocessed audio instead of silence while the noise profile
+    // builds. The library still receives the audio above for profiling. (#827)
+    if (m_frameCount < kLearningFrames) {
+        ++m_frameCount;
+        return pcm24kStereo;
+    }
 
     // Mono float → stereo int16
     QByteArray result(totalSamples * sizeof(int16_t), Qt::Uninitialized);

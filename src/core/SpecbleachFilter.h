@@ -55,6 +55,11 @@ private:
     std::atomic<float> m_suppression{0.5f};
     std::atomic<bool>  m_paramsDirty{true};
 
+    // Frame counter for noise profile learning period — pass audio through
+    // unprocessed during the first ~1 second to avoid silence (#827)
+    int m_frameCount{0};
+    static constexpr int kLearningFrames = 25;  // ~1 sec at 40ms/frame
+
     // Buffers
     std::vector<float> m_monoIn;
     std::vector<float> m_monoOut;
