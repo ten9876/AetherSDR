@@ -31,6 +31,10 @@ SmartLinkClient::SmartLinkClient(QObject* parent)
 
 SmartLinkClient::~SmartLinkClient()
 {
+    // Prevent QSslSocket destructor from delivering signals into partially
+    // destroyed state (e.g. disconnected → onSslDisconnected → m_pingTimer.stop
+    // on a dead timer). See issue #842.
+    QObject::disconnect(&m_socket, nullptr, this, nullptr);
     disconnect();
 }
 
