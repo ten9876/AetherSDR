@@ -401,15 +401,22 @@ void TransmitModel::setMicAcc(bool on)
 
 void TransmitModel::setSpeechProcessorEnable(bool on)
 {
-    // SmartSDR's PROC button controls the compander, not speech_processor_enable.
-    // The compander is the active DSP compression stage; speech_processor is legacy.
-    emit commandReady(QString("transmit set compander=%1").arg(on ? 1 : 0));
+    // Pcap confirmed: SmartSDR uses speech_processor_enable (not compander).
+    // Optimistic update: radio does not echo speech_processor_enable in
+    // incremental status — only in the initial full dump on connect.
+    m_speechProcEnable = on;
+    emit micStateChanged();
+    emit commandReady(QString("transmit set speech_processor_enable=%1").arg(on ? 1 : 0));
 }
 
 void TransmitModel::setSpeechProcessorLevel(int level)
 {
-    level = qBound(0, level, 100);
-    emit commandReady(QString("transmit set compander_level=%1").arg(level));
+    // NOR=0, DX=1, DX+=2 (pcap confirmed: speech_processor_level, not compander_level).
+    // Optimistic update: radio does not echo in incremental status.
+    level = qBound(0, level, 2);
+    m_speechProcLevel = level;
+    emit micStateChanged();
+    emit commandReady(QString("transmit set speech_processor_level=%1").arg(level));
 }
 
 void TransmitModel::setDax(bool on)

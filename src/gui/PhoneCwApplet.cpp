@@ -262,7 +262,7 @@ void PhoneCwApplet::buildPhonePanel()
 
         connect(m_procSlider, &QSlider::valueChanged, this, [this](int pos) {
             if (!m_updatingFromModel && m_model) {
-                static constexpr int kLevels[] = {0, 50, 100};
+                static constexpr int kLevels[] = {0, 1, 2};
                 m_model->setSpeechProcessorLevel(kLevels[qBound(0, pos, 2)]);
             }
         });
@@ -609,11 +609,11 @@ void PhoneCwApplet::syncPhoneFromModel()
         m_micLevelLabel->setText(QString::number(m_model->micLevel()));
     }
     m_accBtn->setChecked(m_model->micAcc());
-    m_procBtn->setChecked(m_model->companderOn());
+    m_procBtn->setChecked(m_model->speechProcessorEnable());
 
     {
-        int level = m_model->companderLevel();
-        int pos = (level <= 25) ? 0 : (level <= 75) ? 1 : 2;
+        int level = m_model->speechProcessorLevel();
+        int pos = qBound(0, level, 2);
         m_procSlider->setValue(pos);
     }
 

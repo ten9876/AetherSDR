@@ -1895,7 +1895,9 @@ MainWindow::MainWindow(QWidget* parent)
 
             // Compression gauge: 5fps throttle, gated on PROC, both mic paths
             if (++(*compThrottle) % 4 == 0) {
-                float comp = m_radioModel.transmitModel().companderOn() ? compPeak : 0.0f;
+                // Gate on speech_processor_enable only — compander is a separate
+                // always-on stage (pcap: compander=1 compander_level=70 at all times)
+                float comp = m_radioModel.transmitModel().speechProcessorEnable() ? compPeak : 0.0f;
                 m_appletPanel->phoneCwApplet()->updateCompression(comp);
             }
         });

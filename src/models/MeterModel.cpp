@@ -216,16 +216,19 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             constexpr float kEqAlpha = 0.3f;
             m_afterEq = (m_afterEq < -140.0f) ? v : kEqAlpha * v + (1.0f - kEqAlpha) * m_afterEq;
         } else if (idx == m_compPeakIdx) {
-            // Smooth COMPPEAK similarly
+            // Smooth COMPPEAK
             constexpr float kCompAlpha = 0.3f;
             float smoothed = (m_compPeakRaw < -140.0f) ? v : kCompAlpha * v + (1.0f - kCompAlpha) * m_compPeakRaw;
             m_compPeakRaw = smoothed;
-            // Gain reduction = input - output (both smoothed)
-            // Only meaningful when both have signal
-            if (m_afterEq > -140.0f && smoothed > -140.0f)
-                m_compPeak = m_afterEq - smoothed;
+            // COMPPEAK = peak level after speech processor boost, before clipper (dBFS).
+            // Reversed gauge: 0 = no fill, -25 = full fill.
+            // Pcap data: -30 (PROC OFF), -4 to -11 (PROC NOR/DX/DX+), up to +15 (loud).
+            // Map: -40 dBFS → 0 (no compression), +15 dBFS → -25 (full).
+            if (smoothed > -40.0f)
+                m_compPeak = -(smoothed + 40.0f) * (25.0f / 55.0f);
             else
                 m_compPeak = 0.0f;
+            m_compPeak = qBound(-25.0f, m_compPeak, 0.0f);
             micChanged = true;
         } else if (idx == m_micLevelIdx) {
             m_micLevel = v;
