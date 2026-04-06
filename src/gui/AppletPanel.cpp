@@ -308,13 +308,30 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         AppSettings::instance().value("PeakDecayRate", "Medium").toString());
     AetherSDR::applyComboStyle(decayCombo);
 
+    auto* resetBtn = new QPushButton("RST", peakRow);
+    resetBtn->setFixedSize(32, 20);
+    resetBtn->setToolTip("Reset peak hold");
+    resetBtn->setStyleSheet(
+        "QPushButton { background: #1a1a2e; color: #8090a0; border: 1px solid #334; "
+        "border-radius: 3px; font-size: 10px; padding: 0 4px; } "
+        "QPushButton:pressed { background: #2a2a4e; color: #c8d8e8; }");
+
     peakLayout->addWidget(peakBtn);
     peakLayout->addWidget(decayLabel);
     peakLayout->addWidget(decayCombo, 1);
+    peakLayout->addWidget(resetBtn);
     sMeterLayout->addWidget(peakRow);
 
+    // Apply decay preset: also sets the hold time (Fast=200ms, Medium=500ms, Slow=1000ms)
+    auto applyDecayPreset = [this](const QString& rate) {
+        m_sMeter->setPeakDecayRate(rate);
+        if (rate == "Fast")        m_sMeter->setPeakHoldTimeMs(200);
+        else if (rate == "Slow")   m_sMeter->setPeakHoldTimeMs(1000);
+        else                       m_sMeter->setPeakHoldTimeMs(500);
+    };
+
     m_sMeter->setPeakHoldEnabled(peakBtn->isChecked());
-    m_sMeter->setPeakDecayRate(decayCombo->currentText());
+    applyDecayPreset(decayCombo->currentText());
 
     connect(peakBtn, &QPushButton::toggled, this, [this](bool on) {
         m_sMeter->setPeakHoldEnabled(on);
@@ -322,11 +339,12 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         AppSettings::instance().save();
     });
     connect(decayCombo, &QComboBox::currentTextChanged,
-            this, [this](const QString& rate) {
-        m_sMeter->setPeakDecayRate(rate);
+            this, [this, applyDecayPreset](const QString& rate) {
+        applyDecayPreset(rate);
         AppSettings::instance().setValue("PeakDecayRate", rate);
         AppSettings::instance().save();
     });
+    connect(resetBtn, &QPushButton::clicked, m_sMeter, &SMeterWidget::resetPeak);
 
     root->addWidget(m_sMeterSection);
 
