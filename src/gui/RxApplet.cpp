@@ -1269,7 +1269,25 @@ void RxApplet::applyFilterPreset(int widthHz)
     int lo, hi;
     const QString& mode = m_slice->mode();
 
-    if (mode == "LSB" || mode == "DIGL") {
+    if (mode == "DIGU") {
+        if (widthHz < 3000) {
+            int offset = m_slice->diguOffset();
+            lo = offset - widthHz / 2;
+            hi = offset + widthHz / 2;
+            if (lo < 95) { hi += (95 - lo); lo = 95; }
+        } else {
+            lo = 95; hi = widthHz;
+        }
+    } else if (mode == "DIGL") {
+        if (widthHz < 3000) {
+            int offset = m_slice->diglOffset();
+            hi = -offset + widthHz / 2;
+            lo = -offset - widthHz / 2;
+            if (hi > -95) { lo -= (hi + 95); hi = -95; }
+        } else {
+            lo = -widthHz; hi = -95;
+        }
+    } else if (mode == "LSB") {
         lo = -widthHz;
         hi = -95;
     } else if (mode == "RTTY") {
@@ -1290,7 +1308,7 @@ void RxApplet::applyFilterPreset(int widthHz)
         lo = -(widthHz / 2);
         hi =  (widthHz / 2);
     } else {
-        // USB, DIGU, FDV, etc. — low cut at 95 Hz to reject carrier/hum
+        // USB, FDV, etc. — low cut at 95 Hz to reject carrier/hum
         lo = 95;
         hi = widthHz;
     }

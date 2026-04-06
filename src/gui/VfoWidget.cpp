@@ -1011,6 +1011,9 @@ void VfoWidget::buildTabContent()
         }
 
         // DIG offset control (hidden unless DIGL/DIGU mode)
+        // The offset centers the filter passband for widths < 3000 Hz.
+        // Double-click the value to enter directly; arrows step by 10 Hz;
+        // scroll wheel also steps. (fw v1.4.0.0)
         {
             static const QString kStepLabelStyle2 =
                 "QLabel { font-size: 10px; background: #0a0a18; border: 1px solid #1e2e3e; "
@@ -1032,31 +1035,77 @@ void VfoWidget::buildTabContent()
             auto* row = new QHBoxLayout;
             row->setContentsMargins(0, 0, 0, 0);
             row->setSpacing(0);
+
             auto* minus = new TriBtn(TriBtn::Left);
             row->addWidget(minus);
-            m_digOffsetLabel = new QLabel("2210");
+
+            // Stacked widget: label (normal) / line edit (direct entry)
+            m_digOffsetStack = new QStackedWidget;
+            m_digOffsetStack->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+            m_digOffsetLabel = new ScrollableLabel("2210");
             m_digOffsetLabel->setAlignment(Qt::AlignCenter);
             m_digOffsetLabel->setStyleSheet(kStepLabelStyle2);
-            row->addWidget(m_digOffsetLabel, 1);
+            m_digOffsetLabel->setCursor(Qt::PointingHandCursor);
+            m_digOffsetLabel->setToolTip("Double-click to enter offset directly");
+            m_digOffsetStack->addWidget(m_digOffsetLabel);  // index 0
+
+            m_digOffsetEdit = new QLineEdit;
+            m_digOffsetEdit->setAlignment(Qt::AlignCenter);
+            m_digOffsetEdit->setStyleSheet(
+                "QLineEdit { font-size: 10px; background: #0a0a18; border: 1px solid #00b4d8; "
+                "border-radius: 3px; padding: 0px 2px; color: #00e5ff; }");
+            m_digOffsetStack->addWidget(m_digOffsetEdit);   // index 1
+
+            row->addWidget(m_digOffsetStack, 1);
+
             auto* plus = new TriBtn(TriBtn::Right);
             row->addWidget(plus);
             dvb->addLayout(row);
 
+            // Helper to apply a validated offset value
+            auto applyOffset = [this](int hz) {
+                if (!m_slice) return;
+                hz = qBound(0, hz, 10000);
+                if (m_slice->mode() == "DIGL")
+                    m_slice->setDiglOffset(hz);
+                else
+                    m_slice->setDiguOffset(hz);
+            };
+
             static constexpr int DIG_STEP = 10;
-            connect(minus, &QPushButton::clicked, this, [this] {
+            connect(minus, &QPushButton::clicked, this, [this, applyOffset] {
                 if (!m_slice) return;
-                if (m_slice->mode() == "DIGL")
-                    m_slice->setDiglOffset(m_slice->diglOffset() - DIG_STEP);
-                else
-                    m_slice->setDiguOffset(m_slice->diguOffset() - DIG_STEP);
+                int cur = (m_slice->mode() == "DIGL")
+                    ? m_slice->diglOffset() : m_slice->diguOffset();
+                applyOffset(cur - DIG_STEP);
             });
-            connect(plus, &QPushButton::clicked, this, [this] {
+            connect(plus, &QPushButton::clicked, this, [this, applyOffset] {
                 if (!m_slice) return;
-                if (m_slice->mode() == "DIGL")
-                    m_slice->setDiglOffset(m_slice->diglOffset() + DIG_STEP);
-                else
-                    m_slice->setDiguOffset(m_slice->diguOffset() + DIG_STEP);
+                int cur = (m_slice->mode() == "DIGL")
+                    ? m_slice->diglOffset() : m_slice->diguOffset();
+                applyOffset(cur + DIG_STEP);
             });
+            connect(m_digOffsetLabel, &ScrollableLabel::scrolled, this,
+                    [this, applyOffset](int dir) {
+                if (!m_slice) return;
+                int cur = (m_slice->mode() == "DIGL")
+                    ? m_slice->diglOffset() : m_slice->diguOffset();
+                applyOffset(cur + dir * DIG_STEP);
+            });
+
+            // Double-click label → switch to inline edit
+            m_digOffsetLabel->installEventFilter(this);
+
+            // Commit edit on Enter or focus loss
+            auto commitEdit = [this, applyOffset] {
+                m_digOffsetStack->setCurrentIndex(0);
+                bool ok;
+                int hz = m_digOffsetEdit->text().toInt(&ok);
+                if (ok) applyOffset(hz);
+            };
+            connect(m_digOffsetEdit, &QLineEdit::returnPressed, this, commitEdit);
+            connect(m_digOffsetEdit, &QLineEdit::editingFinished, this, commitEdit);
 
             m_digContainer->hide();
             dspVb->addWidget(m_digContainer);
@@ -2611,7 +2660,42 @@ void VfoWidget::applyFilterPreset(int widthHz)
     int lo, hi;
     const QString& mode = m_slice->mode();
 
-    if (mode == "LSB" || mode == "DIGL") {
+    if (mode == "DIGU") {
+        // For widths < 3000 Hz, center the filter on the stored digu_offset.
+        // SmartSDR behavior (fw v1.4.0.0): offset is the audio center frequency;
+        // filter spans [offset - width/2, offset + width/2], clamped so lo >= 95.
+        // For widths >= 3000 Hz, SmartSDR ignores the offset and runs from 95 Hz
+        // upward — preserve that behavior unchanged.
+        if (widthHz < 3000) {
+            int offset = m_slice->diguOffset();
+            lo = offset - widthHz / 2;
+            hi = offset + widthHz / 2;
+            if (lo < 95) {
+                // Clamp: don't let lo drop below 95 Hz (carrier rejection)
+                hi += (95 - lo);
+                lo = 95;
+            }
+        } else {
+            lo = 95;
+            hi = widthHz;
+        }
+    } else if (mode == "DIGL") {
+        // Mirror of DIGU: offset is negative (below carrier). For widths < 3000 Hz,
+        // center on -digl_offset, clamped so hi <= -95.
+        // For widths >= 3000 Hz, run from -95 downward.
+        if (widthHz < 3000) {
+            int offset = m_slice->diglOffset();
+            hi = -offset + widthHz / 2;
+            lo = -offset - widthHz / 2;
+            if (hi > -95) {
+                lo -= (hi + 95);
+                hi = -95;
+            }
+        } else {
+            lo = -widthHz;
+            hi = -95;
+        }
+    } else if (mode == "LSB") {
         lo = -widthHz; hi = -95;
     } else if (mode == "RTTY") {
         // RTTY: RF_frequency = mark. Filter is relative to mark.
@@ -2628,7 +2712,7 @@ void VfoWidget::applyFilterPreset(int widthHz)
     } else if (mode == "AM" || mode == "SAM" || mode == "DSB") {
         lo = -(widthHz / 2); hi = (widthHz / 2);
     } else {
-        // USB/DIGU/FDV: low cut at 95 Hz to reject carrier/hum
+        // USB/FDV/etc: low cut at 95 Hz to reject carrier/hum
         lo = 95; hi = widthHz;
     }
     m_slice->setFilterWidth(lo, hi);
@@ -2658,6 +2742,19 @@ void VfoWidget::setTransmitModel(TransmitModel* txModel)
 
 bool VfoWidget::eventFilter(QObject* obj, QEvent* event)
 {
+    // Double-click on DIG offset label → switch to inline edit
+    if (obj == m_digOffsetLabel && event->type() == QEvent::MouseButtonDblClick) {
+        if (m_digOffsetStack && m_digOffsetEdit) {
+            int cur = m_slice ? ((m_slice->mode() == "DIGL")
+                ? m_slice->diglOffset() : m_slice->diguOffset()) : 0;
+            m_digOffsetEdit->setText(QString::number(cur));
+            m_digOffsetStack->setCurrentIndex(1);
+            m_digOffsetEdit->selectAll();
+            m_digOffsetEdit->setFocus();
+        }
+        return true;
+    }
+
     // Double-click on frequency label → open inline edit
     if (obj == m_freqLabel && event->type() == QEvent::MouseButtonDblClick) {
         beginDirectEntry();

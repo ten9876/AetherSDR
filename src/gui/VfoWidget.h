@@ -193,8 +193,10 @@ private:
     // RTTY Mark/Shift (shown only in RTTY mode)
     QWidget* m_rttyContainer{nullptr};
     // DIG offset (shown only in DIGL/DIGU mode)
-    QWidget* m_digContainer{nullptr};
-    QLabel*  m_digOffsetLabel{nullptr};
+    QWidget*        m_digContainer{nullptr};
+    ScrollableLabel* m_digOffsetLabel{nullptr};   // read-only display, scroll-wheel steps
+    QLineEdit*       m_digOffsetEdit{nullptr};     // inline direct-entry (double-click)
+    QStackedWidget*  m_digOffsetStack{nullptr};    // switches between label and edit
     // FM OPT controls (shown only in FM/NFM mode)
     QWidget*       m_fmContainer{nullptr};
     QComboBox*     m_fmToneModeCmb{nullptr};
