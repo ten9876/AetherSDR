@@ -25,12 +25,15 @@ jobs:
       - name: Install dependencies via Homebrew
         run: |
           brew install ninja create-dmg autoconf automake libtool \
-            fftw portaudio hidapi qtkeychain
-          # Apple Silicon: use Homebrew Qt (targets current OS, fine for arm64)
-          # Intel: build Qt from source targeting macOS 13 (Ventura) so the
-          # bundled frameworks work on 2017 iMacs that can't upgrade past 13.
+            fftw portaudio hidapi
           if [ "${{ matrix.label }}" = "apple-silicon" ]; then
-            brew install qt@6
+            # Apple Silicon: Homebrew Qt targets current OS, fine for arm64
+            brew install qt@6 qtkeychain
+          else
+            # Intel: don't install Homebrew Qt — we build from source below.
+            # qtkeychain pulls in qt@6 as a dependency, so skip it too and
+            # build without SmartLink credential persistence on Intel.
+            brew install fftw portaudio hidapi
           fi
 
       - name: Build Qt from source (Intel only)
