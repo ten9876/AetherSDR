@@ -234,19 +234,50 @@ else()
 endif()
 
 # libspecbleach NR4 — bundled spectral noise reduction (LGPL-2.1)
-# Disabled on MSVC: libspecbleach uses GNU C extensions (__attribute__, _Static_assert)
-# that MSVC's C compiler does not support.
+# MSVC: libspecbleach uses C99 VLAs and __attribute__ which MSVC doesn't support.
+# When clang-cl is available, build as a separate static lib using it.
 if(MSVC)
-    option(ENABLE_SPECBLEACH "Enable NR4 spectral bleach noise reduction" OFF)
+    find_program(CLANG_CL clang-cl HINTS "C:/Program Files/LLVM/bin")
+    if(CLANG_CL)
+        option(ENABLE_SPECBLEACH "Enable NR4 spectral bleach noise reduction" ON)
+    else()
+        option(ENABLE_SPECBLEACH "Enable NR4 spectral bleach noise reduction" OFF)
+    endif()
 else()
     option(ENABLE_SPECBLEACH "Enable NR4 spectral bleach noise reduction" ON)
 endif()
 if(ENABLE_SPECBLEACH)
     file(GLOB_RECURSE SPECBLEACH_SOURCES third_party/libspecbleach/src/*.c)
-    message(STATUS "NR4 (libspecbleach) enabled — ${CMAKE_SOURCE_DIR}/third_party/libspecbleach")
+    if(MSVC AND CLANG_CL)
+        # Pre-build specbleach.lib with clang-cl (supports VLAs and MSVC ABI)
+        set(SPECBLEACH_BUILD_DIR "${CMAKE_BINARY_DIR}/specbleach")
+        file(MAKE_DIRECTORY ${SPECBLEACH_BUILD_DIR})
+        set(SPECBLEACH_STATIC_LIB "${SPECBLEACH_BUILD_DIR}/specbleach.lib")
+        add_custom_command(
+            OUTPUT ${SPECBLEACH_STATIC_LIB}
+            COMMAND ${CLANG_CL} -w --target=x86_64-pc-windows-msvc
+                -I${CMAKE_SOURCE_DIR}/third_party/libspecbleach/include
+                -I${CMAKE_SOURCE_DIR}/third_party/libspecbleach/src
+                -I${CMAKE_SOURCE_DIR}/third_party/fftw3/include
+                -c ${SPECBLEACH_SOURCES}
+            COMMAND lib /nologo /out:specbleach.lib *.obj
+            WORKING_DIRECTORY ${SPECBLEACH_BUILD_DIR}
+            DEPENDS ${SPECBLEACH_SOURCES}
+            COMMENT "Building libspecbleach with clang-cl"
+        )
+        add_custom_target(specbleach_build DEPENDS ${SPECBLEACH_STATIC_LIB})
+        set(SPECBLEACH_SOURCES "")
+        message(STATUS "NR4 (libspecbleach) enabled — building with clang-cl")
+    else()
+        message(STATUS "NR4 (libspecbleach) enabled — ${CMAKE_SOURCE_DIR}/third_party/libspecbleach")
+    endif()
 else()
     set(SPECBLEACH_SOURCES "")
-    message(STATUS "NR4 (libspecbleach) disabled")
+    if(MSVC AND NOT CLANG_CL)
+        message(STATUS "NR4 (libspecbleach) disabled — install LLVM for clang-cl VLA support")
+    else()
+        message(STATUS "NR4 (libspecbleach) disabled")
+    endif()
 endif()
 
 # Sources
@@ -618,27 +649,40 @@ if(ENABLE_SPECBLEACH)
     target_include_directories(AetherSDR PRIVATE
         ${CMAKE_SOURCE_DIR}/third_party/libspecbleach/include
         ${CMAKE_SOURCE_DIR}/third_party/libspecbleach/src)
-    # libspecbleach C sources include <fftw3.h> directly — ensure it's findable
-    if(FFTW3_INCLUDE_DIRS)
-        target_include_directories(AetherSDR PRIVATE ${FFTW3_INCLUDE_DIRS})
-    else()
-        # pkg-config may omit -I for system paths; locate fftw3.h explicitly
-        find_path(FFTW3_H_DIR fftw3.h)
-        if(FFTW3_H_DIR)
-            target_include_directories(AetherSDR PRIVATE ${FFTW3_H_DIR})
+    if(MSVC AND SPECBLEACH_STATIC_LIB)
+        # Link pre-built clang-cl static lib
+        add_dependencies(AetherSDR specbleach_build)
+        target_link_libraries(AetherSDR PRIVATE ${SPECBLEACH_STATIC_LIB})
+        # fftw3f (float precision) for Windows
+        set(FFTW3F_LIB "${CMAKE_SOURCE_DIR}/third_party/fftw3/lib/fftw3f.lib")
+        if(EXISTS ${FFTW3F_LIB})
+            target_link_libraries(AetherSDR PRIVATE ${FFTW3F_LIB})
+            set(FFTW3F_DLL "${CMAKE_SOURCE_DIR}/third_party/fftw3/bin/libfftw3f-3.dll")
+            add_custom_command(TARGET AetherSDR POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${FFTW3F_DLL}" "$<TARGET_FILE_DIR:AetherSDR>"
+                COMMENT "Copying libfftw3f-3.dll to build directory")
+        else()
+            message(WARNING "fftw3f.lib not found — run setup-fftw.ps1 and gen-fftw3f-lib.bat")
         endif()
-    endif()
-    # libspecbleach uses fftwf (float precision FFTW3)
-    find_library(FFTW3F_LIB fftw3f HINTS /opt/homebrew/lib /usr/local/lib)
-    if(FFTW3F_LIB)
-        target_link_libraries(AetherSDR PRIVATE ${FFTW3F_LIB})
     else()
-        message(WARNING "fftw3f not found — NR4 will fail to link")
-    endif()
-    # Suppress warnings from third-party C code
-    if(MSVC)
-        set_source_files_properties(${SPECBLEACH_SOURCES} PROPERTIES COMPILE_FLAGS "/w")
-    else()
+        # libspecbleach C sources include <fftw3.h> directly — ensure it's findable
+        if(FFTW3_INCLUDE_DIRS)
+            target_include_directories(AetherSDR PRIVATE ${FFTW3_INCLUDE_DIRS})
+        else()
+            find_path(FFTW3_H_DIR fftw3.h)
+            if(FFTW3_H_DIR)
+                target_include_directories(AetherSDR PRIVATE ${FFTW3_H_DIR})
+            endif()
+        endif()
+        # libspecbleach uses fftwf (float precision FFTW3)
+        find_library(FFTW3F_LIB fftw3f HINTS /opt/homebrew/lib /usr/local/lib)
+        if(FFTW3F_LIB)
+            target_link_libraries(AetherSDR PRIVATE ${FFTW3F_LIB})
+        else()
+            message(WARNING "fftw3f not found — NR4 will fail to link")
+        endif()
+        # Suppress warnings from third-party C code
         set_source_files_properties(${SPECBLEACH_SOURCES} PROPERTIES COMPILE_FLAGS "-w")
     endif()
 endif()

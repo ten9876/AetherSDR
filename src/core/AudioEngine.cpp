@@ -53,14 +53,25 @@ AudioEngine::AudioEngine(QObject* parent)
     });
     m_opusTxPaceTimer->start();
 
-    // RX pacing timer -- similar to Opus logic but allows us to queue up
-    // enough buffer to prevent underruns. Also, this seems to be how QAudioSink
-    // in push mode needs to be implemented.
+    // RX pacing timer -- drains m_rxBuffer into QAudioSink at regular intervals.
+    // Includes latency management: caps buffer at ~200ms to prevent unbounded
+    // growth when network packets arrive in bursts (common on Windows WASAPI
+    // with virtual audio routers like Voicemeeter).
     m_rxTimer = new QTimer(this);
     m_rxTimer->setTimerType(Qt::PreciseTimer);
     m_rxTimer->setInterval(10);
     connect(m_rxTimer, &QTimer::timeout, this, [this]() {
         if (!m_audioSink || !m_audioDevice || !m_audioDevice->isOpen() || m_audioSink->state() == QAudio::StoppedState) return;
+
+        // Cap buffer at ~200ms of audio to bound latency.
+        // At 24kHz stereo int16 = 96000 bytes/sec → 200ms = 19200 bytes.
+        // At 48kHz stereo int16 = 192000 bytes/sec → 200ms = 38400 bytes.
+        const int sampleRate = m_resampleTo48k ? 48000 : DEFAULT_SAMPLE_RATE;
+        const qsizetype maxBufBytes = sampleRate * 2 * 2 / 5; // 200ms worth
+        if (m_rxBuffer.size() > maxBufBytes) {
+            // Drop oldest samples to keep latency bounded
+            m_rxBuffer.remove(0, m_rxBuffer.size() - maxBufBytes);
+        }
 
         qsizetype len = m_audioSink->bytesFree();
         len = std::min(len, m_rxBuffer.size());
@@ -98,6 +109,35 @@ bool AudioEngine::startRxStream()
     const QAudioDevice dev = m_outputDevice.isNull()
         ? QMediaDevices::defaultAudioOutput() : m_outputDevice;
 
+    // Windows WASAPI shared mode handles sample rate conversion transparently,
+    // but Qt's isFormatSupported() often returns false for valid formats (e.g.
+    // Voicemeeter, FlexRadio DAX). Try opening the sink directly at each rate
+    // and fall back only if start() actually fails.
+#ifdef Q_OS_WIN
+    m_resampleTo48k = false;
+    m_audioSink = new QAudioSink(dev, fmt, this);
+    m_audioSink->setVolume(m_rxVolume.load());
+    m_audioDevice = m_audioSink->start();
+    if (!m_audioDevice) {
+        qCWarning(lcAudio) << "AudioEngine: 24kHz sink failed to open, trying 48kHz";
+        delete m_audioSink;
+        fmt.setSampleRate(48000);
+        m_resampleTo48k = true;
+        m_audioSink = new QAudioSink(dev, fmt, this);
+        m_audioSink->setVolume(m_rxVolume.load());
+        m_audioDevice = m_audioSink->start();
+        if (!m_audioDevice) {
+            qCWarning(lcAudio) << "AudioEngine: 48kHz sink also failed";
+            delete m_audioSink;
+            m_audioSink = nullptr;
+            return false;
+        }
+    }
+    qCWarning(lcAudio) << "AudioEngine: RX stream started at" << fmt.sampleRate() << "Hz"
+                       << "device:" << dev.description();
+    emit rxStarted();
+    return true;
+#else
     if (!dev.isFormatSupported(fmt)) {
         qCWarning(lcAudio) << "AudioEngine: output device does not support 24kHz stereo Int16, trying 48kHz";
         fmt.setSampleRate(48000);
@@ -110,6 +150,7 @@ bool AudioEngine::startRxStream()
     } else {
         m_resampleTo48k = false;
     }
+#endif
 
     m_audioSink   = new QAudioSink(dev, fmt, this);
     m_audioSink->setVolume(m_rxVolume.load());
@@ -259,9 +300,6 @@ void AudioEngine::setNr2Enabled(bool on)
         m_nr2->setGainMax(s.value("NR2GainMax", "1.50").toFloat());
         m_nr2->setGainSmooth(s.value("NR2GainSmooth", "0.85").toFloat());
         m_nr2->setQspp(s.value("NR2Qspp", "0.20").toFloat());
-        m_nr2->setGainMethod(s.value("NR2GainMethod", "2").toInt());
-        m_nr2->setNpeMethod(s.value("NR2NpeMethod", "0").toInt());
-        m_nr2->setAeFilter(s.value("NR2AeFilter", "True").toString() == "True");
         m_nr2Enabled = true;
     } else {
         m_nr2Enabled = false;
@@ -274,9 +312,6 @@ void AudioEngine::setNr2Enabled(bool on)
 void AudioEngine::setNr2GainMax(float v)    { if (m_nr2) m_nr2->setGainMax(v); }
 void AudioEngine::setNr2Qspp(float v)      { if (m_nr2) m_nr2->setQspp(v); }
 void AudioEngine::setNr2GainSmooth(float v) { if (m_nr2) m_nr2->setGainSmooth(v); }
-void AudioEngine::setNr2GainMethod(int m)   { if (m_nr2) m_nr2->setGainMethod(m); }
-void AudioEngine::setNr2NpeMethod(int m)    { if (m_nr2) m_nr2->setNpeMethod(m); }
-void AudioEngine::setNr2AeFilter(bool on)   { if (m_nr2) m_nr2->setAeFilter(on); }
 
 #ifdef HAVE_SPECBLEACH
 
@@ -629,6 +664,15 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
 #else
     constexpr int rates[] = {24000, 48000, 44100};
 #endif
+#ifdef Q_OS_WIN
+    // Windows WASAPI shared mode handles rate conversion transparently,
+    // but Qt's isFormatSupported() returns false for many valid devices
+    // (Voicemeeter, FlexRadio DAX, etc.). Default to 48kHz stereo and
+    // let WASAPI handle it — only fall back if open actually fails later.
+    fmt.setSampleRate(48000);
+    fmt.setChannelCount(2);
+    formatFound = true;
+#else
     for (int channels : {2, 1}) {
         for (int rate : rates) {
             fmt.setChannelCount(channels);
@@ -640,6 +684,7 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
         }
         if (formatFound) break;
     }
+#endif
 
     if (!formatFound) {
         qCWarning(lcAudio) << "AudioEngine: input device supports no usable format"
@@ -689,15 +734,52 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
     m_audioSource = new QAudioSource(dev, fmt, this);
     m_micDevice = m_audioSource->start();
     if (!m_micDevice) {
-        qCWarning(lcAudio) << "AudioEngine: failed to open audio source";
+        qCWarning(lcAudio) << "AudioEngine: failed to open audio source at"
+                           << fmt.sampleRate() << "Hz" << fmt.channelCount() << "ch"
+                           << "error:" << m_audioSource->error()
+                           << "device:" << dev.description();
+#ifdef Q_OS_WIN
+        // Windows: WASAPI may reject our negotiated format at open time.
+        // Try additional rates before giving up.
+        delete m_audioSource; m_audioSource = nullptr;
+        constexpr int fallbackRates[] = {48000, 44100, 24000, 16000};
+        for (int rate : fallbackRates) {
+            if (rate == fmt.sampleRate()) continue;
+            for (int ch : {2, 1}) {
+                fmt.setSampleRate(rate);
+                fmt.setChannelCount(ch);
+                m_audioSource = new QAudioSource(dev, fmt, this);
+                m_micDevice = m_audioSource->start();
+                if (m_micDevice) {
+                    qCInfo(lcAudio) << "AudioEngine: TX source opened at fallback"
+                                    << rate << "Hz" << ch << "ch";
+                    m_txInputRate = rate;
+                    m_txInputMono = (ch == 1);
+                    m_txNeedsResample = (rate != 24000);
+                    if (m_txNeedsResample)
+                        m_txResampler = std::make_unique<Resampler>(rate, 24000, 16384);
+                    else
+                        m_txResampler.reset();
+                    goto tx_source_ok;
+                }
+                delete m_audioSource; m_audioSource = nullptr;
+            }
+        }
+        qCWarning(lcAudio) << "AudioEngine: all TX source formats failed";
+        return false;
+        tx_source_ok:;
+#else
         delete m_audioSource; m_audioSource = nullptr;
         return false;
+#endif
     }
     connect(m_micDevice, &QIODevice::readyRead, this, &AudioEngine::onTxAudioReady);
 #endif
 
-    qCDebug(lcAudio) << "AudioEngine: TX stream started ->" << radioAddress.toString()
-             << ":" << radioPort << "streamId:" << Qt::hex << m_txStreamId;
+    qCWarning(lcAudio) << "AudioEngine: TX stream started ->" << radioAddress.toString()
+             << ":" << radioPort << "streamId:" << Qt::hex << m_txStreamId
+             << "device:" << dev.description() << "rate:" << fmt.sampleRate()
+             << "ch:" << fmt.channelCount();
     return true;
 }
 

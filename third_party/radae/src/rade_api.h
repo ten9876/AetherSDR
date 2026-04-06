@@ -44,17 +44,21 @@
 #endif
 
 #if IS_BUILDING_RADE_API
-#if _WIN32
+#if defined(_WIN32) && defined(RADE_BUILD_DLL)
 #define RADE_EXPORT __declspec(dllexport) __stdcall
+#elif defined(_WIN32)
+#define RADE_EXPORT  /* static lib — no dllexport/stdcall */
 #else
 #define RADE_EXPORT __attribute__((visibility("default")))
-#endif // _WIN32
+#endif
 #else
-#if _WIN32
+#if defined(_WIN32) && defined(RADE_BUILD_DLL)
 #define RADE_EXPORT __declspec(dllimport) __stdcall
+#elif defined(_WIN32)
+#define RADE_EXPORT
 #else
-#define RADE_EXPORT 
-#endif // _WIN32
+#define RADE_EXPORT
+#endif
 #endif // IS_BUILDING_RADE_API
 
 // This declares a single-precision (float) complex number
