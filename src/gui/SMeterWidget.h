@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QTimer>
+#include <QElapsedTimer>
 
 namespace AetherSDR {
 
@@ -30,6 +31,7 @@ public:
 
     enum class TxMode { Power, SWR, Level, Compression };
     enum class RxMode { SMeter, SMeterPeak };
+    enum class DecayRate { Fast, Medium, Slow };
 
 public slots:
     // Update the displayed RX level (S-meter dBm).
@@ -50,6 +52,13 @@ public slots:
 
     // Set TX power gauge scale: barefoot (120W), Aurora (600W), amplifier (2000W).
     void setPowerScale(int maxWatts, bool hasAmplifier);
+
+    // Peak hold configuration.
+    void setPeakHoldEnabled(bool enabled);
+    void setPeakHoldTimeMs(int ms);
+    void setPeakDecayRate(DecayRate rate);
+    void setPeakDecayRate(const QString& rate);
+    void resetPeak();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -82,6 +91,14 @@ private:
 
     QTimer  m_peakDecay;
     QTimer  m_peakReset;    // hard reset peak hold every 10 seconds
+
+    // Peak hold line state
+    bool           m_peakHoldEnabled{false};
+    float          m_peakHoldDbm{-127.0f};
+    int            m_peakHoldTimeMs{1000};
+    float          m_peakDecayDbPerSec{10.0f};  // Medium default
+    QElapsedTimer  m_peakHoldTimer;
+    bool           m_peakHoldTimerRunning{false};
 
     // S-unit reference: S0 = -127 dBm, each S-unit = 6 dB
     static constexpr float S0_DBM  = -127.0f;

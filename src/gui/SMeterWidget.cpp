@@ -8,7 +8,7 @@
 
 namespace AetherSDR {
 
-// ─── Construction ────────────────────────────────────────────────────────────
+// --- Construction ------------------------------------------------------------
 
 SMeterWidget::SMeterWidget(QWidget* parent)
     : QWidget(parent)
@@ -36,17 +36,33 @@ SMeterWidget::SMeterWidget(QWidget* parent)
     });
 }
 
-// ─── Public interface ────────────────────────────────────────────────────────
+// --- Public interface --------------------------------------------------------
 
 void SMeterWidget::setLevel(float dbm)
 {
     // Exponential smoothing for needle movement
     m_levelDbm = m_levelDbm + SMOOTH_ALPHA * (dbm - m_levelDbm);
 
-    // Peak hold
+    // Peak hold (existing needle/triangle behavior)
     if (dbm > m_peakDbm) {
         m_peakDbm = dbm;
         m_peakDecay.start();
+    }
+
+    // Configurable peak hold line
+    if (m_peakHoldEnabled) {
+        if (dbm > m_peakHoldDbm) {
+            m_peakHoldDbm = dbm;
+            m_peakHoldTimer.start();
+            m_peakHoldTimerRunning = true;
+        } else if (m_peakHoldTimerRunning
+                   && m_peakHoldTimer.elapsed() > m_peakHoldTimeMs) {
+            // Decay phase: meter refresh is ~50ms (from m_peakDecay interval)
+            const float dt = 0.05f;
+            m_peakHoldDbm -= m_peakDecayDbPerSec * dt;
+            if (m_peakHoldDbm < m_levelDbm)
+                m_peakHoldDbm = m_levelDbm;
+        }
     }
 
     if (!m_transmitting)
@@ -113,7 +129,7 @@ QString SMeterWidget::sUnitsText() const
     return QString("S9+%1").arg(over);
 }
 
-// ─── Mapping ─────────────────────────────────────────────────────────────────
+// --- Mapping -----------------------------------------------------------------
 
 float SMeterWidget::dbmToFraction(float dbm) const
 {
@@ -122,10 +138,10 @@ float SMeterWidget::dbmToFraction(float dbm) const
     const float clamped = qBound(S0_DBM, dbm, MAX_DBM);
 
     if (clamped <= S9_DBM) {
-        // Linear within S0..S9 → 0.0..0.6
+        // Linear within S0..S9 -> 0.0..0.6
         return 0.6f * (clamped - S0_DBM) / (S9_DBM - S0_DBM);
     }
-    // Linear within S9..S9+60 → 0.6..1.0
+    // Linear within S9..S9+60 -> 0.6..1.0
     return 0.6f + 0.4f * (clamped - S9_DBM) / (MAX_DBM - S9_DBM);
 }
 
@@ -135,7 +151,7 @@ float SMeterWidget::txValueToFraction(float value) const
     case TxMode::Power:
         return qBound(0.0f, value / m_powerScaleMax, 1.0f);
     case TxMode::SWR:
-        // 1.0–3.0
+        // 1.0-3.0
         return qBound(0.0f, (value - 1.0f) / 2.0f, 1.0f);
     case TxMode::Level:
         // -40 to +5
@@ -158,7 +174,7 @@ float SMeterWidget::currentTxValue() const
     return 0.0f;
 }
 
-// ─── Paint ───────────────────────────────────────────────────────────────────
+// --- Paint -------------------------------------------------------------------
 
 void SMeterWidget::paintEvent(QPaintEvent*)
 {
@@ -171,8 +187,8 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     // Background
     p.fillRect(rect(), QColor(0x0f, 0x0f, 0x1a));
 
-    // ── Arc geometry ─────────────────────────────────────────────────────
-    // Large radius with center far below widget → shallow ~70° arc segment
+    // -- Arc geometry ---------------------------------------------------------
+    // Large radius with center far below widget -> shallow ~70 deg arc segment
     const float cx = w * 0.5f;
     const float radius = w * 0.85f;
     const float cy = h + radius - h * 0.65f;  // arc center well below widget
@@ -183,12 +199,12 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     const float arcEndRad   = qDegreesToRadians(ARC_END_DEG);
     const float arcSpanRad  = arcEndRad - arcStartRad;
 
-    // fraction 0.0 → left end (ARC_END_DEG), fraction 1.0 → right end (ARC_START_DEG)
+    // fraction 0.0 -> left end (ARC_END_DEG), fraction 1.0 -> right end (ARC_START_DEG)
     auto fractionToAngle = [&](float frac) -> float {
         return arcEndRad - frac * arcSpanRad;  // radians
     };
 
-    // ── Draw colored outer arc (RX scale) ───────────────────────────────
+    // -- Draw colored outer arc (RX scale) ------------------------------------
     // White from S0 to S9, red from S9+
     {
         const QRectF outerArc(cx - radius, cy - radius, radius * 2, radius * 2);
@@ -207,7 +223,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
                   static_cast<int>((s9Deg - ARC_START_DEG) * 16));
     }
 
-    // ── Draw colored inner arc (TX scale) — 6px gap ──────────────────────
+    // -- Draw colored inner arc (TX scale) -- 6px gap -------------------------
     const float arcGap = 6.0f;
     const QColor blueColor(0x00, 0x80, 0xd0);
     const QColor redColor(0xff, 0x44, 0x44);
@@ -243,7 +259,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
         }
     }
 
-    // ── Tick drawing helpers ──────────────────────────────────────────────
+    // -- Tick drawing helpers -------------------------------------------------
     QFont tickFont = font();
     tickFont.setPixelSize(qMax(10, h / 10));
     tickFont.setBold(true);
@@ -311,7 +327,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
 
     const QColor whiteColor(0xc8, 0xd8, 0xe8);
 
-    // ── Outside ticks (RX): S-meter scale — odd S-units only ──────────
+    // -- Outside ticks (RX): S-meter scale -- odd S-units only ----------------
     for (int s = 1; s <= 9; s += 2) {
         const float dbm = S0_DBM + s * DB_PER_S;
         drawOutsideTick(dbmToFraction(dbm), QString::number(s), whiteColor, true);
@@ -321,7 +337,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
         drawOutsideTick(dbmToFraction(dbm), QString("+%1").arg(over), redColor, true);
     }
 
-    // ── Inside ticks (TX): scale depends on TX mode ──────────────────────
+    // -- Inside ticks (TX): scale depends on TX mode --------------------------
     switch (m_txMode) {
     case TxMode::Power: {
         // Dynamic scale based on m_powerScaleMax
@@ -347,7 +363,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
         break;
     }
     case TxMode::SWR: {
-        // 1.0–3.0, ticks at 1, 1.5, 2, 2.5, 3.  Red starting at 2.5.
+        // 1.0-3.0, ticks at 1, 1.5, 2, 2.5, 3.  Red starting at 2.5.
         for (float s : {1.0f, 1.5f, 2.0f, 2.5f, 3.0f}) {
             const float frac = (s - 1.0f) / 2.0f;
             const bool red = (s >= 2.5f);
@@ -381,7 +397,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     }
     }
 
-    // ── Draw needle ──────────────────────────────────────────────────────
+    // -- Draw needle ----------------------------------------------------------
     // Needle originates from needleCy (just below widget) rather than the
     // arc center, so the pivot is barely out of frame.
     // When transmitting, needle tracks the selected TX meter instead of RX.
@@ -409,7 +425,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
         p.drawLine(QPointF(cx, needleCy), QPointF(tipX, tipY));
     }
 
-    // ── Draw peak marker (small triangle) — only in RX S-Meter Peak mode ─
+    // -- Draw peak marker (small triangle) -- only in RX S-Meter Peak mode ----
     if (!m_transmitting && m_rxMode == RxMode::SMeterPeak
         && m_peakDbm > m_levelDbm + 1.0f) {
         const float frac = dbmToFraction(m_peakDbm);
@@ -436,7 +452,24 @@ void SMeterWidget::paintEvent(QPaintEvent*)
         p.drawPath(tri);
     }
 
-    // ── Text readout — all top-aligned on the same baseline ─────────────
+    // -- Draw peak hold line (configurable overlay, independent of RX mode) ---
+    if (m_peakHoldEnabled && !m_transmitting
+        && m_peakHoldDbm > S0_DBM + 1.0f) {
+        const float frac = dbmToFraction(m_peakHoldDbm);
+        const float angle = fractionToAngle(frac);
+
+        const float cosA = std::cos(angle);
+        const float sinA = std::sin(angle);
+        const QPointF inner(cx + (radius - 4) * cosA,
+                            cy - (radius - 4) * sinA);
+        const QPointF outer(cx + (radius + 10) * cosA,
+                            cy - (radius + 10) * sinA);
+
+        p.setPen(QPen(QColor(0xff, 0x44, 0x44, 0xcc), 2));
+        p.drawLine(inner, outer);
+    }
+
+    // -- Text readout -- all top-aligned on the same baseline -----------------
     QFont srcFont = font();
     srcFont.setPixelSize(qMax(9, h / 14));
     const QFontMetrics sfm(srcFont);
@@ -508,6 +541,44 @@ void SMeterWidget::setPowerScale(int maxWatts, bool hasAmplifier)
         m_powerScaleMax = 120.0f;
         m_powerRedStart = 100.0f;
     }
+    update();
+}
+
+// --- Peak hold configuration -------------------------------------------------
+
+void SMeterWidget::setPeakHoldEnabled(bool enabled)
+{
+    m_peakHoldEnabled = enabled;
+    if (!enabled)
+        m_peakHoldDbm = m_levelDbm;
+    update();
+}
+
+void SMeterWidget::setPeakHoldTimeMs(int ms)
+{
+    m_peakHoldTimeMs = qBound(100, ms, 2000);
+}
+
+void SMeterWidget::setPeakDecayRate(DecayRate rate)
+{
+    switch (rate) {
+    case DecayRate::Fast:   m_peakDecayDbPerSec = 20.0f; break;
+    case DecayRate::Medium: m_peakDecayDbPerSec = 10.0f; break;
+    case DecayRate::Slow:   m_peakDecayDbPerSec = 5.0f;  break;
+    }
+}
+
+void SMeterWidget::setPeakDecayRate(const QString& rate)
+{
+    if (rate == "Fast")        setPeakDecayRate(DecayRate::Fast);
+    else if (rate == "Slow")   setPeakDecayRate(DecayRate::Slow);
+    else                       setPeakDecayRate(DecayRate::Medium);
+}
+
+void SMeterWidget::resetPeak()
+{
+    m_peakHoldDbm = m_levelDbm;
+    m_peakHoldTimerRunning = false;
     update();
 }
 
