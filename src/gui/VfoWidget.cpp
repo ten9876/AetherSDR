@@ -1275,7 +1275,13 @@ void VfoWidget::buildTabContent()
             btn->setStyleSheet(kModeBtn);
             m_quickModeBtns[i] = btn;
 
-            connect(btn, &QPushButton::clicked, this, [this, i] {
+            connect(btn, &QPushButton::clicked, this, [this, i](bool checked) {
+                if (!checked) {
+                    // Don't let the user uncheck the active mode — re-check and bail
+                    QSignalBlocker b(m_quickModeBtns[i]);
+                    m_quickModeBtns[i]->setChecked(true);
+                    return;
+                }
                 if (!m_slice) return;
                 const QString& assign = m_quickModeAssign[i];
 #ifdef HAVE_RADE
@@ -2454,6 +2460,7 @@ void VfoWidget::updateQuickModeButtons()
         }
 
         m_quickModeBtns[i]->setText(label);
+        QSignalBlocker sb(m_quickModeBtns[i]);
         m_quickModeBtns[i]->setChecked(active);
     }
 }
