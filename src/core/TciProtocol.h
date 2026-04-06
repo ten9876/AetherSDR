@@ -54,6 +54,9 @@ private:
     QString cmdRxNrEnable(const QStringList& args, bool isSet);
     QString cmdRxAnfEnable(const QStringList& args, bool isSet);
     QString cmdRxApfEnable(const QStringList& args, bool isSet);
+    // AetherSDR extensions (DVK record/play)
+    QString cmdRxRecord(const QStringList& args, bool isSet);
+    QString cmdRxPlay(const QStringList& args, bool isSet);
     QString cmdSpot(const QStringList& args);
     QString cmdSpotDelete(const QStringList& args);
     QString cmdSpotClear();

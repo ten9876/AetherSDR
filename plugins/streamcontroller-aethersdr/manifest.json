@@ -1,0 +1,14 @@
+{
+    "version": "1.0.0",
+    "id": "com_aethersdr_radio",
+    "name": "AetherSDR",
+    "descriptions": {
+        "en_US": "Control AetherSDR via TCI — PTT, Record, Play for FlexRadio."
+    },
+    "short-descriptions": {
+        "en_US": "AetherSDR radio control"
+    },
+    "tags": ["Ham Radio", "SDR"],
+    "minimum-app-version": "1.0.0",
+    "app-version": "1.4.11-beta"
+}

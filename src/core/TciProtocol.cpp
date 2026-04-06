@@ -242,6 +242,10 @@ QString TciProtocol::handleCommand(const QString& cmd)
     if (name == "rx_anf_enable")    return cmdRxAnfEnable(args, isSet);
     if (name == "rx_apf_enable")    return cmdRxApfEnable(args, isSet);
 
+    // AetherSDR extensions (not in TCI v2.0 spec)
+    if (name == "rx_record")        return cmdRxRecord(args, isSet);
+    if (name == "rx_play")          return cmdRxPlay(args, isSet);
+
     // Unknown command — ignore silently per TCI spec
     return {};
 }
@@ -879,6 +883,52 @@ QString TciProtocol::cmdRxApfEnable(const QStringList& args, bool isSet)
                               Qt::QueuedConnection);
 
     m_pendingNotification = QStringLiteral("rx_apf_enable:%1,%2;")
+                                .arg(trx).arg(on ? "true" : "false");
+    return {};
+}
+
+// ── AetherSDR extensions (DVK record/play) ─────────────────────────────────
+
+QString TciProtocol::cmdRxRecord(const QStringList& args, bool isSet)
+{
+    if (args.isEmpty()) return {};
+    int trx = args[0].toInt();
+    auto* s = sliceForTrx(trx);
+    if (!s) return {};
+
+    if (!isSet) {
+        return QStringLiteral("rx_record:%1,%2;")
+                   .arg(trx).arg(s->recordOn() ? "true" : "false");
+    }
+
+    if (args.size() < 2) return {};
+    bool on = (args[1].toLower() == "true");
+    QMetaObject::invokeMethod(s, [s, on]() { s->setRecordOn(on); },
+                              Qt::QueuedConnection);
+
+    m_pendingNotification = QStringLiteral("rx_record:%1,%2;")
+                                .arg(trx).arg(on ? "true" : "false");
+    return {};
+}
+
+QString TciProtocol::cmdRxPlay(const QStringList& args, bool isSet)
+{
+    if (args.isEmpty()) return {};
+    int trx = args[0].toInt();
+    auto* s = sliceForTrx(trx);
+    if (!s) return {};
+
+    if (!isSet) {
+        return QStringLiteral("rx_play:%1,%2;")
+                   .arg(trx).arg(s->playOn() ? "true" : "false");
+    }
+
+    if (args.size() < 2) return {};
+    bool on = (args[1].toLower() == "true");
+    QMetaObject::invokeMethod(s, [s, on]() { s->setPlayOn(on); },
+                              Qt::QueuedConnection);
+
+    m_pendingNotification = QStringLiteral("rx_play:%1,%2;")
                                 .arg(trx).arg(on ? "true" : "false");
     return {};
 }
