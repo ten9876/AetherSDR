@@ -30,3 +30,47 @@ jobs:
 
       - name: Build
         run: cmake --build build -j$(nproc)
+
+  # Detect if build system or third-party deps changed
+  check-paths:
+    runs-on: ubuntu-latest
+    outputs:
+      build-changed: ${{ steps.filter.outputs.build }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            build:
+              - 'CMakeLists.txt'
+              - 'third_party/**'
+              - '.github/workflows/**'
+
+  # Cross-platform build check — runs only when CMakeLists.txt, third_party/,
+  # or workflows are modified, to catch MSVC issues before release. (#796 lesson)
+  check-windows:
+    needs: [build, check-paths]
+    if: needs.check-paths.outputs.build-changed == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          modules: 'qtmultimedia qtwebsockets qtserialport qtshadertools'
+
+      - name: Install FFTW3
+        shell: pwsh
+        run: |
+          if (Test-Path scripts/setup-fftw.ps1) { ./scripts/setup-fftw.ps1 }
+          elseif (Test-Path setup-fftw.ps1) { ./setup-fftw.ps1 }
+          else { Write-Host "No FFTW setup script — skipping" }
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
