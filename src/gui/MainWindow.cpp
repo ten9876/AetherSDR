@@ -5871,11 +5871,21 @@ void MainWindow::registerShortcutActions()
             if (!m_radioModel.isConnected()) return;
             m_radioModel.setTransmit(!m_radioModel.transmitModel().isTransmitting());
         });
-    // PTT (Hold) via Space is handled by the app-level event filter
-    // because QShortcut has no "released" signal. Register with null
-    // handler so the keyboard map shows it as bound.
-    m_shortcutManager.registerAction("ptt_hold", "PTT (Hold)", "TX",
-        QKeySequence(Qt::Key_Space), nullptr);
+    // PTT (Hold) via Space — in-app handling uses the event filter (line ~2255)
+    // for press/release tracking. When global hotkey is enabled, the
+    // GlobalHotkey class handles press/release from outside the app.
+    m_shortcutManager.registerHoldAction("ptt_hold", "PTT (Hold)", "TX",
+        QKeySequence(Qt::Key_Space),
+        [this]() {
+            if (!m_radioModel.isConnected() || m_spacePttActive) return;
+            m_spacePttActive = true;
+            m_radioModel.setTransmit(true);
+        },
+        [this]() {
+            if (!m_spacePttActive) return;
+            m_spacePttActive = false;
+            m_radioModel.setTransmit(false);
+        });
     m_shortcutManager.registerAction("tune_toggle", "TUNE Toggle", "TX",
         QKeySequence(), [this]() {
             if (!m_radioModel.isConnected()) return;

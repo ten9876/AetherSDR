@@ -2,7 +2,10 @@
 #include "KeyboardMapWidget.h"
 #include "core/ShortcutManager.h"
 
+#include "core/GlobalHotkey.h"
+
 #include <QBoxLayout>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QHeaderView>
 #include <QKeyEvent>
@@ -134,12 +137,13 @@ void ShortcutDialog::buildUI()
     root->addLayout(filterRow);
 
     m_table = new QTableWidget;
-    m_table->setColumnCount(4);
-    m_table->setHorizontalHeaderLabels({"Action", "Category", "Current Key", "Default Key"});
+    m_table->setColumnCount(5);
+    m_table->setHorizontalHeaderLabels({"Action", "Category", "Current Key", "Default Key", "Global"});
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->verticalHeader()->setVisible(false);
@@ -191,6 +195,20 @@ void ShortcutDialog::populateTable(const QString& filter, const QString& categor
         m_table->setItem(row, 1, new QTableWidgetItem(a.category));
         m_table->setItem(row, 2, new QTableWidgetItem(a.currentKey.toString()));
         m_table->setItem(row, 3, new QTableWidgetItem(a.defaultKey.toString()));
+
+        // Global hotkey checkbox — only enabled when platform supports it
+        auto* globalCb = new QCheckBox;
+        globalCb->setChecked(a.globalEnabled);
+        globalCb->setEnabled(GlobalHotkey::isSupported());
+        globalCb->setToolTip(GlobalHotkey::isSupported()
+            ? "Enable this shortcut system-wide (works even when AetherSDR is not focused)"
+            : "Global hotkeys not available on this platform (Wayland)");
+        globalCb->setStyleSheet("QCheckBox { margin-left: 12px; }");
+        QString actionId = a.id;
+        connect(globalCb, &QCheckBox::toggled, this, [this, actionId](bool on) {
+            m_mgr->setGlobalEnabled(actionId, on);
+        });
+        m_table->setCellWidget(row, 4, globalCb);
     }
 }
 

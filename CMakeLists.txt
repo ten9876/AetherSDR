@@ -312,6 +312,7 @@ set(CORE_SOURCES
     src/core/RADEEngine.cpp
     src/core/LogManager.cpp
     src/core/ShortcutManager.cpp
+    src/core/GlobalHotkey.cpp
     src/core/SupportBundle.cpp
     src/core/SerialPortController.cpp
     src/core/FlexControlManager.cpp
@@ -495,7 +496,7 @@ if(APPLE)
         MACOSX_BUNDLE_ICON_FILE "AetherSDR.icns"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/packaging/macos/Info.plist.in"
     )
-    target_link_libraries(AetherSDR PRIVATE "-framework AVFoundation")
+    target_link_libraries(AetherSDR PRIVATE "-framework AVFoundation" "-framework Carbon")
     set(MACOSX_ICON "${CMAKE_SOURCE_DIR}/docs/AetherSDR.icns")
     if(EXISTS "${MACOSX_ICON}")
         target_sources(AetherSDR PRIVATE "${MACOSX_ICON}")
@@ -560,6 +561,15 @@ elseif(WIN32)
 else()
     target_compile_definitions(AetherSDR PRIVATE __LINUX_ALSA__)
     target_link_libraries(AetherSDR PRIVATE asound)
+endif()
+
+# Global hotkeys — X11 libraries for Linux (#779)
+if(UNIX AND NOT APPLE)
+    find_package(X11 QUIET)
+    if(X11_FOUND)
+        target_include_directories(AetherSDR PRIVATE ${X11_INCLUDE_DIR})
+        target_link_libraries(AetherSDR PRIVATE ${X11_LIBRARIES} xcb)
+    endif()
 endif()
 
 # hidapi — USB HID encoder support (Icom RC-28, Griffin PowerMate, Contour Shuttle)

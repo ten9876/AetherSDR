@@ -1,4 +1,5 @@
 #include "ShortcutManager.h"
+#include "GlobalHotkey.h"
 #include "AppSettings.h"
 #include <QHash>
 #include <QWidget>
@@ -8,6 +9,7 @@ namespace AetherSDR {
 
 ShortcutManager::ShortcutManager(QObject* parent)
     : QObject(parent)
+    , m_globalHotkey(new GlobalHotkey(this))
 {
 }
 
@@ -22,7 +24,40 @@ void ShortcutManager::registerAction(const QString& id, const QString& displayNa
             return;
         }
     }
-    m_actions.append({id, displayName, category, defaultKey, defaultKey, std::move(handler)});
+    m_actions.append({id, displayName, category, defaultKey, defaultKey, std::move(handler),
+                      false, false, nullptr});
+}
+
+void ShortcutManager::registerHoldAction(const QString& id, const QString& displayName,
+                                         const QString& category, const QKeySequence& defaultKey,
+                                         std::function<void()> pressHandler,
+                                         std::function<void()> releaseHandler)
+{
+    for (const auto& a : m_actions) {
+        if (a.id == id) {
+            qWarning() << "ShortcutManager: duplicate action registration:" << id;
+            return;
+        }
+    }
+    m_actions.append({id, displayName, category, defaultKey, defaultKey,
+                      std::move(pressHandler), false, true, std::move(releaseHandler)});
+}
+
+void ShortcutManager::setGlobalEnabled(const QString& actionId, bool enabled)
+{
+    auto* a = action(actionId);
+    if (!a) return;
+    a->globalEnabled = enabled;
+    saveBindings();
+    emit bindingsChanged();
+}
+
+bool ShortcutManager::isGlobalEnabled(const QString& actionId) const
+{
+    for (const auto& a : m_actions) {
+        if (a.id == actionId) return a.globalEnabled;
+    }
+    return false;
 }
 
 void ShortcutManager::setBinding(const QString& actionId, const QKeySequence& key)
@@ -69,6 +104,12 @@ void ShortcutManager::loadBindings()
         if (!val.isNull())
             a.currentKey = QKeySequence(val);
         // else keep default
+
+        // Load global hotkey flag
+        QString globalKey = QString("ShortcutGlobal_%1").arg(a.id);
+        QString globalVal = s.value(globalKey).toString();
+        if (!globalVal.isNull())
+            a.globalEnabled = (globalVal == "True");
     }
 
     bool normalized = false;
@@ -110,20 +151,53 @@ void ShortcutManager::loadBindings()
 void ShortcutManager::saveBindings()
 {
     auto& s = AppSettings::instance();
-    for (const auto& a : m_actions)
+    for (const auto& a : m_actions) {
         s.setValue(QString("Shortcut_%1").arg(a.id), a.currentKey.toString());
+        s.setValue(QString("ShortcutGlobal_%1").arg(a.id),
+                   a.globalEnabled ? "True" : "False");
+    }
     s.save();
 }
 
 void ShortcutManager::rebuildShortcuts(QWidget* parent,
                                        std::function<bool()> guardFn)
 {
-    // Destroy existing shortcuts
+    // Destroy existing shortcuts and global registrations
     qDeleteAll(m_shortcuts);
     m_shortcuts.clear();
+    m_globalHotkey->unregisterAll();
+
+    // Disconnect any previous global hotkey signals
+    disconnect(m_globalHotkey, nullptr, this, nullptr);
+
+    // Wire global hotkey signals to action dispatch
+    connect(m_globalHotkey, &GlobalHotkey::activated, this, [this, guardFn](const QString& actionId) {
+        auto* a = action(actionId);
+        if (!a || !a->handler) return;
+        if (guardFn && !guardFn()) return;
+        a->handler();
+    });
+    connect(m_globalHotkey, &GlobalHotkey::released, this, [this](const QString& actionId) {
+        auto* a = action(actionId);
+        if (!a || !a->releaseHandler) return;
+        a->releaseHandler();
+    });
 
     for (const auto& a : m_actions) {
-        if (a.currentKey.isEmpty() || !a.handler) continue;
+        if (a.currentKey.isEmpty()) continue;
+
+        // Register global hotkey if enabled and supported
+        if (a.globalEnabled && GlobalHotkey::isSupported()) {
+            if (a.isHold)
+                m_globalHotkey->registerHoldHotkey(a.id, a.currentKey);
+            else
+                m_globalHotkey->registerHotkey(a.id, a.currentKey);
+        }
+
+        // Always create the in-app QShortcut too (for when the window is focused)
+        // Skip actions with no handler (hold actions handle press via eventFilter
+        // or global hotkey)
+        if (!a.handler) continue;
 
         auto* sc = new QShortcut(a.currentKey, parent);
         sc->setAutoRepeat(false);

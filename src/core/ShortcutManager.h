@@ -9,6 +9,8 @@
 
 namespace AetherSDR {
 
+class GlobalHotkey;
+
 class ShortcutManager : public QObject {
     Q_OBJECT
 public:
@@ -19,6 +21,9 @@ public:
         QKeySequence defaultKey;
         QKeySequence currentKey;
         std::function<void()> handler;
+        bool globalEnabled{false};     // true → register as OS-level global hotkey
+        bool isHold{false};            // true → needs key-release tracking (PTT Hold)
+        std::function<void()> releaseHandler; // called on key release for hold actions
     };
 
     explicit ShortcutManager(QObject* parent = nullptr);
@@ -27,6 +32,16 @@ public:
     void registerAction(const QString& id, const QString& displayName,
                         const QString& category, const QKeySequence& defaultKey,
                         std::function<void()> handler);
+
+    // Register a hold action (press + release) — e.g. PTT Hold
+    void registerHoldAction(const QString& id, const QString& displayName,
+                            const QString& category, const QKeySequence& defaultKey,
+                            std::function<void()> pressHandler,
+                            std::function<void()> releaseHandler);
+
+    // Global hotkey management
+    void setGlobalEnabled(const QString& actionId, bool enabled);
+    bool isGlobalEnabled(const QString& actionId) const;
 
     // Binding management
     void setBinding(const QString& actionId, const QKeySequence& key);
@@ -39,6 +54,7 @@ public:
 
     // Create/destroy QShortcuts on the target widget.
     // guardFn is called before each handler — return false to suppress.
+    // Also registers global hotkeys for actions with globalEnabled=true.
     void rebuildShortcuts(QWidget* parent,
                           std::function<bool()> guardFn = nullptr);
 
@@ -58,6 +74,7 @@ signals:
 private:
     QVector<Action> m_actions;
     QVector<QShortcut*> m_shortcuts;
+    GlobalHotkey* m_globalHotkey{nullptr};
 };
 
 } // namespace AetherSDR
