@@ -1129,12 +1129,7 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->sMeterWidget()->setLevel(dbm);
     });
     connect(&m_radioModel.meterModel(), &MeterModel::txMetersChanged,
-            this, [this](float fwdPwr, float swr) {
-        // When amplifier is present, ampMetersChanged feeds the S-Meter
-        // with amplifier output power. Skip exciter meters to avoid overwriting.
-        if (!m_radioModel.hasAmplifier())
-            m_appletPanel->sMeterWidget()->setTxMeters(fwdPwr, swr);
-    });
+            m_appletPanel->sMeterWidget(), &SMeterWidget::setTxMeters);
     connect(&m_radioModel.meterModel(), &MeterModel::micMetersChanged,
             m_appletPanel->sMeterWidget(), &SMeterWidget::setMicMeters);
     connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
