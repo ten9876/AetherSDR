@@ -37,7 +37,8 @@ jobs:
             gstreamer1.0-pulseaudio gstreamer1.0-gl \
             libgstreamer-gl1.0-0 libgstreamer-plugins-base1.0-0 \
             libfuse2 file desktop-file-utils imagemagick \
-            python3-pip autoconf automake libtool libasound2-dev
+            python3-pip autoconf automake libtool libasound2-dev \
+            libfftw3-dev libhidapi-dev portaudio19-dev
 
       - name: Install system Qt (ARM only)
         if: matrix.use_aqt == false
