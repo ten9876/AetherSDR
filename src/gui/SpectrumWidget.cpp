@@ -414,6 +414,26 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
              << QString::number(centerMhz, 'f', 6)
              << "bw=" << QString::number(bandwidthMhz, 'f', 6)
              << "bins=" << m_smoothed.size();
+
+    // (#845) Waterfall rows have their frequency-to-pixel mapping baked in at
+    // write time using the current m_centerMhz / m_bandwidthMhz.  When the
+    // frequency range changes, stale rows would be drawn against the new range,
+    // causing the FFT spectrum and waterfall to be horizontally misaligned.
+    // Clear the waterfall buffer when the change exceeds ~1% of the bandwidth
+    // to avoid black flashes during tiny panning increments.
+    if (m_bandwidthMhz > 0.0) {
+        const double delta = std::abs(centerMhz - m_centerMhz) / m_bandwidthMhz
+                           + std::abs(bandwidthMhz - m_bandwidthMhz) / m_bandwidthMhz;
+        if (delta > 0.01) {
+            if (!m_waterfall.isNull()) {
+                m_waterfall.fill(Qt::black);
+                m_wfWriteRow = 0;
+            }
+            m_smoothed.clear();
+            m_bins.clear();
+        }
+    }
+
     m_centerMhz    = centerMhz;
     m_bandwidthMhz = bandwidthMhz;
     markOverlayDirty();
