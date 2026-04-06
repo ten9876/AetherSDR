@@ -963,7 +963,7 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                             });
 
                         sendCmd(
-                            "stream create type=remote_audio_tx",
+                            QString("stream create type=remote_audio_tx compression=%1").arg(audioCompressionParam()),
                             [this](int code, const QString& body) {
                                 if (code == 0) {
                                     quint32 id = body.trimmed().toUInt(nullptr, 16);
