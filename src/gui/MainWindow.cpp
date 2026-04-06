@@ -6041,22 +6041,15 @@ void MainWindow::showNr2ParamPopup(const QPoint& globalPos)
     auto& s = AppSettings::instance();
     auto* popup = new DspParamPopup(this);
 
-    popup->addRadioGroup("Gain Method", {"Linear", "Log", "Gamma", "Trained"},
-        s.value("NR2GainMethod", "2").toInt(),
-        [this](int id) {
+    popup->addSlider("Reduction (dB)", 10, 300,
+        static_cast<int>(s.value("NR2GainMax", "1.50").toFloat() * 100),
+        [](int v) { return QString::number(v / 100.0f, 'f', 2); },
+        [this](int v) {
+            float val = v / 100.0f;
             auto& s = AppSettings::instance();
-            s.setValue("NR2GainMethod", QString::number(id));
+            s.setValue("NR2GainMax", QString::number(val, 'f', 2));
             s.save();
-            QMetaObject::invokeMethod(m_audio, [this, id]() { m_audio->setNr2GainMethod(id); });
-        });
-
-    popup->addCheckbox("AE Filter",
-        s.value("NR2AeFilter", "True").toString() == "True",
-        [this](bool on) {
-            auto& s = AppSettings::instance();
-            s.setValue("NR2AeFilter", on ? "True" : "False");
-            s.save();
-            QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr2AeFilter(on); });
+            QMetaObject::invokeMethod(m_audio, [this, val]() { m_audio->setNr2GainMax(val); });
         });
 
     popup->addSlider("Smoothing",  50, 98,
@@ -6068,6 +6061,26 @@ void MainWindow::showNr2ParamPopup(const QPoint& globalPos)
             s.setValue("NR2GainSmooth", QString::number(val, 'f', 2));
             s.save();
             QMetaObject::invokeMethod(m_audio, [this, val]() { m_audio->setNr2GainSmooth(val); });
+        });
+
+    popup->addSlider("Voice Threshold", 1, 50,
+        static_cast<int>(s.value("NR2Qspp", "0.20").toFloat() * 100),
+        [](int v) { return QString::number(v / 100.0f, 'f', 2); },
+        [this](int v) {
+            float val = v / 100.0f;
+            auto& s = AppSettings::instance();
+            s.setValue("NR2Qspp", QString::number(val, 'f', 2));
+            s.save();
+            QMetaObject::invokeMethod(m_audio, [this, val]() { m_audio->setNr2Qspp(val); });
+        });
+
+    popup->addCheckbox("AE Filter",
+        s.value("NR2AeFilter", "True").toString() == "True",
+        [this](bool on) {
+            auto& s = AppSettings::instance();
+            s.setValue("NR2AeFilter", on ? "True" : "False");
+            s.save();
+            QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr2AeFilter(on); });
         });
 
     popup->finalize(
