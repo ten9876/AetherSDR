@@ -28,8 +28,8 @@ if (-not (Test-Path $VsVars)) {
 }
 
 # ── Check if already set up ──────────────────────────────────────────────
-if (Test-Path "$OutDir\lib\fftw3.lib") {
-    Write-Host "FFTW3 already set up in $OutDir" -ForegroundColor Green
+if ((Test-Path "$OutDir\lib\fftw3.lib") -and (Test-Path "$OutDir\lib\fftw3f.lib")) {
+    Write-Host "FFTW3 already set up in $OutDir (double + float)" -ForegroundColor Green
     exit 0
 }
 
