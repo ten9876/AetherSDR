@@ -36,8 +36,16 @@ jobs:
             brew install fftw portaudio hidapi
           fi
 
-      - name: Build Qt from source (Intel only)
+      - name: Restore Qt cache (Intel only)
         if: matrix.label == 'intel'
+        id: qt-cache
+        uses: actions/cache@v4
+        with:
+          path: qt-install
+          key: qt-6.7.3-macos-intel-deploy13
+
+      - name: Build Qt from source (Intel only, cache miss)
+        if: matrix.label == 'intel' && steps.qt-cache.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch v6.7.3 https://code.qt.io/qt/qt5.git qt-src
           cd qt-src
