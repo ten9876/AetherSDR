@@ -63,10 +63,6 @@ public:
     void beginDirectEntry();
     QLabel* freqLabel() const { return m_freqLabel; }
 
-    // Collapse the VFO flag to show only slice badge + frequency (like SmartSDR).
-    void setCollapsed(bool collapsed);
-    bool isCollapsed() const { return m_collapsed; }
-
 #ifdef HAVE_RADE
     void setRadeActive(bool on);
     void setRadeSynced(bool synced);
@@ -120,7 +116,6 @@ private:
     QStringList    m_antList;
     bool           m_updatingFromModel{false};
     bool           m_lastOnLeft{true};
-    bool           m_collapsed{false};
     float          m_signalDbm{-130.0f};
 
     // Header row
@@ -129,7 +124,7 @@ private:
     QLabel*      m_filterWidthLbl{nullptr};
     QPushButton* m_splitBadge{nullptr};
     QPushButton* m_txBadge{nullptr};
-    QPushButton* m_sliceBadge{nullptr};
+    QLabel*      m_sliceBadge{nullptr};
     QPointer<QPushButton> m_lockVfoBtn;
     QPointer<QPushButton> m_closeSliceBtn;
     QPointer<QPushButton> m_recordBtn;
@@ -137,7 +132,6 @@ private:
     QTimer* m_recordPulse{nullptr};
 
     // Frequency / meter
-    QWidget* m_meterWidget{nullptr};
     QLabel* m_freqLabel{nullptr};
     QLineEdit* m_freqEdit{nullptr};
     QStackedWidget* m_freqStack{nullptr};

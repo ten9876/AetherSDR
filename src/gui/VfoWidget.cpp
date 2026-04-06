@@ -309,17 +309,12 @@ void VfoWidget::buildUI()
     });
     hdr->addWidget(m_txBadge);
 
-    m_sliceBadge = new QPushButton("A");
+    m_sliceBadge = new QLabel("A");
     m_sliceBadge->setFixedSize(20, 20);
-    m_sliceBadge->setFlat(true);
-    m_sliceBadge->setCursor(Qt::PointingHandCursor);
-    m_sliceBadge->setToolTip("Click to collapse/expand VFO flag");
+    m_sliceBadge->setAlignment(Qt::AlignCenter);
     m_sliceBadge->setStyleSheet(
-        "QPushButton { background: #0070c0; color: #ffffff; "
-        "border-radius: 3px; font-weight: bold; font-size: 11px; border: none; }");
-    connect(m_sliceBadge, &QPushButton::clicked, this, [this] {
-        setCollapsed(!m_collapsed);
-    });
+        "QLabel { background: #0070c0; color: #ffffff; "
+        "border-radius: 3px; font-weight: bold; font-size: 11px; }");
     hdr->addWidget(m_sliceBadge);
 
     root->addLayout(hdr);
@@ -498,12 +493,8 @@ void VfoWidget::buildUI()
 
     // ── S-meter + dBm row (75/25 split) ────────────────────────────────────
     // S-meter bar is painted in paintEvent; spacer reserves its space.
-    // dBm label sits to the right. Wrapped in a widget for collapse toggle.
-    m_meterWidget = new QWidget;
-    m_meterWidget->setAttribute(Qt::WA_TranslucentBackground);
-    m_meterWidget->setStyleSheet("QWidget { background: transparent; }");
-    auto* meterRow = new QHBoxLayout(m_meterWidget);
-    meterRow->setContentsMargins(0, 0, 0, 0);
+    // dBm label sits to the right.
+    auto* meterRow = new QHBoxLayout;
     meterRow->setSpacing(4);
 
     auto* sMeterSpacer = new QWidget;
@@ -518,7 +509,7 @@ void VfoWidget::buildUI()
     m_dbmLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     meterRow->addWidget(m_dbmLabel, 1);    // 25%
 
-    root->addWidget(m_meterWidget);
+    root->addLayout(meterRow);
 
     // ── Tab bar ────────────────────────────────────────────────────────────
     m_tabBar = new QWidget;
@@ -1626,53 +1617,6 @@ void VfoWidget::updatePosition(int vfoX, int specTop, FlagDir dir)
     }
 }
 
-// ── Collapse / expand VFO flag (#761) ─────────────────────────────────────────
-
-void VfoWidget::setCollapsed(bool collapsed)
-{
-    if (m_collapsed == collapsed) return;
-    m_collapsed = collapsed;
-
-    // Hide/show header controls (antenna buttons, filter width, split/tx badges)
-    m_rxAntBtn->setVisible(!collapsed);
-    m_txAntBtn->setVisible(!collapsed);
-    m_filterWidthLbl->setVisible(!collapsed);
-    m_splitBadge->setVisible(!collapsed);
-    m_txBadge->setVisible(!collapsed);
-
-    // Hide/show meter row, tab bar, tab content
-    m_meterWidget->setVisible(!collapsed);
-    m_tabBar->setVisible(!collapsed);
-    m_tabStack->setVisible(!collapsed);
-
-#ifdef HAVE_RADE
-    if (m_radeStatusLabel && collapsed)
-        m_radeStatusLabel->hide();
-#endif
-
-    // Adjust fixed width: collapsed shows only badge + frequency
-    if (collapsed) {
-        // Badge (20) + spacing + frequency label width
-        QFont labelFont;
-        labelFont.setPixelSize(26);
-        labelFont.setBold(true);
-        const int freqW = QFontMetrics(labelFont).horizontalAdvance("000.000.000") + 8;
-        setFixedWidth(20 + 6 + freqW + 12);  // badge + gap + freq + margins
-    } else {
-        setFixedWidth(WIDGET_W);
-    }
-
-    // Force re-layout and repaint
-    adjustSize();
-    update();
-
-    // Persist per-slice
-    if (m_slice) {
-        const QString key = QString("VfoFlag/Collapsed/%1").arg(m_slice->sliceId());
-        AppSettings::instance().setValue(key, collapsed);
-    }
-}
-
 // ── S-Meter bar (custom paint) ────────────────────────────────────────────────
 
 void VfoWidget::paintEvent(QPaintEvent* event)
@@ -1691,9 +1635,6 @@ void VfoWidget::paintEvent(QPaintEvent* event)
     p.setPen(QColor(255, 255, 255, 13));
     p.setBrush(QColor(255, 255, 255, 13));
     p.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 3, 3);
-
-    // Skip S-meter painting when collapsed (#761)
-    if (m_collapsed) return;
 
     p.setRenderHint(QPainter::Antialiasing, false);
 
@@ -2121,12 +2062,6 @@ void VfoWidget::setSlice(SliceModel* slice)
     });
 
     syncFromSlice();
-
-    // Restore per-slice collapsed state (#761)
-    const QString key = QString("VfoFlag/Collapsed/%1").arg(slice->sliceId());
-    bool collapsed = AppSettings::instance().value(key, false).toBool();
-    if (collapsed != m_collapsed)
-        setCollapsed(collapsed);
 }
 
 void VfoWidget::updateTxBadgeStyle(bool isTx)
@@ -2244,8 +2179,8 @@ void VfoWidget::syncFromSlice()
     const char* badgeColor = (id >= 0 && id < kSliceColorCount)
         ? kSliceColors[id].hexActive : "#0070c0";
     m_sliceBadge->setStyleSheet(
-        QString("QPushButton { background: %1; color: #000000; "
-                "border-radius: 3px; font-weight: bold; font-size: 11px; border: none; }").arg(badgeColor));
+        QString("QLabel { background: %1; color: #000000; "
+                "border-radius: 3px; font-weight: bold; font-size: 11px; }").arg(badgeColor));
     updateFreqLabel();
     updateFilterLabel();
 

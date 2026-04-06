@@ -2141,8 +2141,12 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             // Background image
             if (!m_bgImage.isNull()) {
                 if (m_bgScaledSize != specRect.size()) {
-                    m_bgScaled = m_bgImage.scaled(specRect.size(),
-                        Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+                    // Scale to cover (keep aspect ratio, expand to fill) then center crop
+                    QImage expanded = m_bgImage.scaled(specRect.size(),
+                        Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+                    int cx = (expanded.width()  - specRect.width())  / 2;
+                    int cy = (expanded.height() - specRect.height()) / 2;
+                    m_bgScaled = expanded.copy(cx, cy, specRect.width(), specRect.height());
                     m_bgScaledSize = specRect.size();
                 }
                 p.setOpacity(1.0 - m_bgOpacity / 100.0);
@@ -2166,22 +2170,24 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             drawSliceMarkers(p, specRect, wfRect);
             drawOffScreenSlices(p, specRect);
 
-            // WNB / RF gain indicators
-            if (m_wnbActive) {
-                p.setFont(QFont(p.font().family(), 14, QFont::Bold));
+            // WNB / RF gain indicators (horizontal, top-left of spectrum)
+            if (m_wnbActive || m_rfGainValue != 0) {
+                QFont indFont(p.font().family(), 14, QFont::Bold);
+                p.setFont(indFont);
                 p.setPen(QColor(0xc8, 0xd8, 0xe8, 180));
-                p.drawText(specRect.right() - 130, specRect.top() + 20,
-                           QStringLiteral("WNB"));
-            }
-            if (m_rfGainValue != 0) {
-                QFont f = p.font();
-                f.setPixelSize(12);
-                p.setFont(f);
-                p.setPen(QColor(0xc8, 0xd8, 0xe8, 140));
-                QString label = QStringLiteral("RF %1%2 dB")
-                    .arg(m_rfGainValue > 0 ? "+" : "").arg(m_rfGainValue);
-                p.drawText(specRect.right() - 80,
-                           specRect.top() + (m_wnbActive ? 38 : 20), label);
+                const QFontMetrics fm(indFont);
+                int y = specRect.top() + fm.ascent() + 4;
+                // Build combined label, measure, and right-align
+                QString label;
+                if (m_wnbActive)
+                    label += QStringLiteral("WNB");
+                if (m_rfGainValue != 0) {
+                    if (!label.isEmpty()) label += QStringLiteral("   ");
+                    label += QStringLiteral("%1%2 dB")
+                        .arg(m_rfGainValue > 0 ? "+" : "").arg(m_rfGainValue);
+                }
+                int x = specRect.right() - DBM_STRIP_W - 8 - fm.horizontalAdvance(label);
+                p.drawText(x, y, label);
             }
 
             // Cursor frequency label (#726)
