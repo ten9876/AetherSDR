@@ -27,11 +27,14 @@ jobs:
           arch: 'win64_msvc2019_64'
           modules: 'qtmultimedia qtserialport qtwebsockets qtshadertools'
 
-      - name: Install Ninja and Inno Setup
-        run: choco install ninja innosetup -y
+      - name: Install Ninja, Inno Setup, and LLVM
+        run: choco install ninja innosetup llvm -y
 
       - name: Setup Opus (SmartLink audio codec)
         run: .\setup-opus.ps1
+
+      - name: Setup FFTW3 float (NR4 dependency)
+        run: .\setup-fftw.ps1
 
       - name: Configure
         run: |
@@ -47,6 +50,9 @@ jobs:
           windeployqt deploy\AetherSDR.exe --release --no-translations --no-system-d3d-compiler
           if (Test-Path "third_party\fftw3\bin\libfftw3-3.dll") {
             copy third_party\fftw3\bin\libfftw3-3.dll deploy\
+          }
+          if (Test-Path "third_party\fftw3\bin\libfftw3f-3.dll") {
+            copy third_party\fftw3\bin\libfftw3f-3.dll deploy\
           }
 
       - name: Create portable ZIP
