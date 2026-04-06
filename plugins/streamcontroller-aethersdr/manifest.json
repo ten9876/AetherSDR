@@ -3,7 +3,7 @@
     "id": "com_aethersdr_radio",
     "name": "AetherSDR",
     "descriptions": {
-        "en_US": "Control AetherSDR via TCI — PTT, Record, Play for FlexRadio."
+        "en_US": "Full AetherSDR radio control via TCI — 40+ actions for TX, bands, modes, DSP, audio, and DVK."
     },
     "short-descriptions": {
         "en_US": "AetherSDR radio control"
