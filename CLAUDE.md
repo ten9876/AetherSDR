@@ -23,6 +23,24 @@ When helping with AetherSDR:
 - **Read `CONTRIBUTING.md`** for full contributor guidelines, coding conventions,
   and the AI-to-AI debugging protocol (open a GitHub issue for cross-agent coordination)
 
+### Autonomous Agent Boundaries
+
+AI agents (including AetherClaude/pi-claude) may autonomously fix:
+- **Bugs with clear root cause** — persistence missing, guard missing, crash fix
+- **Protocol compliance** — matching SmartSDR behavior confirmed by pcap/FlexLib
+- **Build/CI fixes** — missing dependencies, platform compat
+
+AI agents must **NOT** autonomously change:
+- **Visual design** — colors, fonts, layout, theme (user preferences ≠ project direction)
+- **UX behavior** — how controls work, what clicks do, keyboard shortcuts
+- **Architecture** — adding new threads, changing signal routing, new dependencies
+- **Feature scope** — adding features beyond what the issue describes
+- **Default values** — changing defaults that affect all users based on one report
+
+When in doubt, the agent should implement the fix and note in the PR that
+design decisions need maintainer review. The project maintainer (Jeremy/KK7GWY)
+is the sole authority on visual design and UX direction.
+
 ## C++ Style Guide
 
 - **No `goto`** — use early returns, break, or restructure the logic
