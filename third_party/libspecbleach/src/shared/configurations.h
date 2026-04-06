@@ -25,6 +25,11 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 #include <stdbool.h>
 #include <stdint.h>
 
+// MSVC does not support _Static_assert in C mode — map to static_assert
+#if defined(_MSC_VER) && !defined(__cplusplus)
+#define _Static_assert static_assert
+#endif
+
 // Compile-time assertions for configuration validity
 _Static_assert(HANN_WINDOW >= 0 && HANN_WINDOW <= 3,
                "HANN_WINDOW must be between 0 and 3");
