@@ -1086,14 +1086,22 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         const int hiX = mhzToX(ao->freqMhz + ao->filterHighHz / 1.0e6);
         constexpr int GRAB = 5;
 
-        if (std::abs(mx - loX) <= GRAB) {
-            m_draggingFilter = FilterEdge::Low;
-            setCursor(Qt::SizeHorCursor);
-            ev->accept();
-            return;
-        }
-        if (std::abs(mx - hiX) <= GRAB) {
-            m_draggingFilter = FilterEdge::High;
+        const bool loHit = std::abs(mx - loX) <= GRAB;
+        const bool hiHit = std::abs(mx - hiX) <= GRAB;
+        if (loHit || hiHit) {
+            // When both edges are within grab range, pick the closer one (#764)
+            if (loHit && hiHit)
+                m_draggingFilter = (std::abs(mx - loX) <= std::abs(mx - hiX))
+                    ? FilterEdge::Low : FilterEdge::High;
+            else
+                m_draggingFilter = loHit ? FilterEdge::Low : FilterEdge::High;
+
+            // Store anchor offset so the edge doesn't snap to cursor (#764)
+            const double mhz = xToMhz(mx);
+            const int mouseHz = static_cast<int>(std::round((mhz - ao->freqMhz) * 1.0e6));
+            const int edgeHz = (m_draggingFilter == FilterEdge::Low) ? ao->filterLowHz : ao->filterHighHz;
+            m_filterDragOffsetHz = edgeHz - mouseHz;
+
             setCursor(Qt::SizeHorCursor);
             ev->accept();
             return;
@@ -1197,6 +1205,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         const int mx = static_cast<int>(ev->position().x());
         const double mhz = xToMhz(mx);
         int hz = static_cast<int>(std::round((mhz - ao->freqMhz) * 1.0e6));
+        hz += m_filterDragOffsetHz; // apply anchor offset (#764)
 
         if (m_draggingFilter == FilterEdge::Low) {
             hz = std::clamp(hz, m_filterMinHz, ao->filterHighHz - 10);
@@ -3268,7 +3277,9 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
             // ── Standard VFO center line ─────────────────────────────────
             int markerX = vfoX;
 
-            p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 220), 2.0));
+            // Reduce line width when a filter edge is very close (e.g. CW mode) (#764)
+            const qreal vfoLineW = (std::abs(vfoX - fX1) <= 4 || std::abs(vfoX - fX2) <= 4) ? 1.0 : 2.0;
+            p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 220), vfoLineW));
             p.drawLine(markerX, specRect.top(), markerX, wfRect.bottom());
 
             // ── Triangle marker at top ───────────────────────────────────

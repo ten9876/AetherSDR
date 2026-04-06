@@ -427,6 +427,7 @@ private:
     // Filter edge drag state
     enum class FilterEdge { None, Low, High };
     FilterEdge m_draggingFilter{FilterEdge::None};
+    int m_filterDragOffsetHz{0}; // anchor offset to prevent snap-to-cursor (#764)
     // VFO passband drag state (#404)
     bool m_draggingVfo{false};
     // dBm scale strip drag state
