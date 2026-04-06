@@ -618,9 +618,15 @@ if(ENABLE_SPECBLEACH)
     target_include_directories(AetherSDR PRIVATE
         ${CMAKE_SOURCE_DIR}/third_party/libspecbleach/include
         ${CMAKE_SOURCE_DIR}/third_party/libspecbleach/src)
-    # libspecbleach C sources include <fftw3.h> directly — add FFTW3 include path
+    # libspecbleach C sources include <fftw3.h> directly — ensure it's findable
     if(FFTW3_INCLUDE_DIRS)
         target_include_directories(AetherSDR PRIVATE ${FFTW3_INCLUDE_DIRS})
+    else()
+        # pkg-config may omit -I for system paths; locate fftw3.h explicitly
+        find_path(FFTW3_H_DIR fftw3.h)
+        if(FFTW3_H_DIR)
+            target_include_directories(AetherSDR PRIVATE ${FFTW3_H_DIR})
+        endif()
     endif()
     # libspecbleach uses fftwf (float precision FFTW3)
     find_library(FFTW3F_LIB fftw3f HINTS /opt/homebrew/lib /usr/local/lib)
