@@ -90,7 +90,11 @@ void SMeterWidget::setMicMeters(float micLevel, float compLevel, float micPeak, 
     float comp = (compPeak < -30.0f || compPeak >= 0.0f) ? 0.0f : compPeak;
     m_compLevel = m_compLevel + SMOOTH_ALPHA * (comp - m_compLevel);
 
-    if (m_transmitting && (m_txMode == TxMode::Level || m_txMode == TxMode::Compression))
+    // Repaint when TX mic data arrives — use the same effectiveTx logic as
+    // setTxMeters so Level/Compression modes work during VOX/hardware CW
+    // when setTransmitting(true) arrives late (#877).
+    if ((m_transmitting || m_txPower > 0.5f)
+        && (m_txMode == TxMode::Level || m_txMode == TxMode::Compression))
         update();
 }
 
