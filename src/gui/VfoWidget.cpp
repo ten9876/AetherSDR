@@ -1109,8 +1109,11 @@ void VfoWidget::buildTabContent()
             // Double-click label → switch to inline edit
             m_digOffsetLabel->installEventFilter(this);
 
-            // Commit edit on Enter or focus loss
+            // Commit edit on Enter or focus loss.
+            // Guard against double-fire: returnPressed switches stack to index 0,
+            // which removes focus and triggers editingFinished a second time.
             auto commitEdit = [this, applyOffset] {
+                if (m_digOffsetStack->currentIndex() != 1) return;
                 m_digOffsetStack->setCurrentIndex(0);
                 bool ok;
                 int hz = m_digOffsetEdit->text().toInt(&ok);
