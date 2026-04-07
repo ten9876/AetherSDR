@@ -132,13 +132,13 @@ public:
 
     // Max panadapters supported by this radio model.
     // FLEX-6700: 8 (dual SCU, high-capacity)
-    // FLEX-6600 / FLEX-8600 / AU-520: 4 (dual SCU)
-    // All single-SCU models: 2
+    // FLEX-6600 / FLEX-6500 / FLEX-8600 / AU-520: 4 (dual SCU)
+    // All single-SCU models (6300, 6400, etc.): 2
     int maxPanadapters() const {
         if (m_model.contains("6700"))
             return 8;
-        if (m_model.contains("6600") || m_model.contains("8600")
-                || m_model.contains("AU-520"))
+        if (m_model.contains("6600") || m_model.contains("6500")
+                || m_model.contains("8600") || m_model.contains("AU-520"))
             return 4;
         return 2;
     }
