@@ -721,6 +721,9 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel, &RadioModel::radioTransmittingChanged,
             this, [this](bool tx) {
         m_audio->setRadioTransmitting(tx);
+        // S-Meter: use raw interlock state so Level/Compression modes work
+        // during VOX/hardware CW without the effectiveTx power threshold (#877)
+        m_appletPanel->sMeterWidget()->setTransmitting(tx);
         if (tx) {
             m_txIndicator->setStyleSheet(
                 "QLabel { color: white; background: #c03030; font-weight: bold; "

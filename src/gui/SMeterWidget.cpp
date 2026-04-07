@@ -86,8 +86,8 @@ void SMeterWidget::setMicMeters(float micLevel, float compLevel, float micPeak, 
     Q_UNUSED(micLevel);
     Q_UNUSED(compLevel);
     m_micLevel  = m_micLevel  + SMOOTH_ALPHA * (micPeak - m_micLevel);
-    // compPeak is negative (e.g. -15 = 15 dB compression), clamp stale values
-    float comp = (compPeak < -30.0f || compPeak >= 0.0f) ? 0.0f : compPeak;
+    // compPeak is raw dBFS from COMPPEAK. Silence gate at -30.
+    float comp = (compPeak > -30.0f) ? qBound(-25.0f, compPeak, 0.0f) : 0.0f;
     m_compLevel = m_compLevel + SMOOTH_ALPHA * (comp - m_compLevel);
 
     if (m_transmitting && (m_txMode == TxMode::Level || m_txMode == TxMode::Compression))
@@ -166,7 +166,7 @@ float SMeterWidget::txValueToFraction(float value) const
         // -40 to +5
         return qBound(0.0f, (value + 40.0f) / 45.0f, 1.0f);
     case TxMode::Compression:
-        // -25 to 0 (negative dB, e.g. -15 = 15 dB compression)
+        // Gain reduction: 0 = none, -25 = heavy compression
         return qBound(0.0f, (value + 25.0f) / 25.0f, 1.0f);
     }
     return 0.0f;

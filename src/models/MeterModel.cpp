@@ -216,25 +216,9 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             constexpr float kEqAlpha = 0.3f;
             m_afterEq = (m_afterEq < -140.0f) ? v : kEqAlpha * v + (1.0f - kEqAlpha) * m_afterEq;
         } else if (idx == m_compPeakIdx) {
-            // COMPPEAK: -150 (silence) → +17 dBFS (loud with PROC).
-            // Pcap: PROC OFF peaks 0..+3, NOR +3..+10, DX +5..+13, DX+ +6..+17.
-            // Exponential smoothing: fast attack (α=0.4), slower release (α=0.2)
-            // for fluid motion matching SmartSDR's gauge behavior.
-            constexpr float kAttack = 0.4f;   // responsive rise
-            constexpr float kRelease = 0.2f;   // smooth decay
-            if (m_compPeakRaw < -140.0f)
-                m_compPeakRaw = v;
-            else if (v > m_compPeakRaw)
-                m_compPeakRaw = kAttack * v + (1.0f - kAttack) * m_compPeakRaw;
-            else
-                m_compPeakRaw = kRelease * v + (1.0f - kRelease) * m_compPeakRaw;
-
-            // Map: 0 dBFS → 0 gauge, +20 dBFS → -25 gauge (full).
-            if (m_compPeakRaw > 0.0f)
-                m_compPeak = -m_compPeakRaw * (25.0f / 20.0f);
-            else
-                m_compPeak = 0.0f;
-            m_compPeak = qBound(-25.0f, m_compPeak, 0.0f);
+            // COMPPEAK: raw dBFS from radio. Just smooth and pass through.
+            constexpr float kAlpha = 0.3f;
+            m_compPeak = (m_compPeak < -140.0f) ? v : kAlpha * v + (1.0f - kAlpha) * m_compPeak;
             micChanged = true;
         } else if (idx == m_micLevelIdx) {
             m_micLevel = v;

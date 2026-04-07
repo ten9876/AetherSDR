@@ -290,18 +290,19 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     selectLayout->addLayout(rxCol, 1);
     sMeterLayout->addWidget(selectRow);
 
-    // Restore saved TX/RX meter selections (#809)
+    connect(m_txSelect, &QComboBox::currentTextChanged,
+            m_sMeter, &SMeterWidget::setTxMode);
+    connect(m_rxSelect, &QComboBox::currentTextChanged,
+            m_sMeter, &SMeterWidget::setRxMode);
+
+    // Restore saved TX/RX meter selections AFTER connecting signals
+    // so setTxMode/setRxMode are called with the restored values (#809)
     int txIdx = AppSettings::instance().value("SMeter_TxSelect", 0).toInt();
     int rxIdx = AppSettings::instance().value("SMeter_RxSelect", 0).toInt();
     if (txIdx >= 0 && txIdx < m_txSelect->count())
         m_txSelect->setCurrentIndex(txIdx);
     if (rxIdx >= 0 && rxIdx < m_rxSelect->count())
         m_rxSelect->setCurrentIndex(rxIdx);
-
-    connect(m_txSelect, &QComboBox::currentTextChanged,
-            m_sMeter, &SMeterWidget::setTxMode);
-    connect(m_rxSelect, &QComboBox::currentTextChanged,
-            m_sMeter, &SMeterWidget::setRxMode);
 
     // Persist TX/RX meter selections on change (#809)
     connect(m_txSelect, &QComboBox::currentIndexChanged,
