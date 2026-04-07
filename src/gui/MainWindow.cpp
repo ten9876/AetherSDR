@@ -3889,8 +3889,9 @@ void MainWindow::onConnectionStateChanged(bool connected)
         // Show DIV button on dual-SCU radios
         {
             const QString& model = m_radioModel.model();
-            bool divAllowed = model.contains("6600") || model.contains("6700")
-                           || model.contains("8600") || model.contains("AU-520");
+            bool divAllowed = model.contains("6500") || model.contains("6600")
+                           || model.contains("6700") || model.contains("8600")
+                           || model.contains("AU-520");
             // Set diversity allowed on all existing VFO widgets
             if (auto* vfo = spectrum()->vfoWidget())
                 vfo->setDiversityAllowed(divAllowed);
@@ -4420,8 +4421,9 @@ void MainWindow::onSliceAdded(SliceModel* s)
     // Show DIV button on dual-SCU radios
     {
         const QString& model = m_radioModel.model();
-        bool divAllowed = model.contains("6600") || model.contains("6700")
-                       || model.contains("8600") || model.contains("AU-520");
+        bool divAllowed = model.contains("6500") || model.contains("6600")
+                       || model.contains("6700") || model.contains("8600")
+                       || model.contains("AU-520");
         vfo->setDiversityAllowed(divAllowed);
     }
 
