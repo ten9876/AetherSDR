@@ -153,6 +153,26 @@ void FloatingAppletWindow::restoreGeometry()
     move(x, y);
 }
 
+void FloatingAppletWindow::hideAndSave()
+{
+    m_saveTimer->stop();
+    saveGeometry();
+    AppSettings::instance().save();
+    hide();
+}
+
+void FloatingAppletWindow::showAndRestore()
+{
+    // Guard the entire show+restore sequence so that moveEvents fired by the
+    // WM repositioning the window during show() cannot start the debounce
+    // timer and overwrite the saved geometry with the wrong (centered) position.
+    // restoreGeometry() will clear m_restoringGeometry when it finishes.
+    m_restoringGeometry = true;
+    show();
+    raise();
+    QTimer::singleShot(200, this, [this]() { restoreGeometry(); });
+}
+
 void FloatingAppletWindow::resizeEvent(QResizeEvent* ev)
 {
     QWidget::resizeEvent(ev);
