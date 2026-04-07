@@ -4279,7 +4279,11 @@ void MainWindow::onSliceAdded(SliceModel* s)
         m_antennaGenius.setRadioFrequency(s->frequency());
 
     connect(s, &SliceModel::filterChanged, this, [this, s](int lo, int hi) {
-        spectrumForSlice(s)->setSliceOverlay(s->sliceId(), s->frequency(),
+        auto* sw = spectrumForSlice(s);
+        // Skip overlay update while user is dragging a filter edge — the radio's
+        // status echo would overwrite the drag position, causing snap-to-zero (#764)
+        if (sw->isDraggingFilter()) return;
+        sw->setSliceOverlay(s->sliceId(), s->frequency(),
             lo, hi, s->isTxSlice(), s->sliceId() == m_activeSliceId,
             s->mode(), s->rttyMark(), s->rttyShift(),
             s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq());

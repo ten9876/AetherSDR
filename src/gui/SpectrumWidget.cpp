@@ -1100,7 +1100,8 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
             const double mhz = xToMhz(mx);
             const int mouseHz = static_cast<int>(std::round((mhz - ao->freqMhz) * 1.0e6));
             const int edgeHz = (m_draggingFilter == FilterEdge::Low) ? ao->filterLowHz : ao->filterHighHz;
-            m_filterDragOffsetHz = edgeHz - mouseHz;
+            m_filterDragStartX = mx;
+            m_filterDragStartHz = edgeHz;
 
             setCursor(Qt::SizeHorCursor);
             ev->accept();
@@ -1203,15 +1204,13 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         auto* ao = const_cast<SliceOverlay*>(activeOverlay());
         if (!ao) { m_draggingFilter = FilterEdge::None; return; }
         const int mx = static_cast<int>(ev->position().x());
-        const double mhz = xToMhz(mx);
-        int hz = static_cast<int>(std::round((mhz - ao->freqMhz) * 1.0e6));
-        hz += m_filterDragOffsetHz; // apply anchor offset (#764)
+        // Compute Hz delta from pixel delta — immune to freq/overlay changes (#764)
+        const double hzPerPx = (m_bandwidthMhz * 1.0e6) / width();
+        int hz = m_filterDragStartHz + static_cast<int>(std::round((mx - m_filterDragStartX) * hzPerPx));
 
         if (m_draggingFilter == FilterEdge::Low) {
-            hz = std::clamp(hz, m_filterMinHz, ao->filterHighHz - 10);
             ao->filterLowHz = hz;
         } else {
-            hz = std::clamp(hz, ao->filterLowHz + 10, m_filterMaxHz);
             ao->filterHighHz = hz;
         }
         markOverlayDirty();

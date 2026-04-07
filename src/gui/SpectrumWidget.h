@@ -203,6 +203,7 @@ public:
     };
 
     // Add or update a slice overlay (called per-slice on any state change).
+    bool isDraggingFilter() const { return m_draggingFilter != FilterEdge::None; }
     void setSliceOverlay(int sliceId, double freq, int fLow, int fHigh,
                          bool tx, bool active, const QString& mode = {},
                          int rttyMark = 2125, int rttyShift = 170,
@@ -427,7 +428,8 @@ private:
     // Filter edge drag state
     enum class FilterEdge { None, Low, High };
     FilterEdge m_draggingFilter{FilterEdge::None};
-    int m_filterDragOffsetHz{0}; // anchor offset to prevent snap-to-cursor (#764)
+    int m_filterDragStartX{0};      // pixel X at grab time (#764)
+    int m_filterDragStartHz{0};     // filter edge Hz at grab time (#764)
     // VFO passband drag state (#404)
     bool m_draggingVfo{false};
     // dBm scale strip drag state
