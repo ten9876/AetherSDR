@@ -65,7 +65,7 @@ void SMeterWidget::setLevel(float dbm)
         }
     }
 
-    if (!m_transmitting)
+    if (!isTxActive())
         update();
 }
 
@@ -77,7 +77,7 @@ void SMeterWidget::setTxMeters(float fwdPower, float swr)
     // Repaint whenever TX power data arrives — either because moxChanged set
     // m_transmitting, or because RF power is flowing regardless (e.g. VOX,
     // hardware-keyed CW, or interlock race where setTransmitting arrives late).
-    if (m_transmitting || m_txPower > 0.5f)
+    if (isTxActive())
         update();
 }
 
@@ -90,7 +90,7 @@ void SMeterWidget::setMicMeters(float micLevel, float compLevel, float micPeak, 
     float comp = (compPeak > -30.0f) ? qBound(-25.0f, compPeak, 0.0f) : 0.0f;
     m_compLevel = m_compLevel + SMOOTH_ALPHA * (comp - m_compLevel);
 
-    if (m_transmitting && (m_txMode == TxMode::Level || m_txMode == TxMode::Compression))
+    if (isTxActive() && (m_txMode == TxMode::Level || m_txMode == TxMode::Compression))
         update();
 }
 
@@ -412,7 +412,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     // When transmitting, needle tracks the selected TX meter instead of RX.
     {
         float frac;
-        if (m_transmitting)
+        if (isTxActive())
             frac = txValueToFraction(currentTxValue());
         else if (m_rxMode == RxMode::SMeterPeak)
             frac = dbmToFraction(m_peakDbm);
@@ -435,7 +435,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     }
 
     // Draw peak marker (small triangle) — only in RX S-Meter Peak mode
-    if (!m_transmitting && m_rxMode == RxMode::SMeterPeak
+    if (!isTxActive() && m_rxMode == RxMode::SMeterPeak
         && m_peakDbm > m_levelDbm + 1.0f) {
         const float frac = dbmToFraction(m_peakDbm);
         const float angle = fractionToAngle(frac);
@@ -462,7 +462,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     }
 
     // -- Draw peak hold line (configurable overlay, independent of RX mode) ---
-    if (m_peakHoldEnabled && !m_transmitting
+    if (m_peakHoldEnabled && !isTxActive()
         && m_peakHoldDbm > S0_DBM + 1.0f) {
         const float frac = dbmToFraction(m_peakHoldDbm);
         const float angle = fractionToAngle(frac);
@@ -489,7 +489,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     valFont.setBold(true);
     const QFontMetrics vfm(valFont);
 
-    if (m_transmitting) {
+    if (isTxActive()) {
         // TX mode: show TX source label (center), mode name (left), value (right)
         static const char* txLabels[] = {"Power", "SWR", "Level", "Compression"};
         const QString srcLabel = txLabels[static_cast<int>(m_txMode)];

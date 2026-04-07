@@ -73,6 +73,10 @@ private:
     // Get the current TX value based on mode
     float currentTxValue() const;
 
+    // True when transmitting — covers the late-setTransmitting case (VOX,
+    // hardware CW, external PTT) by also checking for non-trivial TX power.
+    bool isTxActive() const { return m_transmitting || m_txPower > 0.5f; }
+
     // RX state
     float   m_levelDbm{-127.0f};    // current smoothed RX reading
     float   m_peakDbm{-127.0f};     // RX peak hold
