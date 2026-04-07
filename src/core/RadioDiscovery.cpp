@@ -10,8 +10,22 @@ RadioDiscovery::RadioDiscovery(QObject* parent)
     : QObject(parent)
 {
     connect(&m_socket, &QUdpSocket::readyRead, this, &RadioDiscovery::onReadyRead);
+
     m_staleTimer.setInterval(STALE_TIMEOUT_MS / 2);
     connect(&m_staleTimer, &QTimer::timeout, this, &RadioDiscovery::onStaleCheck);
+
+    m_bindRetryTimer.setInterval(BIND_RETRY_MS);
+    m_bindRetryTimer.setSingleShot(true);
+    connect(&m_bindRetryTimer, &QTimer::timeout, this, &RadioDiscovery::onBindRetry);
+
+    // Periodic re-bind: handles the case where bind() succeeds but the socket
+    // is stale (e.g. no network interface at launch, macOS consent silently
+    // dropping packets).  Stops once the first discovery packet arrives.
+    m_rebindTimer.setInterval(REBIND_INTERVAL_MS);
+    connect(&m_rebindTimer, &QTimer::timeout, this, [this]() {
+        qCDebug(lcDiscovery) << "RadioDiscovery: no packets yet, re-binding socket";
+        startListening();
+    });
 }
 
 RadioDiscovery::~RadioDiscovery()
@@ -21,20 +35,55 @@ RadioDiscovery::~RadioDiscovery()
 
 void RadioDiscovery::startListening()
 {
+    // Close any previous socket state before (re-)binding
+    m_socket.close();
+
     if (!m_socket.bind(QHostAddress::AnyIPv4, DISCOVERY_PORT,
                        QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
-        qCWarning(lcDiscovery) << "RadioDiscovery: failed to bind UDP port" << DISCOVERY_PORT
-                   << m_socket.errorString();
+        qCWarning(lcDiscovery) << "RadioDiscovery: bind failed on UDP port" << DISCOVERY_PORT
+                               << "–" << m_socket.errorString();
+
+        if (m_bindRetryCount < MAX_BIND_RETRIES) {
+            ++m_bindRetryCount;
+            qCDebug(lcDiscovery) << "RadioDiscovery: scheduling retry"
+                                 << m_bindRetryCount << "/" << MAX_BIND_RETRIES;
+            m_bindRetryTimer.start();
+        } else {
+            qCWarning(lcDiscovery) << "RadioDiscovery: giving up after"
+                                   << MAX_BIND_RETRIES << "retries";
+        }
         return;
     }
+
+    if (m_bindRetryCount > 0) {
+        qCDebug(lcDiscovery) << "RadioDiscovery: bind succeeded after"
+                             << m_bindRetryCount << "retries";
+    }
+    m_bindRetryCount = 0;
     m_staleTimer.start();
+
+    // Keep re-binding periodically until we actually receive a discovery packet.
+    // Covers: no network at launch, macOS consent blocking packets, interface changes.
+    if (!m_receivedAny) {
+        m_rebindTimer.start();
+    }
+
     qCDebug(lcDiscovery) << "RadioDiscovery: listening on UDP" << DISCOVERY_PORT;
 }
 
 void RadioDiscovery::stopListening()
 {
+    m_bindRetryTimer.stop();
+    m_rebindTimer.stop();
+    m_bindRetryCount = 0;
+    m_receivedAny = false;
     m_staleTimer.stop();
     m_socket.close();
+}
+
+void RadioDiscovery::onBindRetry()
+{
+    startListening();
 }
 
 // SmartSDR discovery packets are ASCII key=value pairs separated by spaces.
@@ -85,6 +134,13 @@ void RadioDiscovery::onReadyRead()
     while (m_socket.hasPendingDatagrams()) {
         QNetworkDatagram datagram = m_socket.receiveDatagram();
         if (datagram.isNull()) continue;
+
+        // First packet received — stop the periodic re-bind, socket is healthy
+        if (!m_receivedAny) {
+            m_receivedAny = true;
+            m_rebindTimer.stop();
+            qCDebug(lcDiscovery) << "RadioDiscovery: first packet received, re-bind timer stopped";
+        }
 
         RadioInfo info = parseDiscoveryPacket(datagram.data());
 

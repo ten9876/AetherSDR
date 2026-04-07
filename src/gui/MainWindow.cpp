@@ -2083,7 +2083,8 @@ MainWindow::MainWindow(QWidget* parent)
     });
     clockTimer->start(1000);
 
-    // Start discovery
+    // Start discovery — show amber indicator while waiting for connection
+    if (m_titleBar) m_titleBar->setDiscovering(true);
     m_discovery.startListening();
 
     // Auto-connect to routed radios (probed, not broadcast-discovered)

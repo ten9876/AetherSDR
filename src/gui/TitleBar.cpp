@@ -530,11 +530,31 @@ void TitleBar::showFeatureRequestDialogImpl()
     dlg->show();
 }
 
+void TitleBar::setDiscovering(bool active)
+{
+    m_discovering = active;
+    if (active) {
+        // Solid amber — discovery in progress, no connection yet
+        m_heartbeatOffTimer->stop();
+        m_heartbeatAlarmTimer->stop();
+        m_heartbeat->setStyleSheet(
+            "QLabel { background: #e0a020; border-radius: 5px; }");
+        m_heartbeat->setToolTip("Searching for radio…");
+    } else {
+        m_heartbeat->setToolTip("Radio discovery heartbeat");
+        // Return to idle gray — onHeartbeat() will take over once pings arrive
+        m_heartbeat->setStyleSheet(
+            "QLabel { background: #404858; border-radius: 5px; }");
+    }
+}
+
 void TitleBar::onHeartbeat()
 {
+    m_discovering = false;
     m_missedBeats = 0;
     m_heartbeatAlarmTimer->stop();
     m_alarmRed = false;
+    m_heartbeat->setToolTip("Radio discovery heartbeat");
     m_heartbeat->setStyleSheet(
         "QLabel { background: #20c060; border-radius: 5px; }");
     if (m_blinkEnabled) {
