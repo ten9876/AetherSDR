@@ -283,10 +283,12 @@ void SpectrumOverlayMenu::buildAntPanel()
     m_rfGainSlider->setTickInterval(8);
     m_rfGainSlider->setTickPosition(QSlider::TicksBelow);
     m_rfGainSlider->setStyleSheet(kSliderStyle);
+    m_rfGainSlider->setToolTip("RF Gain: −8 to +32 dB (8 dB steps)\n"
+                               "Step size is determined by radio hardware.");
     gainRow->addWidget(m_rfGainSlider, 1);
-    m_rfGainLabel = new QLabel("0");
+    m_rfGainLabel = new QLabel("0 dB");
     m_rfGainLabel->setStyleSheet(kLabelStyle);
-    m_rfGainLabel->setFixedWidth(kValueW);
+    m_rfGainLabel->setFixedWidth(36);
     m_rfGainLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     gainRow->addWidget(m_rfGainLabel);
     vbox->addLayout(gainRow);
@@ -300,7 +302,7 @@ void SpectrumOverlayMenu::buildAntPanel()
             QSignalBlocker sb(m_rfGainSlider);
             m_rfGainSlider->setValue(snapped);
         }
-        m_rfGainLabel->setText(QString::number(snapped));
+        m_rfGainLabel->setText(QString("%1 dB").arg(snapped));
         if (!m_updatingFromModel)
             emit rfGainChanged(snapped);
     });
@@ -1270,7 +1272,7 @@ void SpectrumOverlayMenu::setRfGain(int gain)
 {
     QSignalBlocker b(m_rfGainSlider);
     m_rfGainSlider->setValue(gain);
-    m_rfGainLabel->setText(QString::number(gain));
+    m_rfGainLabel->setText(QString("%1 dB").arg(gain));
 }
 
 void SpectrumOverlayMenu::setRfGainRange(int low, int high, int step)
@@ -1281,6 +1283,10 @@ void SpectrumOverlayMenu::setRfGainRange(int low, int high, int step)
     m_rfGainSlider->setSingleStep(step);
     m_rfGainSlider->setPageStep(step);
     m_rfGainSlider->setTickInterval(step);
+    m_rfGainSlider->setToolTip(
+        QString("RF Gain: %1 to %2%3 dB (%4 dB steps)\n"
+                "Step size is determined by radio hardware.")
+            .arg(low).arg(high > 0 ? "+" : "").arg(high).arg(step));
 }
 
 void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
