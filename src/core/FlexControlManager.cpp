@@ -10,6 +10,10 @@ namespace AetherSDR {
 FlexControlManager::FlexControlManager(QObject* parent)
     : QObject(parent)
 {
+    // Set this as parent so moveToThread() moves m_port with us.
+    // Without this, m_port stays on the creating thread, causing
+    // cross-thread QObject access that silently fails on macOS.
+    m_port.setParent(this);
     connect(&m_port, &QSerialPort::readyRead, this, &FlexControlManager::onReadyRead);
 }
 
