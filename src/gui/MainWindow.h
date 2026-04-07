@@ -116,6 +116,8 @@ private:
     void wireVfoWidget(VfoWidget* w, SliceModel* s);
     void enableNr2WithWisdom();  // Wisdom-gated NR2 enable (shared by VFO + overlay)
     void registerShortcutActions();
+    void applyUiScale(int pct);
+    void stepUiScale(int direction);  // +1 = zoom in, -1 = zoom out
     void toggleMinimalMode(bool on);
     void updateKeyerAvailability(const QString& mode);
     void showNr2ParamPopup(const QPoint& globalPos);

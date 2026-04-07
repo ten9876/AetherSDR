@@ -3197,7 +3197,7 @@ void MainWindow::buildMenuBar()
         AppSettings::instance().save();
     });
 
-    // UI Scale submenu — sets QT_SCALE_FACTOR, requires restart
+    // UI Scale submenu — sets QT_SCALE_FACTOR, applies on restart
     auto* scaleMenu = viewMenu->addMenu("UI Scale");
     int savedScale = AppSettings::instance().value("UiScalePercent", "100").toInt();
     auto* scaleGroup = new QActionGroup(scaleMenu);
@@ -3207,12 +3207,19 @@ void MainWindow::buildMenuBar()
         act->setChecked(pct == savedScale);
         scaleGroup->addAction(act);
         connect(act, &QAction::triggered, this, [this, pct] {
-            AppSettings::instance().setValue("UiScalePercent", QString::number(pct));
-            AppSettings::instance().save();
-            QMessageBox::information(this, "UI Scale",
-                QString("UI scale set to %1%. Restart AetherSDR for the change to take effect.").arg(pct));
+            applyUiScale(pct);
         });
     }
+    scaleMenu->addSeparator();
+    auto* zoomInAct = scaleMenu->addAction("Zoom In");
+    zoomInAct->setShortcut(QKeySequence("Ctrl+="));
+    connect(zoomInAct, &QAction::triggered, this, [this] { stepUiScale(+1); });
+    auto* zoomOutAct = scaleMenu->addAction("Zoom Out");
+    zoomOutAct->setShortcut(QKeySequence("Ctrl+-"));
+    connect(zoomOutAct, &QAction::triggered, this, [this] { stepUiScale(-1); });
+    auto* zoomResetAct = scaleMenu->addAction("Reset (100%)");
+    zoomResetAct->setShortcut(QKeySequence("Ctrl+0"));
+    connect(zoomResetAct, &QAction::triggered, this, [this] { applyUiScale(100); });
 
     auto* resetOrderAct = viewMenu->addAction("Reset Applet Order");
     connect(resetOrderAct, &QAction::triggered, this, [this] {
@@ -5728,6 +5735,47 @@ SpectrumWidget* MainWindow::spectrum() const
 {
     return m_panStack ? m_panStack->activeSpectrum()
                       : (m_panApplet ? m_panApplet->spectrumWidget() : nullptr);
+}
+
+// ── UI Scale helpers ────────────────────────────────────────────────────
+static constexpr int kScaleSteps[] = {75, 85, 100, 110, 125, 150, 175, 200};
+static constexpr int kScaleStepCount = sizeof(kScaleSteps) / sizeof(kScaleSteps[0]);
+
+void MainWindow::applyUiScale(int pct)
+{
+    int current = AppSettings::instance().value("UiScalePercent", "100").toInt();
+    if (pct == current)
+        return;
+
+    AppSettings::instance().setValue("UiScalePercent", QString::number(pct));
+    AppSettings::instance().save();
+
+    auto answer = QMessageBox::question(this, "UI Scale",
+        QString("UI scale changed to %1%. Restart AetherSDR now to apply?").arg(pct),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+    if (answer == QMessageBox::Yes) {
+        QProcess::startDetached(QCoreApplication::applicationFilePath(),
+                                QCoreApplication::arguments().mid(1));
+        QCoreApplication::quit();
+    }
+}
+
+void MainWindow::stepUiScale(int direction)
+{
+    int current = AppSettings::instance().value("UiScalePercent", "100").toInt();
+    // Find nearest step in the requested direction
+    int best = current;
+    if (direction > 0) {
+        for (int i = 0; i < kScaleStepCount; ++i) {
+            if (kScaleSteps[i] > current) { best = kScaleSteps[i]; break; }
+        }
+    } else {
+        for (int i = kScaleStepCount - 1; i >= 0; --i) {
+            if (kScaleSteps[i] < current) { best = kScaleSteps[i]; break; }
+        }
+    }
+    if (best != current)
+        applyUiScale(best);
 }
 
 void MainWindow::toggleMinimalMode(bool on)
