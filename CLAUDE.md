@@ -64,7 +64,7 @@ cmake --build build -j$(nproc)
 
 Dependencies (Arch): `qt6-base qt6-multimedia cmake ninja pkgconf autoconf automake libtool`
 
-Current version: **0.8.4** (set in both `CMakeLists.txt` and `README.md`).
+Current version: **0.8.5** (set in both `CMakeLists.txt` and `README.md`).
 
 ---
 
