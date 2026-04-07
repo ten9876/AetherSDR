@@ -60,7 +60,7 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio, QWidge
     : QDialog(parent), m_model(model), m_audio(audio)
 {
     setWindowTitle("Radio Setup");
-    setMinimumSize(820, 520);
+    setMinimumSize(820, 620);
     setStyleSheet("QDialog { background: #0f0f1a; }");
 
     auto* layout = new QVBoxLayout(this);
@@ -97,6 +97,20 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio, QWidge
         "QPushButton:hover { background: #203040; }");
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
     layout->addWidget(buttons);
+
+    // Restore saved geometry so the dialog reopens at the user's last size.
+    const QString geomB64 = AppSettings::instance()
+        .value("RadioSetupDialogGeometry", "").toString();
+    if (!geomB64.isEmpty())
+        restoreGeometry(QByteArray::fromBase64(geomB64.toLatin1()));
+}
+
+void RadioSetupDialog::closeEvent(QCloseEvent* event)
+{
+    AppSettings::instance().setValue("RadioSetupDialogGeometry",
+        QString::fromLatin1(saveGeometry().toBase64()));
+    AppSettings::instance().save();
+    QDialog::closeEvent(event);
 }
 
 // ── Radio tab ─────────────────────────────────────────────────────────────────

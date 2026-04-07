@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QCloseEvent>
 
 class QTabWidget;
 class QLabel;
@@ -28,6 +29,9 @@ public:
 
 signals:
     void txBandSettingsRequested();
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     QWidget* buildRadioTab();
