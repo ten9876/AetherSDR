@@ -8,6 +8,11 @@
 #include "core/SerialPortController.h"
 #include "core/FlexControlManager.h"
 #include <QSerialPortInfo>
+#include <QSet>
+#ifdef Q_OS_LINUX
+#include <QDir>
+#include <QFileInfo>
+#endif
 #endif
 #include "core/FirmwareUploader.h"
 #include "core/FirmwareStager.h"
@@ -2439,6 +2444,63 @@ QWidget* RadioSetupDialog::buildUsbCablesTab()
 }
 
 #ifdef HAVE_SERIALPORT
+
+// Populate a combo box with serial ports from QSerialPortInfo, supplemented
+// on Linux with a /sys/class/tty walk to catch ports that Qt misses (e.g.
+// Moxa NPort ttyr*, ttyMI*, ttyAMA*, and other non-standard TTY drivers).
+// See issue #897.
+static void populateSerialPortCombo(QComboBox* combo)
+{
+    QSet<QString> seen;
+    for (const auto& info : QSerialPortInfo::availablePorts()) {
+        combo->addItem(QString("%1 — %2").arg(info.portName(), info.description()),
+                       info.portName());
+        seen.insert(info.portName());
+    }
+#ifdef Q_OS_LINUX
+    // Walk /sys/class/tty to find ports with a bound kernel driver that
+    // QSerialPortInfo missed, plus /dev/tty* character devices that exist
+    // without sysfs driver entries (userspace drivers like Moxa nportd).
+    static const QSet<QString> kPseudoTTYs = {
+        "tty", "console", "ptmx", "tty0",
+    };
+    QDir sysClassTty("/sys/class/tty");
+    if (sysClassTty.exists()) {
+        for (const QString& name : sysClassTty.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+            if (seen.contains(name))
+                continue;
+            // Skip console/virtual TTYs: tty0-tty63, plain "tty", "console"
+            if (kPseudoTTYs.contains(name))
+                continue;
+            // Skip numbered virtual consoles (tty1–tty63)
+            if (name.startsWith("tty") && name.length() <= 5) {
+                bool isVirtual = false;
+                QStringView digits = QStringView(name).mid(3);
+                if (!digits.isEmpty()) {
+                    int num = digits.toInt(&isVirtual);
+                    if (isVirtual && num >= 0 && num <= 63)
+                        continue;
+                }
+            }
+            // Include if it has a driver symlink (real hardware) ...
+            QString driverPath = sysClassTty.filePath(name + "/device/driver");
+            bool hasDriver = QFileInfo::exists(driverPath);
+            // ... or if /dev/<name> exists as a character device (userspace drivers)
+            QString devPath = "/dev/" + name;
+            QFileInfo devInfo(devPath);
+            if (!hasDriver && !(devInfo.exists() && devInfo.isReadable()))
+                continue;
+            // Skip pty slaves (ttyp*, pts/*)
+            if (name.startsWith("ttyp") || name.startsWith("pts"))
+                continue;
+            combo->addItem(QString("%1 — %2").arg(name, QStringLiteral("Additional serial port")),
+                           name);
+            seen.insert(name);
+        }
+    }
+#endif
+}
+
 QWidget* RadioSetupDialog::buildSerialTab()
 {
     auto* page = new QWidget;
@@ -2464,9 +2526,7 @@ QWidget* RadioSetupDialog::buildSerialTab()
         grid->addWidget(new QLabel("Port:"), 0, 0);
         auto* portCombo = new QComboBox;
         portCombo->setMinimumWidth(200);
-        for (const auto& info : QSerialPortInfo::availablePorts())
-            portCombo->addItem(QString("%1 — %2").arg(info.portName(), info.description()),
-                               info.portName());
+        populateSerialPortCombo(portCombo);
         QString savedPort = settings.value("SerialPortName", "").toString();
         for (int i = 0; i < portCombo->count(); ++i) {
             if (portCombo->itemData(i).toString() == savedPort) {
@@ -2480,9 +2540,7 @@ QWidget* RadioSetupDialog::buildSerialTab()
         refreshBtn->setFixedHeight(24);
         connect(refreshBtn, &QPushButton::clicked, this, [portCombo]() {
             portCombo->clear();
-            for (const auto& info : QSerialPortInfo::availablePorts())
-                portCombo->addItem(QString("%1 — %2").arg(info.portName(), info.description()),
-                                   info.portName());
+            populateSerialPortCombo(portCombo);
         });
         grid->addWidget(refreshBtn, 0, 3);
 
