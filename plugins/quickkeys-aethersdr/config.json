@@ -6,7 +6,7 @@
     "knob_cw":  "tune_cw",
     "knob_ccw": "tune_ccw",
 
-    "comment:tune_step_hz": "Step size in Hz used by the built-in tune_cw/tune_ccw actions.",
+    "comment:tune_step_hz": "Initial step size in Hz used by the built-in tune_cw/tune_ccw actions. The daemon will automatically adopt the step size used by AetherSDR's RX Controls after the first frequency change (scroll or click-tune) — so this value only applies from startup until that first sync. Set it to your most-used step to avoid any mismatch at startup.",
     "tune_step_hz": 1000,
 
     "comment:buttons": "10 assignable inputs: btn1..btn8 (the labeled ring), left (the side button), knob (knob press).",
