@@ -92,11 +92,27 @@ jobs:
       - name: Build
         run: cmake --build build -j$(sysctl -n hw.ncpu)
 
-      - name: Verify binary
+      - name: Build DAX audio driver
         run: |
-          echo "=== Architecture check ==="
+          if [ "${{ matrix.label }}" = "intel" ]; then
+            DEPLOY_TARGET="13.0"
+          else
+            DEPLOY_TARGET="14.0"
+          fi
+          cmake -B driver-build hal-plugin \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY_TARGET"
+          cmake --build driver-build -j$(sysctl -n hw.ncpu)
+          DESTDIR="$PWD/driver-root" cmake --install driver-build
+
+      - name: Verify binaries
+        run: |
+          echo "=== App architecture check ==="
           file build/AetherSDR.app/Contents/MacOS/AetherSDR
           lipo -info build/AetherSDR.app/Contents/MacOS/AetherSDR
+          echo "=== DAX driver architecture check ==="
+          file driver-root/Library/Audio/Plug-Ins/HAL/AetherSDRDAX.driver/Contents/MacOS/AetherSDRDAX
+          lipo -info driver-root/Library/Audio/Plug-Ins/HAL/AetherSDRDAX.driver/Contents/MacOS/AetherSDRDAX
 
       - name: Bundle Qt frameworks
         run: |
@@ -109,20 +125,31 @@ jobs:
             -verbose=1 \
             -always-overwrite
 
-      - name: Import code signing certificate
+      - name: Import code signing certificates
         env:
           APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_INSTALLER_CERT_BASE64: ${{ secrets.APPLE_INSTALLER_CERT_BASE64 }}
+          APPLE_INSTALLER_CERT_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERT_PASSWORD }}
         run: |
-          echo "$APPLE_CERT_BASE64" | base64 --decode > cert.p12
           security create-keychain -p "" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "" build.keychain
           security set-keychain-settings build.keychain
+
+          # Application cert — for codesign (app, driver, DMG)
+          echo "$APPLE_CERT_BASE64" | base64 --decode > cert.p12
           security import cert.p12 -k build.keychain -P "$APPLE_CERT_PASSWORD" \
             -T /usr/bin/codesign -T /usr/bin/productsign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
           rm cert.p12
+
+          # Installer cert — for productbuild (PKG signing)
+          echo "$APPLE_INSTALLER_CERT_BASE64" | base64 --decode > installer-cert.p12
+          security import installer-cert.p12 -k build.keychain -P "$APPLE_INSTALLER_CERT_PASSWORD" \
+            -T /usr/bin/productbuild -T /usr/bin/pkgbuild -T /usr/bin/productsign
+          rm installer-cert.p12
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
 
       - name: Code sign application
         env:
@@ -139,8 +166,60 @@ jobs:
           codesign --verify --deep --strict build/AetherSDR.app
           echo "Code signing verified successfully"
 
+      - name: Code sign DAX driver
+        run: |
+          codesign --force --options runtime --timestamp \
+            --sign "Developer ID Application" \
+            driver-root/Library/Audio/Plug-Ins/HAL/AetherSDRDAX.driver
+          codesign --verify --deep --strict \
+            driver-root/Library/Audio/Plug-Ins/HAL/AetherSDRDAX.driver
+          echo "DAX driver signing verified"
+
+      - name: Build DAX driver PKG
+        run: |
+          # Extract version from CMakeLists.txt to keep driver PKG in sync
+          APP_VERSION=$(sed -n 's/^project(AetherSDR VERSION \([^ ]*\).*/\1/p' CMakeLists.txt)
+
+          # Component package (unsigned — only the outer product archive needs signing)
+          pkgbuild \
+            --root driver-root \
+            --install-location / \
+            --identifier com.aethersdr.dax \
+            --version "$APP_VERSION" \
+            AetherSDRDAX-component.pkg
+
+          # Distribution XML — onConclusion="RequireRestart" triggers the reboot prompt
+          cat > distribution.xml <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>AetherSDR DAX Audio Drivers</title>
+    <options customize="never" require-scripts="false"/>
+    <pkg-ref id="com.aethersdr.dax" version="$APP_VERSION"
+             onConclusion="RequireRestart">AetherSDRDAX-component.pkg</pkg-ref>
+    <choices-outline>
+        <line choice="com.aethersdr.dax"/>
+    </choices-outline>
+    <choice id="com.aethersdr.dax" title="AetherSDR DAX Audio Drivers">
+        <pkg-ref id="com.aethersdr.dax"/>
+    </choice>
+</installer-gui-script>
+EOF
+
+          productbuild \
+            --distribution distribution.xml \
+            --package-path . \
+            --sign "Developer ID Installer" \
+            "AetherSDR DAX Drivers.pkg"
+
+          echo "DAX driver PKG v${APP_VERSION} built and signed"
+
       - name: Create DMG
         run: |
+          mkdir -p dmg-stage
+          cp -r build/AetherSDR.app dmg-stage/
+          cp "AetherSDR DAX Drivers.pkg" dmg-stage/
+
+          # Layout: app (left) + Applications link (right), PKG below Applications
           create-dmg \
             --volname "AetherSDR" \
             --volicon "docs/AetherSDR.icns" \
@@ -148,11 +227,12 @@ jobs:
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
-            --icon "AetherSDR.app" 150 110 \
+            --icon "AetherSDR.app" 150 120 \
             --hide-extension "AetherSDR.app" \
-            --app-drop-link 450 110 \
+            --app-drop-link 450 120 \
+            --icon "AetherSDR DAX Drivers.pkg" 450 290 \
             "AetherSDR-${{ github.ref_name }}-macOS-${{ matrix.label }}.dmg" \
-            "build/AetherSDR.app" \
+            "dmg-stage/" \
           || true
 
       - name: Sign DMG
