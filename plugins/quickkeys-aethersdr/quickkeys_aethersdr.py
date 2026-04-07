@@ -88,6 +88,7 @@ class TciClient:
         self._ws = None
         self._connected = False
         self._lock = threading.Lock()
+        self._callbacks = []
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -102,6 +103,10 @@ class TciClient:
             else:
                 log.warning(f"TCI not connected, dropped: {command!r}")
 
+    def add_message_callback(self, cb):
+        """Register a callable(message: str) to receive all inbound TCI messages."""
+        self._callbacks.append(cb)
+
     def is_connected(self) -> bool:
         return self._connected
 
@@ -112,6 +117,7 @@ class TciClient:
                 self._ws = websocket.WebSocketApp(
                     self._url,
                     on_open=self._on_open,
+                    on_message=self._on_message,
                     on_close=self._on_close,
                     on_error=self._on_error,
                 )
@@ -127,6 +133,13 @@ class TciClient:
             self._connected = True
         log.info("TCI connected")
 
+    def _on_message(self, ws, message):
+        for cb in self._callbacks:
+            try:
+                cb(message)
+            except Exception as e:
+                log.error(f"TCI callback error: {e}")
+
     def _on_close(self, ws, code, msg):
         with self._lock:
             self._connected = False
@@ -138,34 +151,74 @@ class TciClient:
 
 # ── Built-in action handler ────────────────────────────────────────────────────
 
+_VFO_RE = __import__("re").compile(r"^vfo:(\d+),\d+,(\d+);?$")
+
+# SmartSDR standard step sizes — used to validate inferred steps.
+# Only deltas that are multiples of 10 Hz and ≤ 500 kHz are treated as steps;
+# larger jumps (click-tune, band changes) are ignored.
+_MAX_INFER_STEP_HZ = 500_000
+
+
 class BuiltinActions:
     def __init__(self, tci: TciClient, config: dict):
         self._tci = tci
         self._tune_step = int(config.get("tune_step_hz", 1000))
         self._freq_hz = 14_225_000
-        self._band_idx = 5   # 20m default
+        self._last_sent_hz = None   # freq of the last vfo: command we sent
+        self._band_idx = 5          # 20m default
         self._volume = 50
         self._muted = False
         self._mox = False
+
+        # Subscribe to inbound TCI messages to track frequency and infer step size
+        tci.add_message_callback(self._on_tci_message)
+
+    def _on_tci_message(self, message: str):
+        m = _VFO_RE.match(message.strip())
+        if not m:
+            return
+        trx = int(m.group(1))
+        if trx != 0:
+            return
+        hz = int(m.group(2))
+
+        # If this matches what we just sent, it's our own echo — just update freq.
+        if hz == self._last_sent_hz:
+            self._freq_hz = hz
+            self._last_sent_hz = None
+            return
+
+        # It's a UI-driven change (step button, click-tune, band change).
+        # Infer step size if the delta looks like a step rather than a large jump.
+        delta = abs(hz - self._freq_hz)
+        if 10 <= delta <= _MAX_INFER_STEP_HZ and delta % 10 == 0:
+            if delta != self._tune_step:
+                log.info(f"Step size inferred from UI: {delta} Hz")
+                self._tune_step = delta
+        self._freq_hz = hz
 
     def run(self, action: str):
         t = self._tci
         if action == "tune_up":
             self._freq_hz += self._tune_step
+            self._last_sent_hz = self._freq_hz
             t.send(f"vfo:0,0,{self._freq_hz};")
         elif action == "tune_down":
             self._freq_hz -= self._tune_step
+            self._last_sent_hz = self._freq_hz
             t.send(f"vfo:0,0,{self._freq_hz};")
         elif action == "band_up":
             self._band_idx = (self._band_idx + 1) % len(_BANDS)
             _, hz = _BANDS[self._band_idx]
             self._freq_hz = hz
+            self._last_sent_hz = hz
             t.send(f"vfo:0,0,{hz};")
             log.info(f"Band → {_BANDS[self._band_idx][0]}")
         elif action == "band_down":
             self._band_idx = (self._band_idx - 1) % len(_BANDS)
             _, hz = _BANDS[self._band_idx]
             self._freq_hz = hz
+            self._last_sent_hz = hz
             t.send(f"vfo:0,0,{hz};")
             log.info(f"Band → {_BANDS[self._band_idx][0]}")
         elif action == "ptt_on":
@@ -187,9 +240,6 @@ class BuiltinActions:
         else:
             log.warning(f"Unknown built-in action: {action!r}")
 
-    # Called by TCI status messages to keep freq in sync (future enhancement)
-    def sync_freq(self, hz: int):
-        self._freq_hz = hz
 
 
 # ── HID event dispatcher ───────────────────────────────────────────────────────
