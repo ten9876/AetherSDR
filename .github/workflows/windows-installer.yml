@@ -36,6 +36,9 @@ jobs:
       - name: Setup FFTW3 float (NR4 dependency)
         run: .\setup-fftw.ps1
 
+      - name: Setup hidapi (USB HID device support)
+        run: .\setup-hidapi.ps1
+
       - name: Configure
         run: |
           cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DENABLE_RADE=OFF
@@ -53,6 +56,9 @@ jobs:
           }
           if (Test-Path "third_party\fftw3\bin\libfftw3f-3.dll") {
             copy third_party\fftw3\bin\libfftw3f-3.dll deploy\
+          }
+          if (Test-Path "third_party\hidapi\bin\hidapi.dll") {
+            copy third_party\hidapi\bin\hidapi.dll deploy\
           }
 
       - name: Create portable ZIP
