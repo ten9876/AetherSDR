@@ -82,9 +82,6 @@ TitleBar::TitleBar(QWidget* parent)
         blinkAction->setChecked(m_blinkEnabled);
         connect(blinkAction, &QAction::triggered, this, [this](bool checked) {
             setBlinkEnabled(checked);
-            AppSettings::instance().setValue("HeartbeatBlinkEnabled", checked ? "True" : "False");
-            AppSettings::instance().save();
-            emit blinkEnabledChanged(checked);
         });
         menu->popup(m_heartbeat->mapToGlobal(pos));
     });
@@ -554,6 +551,9 @@ void TitleBar::setBlinkEnabled(bool enabled)
 {
     if (m_blinkEnabled == enabled) return;
     m_blinkEnabled = enabled;
+    AppSettings::instance().setValue("HeartbeatBlinkEnabled", enabled ? "True" : "False");
+    AppSettings::instance().save();
+    emit blinkEnabledChanged(enabled);
 
     if (enabled) {
         // Resume alarm blink immediately if currently in alarm state (m_missedBeats >= 3).

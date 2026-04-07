@@ -3233,8 +3233,6 @@ void MainWindow::buildMenuBar()
         AppSettings::instance().value("HeartbeatBlinkEnabled", "True").toString() == "True");
     connect(heartbeatBlinkAct, &QAction::toggled, this, [this](bool on) {
         if (m_titleBar) m_titleBar->setBlinkEnabled(on);
-        AppSettings::instance().setValue("HeartbeatBlinkEnabled", on ? "True" : "False");
-        AppSettings::instance().save();
     });
     // Keep the menu item in sync when the right-click on the indicator changes the setting
     if (m_titleBar) {
