@@ -151,7 +151,8 @@ class TciClient:
 
 # ── Built-in action handler ────────────────────────────────────────────────────
 
-_VFO_RE = __import__("re").compile(r"^vfo:(\d+),\d+,(\d+);?$")
+_VFO_RE     = __import__("re").compile(r"^vfo:(\d+),\d+,(\d+);?$")
+_TXEN_RE    = __import__("re").compile(r"^tx_enable:(\d+),(true|false);?$")
 
 # SmartSDR standard step sizes — used to validate inferred steps.
 # Only deltas that are multiples of 10 Hz and ≤ 500 kHz are treated as steps;
@@ -163,74 +164,97 @@ class BuiltinActions:
     def __init__(self, tci: TciClient, config: dict):
         self._tci = tci
         self._tune_step = int(config.get("tune_step_hz", 1000))
-        self._freq_hz = 14_225_000
+        self._tx_trx = 0            # TRX index that currently has TX focus
+        self._freq_hz = {0: 14_225_000}  # per-trx frequency cache
         self._last_sent_hz = None   # freq of the last vfo: command we sent
         self._band_idx = 5          # 20m default
         self._volume = 50
         self._muted = False
         self._mox = False
 
-        # Subscribe to inbound TCI messages to track frequency and infer step size
+        # Subscribe to inbound TCI messages to track TX slice and infer step size
         tci.add_message_callback(self._on_tci_message)
 
     def _on_tci_message(self, message: str):
-        m = _VFO_RE.match(message.strip())
+        msg = message.strip()
+
+        # Track which TRX has TX focus
+        m = _TXEN_RE.match(msg)
+        if m:
+            trx, state = int(m.group(1)), m.group(2)
+            if state == "true":
+                if trx != self._tx_trx:
+                    log.info(f"TX focus → trx:{trx}")
+                    self._tx_trx = trx
+            return
+
+        # Track VFO frequency per TRX and infer step from UI changes
+        m = _VFO_RE.match(msg)
         if not m:
             return
         trx = int(m.group(1))
-        if trx != 0:
-            return
-        hz = int(m.group(2))
+        hz  = int(m.group(2))
+        prev = self._freq_hz.get(trx, hz)
 
-        # If this matches what we just sent, it's our own echo — just update freq.
+        # If this matches what we just sent, it's our own echo — just update cache.
         if hz == self._last_sent_hz:
-            self._freq_hz = hz
+            self._freq_hz[trx] = hz
             self._last_sent_hz = None
             return
 
-        # It's a UI-driven change (step button, click-tune, band change).
-        # Infer step size if the delta looks like a step rather than a large jump.
-        delta = abs(hz - self._freq_hz)
-        if 10 <= delta <= _MAX_INFER_STEP_HZ and delta % 10 == 0:
-            if delta != self._tune_step:
-                log.info(f"Step size inferred from UI: {delta} Hz")
-                self._tune_step = delta
-        self._freq_hz = hz
+        # UI-driven change on the TX slice — infer step if it looks like one.
+        if trx == self._tx_trx:
+            delta = abs(hz - prev)
+            if 10 <= delta <= _MAX_INFER_STEP_HZ and delta % 10 == 0:
+                if delta != self._tune_step:
+                    log.info(f"Step size inferred from UI: {delta} Hz")
+                    self._tune_step = delta
+
+        self._freq_hz[trx] = hz
+
+    @property
+    def _freq(self) -> int:
+        return self._freq_hz.get(self._tx_trx, 14_225_000)
+
+    @_freq.setter
+    def _freq(self, hz: int):
+        self._freq_hz[self._tx_trx] = hz
 
     def run(self, action: str):
-        t = self._tci
+        t   = self._tci
+        trx = self._tx_trx
         if action == "tune_up":
-            self._freq_hz += self._tune_step
-            self._last_sent_hz = self._freq_hz
-            t.send(f"vfo:0,0,{self._freq_hz};")
+            self._freq = self._freq + self._tune_step
+            self._last_sent_hz = self._freq
+            t.send(f"vfo:{trx},0,{self._freq};")
         elif action == "tune_down":
-            self._freq_hz -= self._tune_step
-            self._last_sent_hz = self._freq_hz
-            t.send(f"vfo:0,0,{self._freq_hz};")
+            self._freq = self._freq - self._tune_step
+            self._last_sent_hz = self._freq
+            t.send(f"vfo:{trx},0,{self._freq};")
         elif action == "band_up":
             self._band_idx = (self._band_idx + 1) % len(_BANDS)
             _, hz = _BANDS[self._band_idx]
-            self._freq_hz = hz
+            self._freq = hz
             self._last_sent_hz = hz
-            t.send(f"vfo:0,0,{hz};")
+            t.send(f"vfo:{trx},0,{hz};")
             log.info(f"Band → {_BANDS[self._band_idx][0]}")
         elif action == "band_down":
             self._band_idx = (self._band_idx - 1) % len(_BANDS)
             _, hz = _BANDS[self._band_idx]
-            self._freq_hz = hz
+            self._freq = hz
             self._last_sent_hz = hz
-            t.send(f"vfo:0,0,{hz};")
+            t.send(f"vfo:{trx},0,{hz};")
             log.info(f"Band → {_BANDS[self._band_idx][0]}")
         elif action == "ptt_on":
-            t.send("trx:0,true;")
+            t.send(f"trx:{trx},true;")
         elif action == "ptt_off":
-            t.send("trx:0,false;")
+            t.send(f"trx:{trx},false;")
         elif action == "mox_toggle":
             self._mox = not self._mox
-            t.send(f"trx:0,{'true' if self._mox else 'false'};")
+            t.send(f"trx:{trx},{'true' if self._mox else 'false'};")
         elif action == "mute_toggle":
             self._muted = not self._muted
-            t.send(f"mute:0,0,{'true' if self._muted else 'false'};")
+            t.send(f"mute:{trx},0,{'true' if self._muted else 'false'};")
         elif action == "vol_up":
             self._volume = min(100, self._volume + 5)
             t.send(f"volume:{self._volume};")
