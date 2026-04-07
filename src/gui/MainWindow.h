@@ -180,7 +180,7 @@ private:
     SerialPortController* m_serialPort{nullptr};
     FlexControlManager*   m_flexControl{nullptr};
     QTimer               m_flexCoalesceTimer;
-    int                  m_flexPendingSteps{0};
+    double               m_flexTargetMhz{-1.0};
 #endif
 #ifdef HAVE_HIDAPI
     HidEncoderManager*   m_hidEncoder{nullptr};

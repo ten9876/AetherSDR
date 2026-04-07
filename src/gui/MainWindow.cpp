@@ -1362,22 +1362,25 @@ MainWindow::MainWindow(QWidget* parent)
     m_flexCoalesceTimer.setSingleShot(true);
     m_flexCoalesceTimer.setInterval(20);
     connect(&m_flexCoalesceTimer, &QTimer::timeout, this, [this]() {
-        if (m_flexPendingSteps == 0) return;
+        if (m_flexTargetMhz < 0.0) return;
         auto* s = activeSlice();
-        if (!s || s->isLocked()) { m_flexPendingSteps = 0; return; }
-        int stepHz = spectrum() ? spectrum()->stepSize() : 100;
-        double newMhz = s->frequency() + m_flexPendingSteps * stepHz / 1e6;
-        m_flexPendingSteps = 0;
-        QString panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
-        if (!panId.isEmpty())
-            m_radioModel.sendCommand(
-                QString("slice m %1 pan=%2").arg(newMhz, 0, 'f', 6).arg(panId));
-        if (spectrum()) spectrum()->setVfoFrequency(newMhz);
+        if (!s || s->isLocked()) { m_flexTargetMhz = -1.0; return; }
+        double target = m_flexTargetMhz;
+        // Use slice tune (not slice m) — doesn't recenter pan, correct for encoder
+        s->setFrequency(target);
     });
     // FlexControl signals (auto-queued from worker → main)
     connect(m_flexControl, &FlexControlManager::tuneSteps,
             this, [this](int steps) {
-        m_flexPendingSteps += steps;
+        auto* s = activeSlice();
+        if (!s || s->isLocked()) return;
+        int stepHz = spectrum() ? spectrum()->stepSize() : 100;
+        // Initialize target from slice on first step or after external QSY
+        if (m_flexTargetMhz < 0.0)
+            m_flexTargetMhz = s->frequency();
+        m_flexTargetMhz += steps * stepHz / 1e6;
+        // Optimistic VFO display update — immediate visual feedback
+        if (spectrum()) spectrum()->setVfoFrequency(m_flexTargetMhz);
         if (!m_flexCoalesceTimer.isActive())
             m_flexCoalesceTimer.start();
     });
