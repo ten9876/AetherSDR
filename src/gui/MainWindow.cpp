@@ -2505,6 +2505,7 @@ void MainWindow::buildMenuBar()
     auto* settingsMenu = menuBar()->addMenu("&Settings");
 
     auto* radioSetup = settingsMenu->addAction("Radio Setup...");
+    radioSetup->setMenuRole(QAction::NoRole);      // prevent macOS auto-reparenting (#883)
     connect(radioSetup, &QAction::triggered, this, [this] {
         if (m_radioSetupDialog) {
             m_radioSetupDialog->raise();
@@ -2562,7 +2563,14 @@ void MainWindow::buildMenuBar()
         dlg->show();
     });
 
+    // macOS "AetherSDR → Preferences" entry — triggers Radio Setup (#883)
+    auto* macPrefsAction = new QAction("Preferences...", this);
+    macPrefsAction->setMenuRole(QAction::PreferencesRole);
+    connect(macPrefsAction, &QAction::triggered, radioSetup, &QAction::trigger);
+    settingsMenu->addAction(macPrefsAction);
+
     auto* chooseRadio = settingsMenu->addAction("Choose Radio / SmartLink Setup...");
+    chooseRadio->setMenuRole(QAction::NoRole);      // prevent macOS auto-reparenting (#883)
     connect(chooseRadio, &QAction::triggered, this, [this] {
         toggleConnectionDialog();
     });
@@ -2745,6 +2753,7 @@ void MainWindow::buildMenuBar()
     connect(multiFlexAction, &QAction::triggered, this, openMultiFlex);
     // m_titleBar connect deferred — see after TitleBar creation (~line 2530)
     m_txBandAction = settingsMenu->addAction("TX Band Settings...");
+    m_txBandAction->setMenuRole(QAction::NoRole);   // prevent macOS auto-reparenting (#883)
     auto* txBandAct = m_txBandAction;
     connect(txBandAct, &QAction::triggered, this, [this] {
         if (!m_radioModel.isConnected()) {
@@ -2958,6 +2967,7 @@ void MainWindow::buildMenuBar()
     }
 
     auto* dspAction = settingsMenu->addAction("AetherDSP Settings...");
+    dspAction->setMenuRole(QAction::NoRole);        // prevent macOS auto-reparenting (#883)
     connect(dspAction, &QAction::triggered, this, [this] {
         if (m_dspDialog) {
             m_dspDialog->raise();
@@ -3241,6 +3251,7 @@ void MainWindow::buildMenuBar()
         AppSettings::instance().save();
     });
     auto* configShortcutsAct = viewMenu->addAction("Configure Shortcuts...");
+    configShortcutsAct->setMenuRole(QAction::NoRole); // prevent macOS auto-reparenting (#883)
     connect(configShortcutsAct, &QAction::triggered, this, [this] {
         ShortcutDialog dlg(&m_shortcutManager, this);
         dlg.exec();
