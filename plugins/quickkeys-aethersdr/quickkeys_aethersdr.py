@@ -307,7 +307,10 @@ def run(hidraw_paths: list[str], dispatcher: QuickKeysDispatcher):
         bufs = {}
         for path in hidraw_paths:
             try:
-                f = open(path, "rb")
+                # buffering=0 → unbuffered raw I/O — each read() goes straight
+                # to the kernel so knob rotation events are dispatched immediately
+                # rather than sitting in Python's internal read buffer.
+                f = open(path, "rb", buffering=0)
                 fds[f] = path
                 bufs[f] = b""
                 log.info(f"Opened {path}")
