@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QMap>
 #include <QStringList>
 #include <QVector>
 
@@ -8,6 +9,8 @@ class QComboBox;
 class QPushButton;
 class QScrollArea;
 class QVBoxLayout;
+
+namespace AetherSDR { class FloatingAppletWindow; }
 
 namespace AetherSDR {
 
@@ -65,13 +68,21 @@ public:
     bool controlsLocked() const;
     void setControlsLocked(bool locked);
 
-    // Ordered applet entry for drag-reorder support
+    // Ordered applet entry for drag-reorder and float support
     struct AppletEntry {
         QString id;
-        QWidget* widget{nullptr};
-        QWidget* titleBar{nullptr};
-        QPushButton* btn{nullptr};
+        QWidget* widget{nullptr};      // wrapper widget (titleBar + applet)
+        QWidget* titleBar{nullptr};    // draggable AppletTitleBar
+        QPushButton* btn{nullptr};     // toggle button in button row
+        bool floating{false};          // true when applet is in a FloatingAppletWindow
     };
+
+    // Detach an applet into a floating window / re-dock it
+    void floatApplet(const QString& id);
+    void dockApplet(const QString& id);
+
+    // Returns true if the applet with the given id is currently floating
+    bool isAppletFloating(const QString& id) const;
 
     friend class AppletDropArea;
 
@@ -105,6 +116,9 @@ private:
     // Ordered list of applets (drag-reorderable)
     QVector<AppletEntry> m_appletOrder;
     static const QStringList kDefaultOrder;
+
+    // Floating windows keyed by applet ID
+    QMap<QString, FloatingAppletWindow*> m_floatingWindows;
 };
 
 } // namespace AetherSDR
