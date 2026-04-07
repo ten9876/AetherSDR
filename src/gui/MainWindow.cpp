@@ -3221,6 +3221,22 @@ void MainWindow::buildMenuBar()
         m_shortcutManager.rebuildShortcuts(this, shortcutGuard);
     });
 
+    viewMenu->addSeparator();
+    auto* heartbeatBlinkAct = viewMenu->addAction("Blink Status Indicator");
+    heartbeatBlinkAct->setCheckable(true);
+    heartbeatBlinkAct->setChecked(
+        AppSettings::instance().value("HeartbeatBlinkEnabled", "True").toString() == "True");
+    connect(heartbeatBlinkAct, &QAction::toggled, this, [this](bool on) {
+        if (m_titleBar) m_titleBar->setBlinkEnabled(on);
+        AppSettings::instance().setValue("HeartbeatBlinkEnabled", on ? "True" : "False");
+        AppSettings::instance().save();
+    });
+    // Keep the menu item in sync when the right-click on the indicator changes the setting
+    if (m_titleBar) {
+        connect(m_titleBar, &TitleBar::blinkEnabledChanged,
+                heartbeatBlinkAct, &QAction::setChecked);
+    }
+
     auto* helpMenu = menuBar()->addMenu("&Help");
     helpMenu->addAction("Getting Started...", this, [this]() {
         auto* dlg = new HelpDialog("Getting Started", ":/help/getting-started.md", this);
