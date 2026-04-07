@@ -71,8 +71,13 @@ TitleBar::TitleBar(QWidget* parent)
     m_heartbeat->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_heartbeat, &QWidget::customContextMenuRequested,
             this, [this](const QPoint& pos) {
-        QMenu menu;
-        QAction* blinkAction = menu.addAction("Blink status indicator");
+        // Heap-allocate with WA_DeleteOnClose so the menu outlives this lambda.
+        // Use popup() not exec() — exec() creates a nested event loop which can
+        // allow network/connection events to be processed out of order while the
+        // menu is open. popup() is non-blocking and safe during connection setup.
+        QMenu* menu = new QMenu(this);
+        menu->setAttribute(Qt::WA_DeleteOnClose);
+        QAction* blinkAction = menu->addAction("Blink status indicator");
         blinkAction->setCheckable(true);
         blinkAction->setChecked(m_blinkEnabled);
         connect(blinkAction, &QAction::triggered, this, [this](bool checked) {
@@ -81,7 +86,7 @@ TitleBar::TitleBar(QWidget* parent)
             AppSettings::instance().save();
             emit blinkEnabledChanged(checked);
         });
-        menu.exec(m_heartbeat->mapToGlobal(pos));
+        menu->popup(m_heartbeat->mapToGlobal(pos));
     });
 
     // On Linux/Windows the menu bar occupies the left side, so add a stretch
@@ -550,7 +555,15 @@ void TitleBar::setBlinkEnabled(bool enabled)
     if (m_blinkEnabled == enabled) return;
     m_blinkEnabled = enabled;
 
-    if (enabled) return;  // visual state will self-correct on the next ping/loss event
+    if (enabled) {
+        // Resume alarm blink immediately if currently in alarm state (m_missedBeats >= 3).
+        // Without this, re-enabling blink while connection is lost leaves the indicator
+        // static red until the next onHeartbeatLost() call increments the counter again.
+        if (m_missedBeats >= 3 && !m_heartbeatAlarmTimer->isActive()) {
+            m_heartbeatAlarmTimer->start();
+        }
+        return;
+    }
 
     // Immediately reconcile mid-session: stop any active animation and freeze state
     if (m_heartbeatAlarmTimer->isActive()) {
