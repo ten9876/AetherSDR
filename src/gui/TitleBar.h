@@ -27,6 +27,7 @@ public:
     void setMultiFlexStatus(int clientCount, const QStringList& names);
     void onHeartbeat();       // Call when a discovery packet arrives
     void onHeartbeatLost();   // Call when radio lost from discovery
+    void setDiscovering(bool active); // Solid amber while discovering / not yet connected
     void setMinimalMode(bool on);
     void setBlinkEnabled(bool enabled); // Toggle heartbeat animation on/off
 
@@ -67,6 +68,7 @@ private:
     int          m_missedBeats{0};
     bool         m_alarmRed{false};
     bool         m_blinkEnabled{true};  // persisted via AppSettings "HeartbeatBlinkEnabled"
+    bool         m_discovering{false};  // solid amber while waiting for connection
 };
 
 } // namespace AetherSDR
