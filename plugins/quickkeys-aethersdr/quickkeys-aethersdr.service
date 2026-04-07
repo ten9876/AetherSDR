@@ -1,0 +1,13 @@
+[Unit]
+Description=Xencelabs Quick Keys → AetherSDR TCI daemon
+After=network.target
+# Start after AetherSDR is running (TCI client will reconnect automatically if not ready)
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.config/AetherSDR/plugins/quickkeys-aethersdr/quickkeys_aethersdr.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

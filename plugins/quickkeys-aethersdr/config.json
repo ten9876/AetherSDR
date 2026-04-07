@@ -1,0 +1,39 @@
+{
+    "tci_host": "localhost",
+    "tci_port": 50001,
+
+    "comment:knob": "Knob CW/CCW actions. 'tune_cw'/'tune_ccw' are built-in; or use any TCI command string.",
+    "knob_cw":  "tune_cw",
+    "knob_ccw": "tune_ccw",
+
+    "comment:tune_step_hz": "Step size in Hz used by the built-in tune_cw/tune_ccw actions.",
+    "tune_step_hz": 1000,
+
+    "comment:buttons": "10 assignable inputs: btn1..btn8 (the labeled ring), left (the side button), knob (knob press).",
+    "comment:actions": "Each entry is either a TCI command string (e.g. 'trx:0,true;') or a built-in keyword.",
+    "comment:builtins": [
+        "tune_up      — step VFO up by tune_step_hz",
+        "tune_down    — step VFO down by tune_step_hz",
+        "band_up      — cycle to next higher band",
+        "band_down    — cycle to next lower band",
+        "ptt_on       — key transmitter (use with press, pair ptt_off with release)",
+        "ptt_off      — unkey transmitter",
+        "mox_toggle   — toggle MOX",
+        "mute_toggle  — toggle mute",
+        "vol_up       — volume +5",
+        "vol_down     — volume -5"
+    ],
+
+    "buttons": {
+        "btn1":  { "press": "modulation:0,USB;",  "release": "" },
+        "btn2":  { "press": "modulation:0,LSB;",  "release": "" },
+        "btn3":  { "press": "modulation:0,CW;",   "release": "" },
+        "btn4":  { "press": "modulation:0,DIGU;", "release": "" },
+        "btn5":  { "press": "tune_up",            "release": "" },
+        "btn6":  { "press": "tune_down",          "release": "" },
+        "btn7":  { "press": "band_up",            "release": "" },
+        "btn8":  { "press": "band_down",          "release": "" },
+        "left":  { "press": "ptt_on",             "release": "ptt_off" },
+        "knob":  { "press": "mox_toggle",         "release": "" }
+    }
+}
