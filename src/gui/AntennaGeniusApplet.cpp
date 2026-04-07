@@ -234,23 +234,14 @@ void AntennaGeniusApplet::buildUI()
                 m_model->connectToDevice(devices[idx]);
             } else {
                 // No discovered device selected — try manual IP.
-                QString ip = m_manualIpEdit->text().trimmed();
-                if (!ip.isEmpty()) {
-                    AppSettings::instance().setValue("AG_ManualIp", ip);
-                    m_model->connectToAddress(QHostAddress(ip), 9007);
-                }
+                tryManualConnect();
             }
         }
     });
 
     // Manual IP: pressing Enter triggers connect.
     connect(m_manualIpEdit, &QLineEdit::returnPressed, this, [this]() {
-        if (!m_model || m_model->isConnected()) return;
-        QString ip = m_manualIpEdit->text().trimmed();
-        if (!ip.isEmpty()) {
-            AppSettings::instance().setValue("AG_ManualIp", ip);
-            m_model->connectToAddress(QHostAddress(ip), 9007);
-        }
+        tryManualConnect();
     });
 
     // Port A AUTO toggle
@@ -267,6 +258,21 @@ void AntennaGeniusApplet::buildUI()
 
 }
 
+
+void AntennaGeniusApplet::tryManualConnect()
+{
+    if (!m_model || m_model->isConnected()) return;
+    QString ip = m_manualIpEdit->text().trimmed();
+    if (ip.isEmpty()) return;
+    QHostAddress addr(ip);
+    if (addr.isNull()) {
+        m_statusLabel->setText("Invalid IP address");
+        m_statusLabel->setStyleSheet("QLabel { color: #ff4444; font-size: 10px; }");
+        return;
+    }
+    AppSettings::instance().setValue("AG_ManualIp", ip);
+    m_model->connectToAddress(addr, 9007);
+}
 
 void AntennaGeniusApplet::setModel(AntennaGeniusModel* model)
 {

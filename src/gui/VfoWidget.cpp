@@ -581,6 +581,7 @@ void VfoWidget::buildTabContent()
         auto* gainRow = new QHBoxLayout;
         gainRow->setSpacing(3);
         m_muteBtn = new QPushButton(QString::fromUtf8("AF  \xF0\x9F\x94\x8A")); // AF 🔊
+        m_muteBtn->setAccessibleName("Slice audio mute");
         m_muteBtn->setCheckable(true);
         m_muteBtn->setFixedHeight(20);
         m_muteBtn->setFixedWidth(60);
@@ -592,6 +593,8 @@ void VfoWidget::buildTabContent()
             " border: 1px solid #a04040; }");
         gainRow->addWidget(m_muteBtn);
         m_afGainSlider = new GuardedSlider(Qt::Horizontal);
+        m_afGainSlider->setAccessibleName("AF gain");
+        m_afGainSlider->setAccessibleDescription("Audio output volume for this slice");
         m_afGainSlider->setRange(0, 100);
         m_afGainSlider->setStyleSheet(kSliderStyle);
         gainRow->addWidget(m_afGainSlider, 1);
@@ -606,11 +609,13 @@ void VfoWidget::buildTabContent()
         auto* sqlRow = new QHBoxLayout;
         sqlRow->setSpacing(3);
         m_sqlBtn = new QPushButton("SQL");
+        m_sqlBtn->setAccessibleName("Squelch");
         m_sqlBtn->setCheckable(true);
         m_sqlBtn->setFixedHeight(20);
         m_sqlBtn->setStyleSheet(kDspToggle + kDisabledBtn);
         sqlRow->addWidget(m_sqlBtn);
         m_sqlSlider = new GuardedSlider(Qt::Horizontal);
+        m_sqlSlider->setAccessibleName("Squelch threshold");
         m_sqlSlider->setRange(0, 100);
         m_sqlSlider->setValue(20);
         m_sqlSlider->setStyleSheet(kSliderStyle);
@@ -626,6 +631,7 @@ void VfoWidget::buildTabContent()
         auto* agcRow = new QHBoxLayout;
         agcRow->setSpacing(3);
         m_agcCmb = new GuardedComboBox;
+        m_agcCmb->setAccessibleName("AGC mode");
         m_agcCmb->addItems({"Off", "Slow", "Med", "Fast"});
         m_agcCmb->setFixedHeight(20);
         m_agcCmb->setFixedWidth(60);
@@ -633,6 +639,7 @@ void VfoWidget::buildTabContent()
         AetherSDR::applyComboStyle(m_agcCmb);
         agcRow->addWidget(m_agcCmb);
         m_agcTSlider = new GuardedSlider(Qt::Horizontal);
+        m_agcTSlider->setAccessibleName("AGC threshold");
         m_agcTSlider->setRange(0, 100);
         m_agcTSlider->setValue(65);
         m_agcTSlider->setStyleSheet(kSliderStyle);
@@ -648,6 +655,7 @@ void VfoWidget::buildTabContent()
         auto* panRow = new QHBoxLayout;
         panRow->setSpacing(3);
         m_divBtn = new QPushButton("DIV");
+        m_divBtn->setAccessibleName("Diversity receive");
         m_divBtn->setCheckable(true);
         m_divBtn->setFixedHeight(20);
         m_divBtn->setFixedWidth(60);
@@ -680,20 +688,7 @@ void VfoWidget::buildTabContent()
         m_agcTSlider->setToolTip("AGC threshold. Higher values reduce the maximum gain applied to weak signals.");
         m_panSlider->setToolTip("Pans audio between left and right channels.");
 
-        // Audio tab accessible names (#870)
-        m_muteBtn->setAccessibleName("Slice audio mute");
-        m_afGainSlider->setAccessibleName("AF gain");
-        m_afGainSlider->setAccessibleDescription("Audio output volume for this slice");
-        m_sqlBtn->setAccessibleName("Squelch");
-        m_sqlSlider->setAccessibleName("Squelch threshold");
-        m_agcCmb->setAccessibleName("AGC mode");
-        m_agcTSlider->setAccessibleName("AGC threshold");
-        m_panSlider->setAccessibleName("Audio pan");
-        m_panSlider->setAccessibleDescription("Stereo audio pan, left to right");
-        m_divBtn->setAccessibleName("Diversity receive");
-        m_escBtn->setAccessibleName("Enhanced signal clarity");
-        m_escPhaseSlider->setAccessibleName("ESC phase");
-        m_escGainSlider->setAccessibleName("ESC gain");
+        // Accessible names set inline after each widget creation below (#870)
 
         // ESC (Enhanced Signal Clarity) panel — visible only when DIV is active
         m_escPanel = new QWidget;
@@ -706,6 +701,7 @@ void VfoWidget::buildTabContent()
         auto* escTopRow = new QHBoxLayout;
         escTopRow->setSpacing(3);
         m_escBtn = new QPushButton("ESC");
+        m_escBtn->setAccessibleName("Enhanced signal clarity");
         m_escBtn->setCheckable(true);
         m_escBtn->setFixedHeight(20);
         m_escBtn->setFixedWidth(60);
@@ -715,6 +711,7 @@ void VfoWidget::buildTabContent()
         phaseLbl->setStyleSheet(kLabelStyle);
         escTopRow->addWidget(phaseLbl);
         m_escPhaseSlider = new GuardedSlider(Qt::Horizontal);
+        m_escPhaseSlider->setAccessibleName("ESC phase");
         m_escPhaseSlider->setRange(0, 72);   // 0–360° in 5° steps
         m_escPhaseSlider->setValue(0);
         m_escPhaseSlider->setStyleSheet(kSliderStyle);
@@ -739,6 +736,7 @@ void VfoWidget::buildTabContent()
         m_escGainLbl->setAlignment(Qt::AlignHCenter);
         gainCol->addWidget(m_escGainLbl);
         m_escGainSlider = new GuardedSlider(Qt::Vertical);
+        m_escGainSlider->setAccessibleName("ESC gain");
         m_escGainSlider->setRange(0, 200);   // 0.0 – 2.0
         m_escGainSlider->setValue(100);       // default 1.0
         m_escGainSlider->setStyleSheet(kSliderStyle);
@@ -867,19 +865,33 @@ void VfoWidget::buildTabContent()
         };
 
         m_nrBtn   = makeDsp("NR");
+        m_nrBtn->setAccessibleName("Noise reduction");
         m_nr2Btn  = makeDsp("NR2");
+        m_nr2Btn->setAccessibleName("NR2 spectral noise reduction");
         m_nbBtn   = makeDsp("NB");
+        m_nbBtn->setAccessibleName("Noise blanker");
         m_anfBtn  = makeDsp("ANF");
+        m_anfBtn->setAccessibleName("Auto notch filter");
         m_apfBtn  = makeDsp("APF");
+        m_apfBtn->setAccessibleName("CW audio peaking filter");
         m_nrlBtn  = makeDsp("NRL");
+        m_nrlBtn->setAccessibleName("Leaky LMS noise reduction");
         m_nrsBtn  = makeDsp("NRS");
+        m_nrsBtn->setAccessibleName("Spectral subtraction");
         m_rnnBtn  = makeDsp("RNN");
+        m_rnnBtn->setAccessibleName("RNN noise reduction");
         m_rn2Btn  = makeDsp("RN2");
+        m_rn2Btn->setAccessibleName("RNNoise noise suppression");
         m_nrfBtn  = makeDsp("NRF");
+        m_nrfBtn->setAccessibleName("Spectral noise filter");
         m_anflBtn = makeDsp("ANFL");
+        m_anflBtn->setAccessibleName("LMS notch filter");
         m_anftBtn = makeDsp("ANFT");
+        m_anftBtn->setAccessibleName("FFT notch filter");
         m_bnrBtn  = makeDsp("BNR");
+        m_bnrBtn->setAccessibleName("GPU neural denoising");
         m_nr4Btn  = makeDsp("NR4");
+        m_nr4Btn->setAccessibleName("Spectral bleach noise reduction");
         m_apfBtn->hide();  // only visible in CW mode
 #ifndef HAVE_BNR
         m_bnrBtn->hide();
@@ -921,22 +933,7 @@ void VfoWidget::buildTabContent()
         m_nr4Btn->setToolTip("Client-side spectral bleach noise reduction (libspecbleach). Right-click for NR4 settings.");
 
         // DSP button accessible names (#870)
-        m_nrBtn->setAccessibleName("Noise reduction");
-        m_nr2Btn->setAccessibleName("NR2 spectral noise reduction");
-        m_nbBtn->setAccessibleName("Noise blanker");
-        m_anfBtn->setAccessibleName("Auto notch filter");
-        m_apfBtn->setAccessibleName("CW audio peaking filter");
-        m_nrlBtn->setAccessibleName("Leaky LMS noise reduction");
-        m_nrsBtn->setAccessibleName("Spectral subtraction");
-        m_rnnBtn->setAccessibleName("RNN noise reduction");
-        m_rn2Btn->setAccessibleName("RNNoise noise suppression");
-        m_nrfBtn->setAccessibleName("Spectral noise filter");
-        m_anflBtn->setAccessibleName("LMS notch filter");
-        m_anftBtn->setAccessibleName("FFT notch filter");
-        m_bnrBtn->setAccessibleName("GPU neural denoising");
-        m_nr4Btn->setAccessibleName("Spectral bleach noise reduction");
-        m_apfSlider->setAccessibleName("APF bandwidth");
-        m_apfSlider->setAccessibleDescription("CW audio peaking filter bandwidth");
+        // Accessible names set inline after each widget creation below (#870)
 
         // APF level slider (hidden unless CW mode)
         {
@@ -950,6 +947,8 @@ void VfoWidget::buildTabContent()
             lbl->setFixedWidth(26);
             apfVb->addWidget(lbl);
             m_apfSlider = new GuardedSlider(Qt::Horizontal);
+            m_apfSlider->setAccessibleName("APF bandwidth");
+            m_apfSlider->setAccessibleDescription("CW audio peaking filter bandwidth");
             m_apfSlider->setRange(0, 100);
             m_apfSlider->setValue(50);
             m_apfSlider->setStyleSheet(kSliderStyle);

@@ -31,6 +31,7 @@ public:
 
 private:
     void buildUI();
+    void tryManualConnect();
     void syncFromModel();
     void rebuildAntennaButtons();
     void updatePortDisplay(int portId);
