@@ -60,6 +60,12 @@ private:
     QLineEdit* m_callsignEdit{nullptr};
     QPushButton* m_remoteOnBtn{nullptr};
 
+    // License Info
+    QLabel* m_licSubscriptionLabel{nullptr};
+    QLabel* m_licExpirationLabel{nullptr};
+    QLabel* m_licRadioIdLabel{nullptr};
+    QLabel* m_licMaxVersionLabel{nullptr};
+
     // Firmware update
     QLabel*       m_fwStatusLabel{nullptr};
     QProgressBar* m_fwProgress{nullptr};

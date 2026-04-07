@@ -237,6 +237,61 @@ QWidget* RadioSetupDialog::buildRadioTab()
         vbox->addWidget(group);
     }
 
+    // License Info group (matches SmartSDR Radio Setup → License Info section)
+    {
+        auto* group = new QGroupBox("License Info");
+        group->setStyleSheet(kGroupStyle);
+        auto* grid = new QGridLayout(group);
+        grid->setSpacing(6);
+        grid->setColumnStretch(1, 1);
+        grid->setColumnStretch(3, 1);
+
+        // Row 0: Subscription | Expiration
+        grid->addWidget(new QLabel("Subscription:"), 0, 0);
+        m_licSubscriptionLabel = new QLabel(
+            m_model->licenseSubscription().isEmpty() ? "—" : m_model->licenseSubscription());
+        m_licSubscriptionLabel->setStyleSheet(kValueStyle);
+        grid->addWidget(m_licSubscriptionLabel, 0, 1);
+
+        grid->addWidget(new QLabel("Expiration:"), 0, 2);
+        m_licExpirationLabel = new QLabel(
+            m_model->licenseExpirationDate().isEmpty() ? "—" : m_model->licenseExpirationDate());
+        m_licExpirationLabel->setStyleSheet(kValueStyle);
+        grid->addWidget(m_licExpirationLabel, 0, 3);
+
+        // Row 1: Radio ID | Licensed version
+        grid->addWidget(new QLabel("Radio ID:"), 1, 0);
+        m_licRadioIdLabel = new QLabel(
+            m_model->licenseRadioId().isEmpty() ? "—" : m_model->licenseRadioId());
+        m_licRadioIdLabel->setStyleSheet(kValueStyle);
+        grid->addWidget(m_licRadioIdLabel, 1, 1);
+
+        grid->addWidget(new QLabel("Licensed version:"), 1, 2);
+        m_licMaxVersionLabel = new QLabel(
+            m_model->licenseMaxVersion().isEmpty() ? "—" : m_model->licenseMaxVersion());
+        m_licMaxVersionLabel->setStyleSheet(kValueStyle);
+        grid->addWidget(m_licMaxVersionLabel, 1, 3);
+
+        for (auto* lbl : group->findChildren<QLabel*>()) {
+            if (lbl->styleSheet().isEmpty())
+                lbl->setStyleSheet(kLabelStyle);
+        }
+
+        // Update labels live if license status arrives after dialog opens
+        connect(m_model, &RadioModel::infoChanged, this, [this] {
+            if (!m_model->licenseSubscription().isEmpty())
+                m_licSubscriptionLabel->setText(m_model->licenseSubscription());
+            if (!m_model->licenseExpirationDate().isEmpty())
+                m_licExpirationLabel->setText(m_model->licenseExpirationDate());
+            if (!m_model->licenseRadioId().isEmpty())
+                m_licRadioIdLabel->setText(m_model->licenseRadioId());
+            if (!m_model->licenseMaxVersion().isEmpty())
+                m_licMaxVersionLabel->setText(m_model->licenseMaxVersion());
+        });
+
+        vbox->addWidget(group);
+    }
+
     // Firmware Update group
     {
         auto* group = new QGroupBox("Firmware Update");
