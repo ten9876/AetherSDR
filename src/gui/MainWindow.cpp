@@ -391,6 +391,19 @@ MainWindow::MainWindow(QWidget* parent)
 #endif
     m_spotThread->start();
 
+    // ── HF Propagation Forecast ────────────────────────────────────────────
+    m_propForecast = new PropForecastClient(this);
+    connect(m_propForecast, &PropForecastClient::forecastUpdated,
+            this, [this](const PropForecast& fc) {
+        for (PanadapterApplet* applet : m_panStack->allApplets()) {
+            applet->spectrumWidget()->setPropForecast(fc.kIndex, fc.sfi);
+        }
+    });
+    // Restore persisted setting — timer only arms if enabled
+    if (AppSettings::instance().value("PropForecastEnabled", "False").toString() == "True") {
+        m_propForecast->setEnabled(true);
+    }
+
     // ── Spot forwarding: dedup + batch queue + 1/sec flush ────────────────
 
     // Dedup helper — returns true if spot should be skipped
@@ -3288,6 +3301,27 @@ void MainWindow::buildMenuBar()
         toggleMinimalMode(on);
     });
 
+    auto* propForecastAct = viewMenu->addAction("Propagation Conditions");
+    propForecastAct->setCheckable(true);
+    propForecastAct->setChecked(
+        AppSettings::instance().value("PropForecastEnabled", "False").toString() == "True");
+    connect(propForecastAct, &QAction::toggled, this, [this](bool on) {
+        AppSettings::instance().setValue("PropForecastEnabled", on ? "True" : "False");
+        AppSettings::instance().save();
+        // Enable/disable the client (timer only runs when on)
+        m_propForecast->setEnabled(on);
+        // Show/hide the overlay on all panadapters immediately
+        for (PanadapterApplet* applet : m_panStack->allApplets()) {
+            applet->spectrumWidget()->setPropForecastVisible(on);
+        }
+        // If turning off, clear the stale values so they don't reappear
+        if (!on) {
+            for (PanadapterApplet* applet : m_panStack->allApplets()) {
+                applet->spectrumWidget()->setPropForecast(-1, -1);
+            }
+        }
+    });
+
     m_keyboardShortcutsEnabled = AppSettings::instance()
         .value("KeyboardShortcutsEnabled", "False").toString() == "True";
     auto* kbAct = viewMenu->addAction("Keyboard Shortcuts");
@@ -3455,6 +3489,9 @@ void MainWindow::buildMenuBar()
             "github.com/ten9876/AetherSDR</a></p>"
             "<p style='font-size:10px; color:#6a8090;'>"
             "SmartSDR protocol &copy; FlexRadio Systems</p>"
+            "<p style='font-size:10px; color:#6a8090;'>"
+            "HF propagation forecasts provided by "
+            "<a href='https://www.hamqsl.com/' style='color:#8aa8c0;'>hamqsl.com</a></p>"
             "</div>");
         footer->setAlignment(Qt::AlignCenter);
         footer->setOpenExternalLinks(true);
@@ -4848,6 +4885,15 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 
     // Set panId on the overlay menu so +RX routes to the correct pan
     menu->setPanId(applet->panId());
+
+    // Apply current prop forecast state to this (possibly new) panadapter
+    if (m_propForecast) {
+        sw->setPropForecastVisible(m_propForecast->isEnabled());
+        if (m_propForecast->isEnabled()) {
+            PropForecast fc = m_propForecast->lastForecast();
+            sw->setPropForecast(fc.kIndex, fc.sfi);
+        }
+    }
 
     // Restore per-pan cursor freq state from AppSettings
     {

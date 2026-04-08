@@ -17,6 +17,7 @@
 #include "core/WsjtxClient.h"
 #include "core/SpotCollectorClient.h"
 #include "core/PotaClient.h"
+#include "core/PropForecastClient.h"
 #ifdef HAVE_WEBSOCKETS
 #include "core/FreeDvClient.h"
 #endif
@@ -159,7 +160,8 @@ private:
     DxClusterClient*   m_rbnClient{nullptr};
     WsjtxClient*       m_wsjtxClient{nullptr};
     SpotCollectorClient* m_spotCollectorClient{nullptr};
-    PotaClient*        m_potaClient{nullptr};
+    PotaClient*          m_potaClient{nullptr};
+    PropForecastClient*  m_propForecast{nullptr};
 #ifdef HAVE_WEBSOCKETS
     FreeDvClient*      m_freedvClient{nullptr};
 #endif
