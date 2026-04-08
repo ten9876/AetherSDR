@@ -2270,11 +2270,16 @@ void MainWindow::buildMenuBar()
         dlg->show();
     });
 
+#ifdef Q_OS_MACOS
     // macOS "AetherSDR → Preferences" entry — triggers Radio Setup (#883)
+    // On non-macOS platforms PreferencesRole does not move the action to the
+    // app menu, so the action would appear in the Settings menu alongside
+    // "Radio Setup..." causing the duplicate reported in #1013.
     auto* macPrefsAction = new QAction("Preferences...", this);
     macPrefsAction->setMenuRole(QAction::PreferencesRole);
     connect(macPrefsAction, &QAction::triggered, radioSetup, &QAction::trigger);
     settingsMenu->addAction(macPrefsAction);
+#endif
 
     auto* chooseRadio = settingsMenu->addAction("Choose Radio / SmartLink Setup...");
     chooseRadio->setMenuRole(QAction::NoRole);      // prevent macOS auto-reparenting (#883)
