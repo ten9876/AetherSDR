@@ -1074,6 +1074,7 @@ void RxApplet::connectSlice(SliceModel* s)
         if (idx >= 0) m_modeCombo->setCurrentIndex(idx);
     }
     connect(s, &SliceModel::modeListChanged, this, [this](const QStringList& modes) {
+        if (modes.isEmpty()) return;          // keep static fallback list (#891)
         QSignalBlocker b(m_modeCombo);
         QString cur = m_modeCombo->currentText();
         m_modeCombo->clear();

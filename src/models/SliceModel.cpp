@@ -741,16 +741,18 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
     }
 
     // FM duplex/repeater status
+    // Normalize to lowercase / fixed decimal format to match UI combo-box item data
     if (kvs.contains("fm_tone_mode")) {
-        m_fmToneMode = kvs["fm_tone_mode"];
+        m_fmToneMode = kvs["fm_tone_mode"].toLower();
         emit fmToneModeChanged(m_fmToneMode);
     }
     if (kvs.contains("fm_tone_value")) {
-        m_fmToneValue = kvs["fm_tone_value"];
+        double v = kvs["fm_tone_value"].toDouble();
+        m_fmToneValue = QString::number(v, 'f', 1);
         emit fmToneValueChanged(m_fmToneValue);
     }
     if (kvs.contains("repeater_offset_dir")) {
-        m_repeaterOffsetDir = kvs["repeater_offset_dir"];
+        m_repeaterOffsetDir = kvs["repeater_offset_dir"].toLower();
         emit repeaterOffsetDirChanged(m_repeaterOffsetDir);
     }
     if (kvs.contains("fm_repeater_offset_freq")) {

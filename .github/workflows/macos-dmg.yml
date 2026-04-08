@@ -189,21 +189,23 @@ jobs:
             AetherSDRDAX-component.pkg
 
           # Distribution XML — onConclusion="RequireRestart" triggers the reboot prompt
-          cat > distribution.xml <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<installer-gui-script minSpecVersion="2">
-    <title>AetherSDR DAX Audio Drivers</title>
-    <options customize="never" require-scripts="false"/>
-    <pkg-ref id="com.aethersdr.dax" version="$APP_VERSION"
-             onConclusion="RequireRestart">AetherSDRDAX-component.pkg</pkg-ref>
-    <choices-outline>
-        <line choice="com.aethersdr.dax"/>
-    </choices-outline>
-    <choice id="com.aethersdr.dax" title="AetherSDR DAX Audio Drivers">
-        <pkg-ref id="com.aethersdr.dax"/>
-    </choice>
-</installer-gui-script>
-EOF
+          cat > distribution.xml <<'DISTXML'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <installer-gui-script minSpecVersion="2">
+              <title>AetherSDR DAX Audio Drivers</title>
+              <options customize="never" require-scripts="false"/>
+              <pkg-ref id="com.aethersdr.dax" version="__VERSION__"
+                       onConclusion="RequireRestart">AetherSDRDAX-component.pkg</pkg-ref>
+              <choices-outline>
+                  <line choice="com.aethersdr.dax"/>
+              </choices-outline>
+              <choice id="com.aethersdr.dax" title="AetherSDR DAX Audio Drivers">
+                  <pkg-ref id="com.aethersdr.dax"/>
+              </choice>
+          </installer-gui-script>
+          DISTXML
+          sed -i 's/^          //' distribution.xml
+          sed -i "s/__VERSION__/$APP_VERSION/g" distribution.xml
 
           productbuild \
             --distribution distribution.xml \

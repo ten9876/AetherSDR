@@ -797,15 +797,37 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
 
         // Always (re)start on connect — re-binds socket and re-registers
         // UDP port with the radio. start() calls stop() internally if needed. (#561)
+        bool streamOk = false;
         if (m_wanConn) {
-            QMetaObject::invokeMethod(m_panStream, [this]() {
-                m_panStream->startWan(QHostAddress(m_wanPublicIp), m_wanUdpPort);
+            QMetaObject::invokeMethod(m_panStream, [this, &streamOk]() {
+                streamOk = m_panStream->startWan(QHostAddress(m_wanPublicIp), m_wanUdpPort);
             }, Qt::BlockingQueuedConnection);
         } else {
-            QMetaObject::invokeMethod(m_panStream, [this]() {
-                m_panStream->start(m_connection);
+            QMetaObject::invokeMethod(m_panStream, [this, &streamOk]() {
+                streamOk = m_panStream->start(m_connection);
             }, Qt::BlockingQueuedConnection);
         }
+
+        if (!streamOk) {
+            qCWarning(lcProtocol) << "RadioModel: UDP stream setup failed — disconnecting gracefully (#894)";
+            emit connectionError(tr("UDP stream setup failed. If connecting over VPN, "
+                                    "ensure UDP port 4991 is routable."));
+            QTimer::singleShot(0, this, &RadioModel::disconnectFromRadio);
+            return;
+        }
+
+        // Schedule a UDP stream health check: if no VITA-49 data arrives
+        // within 10 seconds (e.g. VPN blocks UDP), warn the user. (#894)
+        QTimer::singleShot(10000, this, [this]() {
+            if (!isConnected()) return;
+            if (m_panStream->totalRxBytes() == 0) {
+                qCWarning(lcProtocol) << "RadioModel: no VITA-49 UDP data received after 10s"
+                             << "— possible VPN/firewall blocking UDP (#894)";
+                emit connectionError(tr("No spectrum data received. UDP traffic from the "
+                                        "radio may be blocked by a VPN or firewall. "
+                                        "Ensure UDP port 4991 is routable."));
+            }
+        });
 
         // On WAN: use "client udp_register" via UDP (not TCP "client udpport").
         // The radio only accepts udp_register on WAN connections.

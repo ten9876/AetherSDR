@@ -12,6 +12,11 @@ SerialPortController::SerialPortController(QObject* parent)
     : QObject(parent)
 {
 #ifdef HAVE_SERIALPORT
+    // Set this as parent so moveToThread() moves them with us.
+    // Without this, m_port and m_pollTimer stay on the creating thread,
+    // causing cross-thread QObject access that silently fails on macOS.
+    m_port.setParent(this);
+    m_pollTimer.setParent(this);
     connect(&m_pollTimer, &QTimer::timeout, this, &SerialPortController::pollInputPins);
 #endif
 }

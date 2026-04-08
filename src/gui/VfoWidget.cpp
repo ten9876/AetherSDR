@@ -1880,6 +1880,7 @@ void VfoWidget::setSlice(SliceModel* slice)
     connect(m_slice, &SliceModel::frequencyChanged, this, [this](double) { updateFreqLabel(); });
     // Mode list (dynamic from radio)
     connect(m_slice, &SliceModel::modeListChanged, this, [this](const QStringList& modes) {
+        if (modes.isEmpty()) return;          // keep static fallback list (#891)
         QSignalBlocker sb(m_modeCombo);
         QString cur = m_modeCombo->currentText();
         m_modeCombo->clear();
