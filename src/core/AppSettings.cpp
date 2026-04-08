@@ -163,11 +163,13 @@ void AppSettings::save()
     // Write top-level settings (sorted for consistency)
     QList<QString> keys = m_settings.keys();
     std::sort(keys.begin(), keys.end());
-    static const QRegularExpression validKey("^[A-Za-z_][A-Za-z0-9_./]*$");
+    // XML element names: start with letter or underscore, then letters/digits/underscores.
+    // '/' and '.' are NOT valid in element names — reject them here so a bad key
+    // never silently corrupts the file and causes the atomic-save validation to abort.
+    static const QRegularExpression validKey("^[A-Za-z_][A-Za-z0-9_]*$");
     for (const auto& key : keys) {
-        // Skip keys that aren't valid XML element names
         if (!validKey.match(key).hasMatch()) {
-            qWarning() << "AppSettings: skipping invalid key:" << key;
+            qWarning() << "AppSettings: skipping key with invalid XML characters:" << key;
             continue;
         }
         xml.writeTextElement(key, m_settings.value(key));

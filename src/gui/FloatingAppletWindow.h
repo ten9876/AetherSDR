@@ -27,6 +27,14 @@ public:
     // Save current geometry to AppSettings (called before docking)
     void saveGeometry();
 
+    // Save geometry + flush + hide.  Use instead of bare hide() so the
+    // window position is not lost when the window is re-shown later.
+    void hideAndSave();
+
+    // Show + raise + schedule restoreGeometry() after 200 ms so the window
+    // manager has time to map the window before we attempt to position it.
+    void showAndRestore();
+
     const QString& appletId() const { return m_appletId; }
 
 signals:
@@ -34,13 +42,16 @@ signals:
 
 protected:
     void closeEvent(QCloseEvent* ev) override;
+    void hideEvent(QHideEvent* ev) override;
     void resizeEvent(QResizeEvent* ev) override;
     void moveEvent(QMoveEvent* ev) override;
 
 private:
     QString      m_appletId;
     QVBoxLayout* m_contentLayout{nullptr};
-    QTimer*      m_saveTimer{nullptr};  // debounce geometry saves on resize/move
+    QTimer*      m_saveTimer{nullptr};        // debounce geometry saves on resize/move
+    bool         m_restoringGeometry{false};  // suppresses debounce during restoreGeometry/showAndRestore
+    bool         m_appShuttingDown{false};    // set on aboutToQuit — prevents dockRequested on close
 };
 
 } // namespace AetherSDR
