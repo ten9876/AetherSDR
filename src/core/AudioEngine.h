@@ -25,6 +25,7 @@ class SpectralNR;
 class SpecbleachFilter;
 class RNNoiseFilter;
 class NvidiaBnrFilter;
+class DeepFilterFilter;
 class Resampler;
 
 // AudioEngine handles audio playback (RX) and capture (TX).
@@ -137,6 +138,13 @@ public:
     float bnrIntensity() const;
     bool bnrConnected() const;
 
+    // Client-side DFNR (DeepFilterNet3 neural noise reduction)
+    Q_INVOKABLE void setDfnrEnabled(bool on);
+    bool dfnrEnabled() const { return m_dfnrEnabled.load(); }
+    void setDfnrAttenLimit(float db);
+    float dfnrAttenLimit() const;
+    void setDfnrPostFilterBeta(float beta);
+
     // Ensure FFTW wisdom is loaded/generated. Returns true if wisdom
     // needs to be generated (slow). Call generateWisdom() in that case.
     static bool needsWisdomGeneration();
@@ -162,6 +170,7 @@ signals:
     void rn2EnabledChanged(bool on);
     void bnrEnabledChanged(bool on);
     void bnrConnectionChanged(bool connected);
+    void dfnrEnabledChanged(bool on);
     void txRawPcmReady(const QByteArray& pcm);  // raw 24kHz stereo int16 PCM for RADEEngine
     void txPacketReady(const QByteArray& vitaPacket);  // VITA-49 TX packet for PanadapterStream
     void pcMicLevelChanged(float peakDbfs, float avgDbfs);  // client-side PC mic metering
@@ -255,6 +264,12 @@ private:
     QByteArray m_bnrOutBuf;  // jitter buffer: denoised 24kHz stereo int16
     bool m_bnrPrimed{false}; // true after enough denoised data accumulated
     void processBnr(const QByteArray& stereoPcm);
+
+    // Client-side DFNR (DeepFilterNet3)
+#ifdef HAVE_DFNR
+    std::unique_ptr<DeepFilterFilter> m_dfnr;
+#endif
+    std::atomic<bool> m_dfnrEnabled{false};
 
     // Pre-allocated NR2 work buffers (avoid per-call heap allocation)
     std::vector<int16_t> m_nr2Mono;

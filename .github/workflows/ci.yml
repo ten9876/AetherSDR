@@ -12,6 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup DeepFilterNet3 (DFNR)
+        run: bash setup-deepfilter.sh
+
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
@@ -68,6 +71,10 @@ jobs:
           if (Test-Path scripts/setup-fftw.ps1) { ./scripts/setup-fftw.ps1 }
           elseif (Test-Path setup-fftw.ps1) { ./setup-fftw.ps1 }
           else { Write-Host "No FFTW setup script — skipping" }
+
+      - name: Setup DeepFilterNet3 (DFNR)
+        shell: pwsh
+        run: .\setup-deepfilter.ps1
 
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_RADE=OFF

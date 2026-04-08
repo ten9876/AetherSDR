@@ -60,6 +60,9 @@ jobs:
           echo "PATH=${{ github.workspace }}/Qt/6.7.3/gcc_64/bin:$PATH" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=${{ github.workspace }}/Qt/6.7.3/gcc_64/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
+      - name: Setup DeepFilterNet3 (DFNR)
+        run: bash setup-deepfilter.sh
+
       - name: Configure
         run: |
           CMAKE_EXTRA=""
@@ -84,6 +87,12 @@ jobs:
           # Resize icon to 256x256 (source is 768x768)
           convert AppDir/usr/share/icons/hicolor/256x256/apps/aethersdr.png \
             -resize 256x256 AppDir/usr/share/icons/hicolor/256x256/apps/aethersdr.png
+
+          # Bundle DeepFilterNet3 model for DFNR
+          if [ -f third_party/deepfilter/models/DeepFilterNet3_onnx.tar.gz ]; then
+            cp third_party/deepfilter/models/DeepFilterNet3_onnx.tar.gz \
+              AppDir/usr/bin/
+          fi
 
           # Bundle Qt6 multimedia backend plugin
           if [ "${{ matrix.use_aqt }}" = "true" ]; then
