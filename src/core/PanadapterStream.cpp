@@ -198,6 +198,7 @@ void PanadapterStream::unregisterWfStream(quint32 streamId)
 {
     QMutexLocker lock(&m_streamMutex);
     m_knownWfStreams.remove(streamId);
+    m_wfFrames.remove(streamId);
 }
 
 void PanadapterStream::clearRegisteredStreams()
@@ -206,6 +207,7 @@ void PanadapterStream::clearRegisteredStreams()
     m_knownPanStreams.clear();
     m_knownWfStreams.clear();
     m_frames.clear();
+    m_wfFrames.clear();
     m_dbmRanges.clear();
     qCDebug(lcVita49) << "PanadapterStream: cleared all registered streams";
 }
@@ -532,8 +534,9 @@ void PanadapterStream::decodeWaterfallTile(const uchar* raw, int totalBytes, boo
 
     // ── Waterfall frame assembly ─────────────────────────────────────────
     // Start a new frame if timecode changed
-    if (timecode != m_wfFrame.timecode)
-        m_wfFrame.reset(timecode, totalBinsInFrame, lowFreqMhz, binBwMhz, autoBlack);
+    auto& wfFrame = m_wfFrames[streamId];
+    if (timecode != wfFrame.timecode)
+        wfFrame.reset(timecode, totalBinsInFrame, lowFreqMhz, binBwMhz, autoBlack);
 
     // Copy this fragment's bins into the assembly buffer.
     // Only process the first row (height is typically 1).
@@ -544,16 +547,16 @@ void PanadapterStream::decodeWaterfallTile(const uchar* raw, int totalBytes, boo
 
     for (int i = 0; i < binsToRead; ++i) {
         const auto raw16 = static_cast<qint16>(qFromBigEndian<quint16>(tilePayload + i * 2));
-        m_wfFrame.buf[firstBinIndex + i] = static_cast<float>(raw16) / 128.0f;
+        wfFrame.buf[firstBinIndex + i] = static_cast<float>(raw16) / 128.0f;
     }
-    m_wfFrame.binsReceived += binsToRead;
+    wfFrame.binsReceived += binsToRead;
 
     // Only emit when the full frame is assembled
-    if (!m_wfFrame.isComplete()) return;
+    if (!wfFrame.isComplete()) return;
 
-    const double frameHighMhz = m_wfFrame.lowFreqMhz + m_wfFrame.binBwMhz * m_wfFrame.totalBins;
-    emit waterfallAutoBlackLevel(streamId, m_wfFrame.autoBlack);
-    emit waterfallRowReady(streamId, m_wfFrame.buf, m_wfFrame.lowFreqMhz, frameHighMhz, m_wfFrame.timecode);
+    const double frameHighMhz = wfFrame.lowFreqMhz + wfFrame.binBwMhz * wfFrame.totalBins;
+    emit waterfallAutoBlackLevel(streamId, wfFrame.autoBlack);
+    emit waterfallRowReady(streamId, wfFrame.buf, wfFrame.lowFreqMhz, frameHighMhz, wfFrame.timecode);
 }
 
 // ─── Audio decode ─────────────────────────────────────────────────────────────

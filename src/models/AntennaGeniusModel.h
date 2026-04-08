@@ -92,6 +92,8 @@ public:
     // Getters
     bool isConnected()   const { return m_connected; }
     bool isPresent()     const { return !m_discoveredDevices.isEmpty(); }
+    QString peerAddress() const;
+    quint16 peerPort() const;
     const AgDeviceInfo& connectedDevice() const { return m_device; }
 
     QList<AgDeviceInfo>   discoveredDevices() const { return m_discoveredDevices; }

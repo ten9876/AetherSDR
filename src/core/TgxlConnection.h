@@ -27,6 +27,8 @@ public:
 
     bool isConnected() const { return m_connected; }
     QString version() const { return m_version; }
+    QString peerAddress() const { return m_socket.peerAddress().toString(); }
+    quint16 peerPort() const { return m_socket.peerPort(); }
 
     void connectToTgxl(const QString& host, quint16 port = 9010);
     void disconnect();

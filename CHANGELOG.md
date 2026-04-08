@@ -3,6 +3,190 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.6] — 2026-04-08
+
+### DFNR AI Noise Reduction, Propagation Overlay, Community PR Blitz
+
+### New Features
+
+**DFNR (DeepFilterNet3) AI noise reduction (#970)**
+- Fifth client-side NR option using deep neural filtering
+- CPU-only, ~10ms latency, excellent in high-noise HF environments
+- Configurable attenuation limit and post-filter beta
+- Full mutual exclusion with NR2/RN2/NR4/BNR
+
+**HF propagation conditions overlay (#986)**
+- K-index and Solar Flux Index displayed on panadapter
+- Fetched from hamqsl.com, cached hourly, persists across restarts
+- Toggle via View > Propagation Conditions
+
+**Peripherals tab in Radio Setup (#914)**
+- Manual IP connect for TGXL, PGXL, and Antenna Genius
+- Auto-connect on radio connect, live status indicators
+- Pre-fills IP/port from discovered connections
+
+**License Info section in Radio Setup (#979)**
+- Shows subscription tier (SmartSDR/SmartSDR+/SmartSDR+ EA)
+- Radio ID, expiration date, licensed firmware version
+- Parses all 3 license tiers from subscription status messages
+
+**UI scale keyboard shortcuts (#892)**
+- Ctrl+=/Ctrl+- zoom in/out, Ctrl+0 reset to 100%
+- Restart prompt to apply scale change
+
+**Reset to Defaults button (#981)**
+- One-click reset of all display settings
+- Clear button restores default logo background
+
+**Autostart immediate toggle (#863)**
+- CAT, DAX, rigctld start/stop immediately when toggled
+
+### Bug Fixes
+
+**TX audio always Opus (#932)**
+- Radio requires Opus for remote_audio_tx regardless of setting
+- Fixed regression where SmartLink TX required DAX ON
+
+**Crash with 2+ panadapters (#895)**
+- Per-stream waterfall frame assembly prevents cross-stream corruption
+
+**Crash on VPN connect (#894)**
+- UDP stream setup result check with graceful disconnect on failure
+- 10-second health check warns if no VITA-49 data received
+
+**Floating applets losing state (#959)**
+- Four distinct bugs fixed: toggle off/on, window drift, WM centering race, shutdown race
+- P/CW applet '/' in ID was silently corrupting entire settings file
+
+**FlexControl VFO jitter (#693)**
+- Track absolute target frequency instead of re-reading slice during coalesce
+
+**Serial PTT/CW non-functional on macOS (#884)**
+- QSerialPort parent ownership for proper moveToThread behavior
+
+**Space bar triggering Tune when shortcuts disabled (#928)**
+- Space always consumed to prevent accidental button activation
+
+**RADE selecting DIGL on 60m (#875)**
+- Uses band definitions for correct sideband (60m is USB)
+
+**FM tone/repeater UI not updating after memory recall (#879)**
+- Normalize tone mode/value/offset to match combo box item data
+
+**macOS menu Preferences opened Shortcuts dialog (#883)**
+- Explicit QAction::PreferencesRole wiring for Radio Setup
+
+**macOS DMG workflow YAML parse error**
+- Indented heredoc XML to fix GitHub Actions YAML parser
+
+**FLEX-6500 capped at 2 panadapters (#953)**
+- Added FLEX-6500 to dual-SCU model list for 4 pan support
+
+### Removed
+
+**Native StreamDeck integration**
+- Replaced by TCI-based StreamController plugin
+- HIDAPI retained for HID encoder support (FlexControl etc.)
+
+### Contributors
+
+- JJ Boyd ~ KG4VCF (boydsoftprez) — DFNR, macOS/Windows testing
+- jensenpat — Propagation overlay, Reset to Defaults, network consent fix
+- CJ Johnson (chibondking) — Floating applet persistence fixes
+- Ryan B / NF0T — License Info section
+- AetherClaude (pi-claude) — 12 bug fix PRs
+
+## [v0.8.5] — 2026-04-06
+
+### Poppable Applets, Compression Meter, CW Filter Fixes
+
+### New Features
+
+**Poppable applets (#916)**
+- Float/dock applets with persistent geometry across restarts
+
+**StreamController plugin full action set (#838)**
+- 40+ TCI actions for Elgato Stream Deck
+
+**DXLab SpotCollector integration (#795)**
+- UDP listener for spot forwarding
+
+**Peak hold reset button (#840)**
+- Tie hold time to decay presets
+
+### Bug Fixes
+
+- Fix compression meter: pass raw COMPPEAK dBFS to gauges (#877)
+- Fix S-Meter oscillating between RX/TX during receive (#910)
+- Fix CW filter low-edge drag snapping to zero (#764)
+- Fix TCI RX/TX audio for WSJT-X and JTDX (#762)
+- Fix SmartLink TX audio artifacts with compression param (#869)
+- Fix TX status bar indicator not lighting up (#902)
+- Fix crash from setAccessibleName on null ESC widgets (#899)
+- Fix DIGU/DIGL filter offset centering (#904)
+- Fix PROC speech processor commands (#861)
+
+## [v0.8.4] — 2026-04-06
+
+### NR4 Noise Reduction, Intel Mac, Waterfall Improvements
+
+### New Features
+
+**NR4 (Specbleach) noise reduction (#796)**
+- AetherDSP settings dialog with NR4 controls and tooltips
+- NR2 gain/NPE/AE filter controls ported from WDSP
+
+**Intel Mac DMG build (#782)**
+- Qt built from source for macOS 13 (Ventura) support
+- Cached Qt source builds in CI
+
+**Waterfall color scheme selection (#733)**
+- Multiple color schemes with persistence
+
+**Offline help system (#797)**
+- Operator guides bundled with the app
+
+**Compact DSP overlay (#798)**
+- Toggle-only buttons in single row at spectrum top
+
+### Bug Fixes
+
+- Fix VFO flag direction in GPU rendering (#712)
+- Fix split TX slice frequency override (#789)
+- Auto-disable NR2/RN2/BNR in CW/CWL modes (#784)
+- Route TUNE commands through TransmitModel for inhibit (#694)
+- Fix background image distortion during resize (#737)
+- Fix WNB/RF gain overlay layout (#815)
+- Fix Intel Mac DMG crash on macOS 13 (#801)
+- Fix mode buttons toggling off on repeated clicks (#813)
+- Improve waterfall auto-black with trimmed-mean estimation (#788)
+
+## [v0.8.3] — 2026-04-05
+
+### Hardware Meters, Filter Fixes, CI Hardening
+
+### New Features
+
+**Radio hardware meter applet (#746)**
+- PA temperature, supply voltage, fan speed display
+
+**Slice troubleshooting diagnostics (#776)**
+- Debug dialog for slice state inspection
+
+**Spot lifetime slider (#758)**
+- Non-linear stepped slider for shorter spot lifetimes
+
+### Bug Fixes
+
+- Fix DAX TX external PTT, SpotHub hang, scroll-to-tune step (#780)
+- Fix cursor frequency label not persisting (#774)
+- Fix macOS crash from rapid setCursor calls (#773)
+- Fix TCI server not sending state to clients (#739)
+- Fix PROC compression gauge not displaying (#754)
+- Fix filter passband widget edge drag (#689, #684)
+- Fix background opacity slider in GPU mode (#750)
+- Fix 3v/4v pan layouts not restoring on reconnect (#757)
+
 ## [v0.8.2] — 2026-04-05
 
 ### PGXL Integration, PROC Fix, GPU Polish

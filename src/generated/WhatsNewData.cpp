@@ -6,6 +6,45 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.8.6"), QStringLiteral("2026-04-08"), QStringLiteral("DFNR AI Noise Reduction, Propagation Overlay, Community PR Blitz"), {
+            {ChangeCategory::Feature, QStringLiteral("DFNR (DeepFilterNet3) AI noise reduction"), QStringLiteral("Fifth client-side NR option using deep neural filtering CPU-only, ~10ms latency, excellent in high-noise HF environments Configurable attenuation limit and post-filter beta Full mutual exclusion wi...")},
+            {ChangeCategory::Feature, QStringLiteral("HF propagation conditions overlay"), QStringLiteral("K-index and Solar Flux Index displayed on panadapter Fetched from hamqsl.com, cached hourly, persists across restarts Toggle via View > Propagation Conditions")},
+            {ChangeCategory::Feature, QStringLiteral("Peripherals tab in Radio Setup"), QStringLiteral("Manual IP connect for TGXL, PGXL, and Antenna Genius Auto-connect on radio connect, live status indicators Pre-fills IP/port from discovered connections")},
+            {ChangeCategory::Feature, QStringLiteral("License Info section in Radio Setup"), QStringLiteral("Shows subscription tier (SmartSDR/SmartSDR+/SmartSDR+ EA) Radio ID, expiration date, licensed firmware version Parses all 3 license tiers from subscription status messages")},
+            {ChangeCategory::Feature, QStringLiteral("UI scale keyboard shortcuts"), QStringLiteral("Ctrl+=/Ctrl+- zoom in/out, Ctrl+0 reset to 100% Restart prompt to apply scale change")},
+            {ChangeCategory::Feature, QStringLiteral("Reset to Defaults button"), QStringLiteral("One-click reset of all display settings Clear button restores default logo background")},
+            {ChangeCategory::Feature, QStringLiteral("Autostart immediate toggle"), QStringLiteral("CAT, DAX, rigctld start/stop immediately when toggled")},
+            {ChangeCategory::BugFix, QStringLiteral("TX audio always Opus"), QStringLiteral("Radio requires Opus for remote_audio_tx regardless of setting Fixed regression where SmartLink TX required DAX ON")},
+            {ChangeCategory::BugFix, QStringLiteral("Crash with 2+ panadapters"), QStringLiteral("Per-stream waterfall frame assembly prevents cross-stream corruption")},
+            {ChangeCategory::BugFix, QStringLiteral("Crash on VPN connect"), QStringLiteral("UDP stream setup result check with graceful disconnect on failure 10-second health check warns if no VITA-49 data received")},
+            {ChangeCategory::BugFix, QStringLiteral("Floating applets losing state"), QStringLiteral("Four distinct bugs fixed: toggle off/on, window drift, WM centering race, shutdown race P/CW applet '/' in ID was silently corrupting entire settings file")},
+            {ChangeCategory::BugFix, QStringLiteral("FlexControl VFO jitter"), QStringLiteral("Track absolute target frequency instead of re-reading slice during coalesce")},
+            {ChangeCategory::BugFix, QStringLiteral("Serial PTT/CW non-functional on macOS"), QStringLiteral("QSerialPort parent ownership for proper moveToThread behavior")},
+            {ChangeCategory::BugFix, QStringLiteral("Space bar triggering Tune when shortcuts disabled"), QStringLiteral("Space always consumed to prevent accidental button activation")},
+            {ChangeCategory::BugFix, QStringLiteral("RADE selecting DIGL on 60m"), QStringLiteral("Uses band definitions for correct sideband (60m is USB)")},
+            {ChangeCategory::BugFix, QStringLiteral("FM tone/repeater UI not updating after memory recall"), QStringLiteral("Normalize tone mode/value/offset to match combo box item data")},
+            {ChangeCategory::BugFix, QStringLiteral("macOS menu Preferences opened Shortcuts dialog"), QStringLiteral("Explicit QAction::PreferencesRole wiring for Radio Setup")},
+            {ChangeCategory::BugFix, QStringLiteral("macOS DMG workflow YAML parse error"), QStringLiteral("Indented heredoc XML to fix GitHub Actions YAML parser")},
+            {ChangeCategory::BugFix, QStringLiteral("FLEX-6500 capped at 2 panadapters"), QStringLiteral("Added FLEX-6500 to dual-SCU model list for 4 pan support")},
+        }},
+        {QStringLiteral("0.8.5"), QStringLiteral("2026-04-06"), QStringLiteral(""), {
+            {ChangeCategory::Feature, QStringLiteral("Poppable applets"), QStringLiteral("Float/dock applets with persistent geometry across restarts")},
+            {ChangeCategory::Feature, QStringLiteral("StreamController plugin full action set"), QStringLiteral("40+ TCI actions for Elgato Stream Deck")},
+            {ChangeCategory::Feature, QStringLiteral("DXLab SpotCollector integration"), QStringLiteral("UDP listener for spot forwarding")},
+            {ChangeCategory::Feature, QStringLiteral("Peak hold reset button"), QStringLiteral("Tie hold time to decay presets")},
+        }},
+        {QStringLiteral("0.8.4"), QStringLiteral("2026-04-06"), QStringLiteral(""), {
+            {ChangeCategory::Feature, QStringLiteral("NR4 (Specbleach) noise reduction"), QStringLiteral("AetherDSP settings dialog with NR4 controls and tooltips NR2 gain/NPE/AE filter controls ported from WDSP")},
+            {ChangeCategory::Feature, QStringLiteral("Intel Mac DMG build"), QStringLiteral("Qt built from source for macOS 13 (Ventura) support Cached Qt source builds in CI")},
+            {ChangeCategory::Feature, QStringLiteral("Waterfall color scheme selection"), QStringLiteral("Multiple color schemes with persistence")},
+            {ChangeCategory::Feature, QStringLiteral("Offline help system"), QStringLiteral("Operator guides bundled with the app")},
+            {ChangeCategory::Feature, QStringLiteral("Compact DSP overlay"), QStringLiteral("Toggle-only buttons in single row at spectrum top")},
+        }},
+        {QStringLiteral("0.8.3"), QStringLiteral("2026-04-05"), QStringLiteral(""), {
+            {ChangeCategory::Feature, QStringLiteral("Radio hardware meter applet"), QStringLiteral("PA temperature, supply voltage, fan speed display")},
+            {ChangeCategory::Feature, QStringLiteral("Slice troubleshooting diagnostics"), QStringLiteral("Debug dialog for slice state inspection")},
+            {ChangeCategory::Feature, QStringLiteral("Spot lifetime slider"), QStringLiteral("Non-linear stepped slider for shorter spot lifetimes")},
+        }},
         {QStringLiteral("0.8.2"), QStringLiteral("2026-04-05"), QStringLiteral("Build System"), {
             {ChangeCategory::Feature, QStringLiteral("PGXL direct connection"), QStringLiteral("Direct TCP connection to PowerGeniusXL on port 9008 Amplifier applet: drain current, mains voltage, MEffA status OPERATE/STANDBY button matching TGXL style S-Meter power gauge fed from PGXL peakfwd...")},
             {ChangeCategory::Feature, QStringLiteral("UTC date in status bar"), QStringLiteral("Stacked date (yyyy-MM-dd) above time in status bar")},

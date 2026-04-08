@@ -163,7 +163,7 @@ private:
         bool isComplete() const { return totalBins > 0 && binsReceived >= totalBins; }
     };
 
-    WaterfallFrame m_wfFrame;
+    QMap<quint32, WaterfallFrame> m_wfFrames;  // per-stream waterfall frame assembly
 
     // Per-stream packet sequence tracking (4-bit count in VITA-49 word0 bits 19:16)
     struct StreamStats {

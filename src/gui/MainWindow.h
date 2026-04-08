@@ -17,6 +17,7 @@
 #include "core/WsjtxClient.h"
 #include "core/SpotCollectorClient.h"
 #include "core/PotaClient.h"
+#include "core/PropForecastClient.h"
 #ifdef HAVE_WEBSOCKETS
 #include "core/FreeDvClient.h"
 #endif
@@ -30,8 +31,6 @@
 #endif
 #ifdef HAVE_HIDAPI
 #include "core/HidEncoderManager.h"
-#include "core/StreamDeckManager.h"
-#include "gui/StreamDeckDialog.h"
 #endif
 #include "core/ShortcutManager.h"
 #include "core/TgxlConnection.h"
@@ -116,10 +115,13 @@ private:
     void wireVfoWidget(VfoWidget* w, SliceModel* s);
     void enableNr2WithWisdom();  // Wisdom-gated NR2 enable (shared by VFO + overlay)
     void registerShortcutActions();
+    void applyUiScale(int pct);
+    void stepUiScale(int direction);  // +1 = zoom in, -1 = zoom out
     void toggleMinimalMode(bool on);
     void updateKeyerAvailability(const QString& mode);
     void showNr2ParamPopup(const QPoint& globalPos);
     void showNr4ParamPopup(const QPoint& globalPos);
+    void showDfnrParamPopup(const QPoint& globalPos);
     void applyPanLayout(const QString& layoutId);
     void createPansSequentially(const QString& layoutId, int total,
                                 std::shared_ptr<QStringList> panIds, int created);
@@ -159,7 +161,8 @@ private:
     DxClusterClient*   m_rbnClient{nullptr};
     WsjtxClient*       m_wsjtxClient{nullptr};
     SpotCollectorClient* m_spotCollectorClient{nullptr};
-    PotaClient*        m_potaClient{nullptr};
+    PotaClient*          m_potaClient{nullptr};
+    PropForecastClient*  m_propForecast{nullptr};
 #ifdef HAVE_WEBSOCKETS
     FreeDvClient*      m_freedvClient{nullptr};
 #endif
@@ -186,14 +189,6 @@ private:
     HidEncoderManager*   m_hidEncoder{nullptr};
     QTimer               m_hidCoalesceTimer;
     int                  m_hidPendingSteps{0};
-    StreamDeckManager*   m_streamDeck{nullptr};
-    QPointer<QDialog>    m_streamDeckDialog;
-    QTimer               m_sdRenderTimer;
-    QHash<int, QByteArray> m_sdKeyCache;  // key index → last sent image bytes
-    QByteArray           m_sdTouchCache;  // last sent touchscreen image
-    void updateStreamDeckLiveKeys();
-    void sdSendKey(const QString& serial, int key, const QByteArray& img);
-    void sdSendTouch(const QString& serial, const StreamDeckDeviceInfo* info, const QByteArray& img);
 #endif
 #ifdef HAVE_MIDI
     MidiControlManager*  m_midiControl{nullptr};

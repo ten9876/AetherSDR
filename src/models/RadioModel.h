@@ -109,6 +109,13 @@ public:
     QString region()       const { return m_region; }
     int     rttyMarkDefault() const { return m_rttyMarkDefault; }
     QString radioOptions() const { return m_radioOptions; }
+
+    // License info (populated from "sub license all" responses)
+    QString licenseRadioId()        const { return m_licenseRadioId; }
+    QString licenseExpirationDate() const { return m_licenseExpirationDate; }
+    QString licenseMaxVersion()     const { return m_licenseMaxVersion; }
+    QString licenseSubscription()   const { return m_licenseSubscription; }
+
     QString ip()          const { return m_ip; }
     QString netmask()     const { return m_netmask; }
     QString gateway()     const { return m_gateway; }
@@ -398,6 +405,10 @@ private:
     QString     m_nickname;
     QString     m_region;
     QString     m_radioOptions;
+    QString     m_licenseRadioId;
+    QString     m_licenseExpirationDate;
+    QString     m_licenseMaxVersion;
+    QString     m_licenseSubscription;   // e.g. "SmartSDR+", "SmartSDR", "Unknown"
     QString     m_ip;
     QString     m_netmask;
     QString     m_gateway;

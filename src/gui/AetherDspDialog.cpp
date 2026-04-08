@@ -58,6 +58,7 @@ AetherDspDialog::AetherDspDialog(AudioEngine* audio, QWidget* parent)
     auto* tabs = new QTabWidget;
     buildNr2Tab(tabs);
     buildNr4Tab(tabs);
+    buildDfnrTab(tabs);
     buildRn2Tab(tabs);
     buildBnrTab(tabs);
     root->addWidget(tabs);
@@ -461,6 +462,81 @@ void AetherDspDialog::buildBnrTab(QTabWidget* tabs)
     tabs->addTab(page, "BNR");
 }
 
+// ── DFNR Tab ────────────────────────────────────────────────────────────────
+
+void AetherDspDialog::buildDfnrTab(QTabWidget* tabs)
+{
+    auto* page = new QWidget;
+    auto* vbox = new QVBoxLayout(page);
+
+    auto* group = new QGroupBox("DeepFilterNet3 (DFNR)");
+    auto* grid = new QGridLayout(group);
+    grid->setColumnStretch(1, 1);
+
+    auto& s = AppSettings::instance();
+
+    // Info label
+    auto* info = new QLabel("AI-powered speech enhancement \u2014 higher fidelity than RNNoise\n"
+                            "in high-noise HF environments. CPU-only, 10 ms latency, 48 kHz.");
+    info->setWordWrap(true);
+    info->setStyleSheet("QLabel { color: #506070; font-size: 11px; }");
+    grid->addWidget(info, 0, 0, 1, 3);
+
+    // Attenuation Limit slider
+    grid->addWidget(new QLabel("Attenuation Limit"), 1, 0);
+    m_dfnrAttenSlider = new QSlider(Qt::Horizontal);
+    m_dfnrAttenSlider->setRange(0, 100);
+    m_dfnrAttenSlider->setValue(static_cast<int>(s.value("DfnrAttenLimit", "100").toFloat()));
+    m_dfnrAttenSlider->setStyleSheet(kSliderStyle);
+    m_dfnrAttenSlider->setToolTip("Maximum noise attenuation in dB.\n"
+                                   "0 dB = passthrough (no denoising)\n"
+                                   "100 dB = maximum noise removal\n\n"
+                                   "For weak signals: 20\u201330 dB\n"
+                                   "For casual listening: 40\u201360 dB\n"
+                                   "For strong signals: 80\u2013100 dB");
+    grid->addWidget(m_dfnrAttenSlider, 1, 1);
+    m_dfnrAttenLabel = new QLabel(QString::number(m_dfnrAttenSlider->value()));
+    m_dfnrAttenLabel->setFixedWidth(40);
+    grid->addWidget(m_dfnrAttenLabel, 1, 2);
+
+    connect(m_dfnrAttenSlider, &QSlider::valueChanged, this, [this](int v) {
+        m_dfnrAttenLabel->setText(QString::number(v));
+        float db = static_cast<float>(v);
+        auto& s = AppSettings::instance();
+        s.setValue("DfnrAttenLimit", QString::number(db, 'f', 0));
+        s.save();
+        emit dfnrAttenLimitChanged(db);
+    });
+
+    // Post-Filter Beta slider
+    grid->addWidget(new QLabel("Post-Filter Beta"), 2, 0);
+    m_dfnrBetaSlider = new QSlider(Qt::Horizontal);
+    m_dfnrBetaSlider->setRange(0, 30);  // 0.0 to 0.30 in 0.01 steps
+    m_dfnrBetaSlider->setValue(static_cast<int>(s.value("DfnrPostFilterBeta", "0.0").toFloat() * 100));
+    m_dfnrBetaSlider->setStyleSheet(kSliderStyle);
+    m_dfnrBetaSlider->setToolTip("Post-filter strength for additional noise suppression.\n"
+                                  "0 = disabled (default)\n"
+                                  "0.05\u20130.15 = subtle additional filtering\n"
+                                  "0.15\u20130.30 = aggressive post-processing");
+    grid->addWidget(m_dfnrBetaSlider, 2, 1);
+    m_dfnrBetaLabel = new QLabel(QString::number(m_dfnrBetaSlider->value() / 100.0f, 'f', 2));
+    m_dfnrBetaLabel->setFixedWidth(40);
+    grid->addWidget(m_dfnrBetaLabel, 2, 2);
+
+    connect(m_dfnrBetaSlider, &QSlider::valueChanged, this, [this](int v) {
+        float beta = v / 100.0f;
+        m_dfnrBetaLabel->setText(QString::number(beta, 'f', 2));
+        auto& s = AppSettings::instance();
+        s.setValue("DfnrPostFilterBeta", QString::number(beta, 'f', 2));
+        s.save();
+        emit dfnrPostFilterBetaChanged(beta);
+    });
+
+    vbox->addWidget(group);
+    vbox->addStretch();
+    tabs->addTab(page, "DFNR");
+}
+
 // ── Sync from saved settings ─────────────────────────────────────────────────
 
 void AetherDspDialog::syncFromEngine()
@@ -517,6 +593,18 @@ void AetherDspDialog::syncFromEngine()
     int suppression = static_cast<int>(s.value("NR4SuppressionStrength", "0.50").toFloat() * 100);
     m_nr4SuppressionSlider->setValue(suppression);
     m_nr4SuppressionLabel->setText(QString::number(suppression / 100.0f, 'f', 2));
+
+    // DFNR sync
+    if (m_dfnrAttenSlider) {
+        int atten = static_cast<int>(s.value("DfnrAttenLimit", "100").toFloat());
+        m_dfnrAttenSlider->setValue(atten);
+        m_dfnrAttenLabel->setText(QString::number(atten));
+    }
+    if (m_dfnrBetaSlider) {
+        int beta = static_cast<int>(s.value("DfnrPostFilterBeta", "0.0").toFloat() * 100);
+        m_dfnrBetaSlider->setValue(beta);
+        m_dfnrBetaLabel->setText(QString::number(beta / 100.0f, 'f', 2));
+    }
 }
 
 } // namespace AetherSDR

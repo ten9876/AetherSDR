@@ -15,6 +15,9 @@ class RadioModel;
 class AudioEngine;
 class FirmwareUploader;
 class FirmwareStager;
+class TgxlConnection;
+class PgxlConnection;
+class AntennaGeniusModel;
 
 // Radio Setup dialog — tabbed configuration window matching SmartSDR's
 // Settings → Radio Setup. Shows radio info, GPS, TX, RX, filters, etc.
@@ -23,11 +26,17 @@ class RadioSetupDialog : public QDialog {
 
 public:
     explicit RadioSetupDialog(RadioModel* model, AudioEngine* audio = nullptr,
+                              TgxlConnection* tgxl = nullptr,
+                              PgxlConnection* pgxl = nullptr,
+                              AntennaGeniusModel* ag = nullptr,
                               QWidget* parent = nullptr);
     void selectTab(const QString& tabName);
 
 signals:
     void txBandSettingsRequested();
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     QWidget* buildRadioTab();
@@ -41,12 +50,16 @@ private:
     QWidget* buildFiltersTab();
     QWidget* buildXvtrTab();
     QWidget* buildUsbCablesTab();
+    QWidget* buildPeripheralsTab();
 #ifdef HAVE_SERIALPORT
     QWidget* buildSerialTab();
 #endif
 
     RadioModel*  m_model;
     AudioEngine* m_audio{nullptr};
+    TgxlConnection*    m_tgxl{nullptr};
+    PgxlConnection*    m_pgxl{nullptr};
+    AntennaGeniusModel* m_ag{nullptr};
     QTabWidget*  m_tabs{nullptr};
 
     // Radio tab fields
@@ -59,6 +72,12 @@ private:
     QLineEdit* m_nicknameEdit{nullptr};
     QLineEdit* m_callsignEdit{nullptr};
     QPushButton* m_remoteOnBtn{nullptr};
+
+    // License Info
+    QLabel* m_licSubscriptionLabel{nullptr};
+    QLabel* m_licExpirationLabel{nullptr};
+    QLabel* m_licRadioIdLabel{nullptr};
+    QLabel* m_licMaxVersionLabel{nullptr};
 
     // Firmware update
     QLabel*       m_fwStatusLabel{nullptr};

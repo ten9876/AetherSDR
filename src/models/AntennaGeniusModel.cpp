@@ -176,6 +176,16 @@ void AntennaGeniusModel::connectToAddress(const QHostAddress& ip, quint16 port)
     connectToDevice(info);
 }
 
+QString AntennaGeniusModel::peerAddress() const
+{
+    return m_tcpSocket ? m_tcpSocket->peerAddress().toString() : QString();
+}
+
+quint16 AntennaGeniusModel::peerPort() const
+{
+    return m_tcpSocket ? m_tcpSocket->peerPort() : 0;
+}
+
 void AntennaGeniusModel::disconnectFromDevice()
 {
     if (m_keepAlive) {

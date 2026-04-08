@@ -984,8 +984,10 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                                 }
                             });
 
+                        // Radio always forces Opus for remote_audio_tx regardless of
+                        // what we request (confirmed by protocol testing, v1.4.0.0).
                         sendCmd(
-                            QString("stream create type=remote_audio_tx compression=%1").arg(audioCompressionParam()),
+                            "stream create type=remote_audio_tx compression=opus",
                             [this](int code, const QString& body) {
                                 if (code == 0) {
                                     quint32 id = body.trimmed().toUInt(nullptr, 16);
@@ -1609,6 +1611,47 @@ void RadioModel::onStatusReceived(const QString& object,
         if (object.contains("VOICE"))       { m_filterVoice = level; m_filterVoiceAuto = autoLvl; }
         else if (object.contains("CW"))     { m_filterCw = level; m_filterCwAuto = autoLvl; }
         else if (object.contains("DIGITAL")){ m_filterDigital = level; m_filterDigitalAuto = autoLvl; }
+        emit infoChanged();
+        return;
+    }
+
+    // License info (fw v1.4.0.0): three sub-objects per FlexLib:
+    //   "license"              — radio_id, issued, last_refreshed_date, highest_major_version, region
+    //   "license subscription" — name=smartsdr+|smartsdr+_early_access, expiration=<date>
+    //   "license feature"      — name, enabled, reason (BUILT_IN|LICENSE_FILE|PLUS|EA)
+    if (object == "license" && !kvs.contains("name")) {
+        if (kvs.contains("radio_id")) {
+            m_licenseRadioId = kvs["radio_id"].toUpper();
+        }
+        if (kvs.contains("highest_major_version")) {
+            m_licenseMaxVersion = kvs["highest_major_version"];
+        }
+        // Base subscription is always "SmartSDR" — upgraded by subscription messages
+        if (m_licenseSubscription.isEmpty()) {
+            m_licenseSubscription = "SmartSDR";
+        }
+        emit infoChanged();
+        return;
+    }
+    if (object == "license subscription") {
+        // Per FlexLib: name=smartsdr+ or name=smartsdr+_early_access
+        // with expiration=<ISO-8601 date>
+        QString name = kvs.value("name").toLower();
+        QString expStr = kvs.value("expiration");
+        QDate expDate = QDate::fromString(expStr.left(10), Qt::ISODate);
+        bool active = expDate.isValid() && expDate >= QDate::currentDate();
+        if (name == "smartsdr+_early_access" && active) {
+            m_licenseSubscription = "SmartSDR+ Early Access";
+            m_licenseExpirationDate = expDate.toString("MM/dd/yyyy");
+        } else if (name == "smartsdr+" && active) {
+            m_licenseSubscription = "SmartSDR+";
+            m_licenseExpirationDate = expDate.toString("MM/dd/yyyy");
+        }
+        emit infoChanged();
+        return;
+    }
+    if (object == "license feature") {
+        // Feature-level parsing — not needed for display, but log for debugging
         emit infoChanged();
         return;
     }

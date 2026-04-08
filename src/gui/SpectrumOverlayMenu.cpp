@@ -20,7 +20,7 @@
 
 namespace AetherSDR {
 
-static constexpr int BTN_W = 60;
+static constexpr int BTN_W = 68;
 static constexpr int BTN_H = 22;
 
 // Band button size (slightly smaller for the grid)
@@ -392,9 +392,10 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
         {&S::setAnft, &S::anftChanged},  // 10
         {nullptr,     nullptr},           // 11 — BNR (client-side, wired separately)
         {nullptr,     nullptr},           // 12 — NR4 (client-side, wired separately)
+        {nullptr,     nullptr},           // 13 — DFNR (client-side, wired separately)
     };
 
-    for (int i = 0; i < 12; ++i) {
+    for (int i = 0; i < 13; ++i) {
         if (!toggleDefs[i].setter) continue;  // skip NR2/RN2
         auto* btn = m_dspRows[i].btn;
         auto setter = toggleDefs[i].setter;
@@ -506,6 +507,21 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
     m_dspRows[12].btn->setVisible(false);
 #endif
 
+    // DFNR (client-side, index 13) — emit signal for MainWindow to handle
+    connect(m_dspRows[13].btn, &QPushButton::toggled, this, [this](bool on) {
+        if (!m_updatingFromModel)
+            emit dfnrToggled(on);
+    });
+    // DFNR right-click → parameter popup
+    m_dspRows[13].btn->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_dspRows[13].btn, &QPushButton::customContextMenuRequested,
+            this, [this](const QPoint& pos) {
+        emit dfnrRightClicked(m_dspRows[13].btn->mapToGlobal(pos));
+    });
+#ifndef HAVE_DFNR
+    m_dspRows[13].btn->setVisible(false);
+#endif
+
     // DAX
     connect(m_slice, &SliceModel::daxChannelChanged, this, [this](int ch) {
         m_updatingFromModel = true;
@@ -566,6 +582,7 @@ void SpectrumOverlayMenu::buildDspPanel()
         {"ANFT", false},  // 10
         {"BNR",  true},   // 11 — client-side NVIDIA NIM (intensity slider)
         {"NR4",  false},  // 12 — client-side spectral bleach (libspecbleach)
+        {"DFNR", false},  // 13 — client-side DeepFilterNet3 neural NR
     };
 
     // First pass: create all buttons and collect toggle-only (no slider) indices
@@ -637,6 +654,7 @@ void SpectrumOverlayMenu::buildDspPanel()
     m_dspRows[10].btn->setToolTip("FFT-based notch filter \u2014 removes up to five persistent tones from transformers or power supplies.");
     m_dspRows[11].btn->setToolTip("NVIDIA GPU-accelerated neural audio denoising. Requires NVIDIA RTX 4000+ with Docker.");
     m_dspRows[12].btn->setToolTip("Client-side spectral bleach noise reduction (libspecbleach). Right-click for NR4 settings.");
+    m_dspRows[13].btn->setToolTip("DeepFilterNet3 neural noise reduction \u2014 AI speech enhancement\nwith higher fidelity than RNNoise in high-noise environments.\nCPU-only, 10 ms latency. Right-click for DFNR settings.");
 
     // DSP slider tooltips
     if (m_dspRows[0].slider) m_dspRows[0].slider->setToolTip("Adjusts blanking depth. Higher values suppress more impulse noise but may clip desired signals.");
@@ -1136,7 +1154,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         lbl->setStyleSheet(labelStyle);
         grid->addWidget(lbl, row, 0, 1, 2);
         auto* bgBtn = new QPushButton("Choose...");
-        bgBtn->setFixedSize(60, 18);
+        bgBtn->setFixedSize(70, 18);
         bgBtn->setStyleSheet(btnStyle);
         connect(bgBtn, &QPushButton::clicked, this, [this] {
             emit backgroundImageRequested();
@@ -1145,6 +1163,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         auto* clearBtn = new QPushButton("Clear");
         clearBtn->setFixedSize(42, 18);
         clearBtn->setStyleSheet(btnStyle);
+        clearBtn->setToolTip("Revert to the default logo background");
         connect(clearBtn, &QPushButton::clicked, this, [this] {
             emit backgroundImageCleared();
         });
@@ -1169,6 +1188,18 @@ void SpectrumOverlayMenu::buildDisplayPanel()
             m_bgOpacityLabel->setText(QString::number(v));
             emit backgroundOpacityChanged(v);
         });
+        ++row;
+    }
+
+    // Reset all display settings to defaults
+    {
+        auto* resetBtn = new QPushButton("Reset to Defaults");
+        resetBtn->setStyleSheet(btnStyle);
+        resetBtn->setToolTip("Reset all display settings to their default values");
+        connect(resetBtn, &QPushButton::clicked, this, [this] {
+            emit displaySettingsReset();
+        });
+        grid->addWidget(resetBtn, row, 0, 1, 4);
         ++row;
     }
 
@@ -1241,6 +1272,34 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
     if (m_colorSchemeCmb) {
         QSignalBlocker bc(m_colorSchemeCmb);
         m_colorSchemeCmb->setCurrentIndex(colorScheme);
+    }
+}
+
+void SpectrumOverlayMenu::syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
+                                                    bool cursorFreq, int bgOpacity)
+{
+    if (m_wfBlankerBtn) {
+        QSignalBlocker b(m_wfBlankerBtn);
+        m_wfBlankerBtn->setChecked(blankerOn);
+        m_wfBlankerBtn->setText(blankerOn ? "On" : "Off");
+    }
+    if (m_wfBlankerThreshSlider) {
+        QSignalBlocker b(m_wfBlankerThreshSlider);
+        int sliderVal = static_cast<int>((blankerThresh - 1.0f) * 100.0f);
+        m_wfBlankerThreshSlider->setValue(sliderVal);
+        if (m_wfBlankerThreshLabel)
+            m_wfBlankerThreshLabel->setText(QString::number(blankerThresh, 'f', 2));
+    }
+    if (m_cursorFreqBtn) {
+        QSignalBlocker b(m_cursorFreqBtn);
+        m_cursorFreqBtn->setChecked(cursorFreq);
+        m_cursorFreqBtn->setText(cursorFreq ? "On" : "Off");
+    }
+    if (m_bgOpacitySlider) {
+        QSignalBlocker b(m_bgOpacitySlider);
+        m_bgOpacitySlider->setValue(bgOpacity);
+        if (m_bgOpacityLabel)
+            m_bgOpacityLabel->setText(QString::number(bgOpacity));
     }
 }
 
@@ -1504,6 +1563,11 @@ QPushButton* SpectrumOverlayMenu::dspBnrButton() const
 QPushButton* SpectrumOverlayMenu::dspNr4Button() const
 {
     return m_dspRows.size() > 12 ? m_dspRows[12].btn : nullptr;
+}
+
+QPushButton* SpectrumOverlayMenu::dspDfnrButton() const
+{
+    return m_dspRows.size() > 13 ? m_dspRows[13].btn : nullptr;
 }
 
 bool SpectrumOverlayMenu::eventFilter(QObject* obj, QEvent* event)

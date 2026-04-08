@@ -34,6 +34,9 @@ signals:
     void nr2GainMethodChanged(int method);
     void nr2NpeMethodChanged(int method);
     void nr2AeFilterChanged(bool on);
+    // DFNR parameter changes
+    void dfnrAttenLimitChanged(float dB);
+    void dfnrPostFilterBetaChanged(float beta);
     // NR4 parameter changes
     void nr4ReductionChanged(float dB);
     void nr4SmoothingChanged(float pct);
@@ -48,6 +51,7 @@ private:
     void buildNr4Tab(QTabWidget* tabs);
     void buildRn2Tab(QTabWidget* tabs);
     void buildBnrTab(QTabWidget* tabs);
+    void buildDfnrTab(QTabWidget* tabs);
 
     AudioEngine* m_audio;
 
@@ -75,6 +79,12 @@ private:
     QLabel*       m_nr4MaskingLabel{nullptr};
     QSlider*      m_nr4SuppressionSlider{nullptr};
     QLabel*       m_nr4SuppressionLabel{nullptr};
+
+    // DFNR controls
+    QSlider*      m_dfnrAttenSlider{nullptr};
+    QLabel*       m_dfnrAttenLabel{nullptr};
+    QSlider*      m_dfnrBetaSlider{nullptr};
+    QLabel*       m_dfnrBetaLabel{nullptr};
 };
 
 } // namespace AetherSDR

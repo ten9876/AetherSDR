@@ -75,6 +75,9 @@ jobs:
           sips -z 768 768   docs/logo-circle.png --out AetherSDR.iconset/icon_512x512@2x.png
           iconutil -c icns AetherSDR.iconset -o docs/AetherSDR.icns
 
+      - name: Setup DeepFilterNet3 (DFNR)
+        run: bash setup-deepfilter.sh
+
       - name: Configure
         run: |
           if [ "${{ matrix.label }}" = "intel" ]; then
@@ -91,6 +94,14 @@ jobs:
 
       - name: Build
         run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Bundle DFNR model
+        run: |
+          if [ -f third_party/deepfilter/models/DeepFilterNet3_onnx.tar.gz ]; then
+            mkdir -p build/AetherSDR.app/Contents/Resources
+            cp third_party/deepfilter/models/DeepFilterNet3_onnx.tar.gz \
+              build/AetherSDR.app/Contents/Resources/
+          fi
 
       - name: Build DAX audio driver
         run: |
@@ -125,12 +136,10 @@ jobs:
             -verbose=1 \
             -always-overwrite
 
-      - name: Import code signing certificates
+      - name: Import code signing certificate
         env:
           APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
           APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-          APPLE_INSTALLER_CERT_BASE64: ${{ secrets.APPLE_INSTALLER_CERT_BASE64 }}
-          APPLE_INSTALLER_CERT_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERT_PASSWORD }}
         run: |
           security create-keychain -p "" build.keychain
           security default-keychain -s build.keychain
@@ -142,12 +151,6 @@ jobs:
           security import cert.p12 -k build.keychain -P "$APPLE_CERT_PASSWORD" \
             -T /usr/bin/codesign -T /usr/bin/productsign
           rm cert.p12
-
-          # Installer cert — for productbuild (PKG signing)
-          echo "$APPLE_INSTALLER_CERT_BASE64" | base64 --decode > installer-cert.p12
-          security import installer-cert.p12 -k build.keychain -P "$APPLE_INSTALLER_CERT_PASSWORD" \
-            -T /usr/bin/productbuild -T /usr/bin/pkgbuild -T /usr/bin/productsign
-          rm installer-cert.p12
 
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
 
@@ -174,6 +177,17 @@ jobs:
           codesign --verify --deep --strict \
             driver-root/Library/Audio/Plug-Ins/HAL/AetherSDRDAX.driver
           echo "DAX driver signing verified"
+
+      - name: Import installer certificate for PKG signing
+        env:
+          APPLE_INSTALLER_CERT_BASE64: ${{ secrets.APPLE_INSTALLER_CERT_BASE64 }}
+          APPLE_INSTALLER_CERT_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERT_PASSWORD }}
+        run: |
+          echo "$APPLE_INSTALLER_CERT_BASE64" | base64 --decode > installer-cert.p12
+          security import installer-cert.p12 -k build.keychain -P "$APPLE_INSTALLER_CERT_PASSWORD" \
+            -T /usr/bin/productbuild -T /usr/bin/pkgbuild -T /usr/bin/productsign
+          rm installer-cert.p12
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
 
       - name: Build DAX driver PKG
         run: |
@@ -204,8 +218,8 @@ jobs:
               </choice>
           </installer-gui-script>
           DISTXML
-          sed -i 's/^          //' distribution.xml
-          sed -i "s/__VERSION__/$APP_VERSION/g" distribution.xml
+          sed -i '' 's/^          //' distribution.xml
+          sed -i '' "s/__VERSION__/$APP_VERSION/g" distribution.xml
 
           productbuild \
             --distribution distribution.xml \
@@ -256,7 +270,19 @@ jobs:
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
-            --wait --timeout 600
+            --wait --timeout 600 2>&1 | tee notarize-output.txt || true
+
+          # Extract submission ID and fetch detailed log on failure
+          SUB_ID=$(grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' notarize-output.txt | head -1)
+          if grep -q "Invalid" notarize-output.txt; then
+            echo "=== Notarization FAILED — fetching Apple's rejection log ==="
+            xcrun notarytool log "$SUB_ID" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" || true
+            exit 1
+          fi
+
           xcrun stapler staple \
             AetherSDR-${{ github.ref_name }}-macOS-${{ matrix.label }}.dmg
           echo "Notarization and stapling complete"
