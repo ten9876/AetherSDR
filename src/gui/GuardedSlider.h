@@ -30,7 +30,11 @@ public:
             ev->ignore();
             return;
         }
-        QSlider::wheelEvent(ev);
+        // Use singleStep (default 1) instead of pageStep (default 10) so
+        // that mouse-wheel adjustments are fine-grained (#1026).
+        int delta = ev->angleDelta().y();
+        if (delta != 0)
+            setValue(value() + (delta > 0 ? singleStep() : -singleStep()));
         ev->accept();
     }
 };
