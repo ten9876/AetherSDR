@@ -1927,9 +1927,9 @@ void MainWindow::closeEvent(QCloseEvent* event)
     s.setValue("ClientNr4Enabled", m_audio->nr4Enabled() ? "True" : "False");
     s.setValue("ClientDfnrEnabled", m_audio->dfnrEnabled() ? "True" : "False");
     // BNR not persisted — requires manual enable each session
-    // DEXP (downward expander) — radio does not persist across sessions
-    s.setValue("DexpEnabled", m_radioModel.transmitModel().dexpOn() ? "True" : "False");
-    s.setValue("DexpLevel", QString::number(m_radioModel.transmitModel().dexpLevel()));
+    // DEXP saved on-change in PhoneApplet — do NOT overwrite here, because
+    // the radio may have reset DEXP to off (model reflects radio state, not
+    // the user's preference).
 
     s.save();
 
