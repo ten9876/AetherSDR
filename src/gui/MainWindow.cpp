@@ -1557,6 +1557,7 @@ MainWindow::MainWindow(QWidget* parent)
         qDebug() << "HID encoder:" << (connected ? "connected" : "disconnected") << name;
     });
 
+    // StreamDeck native integration removed — use TCI StreamController plugin instead.
 #endif
 
     // Start the external controller thread — objects are already moved
@@ -5793,18 +5794,16 @@ void MainWindow::updateKeyerAvailability(const QString& mode)
 
 void MainWindow::registerShortcutActions()
 {
-    // Helper: nudge active slice frequency by N steps on the active pan
+    // Helper: nudge active slice frequency by N steps.
+    // Uses tuneAndRecenter() so m_frequency is updated immediately (no stale
+    // base on rapid presses) and the radio keeps the slice centered in the pan.
     auto nudgeFreq = [this](int steps) {
         if (!m_radioModel.isConnected()) return;
         auto* s = activeSlice();
         if (!s || s->isLocked()) return;
         int stepHz = spectrum() ? spectrum()->stepSize() : 100;
         double newMhz = s->frequency() + steps * stepHz / 1e6;
-        QString panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
-        if (!panId.isEmpty())
-            m_radioModel.sendCommand(
-                QString("slice m %1 pan=%2").arg(newMhz, 0, 'f', 6).arg(panId));
-        if (spectrum()) spectrum()->setVfoFrequency(newMhz);
+        s->tuneAndRecenter(newMhz);
     };
 
     // Step cycle helper
@@ -5823,14 +5822,15 @@ void MainWindow::registerShortcutActions()
     };
 
     // ── Frequency ───────────────────────────────────────────────────────
+    // autoRepeat=true so holding the key continuously tunes (accessibility).
     m_shortcutManager.registerAction("tune_up_1", "Tune Up (1 step)", "Frequency",
-        QKeySequence(Qt::Key_Right), [nudgeFreq]() { nudgeFreq(1); });
+        QKeySequence(Qt::Key_Right), [nudgeFreq]() { nudgeFreq(1); }, true);
     m_shortcutManager.registerAction("tune_down_1", "Tune Down (1 step)", "Frequency",
-        QKeySequence(Qt::Key_Left), [nudgeFreq]() { nudgeFreq(-1); });
+        QKeySequence(Qt::Key_Left), [nudgeFreq]() { nudgeFreq(-1); }, true);
     m_shortcutManager.registerAction("tune_up_10", "Tune Up (10 steps)", "Frequency",
-        QKeySequence(Qt::SHIFT | Qt::Key_Right), [nudgeFreq]() { nudgeFreq(10); });
+        QKeySequence(Qt::SHIFT | Qt::Key_Right), [nudgeFreq]() { nudgeFreq(10); }, true);
     m_shortcutManager.registerAction("tune_down_10", "Tune Down (10 steps)", "Frequency",
-        QKeySequence(Qt::SHIFT | Qt::Key_Left), [nudgeFreq]() { nudgeFreq(-10); });
+        QKeySequence(Qt::SHIFT | Qt::Key_Left), [nudgeFreq]() { nudgeFreq(-10); }, true);
     m_shortcutManager.registerAction("tune_up_1mhz", "Tune Up 1 MHz", "Frequency",
         QKeySequence(), [nudgeFreq]() { nudgeFreq(10000); });
     m_shortcutManager.registerAction("tune_down_1mhz", "Tune Down 1 MHz", "Frequency",

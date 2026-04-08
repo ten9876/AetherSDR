@@ -19,6 +19,7 @@ public:
         QKeySequence defaultKey;
         QKeySequence currentKey;
         std::function<void()> handler;
+        bool autoRepeat{false};   // allow key-hold repeat (e.g. tuning)
     };
 
     explicit ShortcutManager(QObject* parent = nullptr);
@@ -26,7 +27,8 @@ public:
     // Register an action with its default key binding and handler
     void registerAction(const QString& id, const QString& displayName,
                         const QString& category, const QKeySequence& defaultKey,
-                        std::function<void()> handler);
+                        std::function<void()> handler,
+                        bool autoRepeat = false);
 
     // Binding management
     void setBinding(const QString& actionId, const QKeySequence& key);
