@@ -1,6 +1,7 @@
 #include "PhoneApplet.h"
 #include "GuardedSlider.h"
 #include "models/TransmitModel.h"
+#include "core/AppSettings.h"
 
 #include <QPushButton>
 #include <QLabel>
@@ -225,7 +226,12 @@ void PhoneApplet::buildUI()
         m_dexpBtn->setAccessibleDescription("Toggle downward expander noise gate");
         m_dexpBtn->setStyleSheet(kBtnBase + kBlueActive);
         connect(m_dexpBtn, &QPushButton::toggled, this, [this](bool on) {
-            if (!m_updatingFromModel && m_model) m_model->setDexp(on);
+            if (!m_updatingFromModel && m_model) {
+                m_model->setDexp(on);
+                auto& s = AppSettings::instance();
+                s.setValue("DexpEnabled", on ? "True" : "False");
+                s.save();
+            }
         });
         row->addWidget(m_dexpBtn);
         row->addSpacing(10);
@@ -236,7 +242,12 @@ void PhoneApplet::buildUI()
         m_dexpSlider->setAccessibleDescription("Downward expander gate threshold");
         m_dexpSlider->setStyleSheet(kSliderStyle);
         connect(m_dexpSlider, &QSlider::valueChanged, this, [this](int v) {
-            if (!m_updatingFromModel && m_model) m_model->setDexpLevel(v);
+            if (!m_updatingFromModel && m_model) {
+                m_model->setDexpLevel(v);
+                auto& s = AppSettings::instance();
+                s.setValue("DexpLevel", QString::number(v));
+                s.save();
+            }
             m_dexpLabel->setText(QString::number(v));
         });
         row->addWidget(m_dexpSlider, 1);
