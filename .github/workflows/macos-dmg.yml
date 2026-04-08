@@ -214,8 +214,8 @@ jobs:
               </choice>
           </installer-gui-script>
           DISTXML
-          sed -i 's/^          //' distribution.xml
-          sed -i "s/__VERSION__/$APP_VERSION/g" distribution.xml
+          sed -i '' 's/^          //' distribution.xml
+          sed -i '' "s/__VERSION__/$APP_VERSION/g" distribution.xml
 
           productbuild \
             --distribution distribution.xml \
