@@ -553,16 +553,19 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
             if (m_floatingWindows.contains("TUN")) {
                 if (checked) { m_floatingWindows["TUN"]->showAndRestore(); }
                 else         { m_floatingWindows["TUN"]->hideAndSave(); }
+                AppSettings::instance().setValue("Applet_TUN", checked ? "True" : "False");
                 return;
             }
             if (checked) {
                 const QString floatKey = QStringLiteral("FloatingApplet_TUN_IsFloating");
                 if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
                     QTimer::singleShot(0, this, [this]() { floatApplet("TUN"); });
+                    AppSettings::instance().setValue("Applet_TUN", "True");
                     return;
                 }
             }
             wrapper->setVisible(checked);
+            AppSettings::instance().setValue("Applet_TUN", checked ? "True" : "False");
         });
         m_appletOrder.append({"TUN", wrapper, titleBar, m_tuneBtn});
     }
@@ -587,16 +590,19 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
             if (m_floatingWindows.contains("AMP")) {
                 if (checked) { m_floatingWindows["AMP"]->showAndRestore(); }
                 else         { m_floatingWindows["AMP"]->hideAndSave(); }
+                AppSettings::instance().setValue("Applet_AMP", checked ? "True" : "False");
                 return;
             }
             if (checked) {
                 const QString floatKey = QStringLiteral("FloatingApplet_AMP_IsFloating");
                 if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
                     QTimer::singleShot(0, this, [this]() { floatApplet("AMP"); });
+                    AppSettings::instance().setValue("Applet_AMP", "True");
                     return;
                 }
             }
             wrapper->setVisible(checked);
+            AppSettings::instance().setValue("Applet_AMP", checked ? "True" : "False");
         });
         m_appletOrder.append({"AMP", wrapper, titleBar, m_ampBtn});
     }
@@ -639,16 +645,19 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
             if (m_floatingWindows.contains("AG")) {
                 if (checked) { m_floatingWindows["AG"]->showAndRestore(); }
                 else         { m_floatingWindows["AG"]->hideAndSave(); }
+                AppSettings::instance().setValue("Applet_AG", checked ? "True" : "False");
                 return;
             }
             if (checked) {
                 const QString floatKey = QStringLiteral("FloatingApplet_AG_IsFloating");
                 if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
                     QTimer::singleShot(0, this, [this]() { floatApplet("AG"); });
+                    AppSettings::instance().setValue("Applet_AG", "True");
                     return;
                 }
             }
             wrapper->setVisible(checked);
+            AppSettings::instance().setValue("Applet_AG", checked ? "True" : "False");
         });
         m_appletOrder.append({"AG", wrapper, titleBar, m_agBtn});
     }
@@ -746,7 +755,10 @@ void AppletPanel::setTunerVisible(bool visible)
 {
     if (visible) {
         m_tuneBtn->show();
-        if (!m_tuneBtn->isChecked()) { m_tuneBtn->setChecked(true); }
+        // Honor the user's saved checked state; default true on first detection.
+        const bool savedOn =
+            AppSettings::instance().value("Applet_TUN", "True").toString() == "True";
+        if (savedOn && !m_tuneBtn->isChecked()) { m_tuneBtn->setChecked(true); }
         // Device reconnected — re-show floating window if it still exists,
         // or re-float based on persisted IsFloating flag (#959)
         if (m_floatingWindows.contains("TUN")) {
@@ -771,7 +783,10 @@ void AppletPanel::setAmpVisible(bool visible)
 {
     if (visible) {
         m_ampBtn->show();
-        if (!m_ampBtn->isChecked()) { m_ampBtn->setChecked(true); }
+        // Honor the user's saved checked state; default true on first detection.
+        const bool savedOn =
+            AppSettings::instance().value("Applet_AMP", "True").toString() == "True";
+        if (savedOn && !m_ampBtn->isChecked()) { m_ampBtn->setChecked(true); }
         if (m_floatingWindows.contains("AMP")) {
             m_floatingWindows["AMP"]->showAndRestore();
         } else {
@@ -791,7 +806,10 @@ void AppletPanel::setAgVisible(bool visible)
 {
     if (visible) {
         m_agBtn->show();
-        if (!m_agBtn->isChecked()) { m_agBtn->setChecked(true); }
+        // Honor the user's saved checked state; default true on first detection.
+        const bool savedOn =
+            AppSettings::instance().value("Applet_AG", "True").toString() == "True";
+        if (savedOn && !m_agBtn->isChecked()) { m_agBtn->setChecked(true); }
         if (m_floatingWindows.contains("AG")) {
             m_floatingWindows["AG"]->showAndRestore();
         } else {
