@@ -317,6 +317,17 @@ void VfoWidget::buildUI()
         "border-radius: 3px; font-weight: bold; font-size: 11px; }");
     hdr->addWidget(m_sliceBadge);
 
+    // Hardware encoder active indicator (#997)
+    m_encoderBadge = new QLabel("\u25CE");  // bullseye / knob icon
+    m_encoderBadge->setFixedSize(20, 20);
+    m_encoderBadge->setAlignment(Qt::AlignCenter);
+    m_encoderBadge->setToolTip("Hardware VFO encoder active");
+    m_encoderBadge->setStyleSheet(
+        "QLabel { background: transparent; color: #00c850; "
+        "font-size: 13px; border: none; }");
+    m_encoderBadge->setVisible(false);
+    hdr->addWidget(m_encoderBadge);
+
     root->addLayout(hdr);
 
 #ifdef HAVE_RADE
@@ -892,12 +903,17 @@ void VfoWidget::buildTabContent()
         m_bnrBtn->setAccessibleName("GPU neural denoising");
         m_nr4Btn  = makeDsp("NR4");
         m_nr4Btn->setAccessibleName("Spectral bleach noise reduction");
+        m_dfnrBtn = makeDsp("DFNR");
+        m_dfnrBtn->setAccessibleName("DeepFilterNet3 neural noise reduction");
         m_apfBtn->hide();  // only visible in CW mode
 #ifndef HAVE_BNR
         m_bnrBtn->hide();
 #endif
 #ifndef HAVE_SPECBLEACH
         m_nr4Btn->hide();
+#endif
+#ifndef HAVE_DFNR
+        m_dfnrBtn->hide();
 #endif
 
         // Initial layout: 4-column grid (APF hidden, BNR only with HAVE_BNR)
@@ -914,6 +930,7 @@ void VfoWidget::buildTabContent()
         m_dspGrid->addWidget(m_anftBtn, 2, 2);
         m_dspGrid->addWidget(m_bnrBtn,  2, 3);
         m_dspGrid->addWidget(m_nr4Btn,  3, 0);
+        m_dspGrid->addWidget(m_dfnrBtn, 3, 1);
         dspVb->addLayout(m_dspGrid);
 
         // DSP button tooltips
@@ -931,6 +948,7 @@ void VfoWidget::buildTabContent()
         m_anftBtn->setToolTip("FFT-based notch filter \u2014 removes up to five persistent tones from transformers or power supplies.");
         m_bnrBtn->setToolTip("NVIDIA GPU-accelerated neural audio denoising. Requires NVIDIA RTX 4000+ with Docker.");
         m_nr4Btn->setToolTip("Client-side spectral bleach noise reduction (libspecbleach). Right-click for NR4 settings.");
+        m_dfnrBtn->setToolTip("DeepFilterNet3 neural noise reduction \u2014 AI speech enhancement\nwith higher fidelity than RNNoise in high-noise environments.\nCPU-only, 10 ms latency. Right-click for DFNR settings.");
 
         // DSP button accessible names (#870)
         // Accessible names set inline after each widget creation below (#870)
@@ -1328,6 +1346,11 @@ void VfoWidget::buildTabContent()
         m_nr4Btn->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(m_nr4Btn, &QPushButton::customContextMenuRequested, this, [this](const QPoint& pos) {
             emit nr4RightClicked(m_nr4Btn->mapToGlobal(pos));
+        });
+        connect(m_dfnrBtn, &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit dfnrToggled(on); });
+        m_dfnrBtn->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_dfnrBtn, &QPushButton::customContextMenuRequested, this, [this](const QPoint& pos) {
+            emit dfnrRightClicked(m_dfnrBtn->mapToGlobal(pos));
         });
         connect(m_nrfBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setNrf(on); });
         connect(m_anflBtn, &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setAnfl(on); });
@@ -1880,6 +1903,7 @@ void VfoWidget::setSlice(SliceModel* slice)
     connect(m_slice, &SliceModel::frequencyChanged, this, [this](double) { updateFreqLabel(); });
     // Mode list (dynamic from radio)
     connect(m_slice, &SliceModel::modeListChanged, this, [this](const QStringList& modes) {
+        if (modes.isEmpty()) return;          // keep static fallback list (#891)
         QSignalBlocker sb(m_modeCombo);
         QString cur = m_modeCombo->currentText();
         m_modeCombo->clear();
@@ -1966,6 +1990,9 @@ void VfoWidget::setSlice(SliceModel* slice)
 #endif
 #ifdef HAVE_SPECBLEACH
         m_nr4Btn->setVisible(!isFm);
+#endif
+#ifdef HAVE_DFNR
+        m_dfnrBtn->setVisible(!isFm);
 #endif
         m_nrfBtn->setVisible(!isFm);
         relayoutDspGrid();
@@ -2229,6 +2256,12 @@ void VfoWidget::updateSplitBadge(bool isTxSlice, bool isRxSplit)
     }
 }
 
+void VfoWidget::setEncoderActive(bool active)
+{
+    if (m_encoderBadge)
+        m_encoderBadge->setVisible(active);
+}
+
 void VfoWidget::setRecordOn(bool on)
 {
     if (m_recordBtn) {
@@ -2408,6 +2441,9 @@ void VfoWidget::syncFromSlice()
 #ifdef HAVE_SPECBLEACH
     m_nr4Btn->setVisible(!isFm);
 #endif
+#ifdef HAVE_DFNR
+    m_dfnrBtn->setVisible(!isFm);
+#endif
     m_nrlBtn->setVisible(!isFm);
     m_nrsBtn->setVisible(!isFm);
     m_nrfBtn->setVisible(!isFm);
@@ -2487,7 +2523,7 @@ void VfoWidget::relayoutDspGrid()
 {
     // Remove all widgets from the grid (without deleting them)
     QPushButton* all[] = {m_nrBtn, m_nr2Btn, m_nbBtn, m_anfBtn, m_apfBtn, m_nrlBtn,
-                          m_nrsBtn, m_rnnBtn, m_rn2Btn, m_nrfBtn, m_anflBtn, m_anftBtn, m_bnrBtn, m_nr4Btn};
+                          m_nrsBtn, m_rnnBtn, m_rn2Btn, m_nrfBtn, m_anflBtn, m_anftBtn, m_bnrBtn, m_nr4Btn, m_dfnrBtn};
     for (auto* btn : all)
         m_dspGrid->removeWidget(btn);
 

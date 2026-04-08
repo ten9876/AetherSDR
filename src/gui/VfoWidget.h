@@ -54,6 +54,7 @@ public:
     QPushButton* rn2Button() const { return m_rn2Btn; }
     QPushButton* bnrButton() const { return m_bnrBtn; }
     QPushButton* nr4Button() const { return m_nr4Btn; }
+    QPushButton* dfnrButton() const { return m_dfnrBtn; }
     void setAfGain(int pct);
     void setEscLevel(float dbm);
     void syncFromSlice();
@@ -61,6 +62,8 @@ public:
     void setPlayOn(bool on);
     void setPlayEnabled(bool enabled);
     void beginDirectEntry();
+    // Show/hide the hardware encoder active badge (#997)
+    void setEncoderActive(bool active);
     QLabel* freqLabel() const { return m_freqLabel; }
 
 #ifdef HAVE_RADE
@@ -80,6 +83,8 @@ Q_SIGNALS:
     void rn2Toggled(bool on);
     void bnrToggled(bool on);
     void nr4Toggled(bool on);
+    void dfnrToggled(bool on);
+    void dfnrRightClicked(const QPoint& globalPos);
 #ifdef HAVE_RADE
     void radeActivated(bool on, int sliceId);
 #endif
@@ -125,6 +130,7 @@ private:
     QPushButton* m_splitBadge{nullptr};
     QPushButton* m_txBadge{nullptr};
     QLabel*      m_sliceBadge{nullptr};
+    QLabel*      m_encoderBadge{nullptr};
     QPointer<QPushButton> m_lockVfoBtn;
     QPointer<QPushButton> m_closeSliceBtn;
     QPointer<QPushButton> m_recordBtn;
@@ -180,6 +186,7 @@ private:
     QPushButton* m_rn2Btn{nullptr};
     QPushButton* m_bnrBtn{nullptr};
     QPushButton* m_nr4Btn{nullptr};
+    QPushButton* m_dfnrBtn{nullptr};
     QPushButton* m_nrfBtn{nullptr};
     QPushButton* m_anflBtn{nullptr};
     QPushButton* m_anftBtn{nullptr};

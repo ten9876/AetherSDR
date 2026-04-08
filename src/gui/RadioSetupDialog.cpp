@@ -9,9 +9,17 @@
 #include "core/FlexControlManager.h"
 #include <QSerialPortInfo>
 #endif
+#ifdef HAVE_HIDAPI
+#include "core/HidEncoderManager.h"
+#include "core/HidDeviceParser.h"
+#endif
 #include "core/FirmwareUploader.h"
 #include "core/FirmwareStager.h"
+#include "core/TgxlConnection.h"
+#include "core/PgxlConnection.h"
+#include "models/AntennaGeniusModel.h"
 
+#include <QCloseEvent>
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -37,6 +45,7 @@
 #include <QStackedWidget>
 #include <QPlainTextEdit>
 #include <QSplitter>
+#include <QHostAddress>
 
 namespace AetherSDR {
 
@@ -56,11 +65,14 @@ static const QString kEditStyle =
     "QLineEdit { background: #1a2a3a; border: 1px solid #304050; "
     "border-radius: 3px; color: #c8d8e8; font-size: 12px; padding: 2px 4px; }";
 
-RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio, QWidget* parent)
-    : QDialog(parent), m_model(model), m_audio(audio)
+RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
+                                   TgxlConnection* tgxl, PgxlConnection* pgxl,
+                                   AntennaGeniusModel* ag, QWidget* parent)
+    : QDialog(parent), m_model(model), m_audio(audio),
+      m_tgxl(tgxl), m_pgxl(pgxl), m_ag(ag)
 {
     setWindowTitle("Radio Setup");
-    setMinimumSize(820, 520);
+    setMinimumSize(820, 620);
     setStyleSheet("QDialog { background: #0f0f1a; }");
 
     auto* layout = new QVBoxLayout(this);
@@ -84,6 +96,7 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio, QWidge
     tabs->addTab(buildFiltersTab(), "Filters");
     tabs->addTab(buildXvtrTab(), "XVTR");
     tabs->addTab(buildUsbCablesTab(), "USB Cables");
+    tabs->addTab(buildPeripheralsTab(), "Peripherals");
 #ifdef HAVE_SERIALPORT
     tabs->addTab(buildSerialTab(), "Serial");
 #endif
@@ -97,6 +110,20 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio, QWidge
         "QPushButton:hover { background: #203040; }");
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
     layout->addWidget(buttons);
+
+    // Restore saved geometry so the dialog reopens at the user's last size.
+    const QString geomB64 = AppSettings::instance()
+        .value("RadioSetupDialogGeometry", "").toString();
+    if (!geomB64.isEmpty())
+        restoreGeometry(QByteArray::fromBase64(geomB64.toLatin1()));
+}
+
+void RadioSetupDialog::closeEvent(QCloseEvent* event)
+{
+    AppSettings::instance().setValue("RadioSetupDialogGeometry",
+        QString::fromLatin1(saveGeometry().toBase64()));
+    AppSettings::instance().save();
+    QDialog::closeEvent(event);
 }
 
 // ── Radio tab ─────────────────────────────────────────────────────────────────
@@ -233,6 +260,61 @@ QWidget* RadioSetupDialog::buildRadioTab()
             if (lbl->styleSheet().isEmpty())
                 lbl->setStyleSheet(kLabelStyle);
         }
+
+        vbox->addWidget(group);
+    }
+
+    // License Info group (matches SmartSDR Radio Setup → License Info section)
+    {
+        auto* group = new QGroupBox("License Info");
+        group->setStyleSheet(kGroupStyle);
+        auto* grid = new QGridLayout(group);
+        grid->setSpacing(6);
+        grid->setColumnStretch(1, 1);
+        grid->setColumnStretch(3, 1);
+
+        // Row 0: Subscription | Expiration
+        grid->addWidget(new QLabel("Subscription:"), 0, 0);
+        m_licSubscriptionLabel = new QLabel(
+            m_model->licenseSubscription().isEmpty() ? "—" : m_model->licenseSubscription());
+        m_licSubscriptionLabel->setStyleSheet(kValueStyle);
+        grid->addWidget(m_licSubscriptionLabel, 0, 1);
+
+        grid->addWidget(new QLabel("Expiration:"), 0, 2);
+        m_licExpirationLabel = new QLabel(
+            m_model->licenseExpirationDate().isEmpty() ? "—" : m_model->licenseExpirationDate());
+        m_licExpirationLabel->setStyleSheet(kValueStyle);
+        grid->addWidget(m_licExpirationLabel, 0, 3);
+
+        // Row 1: Radio ID | Licensed version
+        grid->addWidget(new QLabel("Radio ID:"), 1, 0);
+        m_licRadioIdLabel = new QLabel(
+            m_model->licenseRadioId().isEmpty() ? "—" : m_model->licenseRadioId());
+        m_licRadioIdLabel->setStyleSheet(kValueStyle);
+        grid->addWidget(m_licRadioIdLabel, 1, 1);
+
+        grid->addWidget(new QLabel("Licensed version:"), 1, 2);
+        m_licMaxVersionLabel = new QLabel(
+            m_model->licenseMaxVersion().isEmpty() ? "—" : m_model->licenseMaxVersion());
+        m_licMaxVersionLabel->setStyleSheet(kValueStyle);
+        grid->addWidget(m_licMaxVersionLabel, 1, 3);
+
+        for (auto* lbl : group->findChildren<QLabel*>()) {
+            if (lbl->styleSheet().isEmpty())
+                lbl->setStyleSheet(kLabelStyle);
+        }
+
+        // Update labels live if license status arrives after dialog opens
+        connect(m_model, &RadioModel::infoChanged, this, [this] {
+            if (!m_model->licenseSubscription().isEmpty())
+                m_licSubscriptionLabel->setText(m_model->licenseSubscription());
+            if (!m_model->licenseExpirationDate().isEmpty())
+                m_licExpirationLabel->setText(m_model->licenseExpirationDate());
+            if (!m_model->licenseRadioId().isEmpty())
+                m_licRadioIdLabel->setText(m_model->licenseRadioId());
+            if (!m_model->licenseMaxVersion().isEmpty())
+                m_licMaxVersionLabel->setText(m_model->licenseMaxVersion());
+        });
 
         vbox->addWidget(group);
     }
@@ -2460,69 +2542,109 @@ QWidget* RadioSetupDialog::buildSerialTab()
         auto* grid = new QGridLayout(group);
         grid->setSpacing(4);
 
-        // Port selector
+        // Port selector + manual entry for non-standard TTYs (#897)
         grid->addWidget(new QLabel("Port:"), 0, 0);
         auto* portCombo = new QComboBox;
         portCombo->setMinimumWidth(200);
         for (const auto& info : QSerialPortInfo::availablePorts())
             portCombo->addItem(QString("%1 — %2").arg(info.portName(), info.description()),
                                info.portName());
+        // "Custom..." sentinel triggers manual entry field
+        portCombo->addItem("Custom...", QStringLiteral("__custom__"));
         QString savedPort = settings.value("SerialPortName", "").toString();
-        for (int i = 0; i < portCombo->count(); ++i) {
+        bool isCustom = false;
+        for (int i = 0; i < portCombo->count() - 1; ++i) {
             if (portCombo->itemData(i).toString() == savedPort) {
                 portCombo->setCurrentIndex(i);
                 break;
             }
+            if (i == portCombo->count() - 2) {
+                isCustom = !savedPort.isEmpty();
+            }
         }
-        grid->addWidget(portCombo, 0, 1, 1, 2);
+        grid->addWidget(portCombo, 0, 1);
 
         auto* refreshBtn = new QPushButton("Refresh");
         refreshBtn->setFixedHeight(24);
-        connect(refreshBtn, &QPushButton::clicked, this, [portCombo]() {
-            portCombo->clear();
-            for (const auto& info : QSerialPortInfo::availablePorts())
-                portCombo->addItem(QString("%1 — %2").arg(info.portName(), info.description()),
-                                   info.portName());
-        });
         grid->addWidget(refreshBtn, 0, 3);
 
+        // Custom port row — hidden unless "Custom..." selected or saved port is custom
+        auto* customLabel = new QLabel("Path:");
+        auto* customEdit = new QLineEdit;
+        customEdit->setPlaceholderText("/dev/ttyr0");
+        customLabel->setVisible(isCustom);
+        customEdit->setVisible(isCustom);
+        if (isCustom) {
+            customEdit->setText(savedPort);
+            portCombo->setCurrentIndex(portCombo->count() - 1);  // select "Custom..."
+        }
+        grid->addWidget(customLabel, 1, 0);
+        grid->addWidget(customEdit, 1, 1, 1, 3);
+
+        connect(portCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [portCombo, customLabel, customEdit](int idx) {
+            bool custom = (portCombo->itemData(idx).toString() == "__custom__");
+            customLabel->setVisible(custom);
+            customEdit->setVisible(custom);
+        });
+
+        connect(refreshBtn, &QPushButton::clicked, this, [portCombo, customEdit]() {
+            QString customText = customEdit->text();
+            int customIdx = portCombo->count() - 1;  // "Custom..." is last
+            bool wasCustom = (portCombo->currentIndex() == customIdx);
+            // Remove all but "Custom..."
+            while (portCombo->count() > 1)
+                portCombo->removeItem(0);
+            for (const auto& info : QSerialPortInfo::availablePorts())
+                portCombo->insertItem(portCombo->count() - 1,
+                    QString("%1 — %2").arg(info.portName(), info.description()),
+                    info.portName());
+            if (wasCustom) {
+                portCombo->setCurrentIndex(portCombo->count() - 1);
+            }
+        });
+
         // Baud rate
-        grid->addWidget(new QLabel("Baud:"), 1, 0);
+        grid->addWidget(new QLabel("Baud:"), 2, 0);
         auto* baudCombo = new QComboBox;
         for (int b : {9600, 19200, 38400, 57600, 115200})
             baudCombo->addItem(QString::number(b), b);
         int savedBaud = settings.value("SerialBaudRate", "9600").toInt();
         baudCombo->setCurrentIndex(baudCombo->findData(savedBaud));
-        grid->addWidget(baudCombo, 1, 1);
+        grid->addWidget(baudCombo, 2, 1);
 
         // Data bits
-        grid->addWidget(new QLabel("Data:"), 1, 2);
+        grid->addWidget(new QLabel("Data:"), 2, 2);
         auto* dataCombo = new QComboBox;
         dataCombo->addItem("8", 8);
         dataCombo->addItem("7", 7);
-        grid->addWidget(dataCombo, 1, 3);
+        grid->addWidget(dataCombo, 2, 3);
 
         // Parity
-        grid->addWidget(new QLabel("Parity:"), 2, 0);
+        grid->addWidget(new QLabel("Parity:"), 3, 0);
         auto* parityCombo = new QComboBox;
         parityCombo->addItem("None", 0);
         parityCombo->addItem("Even", 2);
         parityCombo->addItem("Odd", 3);
-        grid->addWidget(parityCombo, 2, 1);
+        grid->addWidget(parityCombo, 3, 1);
 
         // Stop bits
-        grid->addWidget(new QLabel("Stop:"), 2, 2);
+        grid->addWidget(new QLabel("Stop:"), 3, 2);
         auto* stopCombo = new QComboBox;
         stopCombo->addItem("1", 1);
         stopCombo->addItem("2", 2);
-        grid->addWidget(stopCombo, 2, 3);
+        grid->addWidget(stopCombo, 3, 3);
 
         vbox->addWidget(group);
 
         // Save port settings on any change
-        auto savePort = [portCombo, baudCombo, dataCombo, parityCombo, stopCombo]() {
+        auto savePort = [portCombo, customEdit, baudCombo, dataCombo, parityCombo, stopCombo]() {
             auto& s = AppSettings::instance();
-            s.setValue("SerialPortName", portCombo->currentData().toString());
+            QString port = portCombo->currentData().toString();
+            if (port == "__custom__") {
+                port = customEdit->text().trimmed();
+            }
+            s.setValue("SerialPortName", port);
             s.setValue("SerialBaudRate", baudCombo->currentData().toString());
             s.setValue("SerialDataBits", dataCombo->currentData().toString());
             s.setValue("SerialParity", parityCombo->currentData().toString());
@@ -2530,6 +2652,7 @@ QWidget* RadioSetupDialog::buildSerialTab()
             s.save();
         };
         connect(portCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
+        connect(customEdit, &QLineEdit::textChanged, this, savePort);
         connect(baudCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
     }
 
@@ -2786,10 +2909,305 @@ QWidget* RadioSetupDialog::buildSerialTab()
         vbox->addWidget(group);
     }
 
+#ifdef HAVE_HIDAPI
+    // ── VFO Dial / Encoder (HID devices: Icom RC-28, Griffin PowerMate, …) ──
+    {
+        auto* group = new QGroupBox("VFO Dial / Encoder");
+        group->setStyleSheet(kGroupStyle);
+        auto* grid = new QGridLayout(group);
+        grid->setSpacing(6);
+
+        // Status row
+        auto* hidStatusLabel = new QLabel("No device detected");
+        hidStatusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+        grid->addWidget(new QLabel("Status:"), 0, 0);
+        grid->addWidget(hidStatusLabel, 0, 1);
+
+        // Detect / Close buttons
+        auto* hidDetectBtn = new QPushButton("Detect");
+        hidDetectBtn->setFixedWidth(80);
+        hidDetectBtn->setStyleSheet(
+            "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+            "border: 1px solid #008ba8; padding: 3px; border-radius: 3px; }"
+            "QPushButton:hover { background: #00c8f0; }");
+        auto* hidCloseBtn = new QPushButton("Close");
+        hidCloseBtn->setFixedWidth(80);
+        hidCloseBtn->setStyleSheet(hidDetectBtn->styleSheet());
+        hidCloseBtn->setEnabled(false);
+
+        auto* hidBtnRow = new QHBoxLayout;
+        hidBtnRow->addWidget(hidDetectBtn);
+        hidBtnRow->addWidget(hidCloseBtn);
+        hidBtnRow->addStretch();
+        grid->addLayout(hidBtnRow, 0, 2);
+
+        auto updateHidStatus = [hidStatusLabel, hidCloseBtn, hidDetectBtn]
+                               (bool connected, const QString& deviceName = {}) {
+            if (connected) {
+                hidStatusLabel->setText(QString("Connected (%1)").arg(deviceName));
+                hidStatusLabel->setStyleSheet("QLabel { color: #30d050; font-size: 11px; }");
+                hidCloseBtn->setEnabled(true);
+                hidDetectBtn->setEnabled(false);
+            } else {
+                hidStatusLabel->setText("No device detected");
+                hidStatusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+                hidCloseBtn->setEnabled(false);
+                hidDetectBtn->setEnabled(true);
+            }
+        };
+
+        connect(hidDetectBtn, &QPushButton::clicked, this, [updateHidStatus] {
+            QString name = HidEncoderManager::detectDevice();
+            if (name.isEmpty()) {
+                updateHidStatus(false);
+                return;
+            }
+            updateHidStatus(true, name);
+            auto& s = AppSettings::instance();
+            s.setValue("HidEncoderAutoDetect", "True");
+            s.save();
+        });
+        connect(hidCloseBtn, &QPushButton::clicked, this, [updateHidStatus] {
+            updateHidStatus(false);
+            auto& s = AppSettings::instance();
+            s.setValue("HidEncoderAutoDetect", "False");
+            s.save();
+        });
+
+        // Button action config — button 1 (shaft) defaults to CycleStep (#997)
+        static const QStringList hidActions = {
+            "None", "CycleStep", "StepUp", "StepDown",
+            "ToggleMox", "ToggleTune", "ToggleMute", "ToggleLock",
+            "NextSlice", "PrevSlice"
+        };
+        static const char* hidDefaults[2] = {"CycleStep", "None"};
+        static const char* hidBtnLabels[2] = {"Button 1 (shaft):", "Button 2:"};
+
+        for (int b = 0; b < 2; ++b) {
+            auto* lbl = new QLabel(hidBtnLabels[b]);
+            lbl->setStyleSheet(kLabelStyle);
+            grid->addWidget(lbl, b + 1, 0);
+
+            auto* combo = new QComboBox;
+            combo->addItems(hidActions);
+            combo->setStyleSheet(QString(kEditStyle).replace("QLineEdit", "QComboBox"));
+            QString key = QString("HidEncoderBtn%1Action0").arg(b + 1);
+            QString current = settings.value(key, hidDefaults[b]).toString();
+            int idx = hidActions.indexOf(current);
+            if (idx >= 0) combo->setCurrentIndex(idx);
+            connect(combo, &QComboBox::currentTextChanged, this, [key](const QString& text) {
+                auto& s = AppSettings::instance();
+                s.setValue(key, text);
+                s.save();
+            });
+            grid->addWidget(combo, b + 1, 1, 1, 2);
+        }
+
+        // Auto-detect checkbox
+        auto* hidAutoDetect = new QCheckBox("Auto-detect on startup");
+        hidAutoDetect->setStyleSheet("QCheckBox { color: #c8d8e8; }");
+        hidAutoDetect->setChecked(settings.value("HidEncoderAutoDetect", "True").toString() == "True");
+        connect(hidAutoDetect, &QCheckBox::toggled, this, [](bool on) {
+            auto& s = AppSettings::instance();
+            s.setValue("HidEncoderAutoDetect", on ? "True" : "False");
+            s.save();
+        });
+        grid->addWidget(hidAutoDetect, 3, 0, 1, 3);
+
+        auto* hidInvertDir = new QCheckBox("Invert tuning direction");
+        hidInvertDir->setStyleSheet("QCheckBox { color: #c8d8e8; }");
+        hidInvertDir->setChecked(settings.value("HidEncoderInvertDir", "False").toString() == "True");
+        connect(hidInvertDir, &QCheckBox::toggled, this, [](bool on) {
+            auto& s = AppSettings::instance();
+            s.setValue("HidEncoderInvertDir", on ? "True" : "False");
+            s.save();
+        });
+        grid->addWidget(hidInvertDir, 4, 0, 1, 3);
+
+        // Show current state
+        if (settings.value("HidEncoderAutoDetect", "True").toString() == "True") {
+            QString name = HidEncoderManager::detectDevice();
+            if (!name.isEmpty())
+                updateHidStatus(true, name);
+        }
+
+        vbox->addWidget(group);
+    }
+#endif
+
     vbox->addStretch();
     return page;
 }
 #endif
+
+// ─── Peripherals tab — manual IP connect for TGXL, PGXL, AG (#914) ───────────
+
+QWidget* RadioSetupDialog::buildPeripheralsTab()
+{
+    auto* page = new QWidget;
+    auto* vbox = new QVBoxLayout(page);
+    vbox->setSpacing(8);
+
+    auto* group = new QGroupBox("External Devices — Manual IP Connection");
+    group->setStyleSheet(kGroupStyle);
+    auto* grid = new QGridLayout(group);
+    grid->setSpacing(6);
+
+    // Column headers
+    auto addHeader = [&](int col, const QString& text) {
+        auto* lbl = new QLabel(text);
+        lbl->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; font-weight: bold; }");
+        grid->addWidget(lbl, 0, col);
+    };
+    addHeader(0, "Device");
+    addHeader(1, "IP Address");
+    addHeader(2, "Port");
+    addHeader(3, "");
+    addHeader(4, "Status");
+
+    auto& settings = AppSettings::instance();
+
+    static const QString kBtnStyle =
+        "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
+        "border-radius: 3px; color: #c8d8e8; font-size: 11px; font-weight: bold; "
+        "padding: 3px 10px; }"
+        "QPushButton:hover { background: #203040; }";
+
+    // Helper to build one peripheral row
+    auto buildRow = [&](int row, const QString& label, const QString& ipKey,
+                        const QString& portKey, int defaultPort,
+                        auto connectFn, auto disconnectFn, auto isConnectedFn,
+                        auto peerAddressFn, auto peerPortFn) {
+        // Device label
+        auto* devLbl = new QLabel(label);
+        devLbl->setStyleSheet(kLabelStyle);
+        grid->addWidget(devLbl, row, 0);
+
+        // IP field — pre-fill from settings, or from live connection if discovered
+        auto* ipEdit = new QLineEdit;
+        ipEdit->setPlaceholderText("e.g. 192.168.1.100");
+        ipEdit->setStyleSheet(kEditStyle);
+        ipEdit->setMinimumWidth(140);
+        QString savedIp = settings.value(ipKey, "").toString();
+        if (!savedIp.isEmpty()) {
+            ipEdit->setText(savedIp);
+        } else if (isConnectedFn()) {
+            ipEdit->setText(peerAddressFn());
+        }
+        grid->addWidget(ipEdit, row, 1);
+
+        // Port field — pre-fill from settings, or from live connection
+        auto* portSpin = new QSpinBox;
+        portSpin->setRange(1, 65535);
+        int savedPort = settings.value(portKey, "0").toInt();
+        if (savedPort > 0) {
+            portSpin->setValue(savedPort);
+        } else if (isConnectedFn() && peerPortFn() > 0) {
+            portSpin->setValue(peerPortFn());
+        } else {
+            portSpin->setValue(defaultPort);
+        }
+        portSpin->setStyleSheet(
+            "QSpinBox { background: #1a2a3a; border: 1px solid #304050; "
+            "border-radius: 3px; color: #c8d8e8; font-size: 12px; padding: 2px; }");
+        grid->addWidget(portSpin, row, 2);
+
+        // Status label
+        auto* statusLbl = new QLabel(isConnectedFn() ? "Connected" : "Not connected");
+        statusLbl->setStyleSheet(isConnectedFn()
+            ? "QLabel { color: #00e060; font-size: 11px; }"
+            : "QLabel { color: #8aa8c0; font-size: 11px; }");
+        grid->addWidget(statusLbl, row, 4);
+
+        // Connect/Disconnect button
+        auto* btn = new QPushButton(isConnectedFn() ? "Disconnect" : "Connect");
+        btn->setStyleSheet(kBtnStyle);
+        grid->addWidget(btn, row, 3);
+
+        connect(btn, &QPushButton::clicked, this,
+                [=, &settings]() {
+            if (isConnectedFn()) {
+                disconnectFn();
+            } else {
+                QString ip = ipEdit->text().trimmed();
+                if (ip.isEmpty()) return;
+                int port = portSpin->value();
+                // Save to settings
+                settings.setValue(ipKey, ip);
+                settings.setValue(portKey, QString::number(port));
+                settings.save();
+                connectFn(ip, static_cast<quint16>(port));
+            }
+        });
+
+        // Update UI on connection state changes
+        auto updateState = [btn, statusLbl, isConnectedFn]() {
+            bool conn = isConnectedFn();
+            btn->setText(conn ? "Disconnect" : "Connect");
+            statusLbl->setText(conn ? "Connected" : "Not connected");
+            statusLbl->setStyleSheet(conn
+                ? "QLabel { color: #00e060; font-size: 11px; }"
+                : "QLabel { color: #8aa8c0; font-size: 11px; }");
+        };
+
+        return updateState;
+    };
+
+    // Row 1: Tuner Genius XL (TGXL)
+    if (m_tgxl) {
+        auto updateTgxl = buildRow(1, "Tuner Genius XL (TGXL)", "TGXL_ManualIp", "TGXL_ManualPort", 9010,
+            [this](const QString& ip, quint16 port) { m_tgxl->connectToTgxl(ip, port); },
+            [this]() { m_tgxl->disconnect(); },
+            [this]() { return m_tgxl->isConnected(); },
+            [this]() { return m_tgxl->peerAddress(); },
+            [this]() { return m_tgxl->peerPort(); });
+        connect(m_tgxl, &TgxlConnection::connected, this, updateTgxl);
+        connect(m_tgxl, &TgxlConnection::disconnected, this, updateTgxl);
+    }
+
+    // Row 2: Power Genius XL (PGXL)
+    if (m_pgxl) {
+        auto updatePgxl = buildRow(2, "Power Genius XL (PGXL)", "PGXL_ManualIp", "PGXL_ManualPort", 9008,
+            [this](const QString& ip, quint16 port) { m_pgxl->connectToPgxl(ip, port); },
+            [this]() { m_pgxl->disconnect(); },
+            [this]() { return m_pgxl->isConnected(); },
+            [this]() { return m_pgxl->peerAddress(); },
+            [this]() { return m_pgxl->peerPort(); });
+        connect(m_pgxl, &PgxlConnection::connected, this, updatePgxl);
+        connect(m_pgxl, &PgxlConnection::disconnected, this, updatePgxl);
+    }
+
+    // Row 3: Antenna Genius (AG)
+    if (m_ag) {
+        auto updateAg = buildRow(3, "Antenna Genius (AG)", "AG_ManualIp", "AG_ManualPort", 9007,
+            [this](const QString& ip, quint16 port) {
+                m_ag->connectToAddress(QHostAddress(ip), port);
+            },
+            [this]() { m_ag->disconnectFromDevice(); },
+            [this]() { return m_ag->isConnected(); },
+            [this]() { return m_ag->peerAddress(); },
+            [this]() { return m_ag->peerPort(); });
+        connect(m_ag, &AntennaGeniusModel::connected, this, updateAg);
+        connect(m_ag, &AntennaGeniusModel::disconnected, this, updateAg);
+    }
+
+    for (auto* lbl : group->findChildren<QLabel*>())
+        if (lbl->styleSheet().isEmpty()) lbl->setStyleSheet(kLabelStyle);
+
+    vbox->addWidget(group);
+
+    // Info note
+    auto* note = new QLabel(
+        "Configure manual IP addresses for peripherals that cannot be discovered via UDP broadcast.\n"
+        "This is needed for remote, VPN, and SmartLink connections. "
+        "Configured devices auto-connect when the radio connects.");
+    note->setWordWrap(true);
+    note->setStyleSheet("QLabel { color: #607080; font-size: 11px; padding: 8px; }");
+    vbox->addWidget(note);
+
+    vbox->addStretch();
+    return page;
+}
 
 void RadioSetupDialog::selectTab(const QString& tabName)
 {
