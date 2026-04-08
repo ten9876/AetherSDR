@@ -800,6 +800,12 @@ if(ENABLE_DFNR)
                 COMMENT "Copying DeepFilterNet3 model to build directory")
         endif()
     endif()
+    # Install the model alongside the binary for cmake --install
+    if(NOT APPLE)
+        install(FILES "${DFNR_MODEL}"
+            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/AetherSDR"
+            OPTIONAL)
+    endif()
 endif()
 
 if(AETHER_GPU_SPECTRUM)
