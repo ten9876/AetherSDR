@@ -5083,6 +5083,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     disconnect(menu, &SpectrumOverlayMenu::backgroundImageRequested, this, nullptr);
     disconnect(menu, &SpectrumOverlayMenu::backgroundImageCleared, this, nullptr);
     disconnect(menu, &SpectrumOverlayMenu::backgroundOpacityChanged, this, nullptr);
+    disconnect(menu, &SpectrumOverlayMenu::displaySettingsReset, this, nullptr);
     connect(menu, &SpectrumOverlayMenu::backgroundImageRequested,
             this, [this, sw] {
         QString path = QFileDialog::getOpenFileName(this, "Choose Background Image",
@@ -5095,9 +5096,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     });
     connect(menu, &SpectrumOverlayMenu::backgroundImageCleared,
             this, [sw] {
-        sw->setBackgroundImage({});
+        sw->setBackgroundImage(":/bg-default.jpg");
         auto& s = AppSettings::instance();
-        s.setValue(sw->settingsKey("BackgroundImage"), "none");
+        s.setValue(sw->settingsKey("BackgroundImage"), ":/bg-default.jpg");
         s.save();
     });
     connect(menu, &SpectrumOverlayMenu::backgroundOpacityChanged,
@@ -5106,6 +5107,72 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         auto& s = AppSettings::instance();
         s.setValue(sw->settingsKey("BackgroundOpacity"), QString::number(pct));
         s.save();
+    });
+    connect(menu, &SpectrumOverlayMenu::displaySettingsReset,
+            this, [this, applet, sw, menu] {
+        // Apply all SpectrumWidget defaults
+        sw->setFftAverage(0);
+        sw->setFftFps(25);
+        sw->setFftFillAlpha(0.70f);
+        sw->setFftFillColor(QColor(0x00, 0xe5, 0xff));
+        sw->setFftWeightedAvg(false);
+        sw->setFftHeatMap(true);
+        sw->setWfColorScheme(0);
+        sw->setWfColorGain(50);
+        sw->setWfBlackLevel(15);
+        sw->setWfAutoBlack(true);
+        sw->setWfLineDuration(100);
+        sw->setWfBlankerEnabled(false);
+        sw->setWfBlankerThreshold(1.15f);
+        sw->setWfBlankerMode(0);
+        sw->setShowCursorFreq(false);
+        sw->setBackgroundImage(":/bg-default.jpg");
+        sw->setBackgroundOpacity(80);
+        sw->setNoiseFloorEnable(false);
+        sw->setNoiseFloorPosition(75);
+
+        // Radio commands for radio-authoritative display settings
+        m_radioModel.sendCommand(
+            QString("display pan set %1 average=0").arg(applet->panId()));
+        m_radioModel.sendCommand(
+            QString("display pan set %1 fps=25").arg(applet->panId()));
+        m_radioModel.sendCommand(
+            QString("display pan set %1 weighted_average=0").arg(applet->panId()));
+        auto* pan = m_radioModel.panadapter(applet->panId());
+        if (pan && !pan->waterfallId().isEmpty()) {
+            m_radioModel.sendCommand(
+                QString("display panafall set %1 color_gain=50").arg(pan->waterfallId()));
+            m_radioModel.sendCommand(
+                QString("display panafall set %1 black_level=15").arg(pan->waterfallId()));
+            m_radioModel.sendCommand(
+                QString("display panafall set %1 line_duration=100").arg(pan->waterfallId()));
+        }
+
+        // Persist all defaults to AppSettings
+        auto& s = AppSettings::instance();
+        s.setValue(sw->settingsKey("DisplayFftAverage"),          "0");
+        s.setValue(sw->settingsKey("DisplayFftFps"),              "25");
+        s.setValue(sw->settingsKey("DisplayFftFillAlpha"),        "0.70");
+        s.setValue(sw->settingsKey("DisplayFftFillColor"),        "#00e5ff");
+        s.setValue(sw->settingsKey("DisplayFftWeightedAvg"),      "False");
+        s.setValue(sw->settingsKey("DisplayFftHeatMap"),          "True");
+        s.setValue(sw->settingsKey("DisplayWfColorScheme"),       "0");
+        s.setValue(sw->settingsKey("DisplayWfColorGain"),         "50");
+        s.setValue(sw->settingsKey("DisplayWfBlackLevel"),        "15");
+        s.setValue(sw->settingsKey("DisplayWfAutoBlack"),         "True");
+        s.setValue(sw->settingsKey("DisplayWfLineDuration"),      "100");
+        s.setValue(sw->settingsKey("WaterfallBlankingEnabled"),   "False");
+        s.setValue(sw->settingsKey("WaterfallBlankingThreshold"), "1.15");
+        s.setValue(sw->settingsKey("WaterfallBlankingMode"),      "0");
+        s.setValue(sw->settingsKey("CursorFreqLabel"),            "False");
+        s.setValue(sw->settingsKey("BackgroundImage"),            ":/bg-default.jpg");
+        s.setValue(sw->settingsKey("BackgroundOpacity"),          "80");
+        s.save();
+
+        // Sync all Display panel UI controls
+        menu->syncDisplaySettings(0, 25, 70, false, QColor(0x00, 0xe5, 0xff),
+                                  50, 15, true, 100, 75, false, true, 0);
+        menu->syncExtraDisplaySettings(false, 1.15f, false, 80);
     });
 
     // ── Click-to-tune ────────────────────────────────────────────────────

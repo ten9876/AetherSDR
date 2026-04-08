@@ -36,6 +36,9 @@ public:
                              bool autoBlack, int rate,
                              int floorPos = 75, bool floorEnable = false,
                              bool heatMap = true, int colorScheme = 0);
+    // Sync blanker/cursor/opacity controls not covered by syncDisplaySettings.
+    void syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
+                                  bool cursorFreq, int bgOpacity);
 
     // Set the panadapter ID this overlay belongs to (for +RX routing).
     void setPanId(const QString& id) { m_panId = id; }
@@ -106,6 +109,7 @@ signals:
     void backgroundImageRequested();
     void backgroundImageCleared();
     void backgroundOpacityChanged(int pct);
+    void displaySettingsReset();
 
 private:
     QString m_panId;

@@ -20,7 +20,7 @@
 
 namespace AetherSDR {
 
-static constexpr int BTN_W = 60;
+static constexpr int BTN_W = 68;
 static constexpr int BTN_H = 22;
 
 // Band button size (slightly smaller for the grid)
@@ -1136,7 +1136,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         lbl->setStyleSheet(labelStyle);
         grid->addWidget(lbl, row, 0, 1, 2);
         auto* bgBtn = new QPushButton("Choose...");
-        bgBtn->setFixedSize(60, 18);
+        bgBtn->setFixedSize(70, 18);
         bgBtn->setStyleSheet(btnStyle);
         connect(bgBtn, &QPushButton::clicked, this, [this] {
             emit backgroundImageRequested();
@@ -1145,6 +1145,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         auto* clearBtn = new QPushButton("Clear");
         clearBtn->setFixedSize(42, 18);
         clearBtn->setStyleSheet(btnStyle);
+        clearBtn->setToolTip("Revert to the default logo background");
         connect(clearBtn, &QPushButton::clicked, this, [this] {
             emit backgroundImageCleared();
         });
@@ -1169,6 +1170,18 @@ void SpectrumOverlayMenu::buildDisplayPanel()
             m_bgOpacityLabel->setText(QString::number(v));
             emit backgroundOpacityChanged(v);
         });
+        ++row;
+    }
+
+    // Reset all display settings to defaults
+    {
+        auto* resetBtn = new QPushButton("Reset to Defaults");
+        resetBtn->setStyleSheet(btnStyle);
+        resetBtn->setToolTip("Reset all display settings to their default values");
+        connect(resetBtn, &QPushButton::clicked, this, [this] {
+            emit displaySettingsReset();
+        });
+        grid->addWidget(resetBtn, row, 0, 1, 4);
         ++row;
     }
 
@@ -1241,6 +1254,34 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
     if (m_colorSchemeCmb) {
         QSignalBlocker bc(m_colorSchemeCmb);
         m_colorSchemeCmb->setCurrentIndex(colorScheme);
+    }
+}
+
+void SpectrumOverlayMenu::syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
+                                                    bool cursorFreq, int bgOpacity)
+{
+    if (m_wfBlankerBtn) {
+        QSignalBlocker b(m_wfBlankerBtn);
+        m_wfBlankerBtn->setChecked(blankerOn);
+        m_wfBlankerBtn->setText(blankerOn ? "On" : "Off");
+    }
+    if (m_wfBlankerThreshSlider) {
+        QSignalBlocker b(m_wfBlankerThreshSlider);
+        int sliderVal = static_cast<int>((blankerThresh - 1.0f) * 100.0f);
+        m_wfBlankerThreshSlider->setValue(sliderVal);
+        if (m_wfBlankerThreshLabel)
+            m_wfBlankerThreshLabel->setText(QString::number(blankerThresh, 'f', 2));
+    }
+    if (m_cursorFreqBtn) {
+        QSignalBlocker b(m_cursorFreqBtn);
+        m_cursorFreqBtn->setChecked(cursorFreq);
+        m_cursorFreqBtn->setText(cursorFreq ? "On" : "Off");
+    }
+    if (m_bgOpacitySlider) {
+        QSignalBlocker b(m_bgOpacitySlider);
+        m_bgOpacitySlider->setValue(bgOpacity);
+        if (m_bgOpacityLabel)
+            m_bgOpacityLabel->setText(QString::number(bgOpacity));
     }
 }
 
