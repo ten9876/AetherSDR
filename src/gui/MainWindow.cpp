@@ -1927,6 +1927,9 @@ void MainWindow::closeEvent(QCloseEvent* event)
     s.setValue("ClientNr4Enabled", m_audio->nr4Enabled() ? "True" : "False");
     s.setValue("ClientDfnrEnabled", m_audio->dfnrEnabled() ? "True" : "False");
     // BNR not persisted — requires manual enable each session
+    // DEXP (downward expander) — radio does not persist across sessions
+    s.setValue("DexpEnabled", m_radioModel.transmitModel().dexpOn() ? "True" : "False");
+    s.setValue("DexpLevel", QString::number(m_radioModel.transmitModel().dexpLevel()));
 
     s.save();
 
@@ -4017,6 +4020,16 @@ void MainWindow::onSliceAdded(SliceModel* s)
             else if (settings.value("ClientDfnrEnabled", "False").toString() == "True")
                 QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setDfnrEnabled(true); });
             // BNR not auto-restored — requires manual enable each session
+
+            // Restore DEXP (downward expander) — radio does not persist across sessions
+            bool dexpSaved = settings.value("DexpEnabled", "False").toString() == "True";
+            if (dexpSaved) {
+                m_radioModel.transmitModel().setDexp(true);
+                int dexpLevel = settings.value("DexpLevel", "0").toInt();
+                if (dexpLevel > 0) {
+                    m_radioModel.transmitModel().setDexpLevel(dexpLevel);
+                }
+            }
 
             // Deferred CW decoder restart after profile load (#305).
             // Mode status arrives asynchronously — by the time setActiveSlice
