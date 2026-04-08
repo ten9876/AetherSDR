@@ -3063,6 +3063,14 @@ void MainWindow::buildMenuBar()
         dlg->raise();
         dlg->activateWindow();
     });
+    helpMenu->addAction("Understanding Noise Cancellation...", this, [this]() {
+        auto* dlg = new HelpDialog("Understanding Noise Cancellation", ":/help/understanding-noise-cancellation.md", this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setModal(false);
+        dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
+    });
     helpMenu->addAction("Understanding Data Modes...", this, [this]() {
         auto* dlg = new HelpDialog("Understanding Data Modes", ":/help/understanding-data-modes.md", this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
