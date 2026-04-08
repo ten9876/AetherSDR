@@ -3063,14 +3063,15 @@ void MainWindow::buildMenuBar()
         dlg->raise();
         dlg->activateWindow();
     });
-    helpMenu->addAction("Understanding Data Modes...", this, [this]() {
-        auto* dlg = new HelpDialog("Understanding Data Modes", ":/help/understanding-data-modes.md", this);
+    auto* dataModesAction = helpMenu->addAction("Configuring Data Modes...", this, [this]() {
+        auto* dlg = new HelpDialog("Configuring Data Modes", ":/help/understanding-data-modes.md", this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->setModal(false);
         dlg->show();
         dlg->raise();
         dlg->activateWindow();
     });
+    dataModesAction->setMenuRole(QAction::NoRole); // prevent macOS auto-reparenting (#883)
     helpMenu->addAction("Contributing to AetherSDR...", this, [this]() {
         auto* dlg = new HelpDialog("Contributing to AetherSDR", ":/help/contributing-to-aethersdr.md", this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
