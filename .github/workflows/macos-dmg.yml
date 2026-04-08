@@ -158,15 +158,35 @@ jobs:
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          find build/AetherSDR.app -name "*.dylib" -o -name "*.framework" -type d | while read item; do
-            codesign --force --options runtime --timestamp \
-              --sign "Developer ID Application" "$item" 2>/dev/null || true
+          APP="build/AetherSDR.app"
+          SIGN_ID="Developer ID Application"
+
+          # 1. Sign all dylibs (plugins, helpers, etc.)
+          find "$APP" -name "*.dylib" -print0 | xargs -0 -n1 \
+            codesign --force --options runtime --timestamp --sign "$SIGN_ID"
+
+          # 2. Sign framework binaries (the actual Mach-O inside each .framework)
+          find "$APP/Contents/Frameworks" -name "*.framework" -type d -maxdepth 1 | while read fw; do
+            fw_name=$(basename "$fw" .framework)
+            fw_binary="$fw/$fw_name"
+            if [ -f "$fw_binary" ]; then
+              codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$fw_binary"
+            fi
+            # Sign any nested dylibs inside the framework
+            find "$fw" -name "*.dylib" -print0 2>/dev/null | xargs -0 -n1 \
+              codesign --force --options runtime --timestamp --sign "$SIGN_ID" 2>/dev/null || true
+            # Sign the framework bundle itself
+            codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$fw"
           done
-          codesign --force --deep --options runtime --timestamp \
+
+          # 3. Sign the main app bundle last (no --deep)
+          codesign --force --options runtime --timestamp \
             --entitlements macos/AetherSDR.entitlements \
-            --sign "Developer ID Application" \
-            build/AetherSDR.app
-          codesign --verify --deep --strict build/AetherSDR.app
+            --sign "$SIGN_ID" \
+            "$APP"
+
+          # 4. Verify
+          codesign --verify --deep --strict "$APP"
           echo "Code signing verified successfully"
 
       - name: Code sign DAX driver
