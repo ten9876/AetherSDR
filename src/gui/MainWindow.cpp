@@ -6707,6 +6707,9 @@ void MainWindow::activateRADE(int sliceId)
     // RADE status indicator in VFO widget
     if (auto* vfo = spectrum()->vfoWidget()) {
         vfo->setRadeActive(true);
+        // Show initial unsynchronised state immediately — syncChanged only fires
+        // from feedRxAudio() which requires DAX audio to be flowing first.
+        vfo->setRadeSynced(false);
         connect(m_radeEngine, &RADEEngine::syncChanged,
                 vfo, &VfoWidget::setRadeSynced);
         connect(m_radeEngine, &RADEEngine::snrChanged,
