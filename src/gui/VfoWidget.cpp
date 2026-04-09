@@ -2789,9 +2789,13 @@ void VfoWidget::applyFilterPreset(int widthHz)
         lo = mid - widthHz / 2;
         hi = mid + widthHz / 2;
     } else if (mode == "CW" || mode == "CWL") {
-        // Centered on carrier — radio's BFO handles pitch offset
-        lo = -widthHz / 2;
-        hi =  widthHz / 2;
+        // Center the passband on the CW pitch offset: in CW mode the radio
+        // transmits and receives at carrier ± pitch_Hz, so the filter must
+        // be centred there, not at 0 (the carrier).  (#1027)
+        int pitch = m_txModel ? m_txModel->cwPitch() : 600;
+        int center = (mode == "CWL") ? -pitch : pitch;
+        lo = center - widthHz / 2;
+        hi = center + widthHz / 2;
     } else if (mode == "AM" || mode == "SAM" || mode == "DSB") {
         lo = -(widthHz / 2); hi = (widthHz / 2);
     } else {
