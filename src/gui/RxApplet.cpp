@@ -760,7 +760,14 @@ void RxApplet::buildUI()
         m_agcTSlider->setStyleSheet(kSliderStyle);
         agcRow->addWidget(m_agcTSlider, 1);
 
-        connect(m_agcTSlider, &QSlider::valueChanged, this, [this](int v) {
+        auto* agcTVal = new QLabel("65");
+        agcTVal->setStyleSheet(kDimLabelStyle);
+        agcTVal->setFixedWidth(20);
+        agcTVal->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        agcRow->addWidget(agcTVal);
+
+        connect(m_agcTSlider, &QSlider::valueChanged, this, [this, agcTVal](int v) {
+            agcTVal->setText(QString::number(v));
             if (m_slice) m_slice->setAgcThreshold(v);
         });
         rightCol->addWidget(m_agcContainer);
@@ -1074,6 +1081,7 @@ void RxApplet::connectSlice(SliceModel* s)
         if (idx >= 0) m_modeCombo->setCurrentIndex(idx);
     }
     connect(s, &SliceModel::modeListChanged, this, [this](const QStringList& modes) {
+        if (modes.isEmpty()) return;          // keep static fallback list (#891)
         QSignalBlocker b(m_modeCombo);
         QString cur = m_modeCombo->currentText();
         m_modeCombo->clear();
