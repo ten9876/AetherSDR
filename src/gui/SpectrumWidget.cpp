@@ -414,6 +414,19 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
              << QString::number(centerMhz, 'f', 6)
              << "bw=" << QString::number(bandwidthMhz, 'f', 6)
              << "bins=" << m_smoothed.size();
+
+    // Clear waterfall rows baked for the old frequency range (#845).
+    // A 1% combined delta threshold avoids clearing on smooth pan; band changes
+    // (centre or bandwidth jumps) always exceed it.
+    const double refBw = (m_bandwidthMhz > 0.0) ? m_bandwidthMhz : bandwidthMhz;
+    const double delta = std::abs(centerMhz - m_centerMhz) / refBw
+                       + std::abs(bandwidthMhz - m_bandwidthMhz) / refBw;
+    if (delta > 0.01 && !m_waterfall.isNull()) {
+        m_waterfall.fill(Qt::black);
+        m_wfWriteRow = 0;
+        m_smoothed.clear();
+    }
+
     m_centerMhz    = centerMhz;
     m_bandwidthMhz = bandwidthMhz;
     markOverlayDirty();
