@@ -133,6 +133,12 @@ public:
     void setWnbActive(bool on) { m_wnbActive = on; markOverlayDirty(); }
     void setRfGain(int gain) { m_rfGainValue = gain; markOverlayDirty(); }
 
+    // HF propagation forecast overlay (K-index and Solar Flux Index).
+    // Values of -1 mean not yet fetched; visible only when enabled.
+    void setPropForecastVisible(bool on) { m_propForecastVisible = on; markOverlayDirty(); }
+    void setPropForecast(int kIndex, int sfi) { m_propKIndex = kIndex; m_propSfi = sfi; markOverlayDirty(); }
+    bool propForecastVisible() const { return m_propForecastVisible; }
+
     // NB Waterfall Blanker (#277) — client-side impulse suppression
     void setWfBlankerEnabled(bool on);
     void setWfBlankerThreshold(float t);
@@ -421,6 +427,7 @@ private:
     bool m_draggingBandwidth{false};
     int  m_bwDragStartX{0};
     double m_bwDragStartBw{0.0};
+    double m_bwDragStartCenter{0.0};  // pan center at drag start (#1093)
     // Waterfall pan drag state
     bool m_draggingPan{false};
     int  m_panDragStartX{0};
@@ -445,6 +452,11 @@ private:
     // On-screen indicators (WNB, RF Gain)
     bool m_wnbActive{false};
     int  m_rfGainValue{0};
+
+    // HF propagation forecast overlay
+    bool m_propForecastVisible{false};
+    int  m_propKIndex{-1};
+    int  m_propSfi{-1};
 
     // Background image
     QImage  m_bgImage;
