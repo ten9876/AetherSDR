@@ -52,8 +52,11 @@ class RadioDiscovery : public QObject {
     Q_OBJECT
 
 public:
-    static constexpr quint16 DISCOVERY_PORT = 4992;
-    static constexpr int STALE_TIMEOUT_MS  = 5000; // radio considered gone after 5s
+    static constexpr quint16 DISCOVERY_PORT  = 4992;
+    static constexpr int STALE_TIMEOUT_MS   = 5000;  // radio considered gone after 5s
+    static constexpr int BIND_RETRY_MS      = 2000;  // retry interval when bind fails
+    static constexpr int MAX_BIND_RETRIES   = 15;    // give up after 30s (15 × 2s)
+    static constexpr int REBIND_INTERVAL_MS = 5000;  // re-bind interval until first packet received
 
     explicit RadioDiscovery(QObject* parent = nullptr);
     ~RadioDiscovery() override;
@@ -71,6 +74,7 @@ signals:
 private slots:
     void onReadyRead();
     void onStaleCheck();
+    void onBindRetry();
 
 private:
     RadioInfo parseDiscoveryPacket(const QByteArray& data) const;
@@ -78,6 +82,10 @@ private:
 
     QUdpSocket        m_socket;
     QTimer            m_staleTimer;
+    QTimer            m_bindRetryTimer;  // retries bind if first attempt fails (e.g. macOS net consent)
+    QTimer            m_rebindTimer;     // periodic re-bind until first packet (handles interface changes)
+    int               m_bindRetryCount{0};
+    bool              m_receivedAny{false};
     QList<RadioInfo>  m_radios;
 
     // Track last-seen time per serial for staleness detection
