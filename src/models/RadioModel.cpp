@@ -462,10 +462,21 @@ void RadioModel::sendNetCwCommand(const QString& baseCmd)
 
 void RadioModel::cwAutoTune(int sliceId, bool intermittent)
 {
-    if (intermittent)
+    if (intermittent) {
         sendCmd(QString("slice auto_tune %1 int=1").arg(sliceId));
-    else
+    } else {
         sendCmd(QString("slice auto_tune %1").arg(sliceId));
+        // "Once" mode: stop the auto-tune engine after the first tune completes.
+        // The radio signals completion by updating the slice frequency, so we
+        // watch for that change and immediately send the stop command.
+        SliceModel* s = slice(sliceId);
+        if (s) {
+            connect(s, &SliceModel::frequencyChanged, this,
+                    [this, sliceId](double) {
+                        sendCmd(QString("slice auto_tune %1 0").arg(sliceId));
+                    }, Qt::SingleShotConnection);
+        }
+    }
 }
 
 void RadioModel::addSlice()
@@ -797,15 +808,37 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
 
         // Always (re)start on connect — re-binds socket and re-registers
         // UDP port with the radio. start() calls stop() internally if needed. (#561)
+        bool streamOk = false;
         if (m_wanConn) {
-            QMetaObject::invokeMethod(m_panStream, [this]() {
-                m_panStream->startWan(QHostAddress(m_wanPublicIp), m_wanUdpPort);
+            QMetaObject::invokeMethod(m_panStream, [this, &streamOk]() {
+                streamOk = m_panStream->startWan(QHostAddress(m_wanPublicIp), m_wanUdpPort);
             }, Qt::BlockingQueuedConnection);
         } else {
-            QMetaObject::invokeMethod(m_panStream, [this]() {
-                m_panStream->start(m_connection);
+            QMetaObject::invokeMethod(m_panStream, [this, &streamOk]() {
+                streamOk = m_panStream->start(m_connection);
             }, Qt::BlockingQueuedConnection);
         }
+
+        if (!streamOk) {
+            qCWarning(lcProtocol) << "RadioModel: UDP stream setup failed — disconnecting gracefully (#894)";
+            emit connectionError(tr("UDP stream setup failed. If connecting over VPN, "
+                                    "ensure UDP port 4991 is routable."));
+            QTimer::singleShot(0, this, &RadioModel::disconnectFromRadio);
+            return;
+        }
+
+        // Schedule a UDP stream health check: if no VITA-49 data arrives
+        // within 10 seconds (e.g. VPN blocks UDP), warn the user. (#894)
+        QTimer::singleShot(10000, this, [this]() {
+            if (!isConnected()) return;
+            if (m_panStream->totalRxBytes() == 0) {
+                qCWarning(lcProtocol) << "RadioModel: no VITA-49 UDP data received after 10s"
+                             << "— possible VPN/firewall blocking UDP (#894)";
+                emit connectionError(tr("No spectrum data received. UDP traffic from the "
+                                        "radio may be blocked by a VPN or firewall. "
+                                        "Ensure UDP port 4991 is routable."));
+            }
+        });
 
         // On WAN: use "client udp_register" via UDP (not TCP "client udpport").
         // The radio only accepts udp_register on WAN connections.
@@ -911,11 +944,13 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                                 sendCmd(cmd);
                         }
 
-                        // Request a remote audio RX stream (uncompressed).
-                        // Only create remote_audio_rx if PC audio is enabled.
-                        // When disabled, audio plays through the radio's physical
-                        // outputs (line out, headphone, front speaker).
-                        if (AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True") {
+                        // Create remote_audio_rx if PC Audio is on OR TCI autostart
+                        // is enabled. The stream's existence tells the radio to route
+                        // audio to PC instead of its physical outputs. (#1014, #1051)
+                        {
+                        bool needStream = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True"
+                            || AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
+                        if (needStream) {
                             sendCmd(
                                 QString("stream create type=remote_audio_rx compression=%1").arg(audioCompressionParam()),
                                 [this](int code, const QString& body) {
@@ -927,7 +962,8 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                                                    << Qt::hex << code << "body:" << body;
                                 });
                         } else {
-                            qCDebug(lcProtocol) << "RadioModel: PC audio disabled, skipping remote_audio_rx (using radio line out)";
+                            qCDebug(lcProtocol) << "RadioModel: PC audio disabled, no TCI — skipping remote_audio_rx";
+                        }
                         }
 
         // Request DAX TX audio stream (PC mic → radio, DAX mode)
@@ -962,8 +998,10 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                                 }
                             });
 
+                        // Radio always forces Opus for remote_audio_tx regardless of
+                        // what we request (confirmed by protocol testing, v1.4.0.0).
                         sendCmd(
-                            QString("stream create type=remote_audio_tx compression=%1").arg(audioCompressionParam()),
+                            "stream create type=remote_audio_tx compression=opus",
                             [this](int code, const QString& body) {
                                 if (code == 0) {
                                     quint32 id = body.trimmed().toUInt(nullptr, 16);
@@ -1587,6 +1625,47 @@ void RadioModel::onStatusReceived(const QString& object,
         if (object.contains("VOICE"))       { m_filterVoice = level; m_filterVoiceAuto = autoLvl; }
         else if (object.contains("CW"))     { m_filterCw = level; m_filterCwAuto = autoLvl; }
         else if (object.contains("DIGITAL")){ m_filterDigital = level; m_filterDigitalAuto = autoLvl; }
+        emit infoChanged();
+        return;
+    }
+
+    // License info (fw v1.4.0.0): three sub-objects per FlexLib:
+    //   "license"              — radio_id, issued, last_refreshed_date, highest_major_version, region
+    //   "license subscription" — name=smartsdr+|smartsdr+_early_access, expiration=<date>
+    //   "license feature"      — name, enabled, reason (BUILT_IN|LICENSE_FILE|PLUS|EA)
+    if (object == "license" && !kvs.contains("name")) {
+        if (kvs.contains("radio_id")) {
+            m_licenseRadioId = kvs["radio_id"].toUpper();
+        }
+        if (kvs.contains("highest_major_version")) {
+            m_licenseMaxVersion = kvs["highest_major_version"];
+        }
+        // Base subscription is always "SmartSDR" — upgraded by subscription messages
+        if (m_licenseSubscription.isEmpty()) {
+            m_licenseSubscription = "SmartSDR";
+        }
+        emit infoChanged();
+        return;
+    }
+    if (object == "license subscription") {
+        // Per FlexLib: name=smartsdr+ or name=smartsdr+_early_access
+        // with expiration=<ISO-8601 date>
+        QString name = kvs.value("name").toLower();
+        QString expStr = kvs.value("expiration");
+        QDate expDate = QDate::fromString(expStr.left(10), Qt::ISODate);
+        bool active = expDate.isValid() && expDate >= QDate::currentDate();
+        if (name == "smartsdr+_early_access" && active) {
+            m_licenseSubscription = "SmartSDR+ Early Access";
+            m_licenseExpirationDate = expDate.toString("MM/dd/yyyy");
+        } else if (name == "smartsdr+" && active) {
+            m_licenseSubscription = "SmartSDR+";
+            m_licenseExpirationDate = expDate.toString("MM/dd/yyyy");
+        }
+        emit infoChanged();
+        return;
+    }
+    if (object == "license feature") {
+        // Feature-level parsing — not needed for display, but log for debugging
         emit infoChanged();
         return;
     }
