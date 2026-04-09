@@ -1017,18 +1017,12 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         row1->setSpacing(4);
         auto* biasBtn = mkTogBtn("BIAS", tx.micBias());
         connect(biasBtn, &QPushButton::toggled, this, [this](bool on) {
-            // Radio sends no status echo for mic bias — update optimistically.
-            // See upstream issue tagged protocol+upstream.
             m_model->transmitModel().setMicBias(on);
-            m_model->sendCommand(QString("mic bias %1").arg(on ? 1 : 0));
         });
         row1->addWidget(biasBtn);
         auto* boostBtn = mkTogBtn("+20dB", tx.micBoost());
         connect(boostBtn, &QPushButton::toggled, this, [this](bool on) {
-            // Radio sends no status echo for mic boost — update optimistically.
-            // See upstream issue tagged protocol+upstream.
             m_model->transmitModel().setMicBoost(on);
-            m_model->sendCommand(QString("mic boost %1").arg(on ? 1 : 0));
         });
         row1->addWidget(boostBtn);
         row1->addStretch(1);

@@ -462,7 +462,14 @@ void TransmitModel::setVoxDelay(int delay)
 
 void TransmitModel::setMicBoost(bool on)
 {
+    m_micBoost = on;  // optimistic — radio sends no status echo (#1045)
     emit commandReady(QString("mic boost %1").arg(on ? 1 : 0));
+}
+
+void TransmitModel::setMicBias(bool on)
+{
+    m_micBias = on;  // optimistic — radio sends no status echo (#1045)
+    emit commandReady(QString("mic bias %1").arg(on ? 1 : 0));
 }
 
 void TransmitModel::setAmCarrierLevel(int level)

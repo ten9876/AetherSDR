@@ -59,9 +59,7 @@ public:
     int     voxLevel()      const { return m_voxLevel; }
     int     voxDelay()      const { return m_voxDelay; }
     bool    micBoost()      const { return m_micBoost; }
-    void    setMicBoost(bool v) { m_micBoost = v; }
     bool    micBias()       const { return m_micBias; }
-    void    setMicBias(bool v)  { m_micBias  = v; }
     bool    metInRx()       const { return m_metInRx; }
     bool    syncCwx()       const { return m_syncCwx; }
     int     amCarrierLevel() const { return m_amCarrierLevel; }
@@ -156,6 +154,7 @@ public:
     void setVoxLevel(int level);
     void setVoxDelay(int delay);
     void setMicBoost(bool on);
+    void setMicBias(bool on);
     void setAmCarrierLevel(int level);
     void setDexp(bool on);
     void setDexpLevel(int level);
