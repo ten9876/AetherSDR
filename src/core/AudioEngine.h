@@ -25,6 +25,7 @@ class SpectralNR;
 class SpecbleachFilter;
 class RNNoiseFilter;
 class NvidiaBnrFilter;
+class DeepFilterFilter;
 class Resampler;
 
 // AudioEngine handles audio playback (RX) and capture (TX).
@@ -137,6 +138,13 @@ public:
     float bnrIntensity() const;
     bool bnrConnected() const;
 
+    // Client-side DFNR (DeepFilterNet3 neural noise reduction)
+    Q_INVOKABLE void setDfnrEnabled(bool on);
+    bool dfnrEnabled() const { return m_dfnrEnabled.load(); }
+    void setDfnrAttenLimit(float db);
+    float dfnrAttenLimit() const;
+    void setDfnrPostFilterBeta(float beta);
+
     // Ensure FFTW wisdom is loaded/generated. Returns true if wisdom
     // needs to be generated (slow). Call generateWisdom() in that case.
     static bool needsWisdomGeneration();
@@ -162,6 +170,7 @@ signals:
     void rn2EnabledChanged(bool on);
     void bnrEnabledChanged(bool on);
     void bnrConnectionChanged(bool connected);
+    void dfnrEnabledChanged(bool on);
     void txRawPcmReady(const QByteArray& pcm);  // raw 24kHz stereo int16 PCM for RADEEngine
     void txPacketReady(const QByteArray& vitaPacket);  // VITA-49 TX packet for PanadapterStream
     void pcMicLevelChanged(float peakDbfs, float avgDbfs);  // client-side PC mic metering
@@ -222,10 +231,12 @@ private:
     std::atomic<float> m_rxVolume{1.0f};
     std::atomic<bool>  m_muted{false};
     bool  m_resampleTo48k{false};      // RX: upsample 24kHz → 48kHz output
+    std::atomic<bool> m_rxFloat32{false};  // RX: output device requires Float32 (e.g. CommonRadioAudio)
     std::unique_ptr<Resampler> m_rxResampler;  // 24k stereo → 48k stereo (lazy init)
     bool  m_txNeedsResample{false};      // TX: input rate != 24kHz, needs resampling
     bool  m_txInputMono{false};          // TX: input device is mono
     int   m_txInputRate{24000};          // TX: actual input sample rate
+    std::atomic<bool> m_txFloat32{false};  // TX: input device delivers Float32 (e.g. CommonRadioAudio)
     std::unique_ptr<Resampler> m_txResampler;  // e.g. 48k→24k (lazy init)
 
     // DSP lifecycle mutex: held during feedAudioData() DSP section AND
@@ -255,6 +266,12 @@ private:
     QByteArray m_bnrOutBuf;  // jitter buffer: denoised 24kHz stereo int16
     bool m_bnrPrimed{false}; // true after enough denoised data accumulated
     void processBnr(const QByteArray& stereoPcm);
+
+    // Client-side DFNR (DeepFilterNet3)
+#ifdef HAVE_DFNR
+    std::unique_ptr<DeepFilterFilter> m_dfnr;
+#endif
+    std::atomic<bool> m_dfnrEnabled{false};
 
     // Pre-allocated NR2 work buffers (avoid per-call heap allocation)
     std::vector<int16_t> m_nr2Mono;

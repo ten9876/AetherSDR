@@ -8,6 +8,9 @@
 #endif
 #include "RNNoiseFilter.h"
 #include "NvidiaBnrFilter.h"
+#ifdef HAVE_DFNR
+#include "DeepFilterFilter.h"
+#endif
 #include "Resampler.h"
 
 #include <cmath>
@@ -20,6 +23,30 @@
 #include <cstring>
 
 namespace AetherSDR {
+
+// Convert Int16 PCM → Float32 for virtual drivers that require Float32 (e.g. CommonRadioAudio)
+static QByteArray convertInt16ToFloat32(const QByteArray& pcm)
+{
+    const int n = pcm.size() / static_cast<int>(sizeof(int16_t));
+    QByteArray out(n * static_cast<int>(sizeof(float)), Qt::Uninitialized);
+    const auto* src = reinterpret_cast<const int16_t*>(pcm.constData());
+    auto* dst = reinterpret_cast<float*>(out.data());
+    for (int i = 0; i < n; ++i)
+        dst[i] = src[i] / 32768.0f;
+    return out;
+}
+
+// Convert Float32 PCM → Int16 for downstream VITA-49 processing
+static QByteArray convertFloat32ToInt16(const QByteArray& pcm)
+{
+    const int n = pcm.size() / static_cast<int>(sizeof(float));
+    QByteArray out(n * static_cast<int>(sizeof(int16_t)), Qt::Uninitialized);
+    const auto* src = reinterpret_cast<const float*>(pcm.constData());
+    auto* dst = reinterpret_cast<int16_t*>(out.data());
+    for (int i = 0; i < n; ++i)
+        dst[i] = static_cast<int16_t>(qBound(-32768.0f, src[i] * 32768.0f, 32767.0f));
+    return out;
+}
 
 AudioEngine::AudioEngine(QObject* parent)
     : QObject(parent)
@@ -64,10 +91,9 @@ AudioEngine::AudioEngine(QObject* parent)
         if (!m_audioSink || !m_audioDevice || !m_audioDevice->isOpen() || m_audioSink->state() == QAudio::StoppedState) return;
 
         // Cap buffer at ~200ms of audio to bound latency.
-        // At 24kHz stereo int16 = 96000 bytes/sec → 200ms = 19200 bytes.
-        // At 48kHz stereo int16 = 192000 bytes/sec → 200ms = 38400 bytes.
         const int sampleRate = m_resampleTo48k ? 48000 : DEFAULT_SAMPLE_RATE;
-        const qsizetype maxBufBytes = sampleRate * 2 * 2 / 5; // 200ms worth
+        const int bytesPerSample = m_rxFloat32 ? static_cast<int>(sizeof(float)) : static_cast<int>(sizeof(int16_t));
+        const qsizetype maxBufBytes = sampleRate * 2 * bytesPerSample / 5; // 200ms worth
         if (m_rxBuffer.size() > maxBufBytes) {
             // Drop oldest samples to keep latency bounded
             m_rxBuffer.remove(0, m_rxBuffer.size() - maxBufBytes);
@@ -138,34 +164,38 @@ bool AudioEngine::startRxStream()
     emit rxStarted();
     return true;
 #else
-    if (!dev.isFormatSupported(fmt)) {
-        qCWarning(lcAudio) << "AudioEngine: output device does not support 24kHz stereo Int16, trying 48kHz";
-        fmt.setSampleRate(48000);
-        m_resampleTo48k = true;
-        if (!dev.isFormatSupported(fmt)) {
-            qCWarning(lcAudio) << "AudioEngine: output device does not support 48kHz stereo Int16 either";
-            qCWarning(lcAudio) << "No audio device detected";
-            return false;
+    // macOS/Linux: virtual audio drivers (CommonRadioAudio, BlackHole, Loopback) may
+    // report Float32 as the only supported format at the HAL level. isFormatSupported()
+    // can misreport availability for HAL plugins and trigger a CAException on the render
+    // thread, causing a silent crash (#1070). Try opening the sink directly instead.
+    m_rxFloat32 = false;
+    m_resampleTo48k = false;
+    static constexpr std::pair<int, QAudioFormat::SampleFormat> kRxCandidates[] = {
+        {24000, QAudioFormat::Int16},
+        {48000, QAudioFormat::Int16},
+        {48000, QAudioFormat::Float32},
+        {44100, QAudioFormat::Float32},
+    };
+    for (auto [rate, sampleFmt] : kRxCandidates) {
+        fmt.setSampleRate(rate);
+        fmt.setSampleFormat(sampleFmt);
+        m_audioSink = new QAudioSink(dev, fmt, this);
+        m_audioSink->setVolume(m_rxVolume.load());
+        m_audioDevice = m_audioSink->start();
+        if (m_audioDevice && m_audioSink->state() != QAudio::StoppedState) {
+            m_resampleTo48k = (rate != DEFAULT_SAMPLE_RATE);
+            m_rxFloat32 = (sampleFmt == QAudioFormat::Float32);
+            qCInfo(lcAudio) << "AudioEngine: RX stream started at" << rate << "Hz"
+                            << (m_rxFloat32.load() ? "Float32" : "Int16")
+                            << "device:" << dev.description();
+            emit rxStarted();
+            return true;
         }
-    } else {
-        m_resampleTo48k = false;
+        delete m_audioSink; m_audioSink = nullptr; m_audioDevice = nullptr;
     }
+    qCWarning(lcAudio) << "AudioEngine: no usable RX format found for device:" << dev.description();
+    return false;
 #endif
-
-    m_audioSink   = new QAudioSink(dev, fmt, this);
-    m_audioSink->setVolume(m_rxVolume.load());
-    m_audioDevice = m_audioSink->start();   // push-mode
-
-    if (!m_audioDevice) {
-        qCWarning(lcAudio) << "AudioEngine: failed to open audio sink";
-        delete m_audioSink;
-        m_audioSink = nullptr;
-        return false;
-    }
-
-    qCDebug(lcAudio) << "AudioEngine: RX stream started";
-    emit rxStarted();
-    return true;
 }
 
 void AudioEngine::stopRxStream()
@@ -176,6 +206,8 @@ void AudioEngine::stopRxStream()
         m_audioSink   = nullptr;
         m_audioDevice = nullptr;
     }
+    m_rxFloat32 = false;
+    m_resampleTo48k = false;
     emit rxStopped();
 }
 
@@ -211,10 +243,10 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
 
     auto writeAudio = [this](const QByteArray& data) {
         if (!m_audioDevice || !m_audioDevice->isOpen()) return;
-        if (m_resampleTo48k)
-            m_rxBuffer.append(resampleStereo(data));
-        else
-            m_rxBuffer.append(data); 
+        // data is always Int16 from the radio; convert as needed for the sink
+        QByteArray out = m_resampleTo48k ? resampleStereo(data) : data;
+        if (m_rxFloat32) out = convertInt16ToFloat32(out);
+        m_rxBuffer.append(out);
     };
 
     // Bypass client-side DSP during TX (#367). NR2/RN2/BNR adapt their
@@ -238,6 +270,12 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
 #ifdef HAVE_SPECBLEACH
         } else if (m_nr4Enabled && m_nr4) {
             QByteArray processed = m_nr4->process(pcm);
+            writeAudio(processed);
+            emit levelChanged(computeRMS(processed));
+#endif
+#ifdef HAVE_DFNR
+        } else if (m_dfnrEnabled && m_dfnr) {
+            QByteArray processed = m_dfnr->process(pcm);
             writeAudio(processed);
             emit levelChanged(computeRMS(processed));
 #endif
@@ -281,10 +319,11 @@ void AudioEngine::setNr2Enabled(bool on)
     if (on && m_radeMode) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
     if (on) {
-        // Disable RN2/BNR/NR4 if on — they're mutually exclusive
+        // Disable RN2/BNR/NR4/DFNR if on — they're mutually exclusive
         if (m_rn2Enabled) setRn2Enabled(false);
         if (m_bnrEnabled) setBnrEnabled(false);
         if (m_nr4Enabled) setNr4Enabled(false);
+        if (m_dfnrEnabled) setDfnrEnabled(false);
         // Wisdom should already be generated by MainWindow::enableNr2WithWisdom().
         if (!needsWisdomGeneration())
             SpectralNR::generateWisdom(wisdomDir().toStdString());
@@ -330,6 +369,7 @@ void AudioEngine::setNr4Enabled(bool on)
         if (m_nr2Enabled) setNr2Enabled(false);
         if (m_rn2Enabled) setRn2Enabled(false);
         if (m_bnrEnabled) setBnrEnabled(false);
+        if (m_dfnrEnabled) setDfnrEnabled(false);
         m_nr4 = std::make_unique<SpecbleachFilter>();
         if (!m_nr4->isValid()) {
             qCWarning(lcAudio) << "AudioEngine: NR4 initialization failed";
@@ -379,10 +419,11 @@ void AudioEngine::setRn2Enabled(bool on)
     if (on && m_radeMode) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
     if (on) {
-        // Disable NR2/BNR/NR4 first — they're mutually exclusive
+        // Disable NR2/BNR/NR4/DFNR first — they're mutually exclusive
         if (m_nr2Enabled) setNr2Enabled(false);
         if (m_bnrEnabled) setBnrEnabled(false);
         if (m_nr4Enabled) setNr4Enabled(false);
+        if (m_dfnrEnabled) setDfnrEnabled(false);
         m_rn2 = std::make_unique<RNNoiseFilter>();
         if (!m_rn2->isValid()) {
             qCWarning(lcAudio) << "AudioEngine: RN2 rnnoise_create() failed — disabling";
@@ -408,10 +449,11 @@ void AudioEngine::setBnrEnabled(bool on)
     if (on && m_radeMode) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
     if (on) {
-        // Mutual exclusion with NR2, RN2, and NR4
+        // Mutual exclusion with NR2, RN2, NR4, and DFNR
         if (m_nr2Enabled) setNr2Enabled(false);
         if (m_rn2Enabled) setRn2Enabled(false);
         if (m_nr4Enabled) setNr4Enabled(false);
+        if (m_dfnrEnabled) setDfnrEnabled(false);
 
         m_bnr = std::make_unique<NvidiaBnrFilter>(this);
         connect(m_bnr.get(), &NvidiaBnrFilter::connectionChanged,
@@ -576,6 +618,64 @@ void AudioEngine::processBnr(const QByteArray& stereoPcm)
     // If buffer underrun, skip this callback (brief silence, not choppy)
 }
 
+// ─── DFNR (DeepFilterNet3 neural noise reduction) ────────────────────────────
+
+#ifdef HAVE_DFNR
+
+void AudioEngine::setDfnrEnabled(bool on)
+{
+    if (m_dfnrEnabled == on) return;
+    if (on && m_radeMode) return;
+    std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
+    if (on) {
+        // Mutual exclusion with NR2, RN2, NR4, and BNR
+        if (m_nr2Enabled) setNr2Enabled(false);
+        if (m_rn2Enabled) setRn2Enabled(false);
+        if (m_nr4Enabled) setNr4Enabled(false);
+        if (m_bnrEnabled) setBnrEnabled(false);
+        m_dfnr = std::make_unique<DeepFilterFilter>();
+        if (!m_dfnr->isValid()) {
+            qCWarning(lcAudio) << "AudioEngine: DFNR df_create() failed — disabling";
+            m_dfnr.reset();
+            emit dfnrEnabledChanged(false);
+            return;
+        }
+        // Restore saved attenuation limit
+        auto& s = AppSettings::instance();
+        m_dfnr->setAttenLimit(s.value("DfnrAttenLimit", "100").toFloat());
+        m_dfnr->setPostFilterBeta(s.value("DfnrPostFilterBeta", "0.0").toFloat());
+        // Set flag AFTER object is fully constructed
+        m_dfnrEnabled = true;
+    } else {
+        m_dfnrEnabled = false;
+        m_dfnr.reset();
+    }
+    qCDebug(lcAudio) << "AudioEngine: DFNR (DeepFilterNet3)" << (on ? "enabled" : "disabled");
+    emit dfnrEnabledChanged(on);
+}
+
+void AudioEngine::setDfnrAttenLimit(float db)
+{
+    if (m_dfnr) m_dfnr->setAttenLimit(db);
+}
+
+float AudioEngine::dfnrAttenLimit() const
+{
+    return m_dfnr ? m_dfnr->attenLimit() : 100.0f;
+}
+
+void AudioEngine::setDfnrPostFilterBeta(float beta)
+{
+    if (m_dfnr) m_dfnr->setPostFilterBeta(beta);
+}
+
+#else // !HAVE_DFNR — stubs
+void AudioEngine::setDfnrEnabled(bool) {}
+void AudioEngine::setDfnrAttenLimit(float) {}
+float AudioEngine::dfnrAttenLimit() const { return 100.0f; }
+void AudioEngine::setDfnrPostFilterBeta(float) {}
+#endif // HAVE_DFNR
+
 void AudioEngine::processNr2(const QByteArray& stereoPcm)
 {
     const int totalSamples = stereoPcm.size() / 2;       // int16 count
@@ -679,14 +779,20 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
     fmt.setChannelCount(2);
     formatFound = true;
 #else
+    // Include Float32 as a fallback for virtual drivers (e.g. CommonRadioAudio) that
+    // only support Float32 at the HAL level (#1070).
     for (int channels : {2, 1}) {
         for (int rate : rates) {
-            fmt.setChannelCount(channels);
-            fmt.setSampleRate(rate);
-            if (dev.isFormatSupported(fmt)) {
-                formatFound = true;
-                break;
+            for (auto sampleFmt : {QAudioFormat::Int16, QAudioFormat::Float32}) {
+                fmt.setChannelCount(channels);
+                fmt.setSampleRate(rate);
+                fmt.setSampleFormat(sampleFmt);
+                if (dev.isFormatSupported(fmt)) {
+                    formatFound = true;
+                    break;
+                }
             }
+            if (formatFound) break;
         }
         if (formatFound) break;
     }
@@ -705,6 +811,7 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
     m_txInputRate = fmt.sampleRate();
     m_txInputMono = (fmt.channelCount() == 1);
     m_txNeedsResample = (m_txInputRate != 24000);
+    m_txFloat32 = (fmt.sampleFormat() == QAudioFormat::Float32);
 
     // Create polyphase resampler for high-quality rate conversion
     if (m_txNeedsResample)
@@ -819,6 +926,7 @@ void AudioEngine::stopTxStream()
     m_txAccumulator.clear();
     m_txFloatAccumulator.clear();
     m_txResampler.reset();
+    m_txFloat32 = false;
 }
 
 void AudioEngine::onTxAudioReady()
@@ -836,6 +944,10 @@ void AudioEngine::onTxAudioReady()
     QByteArray data = m_micDevice->readAll();
     if (data.isEmpty()) return;
 #endif
+
+    // Virtual drivers (e.g. CommonRadioAudio) deliver Float32; convert to Int16
+    // before the resampler and all downstream processing (#1070).
+    if (m_txFloat32) data = convertFloat32ToInt16(data);
 
     // Resample to 24kHz stereo using r8brain polyphase resampler
     if (m_txNeedsResample && m_txResampler) {
@@ -1112,7 +1224,11 @@ void AudioEngine::setRadeMode(bool on)
     if (on) {
         if (m_nr2Enabled) setNr2Enabled(false);
         if (m_rn2Enabled) setRn2Enabled(false);
+        if (m_nr4Enabled) setNr4Enabled(false);
         if (m_bnrEnabled) setBnrEnabled(false);
+#ifdef HAVE_DFNR
+        if (m_dfnrEnabled) setDfnrEnabled(false);
+#endif
     }
 }
 
