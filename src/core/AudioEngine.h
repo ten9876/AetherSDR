@@ -25,6 +25,7 @@ class SpectralNR;
 class SpecbleachFilter;
 class RNNoiseFilter;
 class NvidiaBnrFilter;
+class DeepFilterFilter;
 class Resampler;
 
 // AudioEngine handles audio playback (RX) and capture (TX).
@@ -137,11 +138,26 @@ public:
     float bnrIntensity() const;
     bool bnrConnected() const;
 
+    // Client-side DFNR (DeepFilterNet3 neural noise reduction)
+    Q_INVOKABLE void setDfnrEnabled(bool on);
+    bool dfnrEnabled() const { return m_dfnrEnabled.load(); }
+    void setDfnrAttenLimit(float db);
+    float dfnrAttenLimit() const;
+    void setDfnrPostFilterBeta(float beta);
+
     // Ensure FFTW wisdom is loaded/generated. Returns true if wisdom
     // needs to be generated (slow). Call generateWisdom() in that case.
     static bool needsWisdomGeneration();
     // Must be called from a worker thread — blocks for several minutes.
     static void generateWisdom(std::function<void(int,int,const std::string&)> progress = nullptr);
+
+    // Local PC sidetone — generates a sine tone through the RX output while the
+    // key is held down, so the operator hears their own keying locally (#1075).
+    void setLocalSidetoneKeyDown(bool down);
+    void setLocalSidetoneEnabled(bool on)   { m_localSidetoneEnabled.store(on); }
+    void setLocalSidetonePitch(int hz)      { m_sidetonePitch.store(qBound(100, hz, 6000)); }
+    void setLocalSidetoneGain(float g)      { m_sidetoneGain.store(qBound(0.0f, g, 1.0f)); }
+    bool localSidetoneEnabled() const       { return m_localSidetoneEnabled.load(); }
 
     // Device selection (restarts the stream if currently running)
     void setOutputDevice(const QAudioDevice& dev);
@@ -162,6 +178,7 @@ signals:
     void rn2EnabledChanged(bool on);
     void bnrEnabledChanged(bool on);
     void bnrConnectionChanged(bool connected);
+    void dfnrEnabledChanged(bool on);
     void txRawPcmReady(const QByteArray& pcm);  // raw 24kHz stereo int16 PCM for RADEEngine
     void txPacketReady(const QByteArray& vitaPacket);  // VITA-49 TX packet for PanadapterStream
     void pcMicLevelChanged(float peakDbfs, float avgDbfs);  // client-side PC mic metering
@@ -256,10 +273,23 @@ private:
     bool m_bnrPrimed{false}; // true after enough denoised data accumulated
     void processBnr(const QByteArray& stereoPcm);
 
+    // Client-side DFNR (DeepFilterNet3)
+#ifdef HAVE_DFNR
+    std::unique_ptr<DeepFilterFilter> m_dfnr;
+#endif
+    std::atomic<bool> m_dfnrEnabled{false};
+
     // Pre-allocated NR2 work buffers (avoid per-call heap allocation)
     std::vector<int16_t> m_nr2Mono;
     std::vector<int16_t> m_nr2Processed;
     QByteArray m_nr2Output;
+
+    // Local PC sidetone state (#1075)
+    std::atomic<bool>  m_localSidetoneEnabled{false};
+    std::atomic<bool>  m_localSidetoneKeyDown{false};
+    std::atomic<int>   m_sidetonePitch{600};      // Hz
+    std::atomic<float> m_sidetoneGain{0.5f};
+    double             m_sidetonePhase{0.0};      // audio-thread only
 
     // RX audio buffer handling
     QTimer*       m_rxTimer{nullptr};

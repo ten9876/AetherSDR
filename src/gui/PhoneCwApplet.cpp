@@ -470,6 +470,56 @@ void PhoneCwApplet::buildCwPanel()
         vbox->addLayout(row);
     }
 
+    // ── Local PC sidetone: "PC Tone" toggle + volume slider (#1075) ─────
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(4);
+
+        m_localSidetoneBtn = new QPushButton("PC Tone");
+        m_localSidetoneBtn->setCheckable(true);
+        m_localSidetoneBtn->setFixedHeight(22);
+        m_localSidetoneBtn->setFixedWidth(kLeftColW);
+        m_localSidetoneBtn->setAccessibleName("Local PC sidetone");
+        m_localSidetoneBtn->setAccessibleDescription(
+            "Play a local sine-wave tone through PC speakers when keying");
+        m_localSidetoneBtn->setStyleSheet(QString(kButtonBase) + kBlueActive);
+        row->addWidget(m_localSidetoneBtn);
+
+        row->addSpacing(kGap);
+
+        m_localSidetoneSlider = new GuardedSlider(Qt::Horizontal);
+        m_localSidetoneSlider->setRange(0, 100);
+        m_localSidetoneSlider->setValue(
+            AppSettings::instance().value("LocalSidetoneVolume", 50).toInt());
+        m_localSidetoneSlider->setAccessibleName("PC sidetone volume");
+        m_localSidetoneSlider->setAccessibleDescription("Local PC sidetone volume");
+        m_localSidetoneSlider->setStyleSheet(kSliderStyle);
+        row->addWidget(m_localSidetoneSlider, 1);
+
+        int initVol = AppSettings::instance().value("LocalSidetoneVolume", 50).toInt();
+        m_localSidetoneLabel = new QLabel(QString::number(initVol));
+        m_localSidetoneLabel->setStyleSheet(kInsetValueStyle);
+        m_localSidetoneLabel->setFixedWidth(kValueW);
+        m_localSidetoneLabel->setAlignment(Qt::AlignCenter);
+        row->addWidget(m_localSidetoneLabel);
+
+        bool initOn = AppSettings::instance().value("LocalSidetoneEnabled", false).toBool();
+        m_localSidetoneBtn->setChecked(initOn);
+
+        connect(m_localSidetoneBtn, &QPushButton::toggled, this, [this](bool on) {
+            AppSettings::instance().setValue("LocalSidetoneEnabled", on);
+            emit localSidetoneChanged(on, m_localSidetoneSlider->value());
+        });
+
+        connect(m_localSidetoneSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_localSidetoneLabel->setText(QString::number(v));
+            AppSettings::instance().setValue("LocalSidetoneVolume", v);
+            emit localSidetoneChanged(m_localSidetoneBtn->isChecked(), v);
+        });
+
+        vbox->addLayout(row);
+    }
+
     // ── L / R pan slider ─────────────────────────────────────────────────
     {
         auto* row = new QHBoxLayout;

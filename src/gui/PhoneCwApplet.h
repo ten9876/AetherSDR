@@ -26,6 +26,8 @@ public:
 
 signals:
     void micLevelChanged(int level);  // slider value 0-100
+    // Emitted when the local PC sidetone toggle or volume changes (#1075).
+    void localSidetoneChanged(bool enabled, int volume);  // volume 0-100
 
 public slots:
     // Phone meters (mic level / compression)
@@ -83,6 +85,11 @@ private:
     QPushButton* m_sidetoneBtn{nullptr};
     QSlider*     m_sidetoneSlider{nullptr};
     QLabel*      m_sidetoneLabel{nullptr};
+
+    // Local PC sidetone controls (#1075)
+    QPushButton* m_localSidetoneBtn{nullptr};
+    QSlider*     m_localSidetoneSlider{nullptr};
+    QLabel*      m_localSidetoneLabel{nullptr};
 
     QSlider*     m_cwPanSlider{nullptr};
 
