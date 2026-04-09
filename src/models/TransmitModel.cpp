@@ -462,7 +462,16 @@ void TransmitModel::setVoxDelay(int delay)
 
 void TransmitModel::setMicBoost(bool on)
 {
+    m_micBoost = on;  // optimistic — radio sends no status echo (#1045)
+    emit phoneStateChanged();
     emit commandReady(QString("mic boost %1").arg(on ? 1 : 0));
+}
+
+void TransmitModel::setMicBias(bool on)
+{
+    m_micBias = on;  // optimistic — radio sends no status echo (#1045)
+    emit phoneStateChanged();
+    emit commandReady(QString("mic bias %1").arg(on ? 1 : 0));
 }
 
 void TransmitModel::setAmCarrierLevel(int level)
@@ -473,13 +482,18 @@ void TransmitModel::setAmCarrierLevel(int level)
 
 void TransmitModel::setDexp(bool on)
 {
-    // DEXP (downward expander / noise gate) — firmware v1.4.0.0
+    // Optimistic update — radio may not echo dexp in incremental status
+    m_dexpOn = on;
+    emit phoneStateChanged();
     emit commandReady(QString("transmit set dexp=%1").arg(on ? 1 : 0));
 }
 
 void TransmitModel::setDexpLevel(int level)
 {
     level = qBound(0, level, 100);
+    // Optimistic update — radio may not echo noise_gate_level in incremental status
+    m_dexpLevel = level;
+    emit phoneStateChanged();
     emit commandReady(QString("transmit set noise_gate_level=%1").arg(level));
 }
 
