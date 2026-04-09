@@ -109,6 +109,13 @@ public:
     QString region()       const { return m_region; }
     int     rttyMarkDefault() const { return m_rttyMarkDefault; }
     QString radioOptions() const { return m_radioOptions; }
+
+    // License info (populated from "sub license all" responses)
+    QString licenseRadioId()        const { return m_licenseRadioId; }
+    QString licenseExpirationDate() const { return m_licenseExpirationDate; }
+    QString licenseMaxVersion()     const { return m_licenseMaxVersion; }
+    QString licenseSubscription()   const { return m_licenseSubscription; }
+
     QString ip()          const { return m_ip; }
     QString netmask()     const { return m_netmask; }
     QString gateway()     const { return m_gateway; }
@@ -132,13 +139,13 @@ public:
 
     // Max panadapters supported by this radio model.
     // FLEX-6700: 8 (dual SCU, high-capacity)
-    // FLEX-6600 / FLEX-8600 / AU-520: 4 (dual SCU)
-    // All single-SCU models: 2
+    // FLEX-6600 / FLEX-6500 / FLEX-8600 / AU-520: 4 (dual SCU)
+    // All single-SCU models (6300, 6400, etc.): 2
     int maxPanadapters() const {
         if (m_model.contains("6700"))
             return 8;
-        if (m_model.contains("6600") || m_model.contains("8600")
-                || m_model.contains("AU-520"))
+        if (m_model.contains("6600") || m_model.contains("6500")
+                || m_model.contains("8600") || m_model.contains("AU-520"))
             return 4;
         return 2;
     }
@@ -324,8 +331,10 @@ public:
     // Send a command with a response callback (for firmware uploader, etc.)
     void sendCmdPublic(const QString& cmd, std::function<void(int code, const QString& body)> cb);
 
-    // Radio software version string
+    // Radio software version string (from discovery broadcast, e.g. "4.1.5")
     QString softwareVersion() const { return m_version; }
+    // SmartSDR protocol version from the V line (e.g. "1.4.0.0"), empty until connected
+    QString protocolVersion() const { return m_protocolVersion; }
 
 private slots:
     void onStatusReceived(const QString& object, const QMap<QString, QString>& kvs);
@@ -398,6 +407,10 @@ private:
     QString     m_nickname;
     QString     m_region;
     QString     m_radioOptions;
+    QString     m_licenseRadioId;
+    QString     m_licenseExpirationDate;
+    QString     m_licenseMaxVersion;
+    QString     m_licenseSubscription;   // e.g. "SmartSDR+", "SmartSDR", "Unknown"
     QString     m_ip;
     QString     m_netmask;
     QString     m_gateway;
