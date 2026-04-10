@@ -30,7 +30,7 @@ void PropForecastClient::setEnabled(bool on)
     if (on) {
         // Restore cached values so the overlay appears instantly on startup.
         loadCache();
-        if (m_last.kIndex >= 0 && m_last.sfi > 0) {
+        if (m_last.kIndex >= 0 && m_last.aIndex >= 0 && m_last.sfi > 0) {
             emit forecastUpdated(m_last);
         }
 
@@ -97,6 +97,8 @@ void PropForecastClient::fetch()
             QString tag = xml.name().toString();
             if (tag == QLatin1String("kindex")) {
                 fc.kIndex = xml.readElementText().toInt();
+            } else if (tag == QLatin1String("aindex")) {
+                fc.aIndex = xml.readElementText().toInt();
             } else if (tag == QLatin1String("solarflux")) {
                 fc.sfi = xml.readElementText().toInt();
             }
@@ -108,14 +110,16 @@ void PropForecastClient::fetch()
             return;
         }
 
-        if (fc.kIndex >= 0 && fc.sfi > 0) {
+        if (fc.kIndex >= 0 && fc.aIndex >= 0 && fc.sfi > 0) {
             m_last = fc;
             m_lastFetchMs = QDateTime::currentMSecsSinceEpoch();
             saveCache();
             emit forecastUpdated(m_last);
-            qCDebug(lcPropForecast) << "updated — K" << fc.kIndex << "SFI" << fc.sfi;
+            qCDebug(lcPropForecast) << "updated — K" << fc.kIndex << "A" << fc.aIndex
+                                    << "SFI" << fc.sfi;
         } else {
-            qCWarning(lcPropForecast) << "unexpected XML — kIndex:" << fc.kIndex << "sfi:" << fc.sfi;
+            qCWarning(lcPropForecast) << "unexpected XML — kIndex:" << fc.kIndex
+                                      << "aIndex:" << fc.aIndex << "sfi:" << fc.sfi;
         }
     });
 }
@@ -126,14 +130,16 @@ void PropForecastClient::loadCache()
 {
     auto& s = AppSettings::instance();
     int k   = s.value("PropForecastKIndex", "-1").toInt();
+    int a   = s.value("PropForecastAIndex", "-1").toInt();
     int sfi = s.value("PropForecastSfi",    "-1").toInt();
     qint64 ts = s.value("PropForecastTimestamp", "0").toLongLong();
 
-    if (k >= 0 && sfi > 0 && ts > 0) {
+    if (k >= 0 && a >= 0 && sfi > 0 && ts > 0) {
         m_last.kIndex  = k;
+        m_last.aIndex  = a;
         m_last.sfi     = sfi;
         m_lastFetchMs  = ts;
-        qCDebug(lcPropForecast) << "restored cache — K" << k << "SFI" << sfi
+        qCDebug(lcPropForecast) << "restored cache — K" << k << "A" << a << "SFI" << sfi
                                 << "age" << ((QDateTime::currentMSecsSinceEpoch() - ts) / 1000) << "s";
     }
 }
@@ -142,6 +148,7 @@ void PropForecastClient::saveCache()
 {
     auto& s = AppSettings::instance();
     s.setValue("PropForecastKIndex",    QString::number(m_last.kIndex));
+    s.setValue("PropForecastAIndex",    QString::number(m_last.aIndex));
     s.setValue("PropForecastSfi",       QString::number(m_last.sfi));
     s.setValue("PropForecastTimestamp",  QString::number(m_lastFetchMs));
     s.save();

@@ -8,6 +8,7 @@ namespace AetherSDR {
 
 struct PropForecast {
     int kIndex{-1};  // Planetary K-index 0-9; -1 = not yet fetched
+    int aIndex{-1};  // Planetary A-index; -1 = not yet fetched
     int sfi{-1};     // Solar Flux Index (SFU); -1 = not yet fetched
 };
 
@@ -16,7 +17,7 @@ struct PropForecast {
 // (async) so the download never blocks radio operations.
 //
 // Hardening:
-//   - Persists last K/SFI + timestamp to AppSettings so the overlay is
+//   - Persists last K/A/SFI + timestamp to AppSettings so the overlay is
 //     available immediately on restart without waiting for a network fetch.
 //   - Skips the network fetch if cached data is less than one hour old.
 //   - Guards against overlapping in-flight requests.

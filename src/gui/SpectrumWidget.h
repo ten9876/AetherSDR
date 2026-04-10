@@ -136,10 +136,15 @@ public:
     void setWnbActive(bool on) { m_wnbActive = on; markOverlayDirty(); }
     void setRfGain(int gain) { m_rfGainValue = gain; markOverlayDirty(); }
 
-    // HF propagation forecast overlay (K-index and Solar Flux Index).
+    // HF propagation forecast overlay (K-index, A-index, and Solar Flux Index).
     // Values of -1 mean not yet fetched; visible only when enabled.
     void setPropForecastVisible(bool on) { m_propForecastVisible = on; markOverlayDirty(); }
-    void setPropForecast(int kIndex, int sfi) { m_propKIndex = kIndex; m_propSfi = sfi; markOverlayDirty(); }
+    void setPropForecast(int kIndex, int aIndex, int sfi) {
+        m_propKIndex = kIndex;
+        m_propAIndex = aIndex;
+        m_propSfi = sfi;
+        markOverlayDirty();
+    }
     bool propForecastVisible() const { return m_propForecastVisible; }
 
     // NB Waterfall Blanker (#277) — client-side impulse suppression
@@ -466,6 +471,7 @@ private:
     // HF propagation forecast overlay
     bool m_propForecastVisible{false};
     int  m_propKIndex{-1};
+    int  m_propAIndex{-1};
     int  m_propSfi{-1};
 
     // Background image

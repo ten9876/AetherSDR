@@ -2242,7 +2242,10 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
 
             // WNB / RF gain / Prop forecast indicators (top-right of spectrum)
             {
-                const bool showProp = m_propForecastVisible && m_propKIndex >= 0 && m_propSfi > 0;
+                const bool showProp = m_propForecastVisible
+                    && m_propKIndex >= 0
+                    && m_propAIndex >= 0
+                    && m_propSfi > 0;
                 if (m_wnbActive || m_rfGainValue != 0 || showProp) {
                     QFont indFont(p.font().family(), 14, QFont::Bold);
                     p.setFont(indFont);
@@ -2252,7 +2255,10 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                     // Build combined label (left to right: prop, WNB, RF gain), right-align
                     QString label;
                     if (showProp) {
-                        label += QString("K%1  SFI %2").arg(m_propKIndex).arg(m_propSfi);
+                        label += QString("K%1  A%2  SFI %3")
+                            .arg(m_propKIndex)
+                            .arg(m_propAIndex)
+                            .arg(m_propSfi);
                     }
                     if (m_wnbActive) {
                         if (!label.isEmpty()) { label += QStringLiteral("   "); }
@@ -2753,7 +2759,10 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
 
     // ── WNB / RF Gain / Prop Forecast indicators (top-right of FFT area) ────
     {
-        const bool showProp = m_propForecastVisible && m_propKIndex >= 0 && m_propSfi > 0;
+        const bool showProp = m_propForecastVisible
+            && m_propKIndex >= 0
+            && m_propAIndex >= 0
+            && m_propSfi > 0;
         if (m_wnbActive || m_rfGainValue != 0 || showProp) {
             QFont indFont = p.font();
             indFont.setPointSize(18);
@@ -2786,9 +2795,12 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
                 x -= 10;
             }
 
-            // Prop forecast (leftmost: "K3  SFI 110")
+            // Prop forecast (leftmost: "K3  A12  SFI 110")
             if (showProp) {
-                QString propStr = QString("K%1  SFI %2").arg(m_propKIndex).arg(m_propSfi);
+                QString propStr = QString("K%1  A%2  SFI %3")
+                    .arg(m_propKIndex)
+                    .arg(m_propAIndex)
+                    .arg(m_propSfi);
                 int pw = fm.horizontalAdvance(propStr);
                 x -= pw;
                 p.drawText(x, topY, propStr);

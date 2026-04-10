@@ -402,7 +402,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_propForecast, &PropForecastClient::forecastUpdated,
             this, [this](const PropForecast& fc) {
         for (PanadapterApplet* applet : m_panStack->allApplets()) {
-            applet->spectrumWidget()->setPropForecast(fc.kIndex, fc.sfi);
+            applet->spectrumWidget()->setPropForecast(fc.kIndex, fc.aIndex, fc.sfi);
         }
     });
     // Restore persisted setting — timer only arms if enabled
@@ -3070,7 +3070,7 @@ void MainWindow::buildMenuBar()
         // If turning off, clear the stale values so they don't reappear
         if (!on) {
             for (PanadapterApplet* applet : m_panStack->allApplets()) {
-                applet->spectrumWidget()->setPropForecast(-1, -1);
+                applet->spectrumWidget()->setPropForecast(-1, -1, -1);
             }
         }
     });
@@ -4906,7 +4906,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setPropForecastVisible(m_propForecast->isEnabled());
         if (m_propForecast->isEnabled()) {
             PropForecast fc = m_propForecast->lastForecast();
-            sw->setPropForecast(fc.kIndex, fc.sfi);
+            sw->setPropForecast(fc.kIndex, fc.aIndex, fc.sfi);
         }
     }
 
