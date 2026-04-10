@@ -91,12 +91,22 @@ void CatApplet::buildUI()
     m_tcpEnable->setCheckable(true);
     m_tcpEnable->setStyleSheet(kGreenToggle);
     m_tcpEnable->setFixedSize(76, 22);
+    {
+        const QSignalBlocker b(m_tcpEnable);
+        m_tcpEnable->setChecked(
+            settings.value("CatTcpEnabled", "False").toString() == "True");
+    }
     enableRow->addWidget(m_tcpEnable);
 
     m_ptyEnable = new QPushButton("Enable TTY");
     m_ptyEnable->setCheckable(true);
     m_ptyEnable->setStyleSheet(kGreenToggle);
     m_ptyEnable->setFixedSize(76, 22);
+    {
+        const QSignalBlocker b(m_ptyEnable);
+        m_ptyEnable->setChecked(
+            settings.value("CatPtyEnabled", "False").toString() == "True");
+    }
     enableRow->addWidget(m_ptyEnable);
 
     enableRow->addStretch();
@@ -138,6 +148,7 @@ void CatApplet::buildUI()
         if (basePort < 1024 || basePort > 65535) basePort = 4532;
         auto& ss = AppSettings::instance();
         ss.setValue("CatTcpPort", QString::number(basePort));
+        ss.setValue("CatTcpEnabled", on ? "True" : "False");
         ss.save();
         for (int i = 0; i < kChannels; ++i) {
             if (!m_servers[i]) continue;
@@ -151,6 +162,9 @@ void CatApplet::buildUI()
 
     // ── PTY toggle: start/stop all 4 PTYs ───────────────────────────────────
     connect(m_ptyEnable, &QPushButton::toggled, this, [this](bool on) {
+        auto& ss = AppSettings::instance();
+        ss.setValue("CatPtyEnabled", on ? "True" : "False");
+        ss.save();
         for (int i = 0; i < kChannels; ++i) {
             if (!m_ptys[i]) continue;
             if (on)
