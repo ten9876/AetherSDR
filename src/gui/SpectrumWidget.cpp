@@ -173,21 +173,15 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     });
 
     // Bandwidth zoom: − zooms out (wider BW), + zooms in (narrower BW)
+    // Send both bandwidth AND current center to prevent the radio from
+    // auto-centering the panadapter (which causes band jumps).
     auto emitZoom = [this](double factor) {
-        const double newBw = std::clamp(m_bandwidthMhz * factor, 0.004, 14.0);
-        double zoomCenter = m_centerMhz;
-        if (const auto* ao = activeOverlay()) {
-            if (m_mode == "USB" || m_mode == "LSB" || m_mode == "DIGU" || m_mode == "DIGL" || m_mode == "RTTY") {
-                zoomCenter = ao->freqMhz + (ao->filterLowHz + ao->filterHighHz) / 2.0 / 1.0e6;
-            } else {
-                zoomCenter = ao->freqMhz;
-            }
-        }
+        const double newBw = m_bandwidthMhz * factor;
+        if (newBw < m_minBwMhz || newBw > m_maxBwMhz) { return; }  // at limit
         m_bandwidthMhz = newBw;
-        m_centerMhz = zoomCenter;
         markOverlayDirty();
         emit bandwidthChangeRequested(newBw);
-        emit centerChangeRequested(zoomCenter);
+        emit centerChangeRequested(m_centerMhz);  // anchor the current center
     };
     connect(m_zoomOutBtn, &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.5); });
     connect(m_zoomInBtn,  &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.0 / 1.5); });
@@ -1623,23 +1617,22 @@ bool SpectrumWidget::event(QEvent* ev)
         if (ge->gestureType() == Qt::ZoomNativeGesture) {
             // value > 0 = pinch out (zoom in = narrower BW)
             // value < 0 = pinch in  (zoom out = wider BW)
+            // Zoom anchored on the frequency under the cursor: the frequency
+            // at the mouse position stays at that pixel after the zoom.
             const double delta = ge->value();
             if (qFuzzyIsNull(delta)) { return true; }
             const double factor = 1.0 / (1.0 + delta);  // invert: pinch-out narrows BW
-            const double newBw = std::clamp(m_bandwidthMhz * factor, 0.004, 14.0);
-            double zoomCenter = m_centerMhz;
-            if (const auto* ao = activeOverlay()) {
-                if (m_mode == "USB" || m_mode == "LSB" || m_mode == "DIGU" || m_mode == "DIGL" || m_mode == "RTTY") {
-                    zoomCenter = ao->freqMhz + (ao->filterLowHz + ao->filterHighHz) / 2.0 / 1.0e6;
-                } else {
-                    zoomCenter = ao->freqMhz;
-                }
-            }
+            const double newBw = m_bandwidthMhz * factor;
+            if (newBw < m_minBwMhz || newBw > m_maxBwMhz) { return true; }  // at limit
+            // Anchor: keep the frequency under the cursor at the same pixel.
+            const double mouseXFrac = ge->position().x() / width() - 0.5;
+            const double anchorMhz = m_centerMhz + mouseXFrac * m_bandwidthMhz;
+            const double newCenter = anchorMhz - mouseXFrac * newBw;
             m_bandwidthMhz = newBw;
-            m_centerMhz = zoomCenter;
+            m_centerMhz = newCenter;
             markOverlayDirty();
             emit bandwidthChangeRequested(newBw);
-            emit centerChangeRequested(zoomCenter);
+            emit centerChangeRequested(newCenter);
             return true;
         }
     }

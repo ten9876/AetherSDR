@@ -4735,6 +4735,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     // Wire band plan manager to this spectrum widget
     sw->setBandPlanManager(m_bandPlanMgr);
 
+    // Set panadapter bandwidth zoom limits based on radio model
+    sw->setBandwidthLimits(m_radioModel.minPanBandwidthMhz(),
+                           m_radioModel.maxPanBandwidthMhz());
+
     // Set panId on the overlay menu so +RX routes to the correct pan
     menu->setPanId(applet->panId());
 

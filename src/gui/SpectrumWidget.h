@@ -110,6 +110,9 @@ public:
     int stepSize() const { return m_stepHz; }
     void setStepSize(int hz) { m_stepHz = hz; }
 
+    // Set panadapter bandwidth zoom limits (MHz). Called per-radio model.
+    void setBandwidthLimits(double minMhz, double maxMhz) { m_minBwMhz = minMhz; m_maxBwMhz = maxMhz; }
+
     // Set the per-mode filter limits (Hz). Called when mode changes.
     void setFilterLimits(int minHz, int maxHz) { m_filterMinHz = minHz; m_filterMaxHz = maxHz; }
 
@@ -382,6 +385,10 @@ private:
     int m_scrollAccum{0};   // trackpad pixel scroll accumulator (macOS)
     int m_angleAccum{0};    // mouse wheel angle accumulator (#390)
     qint64 m_lastWheelMs{0}; // debounce: timestamp of last accepted wheel step
+
+    // Panadapter bandwidth zoom limits (MHz), set per-radio model
+    double m_minBwMhz{0.010};   // 10 kHz default
+    double m_maxBwMhz{5.400};   // safe default for unknown radios
 
     // ── FFT display controls (radio-side via "display pan set") ──────────
     int   m_panIndex{0};             // per-pan settings index (0, 1, 2, 3)
