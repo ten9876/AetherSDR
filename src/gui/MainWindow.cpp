@@ -5051,6 +5051,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setSpotStartPct(s.value("SpotsStartingHeightPercentage", "50").toInt());
         sw->setSpotOverrideColors(s.value("IsSpotsOverrideColorsEnabled", "False").toString() == "True");
         sw->setSpotOverrideBg(s.value("IsSpotsOverrideBackgroundColorsEnabled", "True").toString() == "True");
+        sw->setSpotColor(QColor(s.value("SpotsOverrideColor", "#FFFF00").toString()));
+        sw->setSpotBgColor(QColor(s.value("SpotsOverrideBgColor", "#000000").toString()));
+        sw->setSpotBgOpacity(s.value("SpotsBackgroundOpacity", 48).toInt());
     }
 
     // ── Per-pan display controls (client-side) ───────────────────────────
