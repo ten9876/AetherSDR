@@ -232,7 +232,8 @@ void MemoryDialog::populateTable()
         int col = 0;
         m_table->setItem(row, col++, new QTableWidgetItem(m.group));
         m_table->setItem(row, col++, new QTableWidgetItem(m.owner));
-        auto* freqItem = new MemoryTableItem(QString::number(m.freq, 'f', 3));
+        // Show the full MHz value so the last 3 digits (Hz) are not lost.
+        auto* freqItem = new MemoryTableItem(QString::number(m.freq, 'f', 6));
         freqItem->setData(Qt::UserRole, m.freq);
         m_table->setItem(row, col++, freqItem);
         m_table->setItem(row, col++, new QTableWidgetItem(m.name));
