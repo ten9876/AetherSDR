@@ -1,37 +1,55 @@
-message(STATUS "Will build opus with FARGAN")
+message(STATUS "Will build vendored opus with FARGAN")
 
-set(CONFIGURE_COMMAND ./autogen.sh && ./configure --with-pic --enable-osce --enable-dred --disable-shared --disable-doc --disable-extra-programs)
+set(OPUS_VENDOR_DIR "${CMAKE_SOURCE_DIR}/third_party/opus-rade")
+if (NOT DEFINED OPUS_PREPARED_ARCHIVE)
+set(OPUS_PREPARED_ARCHIVE "${OPUS_VENDOR_DIR}/opus-rade-prepared.tar.gz")
+endif (NOT DEFINED OPUS_PREPARED_ARCHIVE)
+if (NOT DEFINED OPUS_PREPARED_ARCHIVE_HASH)
+set(OPUS_PREPARED_ARCHIVE_HASH "SHA256=118539b194c82b3aedb843b4ef8499f223bd12c433871b80c4cbb853bcd463a7")
+endif (NOT DEFINED OPUS_PREPARED_ARCHIVE_HASH)
 
-if (CMAKE_CROSSCOMPILING)
-set(CONFIGURE_COMMAND ${CONFIGURE_COMMAND} --host=${CMAKE_C_COMPILER_TARGET} --target=${CMAKE_C_COMPILER_TARGET})
-endif (CMAKE_CROSSCOMPILING)
-
-if (NOT DEFINED OPUS_URL)
-set(OPUS_URL https://github.com/xiph/opus/archive/940d4e5af64351ca8ba8390df3f555484c567fbb.zip)
-endif (NOT DEFINED OPUS_URL)
+if (NOT EXISTS "${OPUS_PREPARED_ARCHIVE}")
+message(FATAL_ERROR "Vendored RADE Opus archive not found: ${OPUS_PREPARED_ARCHIVE}")
+endif ()
 
 include(ExternalProject)
 
-# ── Windows: build Opus via CMake (no autotools) ─────────────────────────
+set(OPUS_CMAKE_ARGS
+    -DCMAKE_BUILD_TYPE=Release
+    -DBUILD_SHARED_LIBS=OFF
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DOPUS_BUILD_TESTING=OFF
+    -DOPUS_BUILD_PROGRAMS=OFF
+    -DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF
+    -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF
+    -DOPUS_DRED=ON
+    -DOPUS_OSCE=ON
+)
+
+if (CMAKE_C_COMPILER)
+list(APPEND OPUS_CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER})
+endif ()
+if (CMAKE_MAKE_PROGRAM)
+list(APPEND OPUS_CMAKE_ARGS -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM})
+endif ()
+if (DEFINED CMAKE_TOOLCHAIN_FILE AND NOT "${CMAKE_TOOLCHAIN_FILE}" STREQUAL "")
+list(APPEND OPUS_CMAKE_ARGS -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE})
+endif ()
+if (APPLE AND DEFINED CMAKE_OSX_SYSROOT AND NOT "${CMAKE_OSX_SYSROOT}" STREQUAL "")
+list(APPEND OPUS_CMAKE_ARGS -DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT})
+endif ()
+if (APPLE AND DEFINED CMAKE_OSX_DEPLOYMENT_TARGET AND NOT "${CMAKE_OSX_DEPLOYMENT_TARGET}" STREQUAL "")
+list(APPEND OPUS_CMAKE_ARGS -DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET})
+endif ()
+
+# ── Windows: build Opus via CMake ─────────────────────────────────────────
 if(WIN32)
     ExternalProject_Add(build_opus
         DOWNLOAD_EXTRACT_TIMESTAMP NO
-        URL ${OPUS_URL}
-        PATCH_COMMAND ${CMAKE_COMMAND}
-            -DSOURCE_DIR=<SOURCE_DIR>
-            -DRADE_DIR=${RADE_DIR}
-            -P ${RADE_DIR}/cmake/PatchOpusNnet.cmake
+        URL "${OPUS_PREPARED_ARCHIVE}"
+        URL_HASH ${OPUS_PREPARED_ARCHIVE_HASH}
         CMAKE_ARGS
-            -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-            -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-            -DBUILD_SHARED_LIBS=OFF
-            -DOPUS_BUILD_TESTING=OFF
-            -DOPUS_BUILD_PROGRAMS=OFF
-            -DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF
-            -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF
-            -DOPUS_DRED=ON
-            -DOPUS_OSCE=ON
+            ${OPUS_CMAKE_ARGS}
         BUILD_BYPRODUCTS <BINARY_DIR>/opus${CMAKE_STATIC_LIBRARY_SUFFIX}
                          <BINARY_DIR>/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}
         INSTALL_COMMAND ""
@@ -57,72 +75,71 @@ if(WIN32)
 
 # ── macOS universal: build twice and lipo ────────────────────────────────
 elseif(APPLE AND BUILD_OSX_UNIVERSAL)
-# Opus ./configure doesn't behave properly when built as a universal binary;
-# build it twice and use lipo to create a universal libopus.a instead.
-ExternalProject_Add(build_opus_x86
-    DOWNLOAD_EXTRACT_TIMESTAMP NO
-    BUILD_IN_SOURCE 1
-    PATCH_COMMAND sh -c "patch dnn/nnet.h < ${RADE_DIR}/src/opus-nnet.h.diff"
-    CONFIGURE_COMMAND ${CONFIGURE_COMMAND} --host=x86_64-apple-darwin --target=x86_64-apple-darwin CFLAGS=-arch\ x86_64\ -O2\ -mmacosx-version-min=10.11
-    BUILD_COMMAND make -j4
-    INSTALL_COMMAND ""
-    URL ${OPUS_URL}
-)
-ExternalProject_Add(build_opus_arm
-    DOWNLOAD_EXTRACT_TIMESTAMP NO
-    BUILD_IN_SOURCE 1
-    PATCH_COMMAND sh -c "patch dnn/nnet.h < ${RADE_DIR}/src/opus-nnet.h.diff"
-    CONFIGURE_COMMAND ${CONFIGURE_COMMAND} --host=aarch64-apple-darwin --target=aarch64-apple-darwin CFLAGS=-arch\ arm64\ -O2\ -mmacosx-version-min=10.11
-    BUILD_COMMAND make -j4
-    INSTALL_COMMAND ""
-    URL ${OPUS_URL}
-)
+    ExternalProject_Add(build_opus_x86
+        DOWNLOAD_EXTRACT_TIMESTAMP NO
+        URL "${OPUS_PREPARED_ARCHIVE}"
+        URL_HASH ${OPUS_PREPARED_ARCHIVE_HASH}
+        CMAKE_ARGS
+            ${OPUS_CMAKE_ARGS}
+            -DCMAKE_OSX_ARCHITECTURES=x86_64
+        INSTALL_COMMAND ""
+        BUILD_BYPRODUCTS <BINARY_DIR>/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}
+    )
+    ExternalProject_Add(build_opus_arm
+        DOWNLOAD_EXTRACT_TIMESTAMP NO
+        URL "${OPUS_PREPARED_ARCHIVE}"
+        URL_HASH ${OPUS_PREPARED_ARCHIVE_HASH}
+        CMAKE_ARGS
+            ${OPUS_CMAKE_ARGS}
+            -DCMAKE_OSX_ARCHITECTURES=arm64
+        INSTALL_COMMAND ""
+        BUILD_BYPRODUCTS <BINARY_DIR>/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}
+    )
 
-ExternalProject_Get_Property(build_opus_arm BINARY_DIR)
-ExternalProject_Get_Property(build_opus_arm SOURCE_DIR)
-set(OPUS_ARM_BINARY_DIR ${BINARY_DIR})
-ExternalProject_Get_Property(build_opus_x86 BINARY_DIR)
-set(OPUS_X86_BINARY_DIR ${BINARY_DIR})
+    ExternalProject_Get_Property(build_opus_arm BINARY_DIR)
+    ExternalProject_Get_Property(build_opus_arm SOURCE_DIR)
+    set(OPUS_ARM_BINARY_DIR ${BINARY_DIR})
+    ExternalProject_Get_Property(build_opus_x86 BINARY_DIR)
+    set(OPUS_X86_BINARY_DIR ${BINARY_DIR})
 
-add_custom_command(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}
-    COMMAND lipo ${OPUS_ARM_BINARY_DIR}/.libs/libopus${CMAKE_STATIC_LIBRARY_SUFFIX} ${OPUS_X86_BINARY_DIR}/.libs/libopus${CMAKE_STATIC_LIBRARY_SUFFIX} -output ${CMAKE_CURRENT_BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX} -create
-    DEPENDS build_opus_arm build_opus_x86)
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}
+        COMMAND lipo ${OPUS_ARM_BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX} ${OPUS_X86_BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX} -output ${CMAKE_CURRENT_BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX} -create
+        DEPENDS build_opus_arm build_opus_x86)
 
-add_custom_target(
-    libopus.a
-    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX})
+    add_custom_target(
+        build_opus
+        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX})
 
-include_directories(${SOURCE_DIR}/dnn ${SOURCE_DIR}/celt ${SOURCE_DIR}/include ${SOURCE_DIR})
+    include_directories(${SOURCE_DIR}/dnn ${SOURCE_DIR}/celt ${SOURCE_DIR}/include ${SOURCE_DIR})
 
-add_library(opus STATIC IMPORTED)
-add_dependencies(opus libopus.a)
-set_target_properties(opus PROPERTIES
-    IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}"
-)
+    add_library(opus STATIC IMPORTED)
+    add_dependencies(opus build_opus)
+    set_target_properties(opus PROPERTIES
+        IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}"
+    )
 
-# ── Unix/Linux: autotools ────────────────────────────────────────────────
+# ── Unix/Linux/macOS single-arch: CMake build ────────────────────────────
 else()
-ExternalProject_Add(build_opus
-    DOWNLOAD_EXTRACT_TIMESTAMP NO
-    BUILD_IN_SOURCE 1
-    PATCH_COMMAND sh -c "patch dnn/nnet.h < ${RADE_DIR}/src/opus-nnet.h.diff"
-    CONFIGURE_COMMAND ${CONFIGURE_COMMAND}
-    BUILD_COMMAND make -j4
-    INSTALL_COMMAND ""
-    URL ${OPUS_URL}
-    BUILD_BYPRODUCTS <BINARY_DIR>/.libs/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}
-)
+    ExternalProject_Add(build_opus
+        DOWNLOAD_EXTRACT_TIMESTAMP NO
+        URL "${OPUS_PREPARED_ARCHIVE}"
+        URL_HASH ${OPUS_PREPARED_ARCHIVE_HASH}
+        CMAKE_ARGS
+            ${OPUS_CMAKE_ARGS}
+        INSTALL_COMMAND ""
+        BUILD_BYPRODUCTS <BINARY_DIR>/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}
+    )
 
-ExternalProject_Get_Property(build_opus BINARY_DIR)
-ExternalProject_Get_Property(build_opus SOURCE_DIR)
-add_library(opus STATIC IMPORTED)
-add_dependencies(opus build_opus)
+    ExternalProject_Get_Property(build_opus BINARY_DIR)
+    ExternalProject_Get_Property(build_opus SOURCE_DIR)
+    add_library(opus STATIC IMPORTED)
+    add_dependencies(opus build_opus)
 
-set_target_properties(opus PROPERTIES
-    IMPORTED_LOCATION "${BINARY_DIR}/.libs/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}"
-    IMPORTED_IMPLIB   "${BINARY_DIR}/.libs/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}"
-)
+    set_target_properties(opus PROPERTIES
+        IMPORTED_LOCATION "${BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}"
+        IMPORTED_IMPLIB   "${BINARY_DIR}/libopus${CMAKE_STATIC_LIBRARY_SUFFIX}"
+    )
 
-include_directories(${SOURCE_DIR}/dnn ${SOURCE_DIR}/celt ${SOURCE_DIR}/include ${SOURCE_DIR})
+    include_directories(${SOURCE_DIR}/dnn ${SOURCE_DIR}/celt ${SOURCE_DIR}/include ${SOURCE_DIR})
 endif()

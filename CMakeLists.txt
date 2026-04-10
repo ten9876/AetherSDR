@@ -98,9 +98,9 @@ else()
 endif()
 
 # Bundled RADE (BSD-2) — FreeDV Radio Autoencoder digital voice codec
-# Opus (with FARGAN/LPCNet) is downloaded and built automatically via ExternalProject
+# Opus (with FARGAN/LPCNet) is built from a vendored local snapshot via ExternalProject
 set(RADE_DIR ${CMAKE_SOURCE_DIR}/third_party/radae)
-option(ENABLE_RADE "Build with RADE digital voice support (downloads Opus at configure time)" ON)
+option(ENABLE_RADE "Build with RADE digital voice support (uses vendored Opus snapshot)" ON)
 if(ENABLE_RADE AND EXISTS "${RADE_DIR}/src/rade_api.h")
     # macOS universal binary: build Opus for both architectures
     if(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "x86_64.*arm64|arm64.*x86_64")
@@ -132,7 +132,7 @@ if(ENABLE_RADE AND EXISTS "${RADE_DIR}/src/rade_api.h")
         INCLUDE_DIRECTORIES "${RADE_DIR}/src"
     )
     set(RADE_FOUND TRUE)
-    message(STATUS "RADE enabled (bundled, Opus will be downloaded)")
+    message(STATUS "RADE enabled (bundled vendored Opus snapshot)")
 else()
     set(RADE_FOUND FALSE)
     set(RADE_SOURCES "")
@@ -144,7 +144,8 @@ else()
 endif()
 
 # Opus codec — required for SmartLink compressed audio, independent of RADE.
-# When RADE is enabled, Opus comes from RADE's custom build (with FARGAN/OSCE).
+# When RADE is enabled, Opus comes from AetherSDR's vendored RADE snapshot
+# (with FARGAN/OSCE).
 # When RADE is disabled, find system libopus.
 # Windows: run setup-opus.ps1 first to download prebuilt DLLs
 # Linux:   apt install libopus-dev

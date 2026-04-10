@@ -31,19 +31,6 @@ jobs:
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
-      - name: Pre-cache Opus neural net model
-        run: |
-          # Copy cached model from Docker image so Opus autogen.sh skips
-          # the media.xiph.org download. Falls back to network if not cached.
-          MODEL="opus_data-4ed9445b96698bad25d852e912b41495ddfa30c8dbc8a55f9cde5826ed793453.tar.gz"
-          OPUS_SRC=$(find build -path "*/build_opus-prefix/src/build_opus" -type d 2>/dev/null | head -1)
-          if [ -f "/opt/opus-model/$MODEL" ] && [ -n "$OPUS_SRC" ]; then
-            cp "/opt/opus-model/$MODEL" "$OPUS_SRC/"
-            echo "Copied cached Opus model to $OPUS_SRC"
-          else
-            echo "No cached model or Opus source not yet extracted — will download during build"
-          fi
-
       - name: Build
         run: cmake --build build -j$(nproc)
 

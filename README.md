@@ -125,6 +125,9 @@ cmake --build build -j$(nproc)
 ./build/AetherSDR
 ```
 
+RADE-enabled builds use a vendored Opus snapshot, so no additional Opus download
+is required during configure or build.
+
 ### Install (optional, Linux)
 
 ```bash

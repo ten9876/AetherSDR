@@ -1,6 +1,8 @@
-# PatchOpusNnet.cmake — Apply the RADE_EXPORT patch to Opus dnn/nnet.h
-# This replaces `patch dnn/nnet.h < opus-nnet.h.diff` for platforms without patch(1).
-# Invoked as: cmake -DSOURCE_DIR=<opus_src> -DRADE_DIR=<radae_dir> -P PatchOpusNnet.cmake
+# PatchOpusNnet.cmake — Prepare a vendored Opus tree for RADE.
+# This applies the RADE_EXPORT patch to Opus dnn/nnet.h and can also extract
+# the Opus neural model payload when refreshing `third_party/opus-rade/`.
+# Normal AetherSDR builds do not invoke this script; they consume the prepared
+# vendored archive directly via BuildOpus.cmake.
 
 set(NNET_H "${SOURCE_DIR}/dnn/nnet.h")
 file(READ "${NNET_H}" content)
