@@ -119,6 +119,22 @@
 
 namespace AetherSDR {
 
+static bool macDaxDriverInstalled()
+{
+#ifdef Q_OS_MAC
+    const QFileInfo driverBundle("/Library/Audio/Plug-Ins/HAL/AetherSDRDAX.driver");
+    if (!driverBundle.exists() || !driverBundle.isDir())
+        return false;
+
+    const QString bundlePath = driverBundle.absoluteFilePath();
+    const QFileInfo driverExec(bundlePath + "/Contents/MacOS/AetherSDRDAX");
+    const QFileInfo infoPlist(bundlePath + "/Contents/Info.plist");
+    return driverExec.exists() && driverExec.isFile() && infoPlist.exists() && infoPlist.isFile();
+#else
+    return true;
+#endif
+}
+
 // ─── Shortcut guard (file-scope for use as std::function<bool()>) ───────────
 
 static constexpr const char* kPaTempUnitSettingKey = "PaTempDisplayUnit";
@@ -1748,10 +1764,12 @@ MainWindow::MainWindow(QWidget* parent)
     // DAX enable button in CatApplet → start/stop DAX bridge
     connect(m_appletPanel->catApplet(), &CatApplet::daxToggled,
             this, [this](bool on) {
-        if (on)
-            startDax();
-        else
+        if (on) {
+            if (!startDax() && m_appletPanel && m_appletPanel->catApplet())
+                m_appletPanel->catApplet()->setDaxEnabled(false);
+        } else {
             stopDax();
+        }
     });
 #endif
 
@@ -2871,8 +2889,7 @@ void MainWindow::buildMenuBar()
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
         if (m_radioModel.isConnected()) {
             if (on) {
-                startDax();
-                if (m_appletPanel && m_appletPanel->catApplet())
+                if (startDax() && m_appletPanel && m_appletPanel->catApplet())
                     m_appletPanel->catApplet()->setDaxEnabled(true);
             } else {
                 stopDax();
@@ -4051,8 +4068,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
         // be registered in PanadapterStream yet.
         if (AppSettings::instance().value("AutoStartDAX", "False").toString() == "True") {
             QTimer::singleShot(3000, this, [this]() {
-                startDax();
-                if (m_appletPanel && m_appletPanel->catApplet())
+                if (startDax() && m_appletPanel && m_appletPanel->catApplet())
                     m_appletPanel->catApplet()->setDaxEnabled(true);
             });
         }
@@ -6871,24 +6887,31 @@ void MainWindow::deactivateRADE()
 #endif
 
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
-void MainWindow::startDax()
+bool MainWindow::startDax()
 {
-    if (m_daxBridge) return;
+    if (m_daxBridge) return true;
 
 #ifdef Q_OS_MAC
-    // Only start if HAL plugin is installed
-    if (!QFileInfo::exists("/Library/Audio/Plug-Ins/HAL/AetherSDRDAX.driver/Contents/MacOS/AetherSDRDAX")) {
-        qInfo() << "MainWindow: DAX HAL plugin not installed, skipping DAX bridge";
-        return;
+    // Only start if the macOS HAL driver bundle is installed.
+    if (!macDaxDriverInstalled()) {
+        qWarning() << "MainWindow: DAX HAL plugin not installed";
+        QMessageBox::warning(this, "DAX Audio Driver Missing",
+            "The AetherSDR DAX audio driver is not installed on this Mac.\n\n"
+            "Install the DAX Virtual Audio Driver from the AetherSDR DMG package, "
+            "then enable DAX again.");
+        return false;
     }
 #endif
 
     m_daxBridge = new DaxBridge(this);
     if (!m_daxBridge->open()) {
         qWarning() << "MainWindow: failed to open DAX audio bridge";
+        QMessageBox::warning(this, "DAX Audio Bridge Error",
+            "AetherSDR could not open the DAX audio bridge.\n\n"
+            "If the DAX driver was just installed, quit and relaunch AetherSDR and try again.");
         delete m_daxBridge;
         m_daxBridge = nullptr;
-        return;
+        return false;
     }
 
     // Listen for DAX stream status messages to register them in PanadapterStream.
@@ -6990,6 +7013,7 @@ void MainWindow::startDax()
     // via updateDaxTxMode(). Bridge up ≠ DAX TX active. (#534)
 
     qInfo() << "MainWindow: starting DAX audio bridge";
+    return true;
 }
 
 void MainWindow::stopDax()
