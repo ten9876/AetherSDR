@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QCloseEvent>
 #include <QTableWidget>
 #include <QMap>
 
@@ -13,6 +14,9 @@ class MemoryDialog : public QDialog {
 
 public:
     explicit MemoryDialog(RadioModel* model, QWidget* parent = nullptr);
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     void populateTable();

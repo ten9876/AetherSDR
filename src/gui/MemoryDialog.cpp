@@ -1,4 +1,5 @@
 #include "MemoryDialog.h"
+#include "core/AppSettings.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
 #include "core/RadioConnection.h"
@@ -10,6 +11,7 @@
 #include <QDebug>
 #include <QPointer>
 #include <QTimer>
+#include <QCloseEvent>
 
 namespace AetherSDR {
 
@@ -215,6 +217,17 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
     // If cache is empty, memories may not have been pushed yet. As a fallback,
     // new memories created via Add will populate the table immediately.
     populateTable();
+
+    const QString geomB64 =
+        AppSettings::instance().value("MemoryDialogGeometry").toString();
+    if (!geomB64.isEmpty())
+        restoreGeometry(QByteArray::fromBase64(geomB64.toLatin1()));
+}
+
+void MemoryDialog::closeEvent(QCloseEvent* event)
+{
+    AppSettings::instance().setValue("MemoryDialogGeometry", saveGeometry().toBase64());
+    QDialog::closeEvent(event);
 }
 
 void MemoryDialog::populateTable()

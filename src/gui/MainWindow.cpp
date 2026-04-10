@@ -1883,6 +1883,12 @@ MainWindow::MainWindow(QWidget* parent)
         QTimer::singleShot(500, this, [this]() { toggleConnectionDialog(); });
     }
 
+    // Restore the Memory dialog if it was open when the app last exited.
+    QTimer::singleShot(0, this, [this]() {
+        if (AppSettings::instance().value("MemoryDialogOpen", "False").toString() == "True")
+            showMemoryDialog();
+    });
+
     // What's New dialog — show on version change (#483)
     // Also check for newer release and offer upgrade (#486)
     QTimer::singleShot(600, this, [this]() {
@@ -1961,11 +1967,19 @@ MainWindow::~MainWindow()
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+    m_shuttingDown = true;
     auto& s = AppSettings::instance();
     s.setValue("MainWindowGeometry", saveGeometry().toBase64());
     s.setValue("MainWindowState",   saveState().toBase64());
     // SplitterState no longer saved (2-pane layout uses stretch factors)
     // ConnPanelCollapsed removed — panel is now a popup dialog
+
+    if (m_memoryDialog && m_memoryDialog->isVisible()) {
+        s.setValue("MemoryDialogOpen", "True");
+        s.setValue("MemoryDialogGeometry", m_memoryDialog->saveGeometry().toBase64());
+    } else {
+        s.setValue("MemoryDialogOpen", "False");
+    }
 
     // Save active slice frequency/mode for restore on next launch
     auto* sl = activeSlice();
@@ -2214,6 +2228,28 @@ void MainWindow::toggleConnectionDialog()
     m_connPanel->raise();
 }
 
+void MainWindow::showMemoryDialog()
+{
+    if (m_memoryDialog) {
+        m_memoryDialog->show();
+        m_memoryDialog->raise();
+        m_memoryDialog->activateWindow();
+        return;
+    }
+
+    auto* dlg = new MemoryDialog(&m_radioModel, this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dlg, &QObject::destroyed, this, [this] {
+        if (m_shuttingDown)
+            return;
+        auto& s = AppSettings::instance();
+        s.setValue("MemoryDialogOpen", "False");
+        s.save();
+    });
+    m_memoryDialog = dlg;
+    dlg->show();
+}
+
 void MainWindow::updatePaTempLabel()
 {
     const QString unit = m_paTempUseFahrenheit ? "F" : "C";
@@ -2370,15 +2406,7 @@ void MainWindow::buildMenuBar()
     });
     auto* memoryAction = settingsMenu->addAction("Memory...");
     connect(memoryAction, &QAction::triggered, this, [this] {
-        if (m_memoryDialog) {
-            m_memoryDialog->raise();
-            m_memoryDialog->activateWindow();
-            return;
-        }
-        auto* dlg = new MemoryDialog(&m_radioModel, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        m_memoryDialog = dlg;
-        dlg->show();
+        showMemoryDialog();
     });
     auto* usbCablesAction = settingsMenu->addAction("USB Cables...");
     connect(usbCablesAction, &QAction::triggered, this, [this] {
