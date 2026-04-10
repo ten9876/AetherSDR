@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AetherSDR VERSION 0.8.6 LANGUAGES C CXX)
+project(AetherSDR VERSION 0.8.8 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -197,7 +197,13 @@ if(AETHER_GPU_SPECTRUM)
         find_package(Qt6 REQUIRED COMPONENTS ShaderTools)
         # Qt6GuiPrivate provides QRhi headers needed for GPU rendering.
         find_package(Qt6GuiPrivate QUIET)
-        message(STATUS "GPU spectrum rendering enabled (QRhi, Qt ${Qt6_VERSION})")
+        if(Qt6GuiPrivate_FOUND)
+            message(STATUS "GPU spectrum rendering enabled (QRhi, Qt ${Qt6_VERSION})")
+        else()
+            set(AETHER_GPU_SPECTRUM OFF)
+            message(STATUS "GPU spectrum rendering disabled — Qt6GuiPrivate not found "
+                           "(install qt6-base-private-dev / qt6-qtbase-private-devel)")
+        endif()
     endif()
 else()
     message(STATUS "GPU spectrum rendering disabled (use -DAETHER_GPU_SPECTRUM=ON to enable)")
@@ -327,13 +333,15 @@ if(ENABLE_DFNR)
         message(STATUS "DFNR (DeepFilterNet3) enabled — ${DFNR_LIB}")
     else()
         set(ENABLE_DFNR OFF)
-        message(STATUS "DFNR (DeepFilterNet3) disabled — library not found at ${DFNR_LIB}")
+        message(STATUS "DFNR (DeepFilterNet3) disabled — library not found at ${DFNR_LIB} "
+                       "(run ./setup-deepfilter.sh before cmake to enable)")
     endif()
 endif()
 
 # Sources
 set(CORE_SOURCES
     src/core/AppSettings.cpp
+    src/core/BandStackSettings.cpp
     src/core/RadioDiscovery.cpp
     src/core/RadioConnection.cpp
     src/core/TgxlConnection.cpp
@@ -417,6 +425,7 @@ set(GUI_SOURCES
     src/gui/DspParamPopup.cpp
     src/gui/DxClusterDialog.cpp
     src/gui/CwxPanel.cpp
+    src/gui/BandStackPanel.cpp
     src/gui/DvkPanel.cpp
     src/gui/AmpApplet.cpp
     src/gui/MeterApplet.cpp
@@ -799,6 +808,12 @@ if(ENABLE_DFNR)
                     "${DFNR_MODEL}" "$<TARGET_FILE_DIR:AetherSDR>"
                 COMMENT "Copying DeepFilterNet3 model to build directory")
         endif()
+    endif()
+    # Install the model alongside the binary for cmake --install
+    if(NOT APPLE)
+        install(FILES "${DFNR_MODEL}"
+            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/AetherSDR"
+            OPTIONAL)
     endif()
 endif()
 

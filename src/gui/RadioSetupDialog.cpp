@@ -807,11 +807,25 @@ QWidget* RadioSetupDialog::buildTxTab()
             return edit;
         };
 
-        addTimingField(0, 0, "ACC TX:",  tx.accTxDelay());
-        addTimingField(0, 1, "TX Delay:", tx.txDelay());
-        addTimingField(1, 0, "RCA TX1:", tx.tx1Delay());
-        addTimingField(1, 1, "Timeout(min):", tx.interlockTimeout());
-        addTimingField(2, 0, "RCA TX2:", tx.tx2Delay());
+        auto connectTimingField = [&](QLineEdit* edit, const QString& key) {
+            connect(edit, &QLineEdit::editingFinished, this, [this, edit, key] {
+                int val = qMax(0, edit->text().toInt());
+                edit->setText(QString::number(val));
+                m_model->sendCommand(QString("interlock set %1=%2").arg(key).arg(val));
+            });
+        };
+
+        auto* accTxEdit   = addTimingField(0, 0, "ACC TX:",       tx.accTxDelay());
+        auto* txDelayEdit = addTimingField(0, 1, "TX Delay:",      tx.txDelay());
+        auto* tx1Edit     = addTimingField(1, 0, "RCA TX1:",       tx.tx1Delay());
+        auto* timeoutEdit = addTimingField(1, 1, "Timeout(min):",  tx.interlockTimeout());
+        auto* tx2Edit     = addTimingField(2, 0, "RCA TX2:",       tx.tx2Delay());
+
+        connectTimingField(accTxEdit,   "acc_tx_delay");
+        connectTimingField(txDelayEdit, "tx_delay");
+        connectTimingField(tx1Edit,     "tx1_delay");
+        connectTimingField(timeoutEdit, "timeout");
+        connectTimingField(tx2Edit,     "tx2_delay");
 
         // TX Profile dropdown (below Timeout, right column)
         auto* profCmb = new QComboBox;
@@ -823,7 +837,8 @@ QWidget* RadioSetupDialog::buildTxTab()
             m_model->transmitModel().loadProfile(name);
         });
 
-        addTimingField(3, 0, "RCA TX3:", tx.tx3Delay());
+        auto* tx3Edit = addTimingField(3, 0, "RCA TX3:", tx.tx3Delay());
+        connectTimingField(tx3Edit, "tx3_delay");
 
         // TX Band Settings button
         auto* bandSetBtn = new QPushButton("TX Band Settings");
@@ -1002,12 +1017,12 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         row1->setSpacing(4);
         auto* biasBtn = mkTogBtn("BIAS", tx.micBias());
         connect(biasBtn, &QPushButton::toggled, this, [this](bool on) {
-            m_model->sendCommand(QString("mic bias %1").arg(on ? 1 : 0));
+            m_model->transmitModel().setMicBias(on);
         });
         row1->addWidget(biasBtn);
         auto* boostBtn = mkTogBtn("+20dB", tx.micBoost());
         connect(boostBtn, &QPushButton::toggled, this, [this](bool on) {
-            m_model->sendCommand(QString("mic boost %1").arg(on ? 1 : 0));
+            m_model->transmitModel().setMicBoost(on);
         });
         row1->addWidget(boostBtn);
         row1->addStretch(1);
@@ -2848,7 +2863,8 @@ QWidget* RadioSetupDialog::buildSerialTab()
         static const QStringList actions = {
             "None", "StepUp", "StepDown", "ToggleMox",
             "ToggleTune", "ToggleMute", "ToggleLock",
-            "NextSlice", "PrevSlice"
+            "NextSlice", "PrevSlice",
+            "ToggleAgc", "VolumeUp", "VolumeDown"
         };
         static const char* defaultActions[3][2] = {
             {"StepUp", "StepDown"},
@@ -3033,6 +3049,23 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
             [this]() { return m_tgxl->peerPort(); });
         connect(m_tgxl, &TgxlConnection::connected, this, updateTgxl);
         connect(m_tgxl, &TgxlConnection::disconnected, this, updateTgxl);
+        // Pre-fill radio-discovered TGXL IP when no saved IP and not connected (#1039)
+        auto* tgxlIpEdit = qobject_cast<QLineEdit*>(grid->itemAtPosition(1, 1)->widget());
+        if (tgxlIpEdit && tgxlIpEdit->text().isEmpty()) {
+            QString discovered = m_model->tunerModel().tgxlIp();
+            if (!discovered.isEmpty()) {
+                tgxlIpEdit->setText(discovered);
+            }
+        }
+        // Show TCP error reason in status column (#1039)
+        auto* tgxlStatus = qobject_cast<QLabel*>(grid->itemAtPosition(1, 4)->widget());
+        if (tgxlStatus) {
+            connect(m_tgxl, &TgxlConnection::connectionFailed, this,
+                    [tgxlStatus](const QString& err) {
+                tgxlStatus->setText("Error: " + err);
+                tgxlStatus->setStyleSheet("QLabel { color: #e06060; font-size: 11px; }");
+            });
+        }
     }
 
     // Row 2: Power Genius XL (PGXL)

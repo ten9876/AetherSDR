@@ -9,27 +9,54 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QDebug>
+#include <QStandardPaths>
 
 namespace AetherSDR {
 
+static constexpr const char* kModelFileName = "DeepFilterNet3_onnx.tar.gz";
+
 static QByteArray findModelPath()
 {
-    // Look for model adjacent to the executable first (Linux/Windows)
     QString exeDir = QCoreApplication::applicationDirPath();
-    QString path = exeDir + "/DeepFilterNet3_onnx.tar.gz";
+    QStringList searched;
+
+    // 1. Adjacent to the executable (Linux/Windows build dir, or installed)
+    QString path = exeDir + "/" + kModelFileName;
+    searched << path;
     if (QFile::exists(path)) {
         return path.toUtf8();
     }
-    // macOS app bundle: Contents/Resources/
-    path = exeDir + "/../Resources/DeepFilterNet3_onnx.tar.gz";
+    // 2. macOS app bundle: Contents/Resources/
+    path = exeDir + "/../Resources/" + kModelFileName;
+    searched << path;
     if (QFile::exists(path)) {
         return QDir(path).canonicalPath().toUtf8();
     }
-    // Fallback: third_party dir relative to exe (dev builds)
-    path = exeDir + "/../third_party/deepfilter/models/DeepFilterNet3_onnx.tar.gz";
+    // 3. Dev builds: third_party dir relative to exe
+    path = exeDir + "/../third_party/deepfilter/models/" + kModelFileName;
+    searched << path;
     if (QFile::exists(path)) {
         return QDir(path).canonicalPath().toUtf8();
     }
+    // 4. XDG data directory (Linux installed via package or cmake --install)
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    if (!dataDir.isEmpty()) {
+        path = dataDir + "/AetherSDR/" + kModelFileName;
+        searched << path;
+        if (QFile::exists(path)) {
+            return path.toUtf8();
+        }
+    }
+    // 5. System-wide install paths (Linux)
+    for (const QString& prefix : {QStringLiteral("/usr/share"), QStringLiteral("/usr/local/share")}) {
+        path = prefix + "/AetherSDR/" + kModelFileName;
+        searched << path;
+        if (QFile::exists(path)) {
+            return path.toUtf8();
+        }
+    }
+
+    qWarning() << "DeepFilterFilter: model not found. Searched:" << searched;
     return {};
 }
 
@@ -39,7 +66,6 @@ DeepFilterFilter::DeepFilterFilter()
 {
     QByteArray modelPath = findModelPath();
     if (modelPath.isEmpty()) {
-        qWarning() << "DeepFilterFilter: model file not found!";
         return;
     }
     qDebug() << "DeepFilterFilter: loading model from" << modelPath;

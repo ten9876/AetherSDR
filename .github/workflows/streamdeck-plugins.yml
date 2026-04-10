@@ -1,0 +1,48 @@
+name: Stream Deck Plugins
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  upload-plugins:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Package Elgato plugin
+        run: |
+          cd plugins/elgato-aethersdr
+          zip -r ../../com.aethersdr.radio.streamDeckPlugin com.aethersdr.radio.sdPlugin/
+
+      - name: Package StreamController plugin
+        run: |
+          cd plugins
+          zip -r ../streamcontroller-aethersdr.zip streamcontroller-aethersdr/ \
+            -x "*/__pycache__/*"
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          # Wait for the release to exist (created by maintainer or another workflow)
+          for i in $(seq 1 30); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              break
+            fi
+            echo "Waiting for release $TAG to be created... ($i/30)"
+            sleep 10
+          done
+          # Create a draft release if it still doesn't exist
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --notes "Release $TAG" --draft
+          fi
+          gh release upload "$TAG" \
+            com.aethersdr.radio.streamDeckPlugin \
+            streamcontroller-aethersdr.zip \
+            --clobber

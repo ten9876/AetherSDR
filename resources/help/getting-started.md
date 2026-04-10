@@ -181,5 +181,5 @@ If a change follows only slice `A`, `B`, `C`, or `D`, it is probably slice-speci
 Once you are comfortable getting connected and identifying the main window areas:
 
 - Open `Help -> AetherSDR Help...` for a deeper window-by-window reference.
-- Open `Help -> Understanding Data Modes...` before setting up WSJT-X, Winlink, fldigi, JS8Call, VARA, or IQ software.
+- Open `Help -> Configuring Data Modes...` before setting up WSJT-X, Winlink, fldigi, JS8Call, VARA, or IQ software.
 - Open `Help -> Contributing to AetherSDR...` if you want to report confusing behavior, request workflow improvements, or help improve the documentation itself.

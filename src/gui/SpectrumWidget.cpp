@@ -13,6 +13,7 @@
 #include <QResizeEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QNativeGestureEvent>
 #include <QMenu>
 #include <QToolTip>
 #include <QDialog>
@@ -160,6 +161,8 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     };
     m_zoomSegBtn  = makeBtn("S");
     m_zoomBandBtn = makeBtn("B");
+    m_zoomOutBtn  = makeBtn("\u2212");  // minus sign U+2212
+    m_zoomInBtn   = makeBtn("+");
 
     // SmartSDR pcap: B sends "band_zoom=1", S sends "segment_zoom=1"
     connect(m_zoomBandBtn, &QPushButton::clicked, this, [this]() {
@@ -168,6 +171,20 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     connect(m_zoomSegBtn, &QPushButton::clicked, this, [this]() {
         emit segmentZoomRequested();
     });
+
+    // Bandwidth zoom: − zooms out (wider BW), + zooms in (narrower BW)
+    // Send both bandwidth AND current center to prevent the radio from
+    // auto-centering the panadapter (which causes band jumps).
+    auto emitZoom = [this](double factor) {
+        const double newBw = m_bandwidthMhz * factor;
+        if (newBw < m_minBwMhz || newBw > m_maxBwMhz) { return; }  // at limit
+        m_bandwidthMhz = newBw;
+        markOverlayDirty();
+        emit bandwidthChangeRequested(newBw);
+        emit centerChangeRequested(m_centerMhz);  // anchor the current center
+    };
+    connect(m_zoomOutBtn, &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.5); });
+    connect(m_zoomInBtn,  &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.0 / 1.5); });
 }
 
 // ── Multi-VfoWidget management ────────────────────────────────────────────────
@@ -212,6 +229,7 @@ void SpectrumWidget::loadSettings()
         m_bandPlanFontSize = s.value("BandPlanFontSize", "6").toInt();
     }
     m_fftHeatMap     = s.value(settingsKey("DisplayFftHeatMap"), "True").toString() == "True";
+    m_showGrid       = s.value(settingsKey("DisplayShowGrid"), "True").toString() == "True";
     m_wfColorScheme  = static_cast<WfColorScheme>(
         std::clamp(s.value(settingsKey("DisplayWfColorScheme"), "0").toInt(),
                    0, static_cast<int>(WfColorScheme::Count) - 1));
@@ -228,7 +246,7 @@ void SpectrumWidget::loadSettings()
         m_overlayMenu->syncDisplaySettings(m_fftAverage, m_fftFps,
             static_cast<int>(m_fftFillAlpha * 100), m_fftWeightedAvg, m_fftFillColor,
             m_wfColorGain, m_wfBlackLevel, m_wfAutoBlack, m_wfLineDuration,
-            75, false, m_fftHeatMap, static_cast<int>(m_wfColorScheme));
+            75, false, m_fftHeatMap, static_cast<int>(m_wfColorScheme), m_showGrid);
 }
 
 VfoWidget* SpectrumWidget::addVfoWidget(int sliceId)
@@ -293,6 +311,13 @@ void SpectrumWidget::setFftHeatMap(bool on) {
     auto& s = AppSettings::instance();
     s.setValue(settingsKey("DisplayFftHeatMap"), on ? "True" : "False");
     s.save();
+}
+void SpectrumWidget::setShowGrid(bool on) {
+    m_showGrid = on;
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("DisplayShowGrid"), on ? "True" : "False");
+    s.save();
+    markOverlayDirty();
 }
 void SpectrumWidget::setFftFillAlpha(float a) {
     m_fftFillAlpha = std::clamp(a, 0.0f, 1.0f);
@@ -1181,16 +1206,8 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         // 4x multiplier: dragging 1/4 of widget width doubles/halves bandwidth
         const double scale = std::pow(2.0, static_cast<double>(-dx) / (width() / 4.0));
         const double newBw = std::clamp(m_bwDragStartBw * scale, 0.004, 14.0);
-        // SSB modes: center on filter midpoint so the passband stays visible.
-        // Other modes: center on VFO frequency.
+        // Keep the current pan center on zoom — don't snap to VFO. (#1093)
         double zoomCenter = m_centerMhz;
-        if (const auto* ao = activeOverlay()) {
-            if (m_mode == "USB" || m_mode == "LSB" || m_mode == "DIGU" || m_mode == "DIGL" || m_mode == "RTTY") {
-                zoomCenter = ao->freqMhz + (ao->filterLowHz + ao->filterHighHz) / 2.0 / 1.0e6;
-            } else {
-                zoomCenter = ao->freqMhz;
-            }
-        }
         m_bandwidthMhz = newBw;
         m_centerMhz = zoomCenter;
         markOverlayDirty();
@@ -1593,6 +1610,35 @@ void SpectrumWidget::setBackgroundImage(const QString& path)
     markOverlayDirty();
 }
 
+bool SpectrumWidget::event(QEvent* ev)
+{
+    if (ev->type() == QEvent::NativeGesture) {
+        auto* ge = static_cast<QNativeGestureEvent*>(ev);
+        if (ge->gestureType() == Qt::ZoomNativeGesture) {
+            // value > 0 = pinch out (zoom in = narrower BW)
+            // value < 0 = pinch in  (zoom out = wider BW)
+            // Zoom anchored on the frequency under the cursor: the frequency
+            // at the mouse position stays at that pixel after the zoom.
+            const double delta = ge->value();
+            if (qFuzzyIsNull(delta)) { return true; }
+            const double factor = 1.0 / (1.0 + delta);  // invert: pinch-out narrows BW
+            const double newBw = m_bandwidthMhz * factor;
+            if (newBw < m_minBwMhz || newBw > m_maxBwMhz) { return true; }  // at limit
+            // Anchor: keep the frequency under the cursor at the same pixel.
+            const double mouseXFrac = ge->position().x() / width() - 0.5;
+            const double anchorMhz = m_centerMhz + mouseXFrac * m_bandwidthMhz;
+            const double newCenter = anchorMhz - mouseXFrac * newBw;
+            m_bandwidthMhz = newBw;
+            m_centerMhz = newCenter;
+            markOverlayDirty();
+            emit bandwidthChangeRequested(newBw);
+            emit centerChangeRequested(newCenter);
+            return true;
+        }
+    }
+    return SPECTRUM_BASE_CLASS::event(ev);
+}
+
 void SpectrumWidget::wheelEvent(QWheelEvent* ev)
 {
     // Skip scroll on the divider + freq scale bar.
@@ -1690,9 +1736,12 @@ void SpectrumWidget::positionZoomButtons()
     constexpr int sz = 22;
     const int botY = height() - pad;
 
-    // S | B at bottom-left
-    m_zoomSegBtn->move(pad, botY - sz);
-    m_zoomBandBtn->move(pad + sz + 2, botY - sz);
+    // Row 1 (bottom): − | + (bandwidth zoom)
+    m_zoomOutBtn->move(pad, botY - sz);
+    m_zoomInBtn->move(pad + sz + 2, botY - sz);
+    // Row 0 (above): S | B (segment/band zoom)
+    m_zoomSegBtn->move(pad, botY - sz - sz - 2);
+    m_zoomBandBtn->move(pad + sz + 2, botY - sz - sz - 2);
 }
 
 // ─── Colour map ───────────────────────────────────────────────────────────────
@@ -2024,6 +2073,12 @@ void SpectrumWidget::initialize(QRhiCommandBuffer* cb)
     m_wfTexFullUpload = false;
     m_wfLastUploadedRow = m_wfWriteRow;
     m_rhiInitialized = true;
+
+    // Re-apply cursor now that the native HWND exists on Windows. (#1096)
+    // setCursor() in the constructor runs before QRhiWidget creates its native
+    // surface; calling it again here ensures the HWND gets the correct cursor
+    // shape rather than defaulting to NULL (invisible).
+    setCursor(cursor());
 }
 
 void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
@@ -2771,6 +2826,7 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
 
 void SpectrumWidget::drawGrid(QPainter& p, const QRect& r)
 {
+    if (!m_showGrid) return;
     const int w = r.width();
     const int h = r.height();
 

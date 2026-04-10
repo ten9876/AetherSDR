@@ -24,7 +24,8 @@ public:
     struct RadioInfo {
         QString model;
         QString serial;
-        QString firmware;
+        QString firmware;        // radio software version from discovery (e.g. "4.1.5")
+        QString protocolVersion; // SmartSDR protocol version from V line (e.g. "1.4.0.0")
         QString callsign;
         QString ip;
         bool connected{false};

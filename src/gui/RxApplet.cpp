@@ -761,6 +761,7 @@ void RxApplet::buildUI()
         agcRow->addWidget(m_agcTSlider, 1);
 
         connect(m_agcTSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_agcTSlider->setToolTip(QString("AGC Threshold: %1").arg(v));
             if (m_slice) m_slice->setAgcThreshold(v);
         });
         rightCol->addWidget(m_agcContainer);
@@ -890,7 +891,7 @@ void RxApplet::buildUI()
     m_sqlBtn->setToolTip("Squelch gate \u2014 silences audio when the signal drops below the threshold.");
     m_sqlSlider->setToolTip("Squelch threshold. Increase to require a stronger signal before audio opens.");
     m_agcCombo->setToolTip("AGC speed. Slow resists pumping on quiet bands; Fast tracks rapid signal changes.");
-    m_agcTSlider->setToolTip("AGC threshold. Higher values reduce the maximum gain applied to weak signals.");
+    m_agcTSlider->setToolTip(QString("AGC Threshold: %1").arg(m_agcTSlider->value()));
     m_ritOnBtn->setToolTip("Receive Incremental Tuning \u2014 offsets the receive frequency without moving transmit.");
     m_ritZero->setToolTip("Resets the RIT offset to zero.");
     m_xitOnBtn->setToolTip("Transmit Incremental Tuning \u2014 offsets the transmit frequency without moving receive.");
@@ -1149,10 +1150,12 @@ void RxApplet::connectSlice(SliceModel* s)
     {
         QSignalBlocker b(m_agcTSlider);
         m_agcTSlider->setValue(s->agcThreshold());
+        m_agcTSlider->setToolTip(QString("AGC Threshold: %1").arg(s->agcThreshold()));
     }
     connect(s, &SliceModel::agcThresholdChanged, this, [this](int v) {
         QSignalBlocker b(m_agcTSlider);
         m_agcTSlider->setValue(v);
+        m_agcTSlider->setToolTip(QString("AGC Threshold: %1").arg(v));
     });
 
     // Audio mute

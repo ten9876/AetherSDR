@@ -42,6 +42,7 @@ public:
 signals:
     void connected();
     void disconnected();
+    void connectionFailed(const QString& errorString);
     void stateUpdated(const QMap<QString, QString>& kvs);
     void statusUpdated(const QMap<QString, QString>& kvs);
 

@@ -110,6 +110,9 @@ public:
     int stepSize() const { return m_stepHz; }
     void setStepSize(int hz) { m_stepHz = hz; }
 
+    // Set panadapter bandwidth zoom limits (MHz). Called per-radio model.
+    void setBandwidthLimits(double minMhz, double maxMhz) { m_minBwMhz = minMhz; m_maxBwMhz = maxMhz; }
+
     // Set the per-mode filter limits (Hz). Called when mode changes.
     void setFilterLimits(int minHz, int maxHz) { m_filterMinHz = minHz; m_filterMaxHz = maxHz; }
 
@@ -167,9 +170,11 @@ public:
     void setFftFillAlpha(float a);
     void setFftFillColor(const QColor& c);
     void setFftHeatMap(bool on);
+    void setShowGrid(bool on);
     float fftFillAlpha() const         { return m_fftFillAlpha; }
     QColor fftFillColor() const        { return m_fftFillColor; }
     bool fftHeatMap() const            { return m_fftHeatMap; }
+    bool showGrid() const              { return m_showGrid; }
     int   fftAverage() const           { return m_fftAverage; }
     int   fftFps() const               { return m_fftFps; }
     bool  fftWeightedAvg() const       { return m_fftWeightedAvg; }
@@ -319,6 +324,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    bool event(QEvent* event) override;
     void leaveEvent(QEvent* event) override;
 
 public:
@@ -382,6 +388,10 @@ private:
     int m_angleAccum{0};    // mouse wheel angle accumulator (#390)
     qint64 m_lastWheelMs{0}; // debounce: timestamp of last accepted wheel step
 
+    // Panadapter bandwidth zoom limits (MHz), set per-radio model
+    double m_minBwMhz{0.010};   // 10 kHz default
+    double m_maxBwMhz{5.400};   // safe default for unknown radios
+
     // ── FFT display controls (radio-side via "display pan set") ──────────
     int   m_panIndex{0};             // per-pan settings index (0, 1, 2, 3)
     int   m_fftAverage{0};           // 0=off, 1-10 frames
@@ -390,6 +400,7 @@ private:
     float m_fftFillAlpha{0.70f};     // client-side fill opacity (0-1)
     QColor m_fftFillColor{0x00, 0xe5, 0xff};  // client-side fill color (default cyan)
     bool m_fftHeatMap{true};        // true = intensity heat map, false = solid color
+    bool m_showGrid{true};          // false = hide grid lines
 
     // ── Waterfall display controls (radio-side via "display panafall set") ─
     int   m_wfColorGain{50};         // 0-100, maps intensity to color range
@@ -533,9 +544,11 @@ private:
     QMap<int, VfoWidget*> m_vfoWidgets;
     VfoWidget* m_vfoWidget{nullptr};  // alias to active slice widget (compat)
 
-    // Bottom-left waterfall zoom buttons: S(egment), B(and)
+    // Bottom-left waterfall zoom buttons: S(egment), B(and), −/+ (bandwidth)
     QPushButton* m_zoomSegBtn{nullptr};
     QPushButton* m_zoomBandBtn{nullptr};
+    QPushButton* m_zoomOutBtn{nullptr};
+    QPushButton* m_zoomInBtn{nullptr};
 
 #ifdef AETHER_GPU_SPECTRUM
     bool m_rhiInitialized{false};

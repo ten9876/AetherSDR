@@ -1,7 +1,9 @@
 #include "PanadapterStack.h"
+#include "BandStackPanel.h"
 #include "PanadapterApplet.h"
 #include "SpectrumWidget.h"
 
+#include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QTimer>
 
@@ -10,14 +12,42 @@ namespace AetherSDR {
 PanadapterStack::PanadapterStack(QWidget* parent)
     : QWidget(parent)
 {
-    auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
+    auto* hbox = new QHBoxLayout(this);
+    hbox->setContentsMargins(0, 0, 0, 0);
+    hbox->setSpacing(0);
+
+    // Band stack panel (hidden by default, left of panadapter)
+    m_bandStackPanel = new BandStackPanel(this);
+    m_bandStackPanel->setVisible(false);
+    hbox->addWidget(m_bandStackPanel);
 
     m_splitter = new QSplitter(Qt::Vertical, this);
     m_splitter->setHandleWidth(3);
     m_splitter->setChildrenCollapsible(false);
-    layout->addWidget(m_splitter);
+    hbox->addWidget(m_splitter, 1);
+}
+
+void PanadapterStack::setBandStackVisible(bool visible)
+{
+    // Lock the splitter's current width so Qt doesn't redistribute
+    // pixels when the band stack panel appears/disappears.
+    int splitterW = m_splitter->width();
+    m_splitter->setFixedWidth(splitterW);
+
+    m_bandStackPanel->setVisible(visible);
+
+    // Grow/shrink the main window to accommodate the panel
+    if (QWidget* win = window()) {
+        int delta = 80;  // band stack panel width
+        QSize sz = win->size();
+        win->resize(sz.width() + (visible ? delta : -delta), sz.height());
+    }
+
+    // Release the width lock after the resize settles
+    QTimer::singleShot(0, this, [this]() {
+        m_splitter->setMinimumWidth(0);
+        m_splitter->setMaximumWidth(QWIDGETSIZE_MAX);
+    });
 }
 
 PanadapterApplet* PanadapterStack::addPanadapter(const QString& panId)

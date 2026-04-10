@@ -37,12 +37,13 @@ SupportBundle::RadioInfo SupportBundle::collectRadioInfo(const RadioModel* model
         info.connected = false;
         return info;
     }
-    info.connected = true;
-    info.model     = model->model();
-    info.serial    = model->serial();
-    info.firmware  = model->version();
-    info.callsign  = model->callsign();
-    info.ip        = model->ip();
+    info.connected       = true;
+    info.model           = model->model();
+    info.serial          = model->serial();
+    info.firmware        = model->softwareVersion();
+    info.protocolVersion = model->protocolVersion();
+    info.callsign        = model->callsign();
+    info.ip              = model->ip();
     return info;
 }
 
@@ -96,11 +97,12 @@ QString SupportBundle::createBundle(const RadioInfo& radio)
         QJsonObject obj;
         obj["connected"] = radio.connected;
         if (radio.connected) {
-            obj["model"]    = radio.model;
-            obj["serial"]   = radio.serial;
-            obj["firmware"] = radio.firmware;
-            obj["callsign"] = radio.callsign;
-            obj["ip"]       = radio.ip;
+            obj["model"]           = radio.model;
+            obj["serial"]          = radio.serial;
+            obj["firmware"]        = radio.firmware;
+            obj["protocolVersion"] = radio.protocolVersion;
+            obj["callsign"]        = radio.callsign;
+            obj["ip"]              = radio.ip;
         }
         QFile f(tmp + "/radio-info.json");
         if (f.open(QIODevice::WriteOnly))
@@ -189,8 +191,8 @@ void SupportBundle::openEmailClient(const QString& bundlePath,
     body += QString("Build: %1\n").arg(sys.buildDate);
 
     if (radio.connected) {
-        body += QString("Radio: %1 (serial %2, fw %3)\n")
-            .arg(radio.model, radio.serial, radio.firmware);
+        body += QString("Radio: %1 (serial %2, fw %3, protocol %4)\n")
+            .arg(radio.model, radio.serial, radio.firmware, radio.protocolVersion);
         body += QString("Callsign: %1\n").arg(radio.callsign);
     } else {
         body += "Radio: not connected\n";

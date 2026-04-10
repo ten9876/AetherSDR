@@ -13,7 +13,8 @@ ShortcutManager::ShortcutManager(QObject* parent)
 
 void ShortcutManager::registerAction(const QString& id, const QString& displayName,
                                      const QString& category, const QKeySequence& defaultKey,
-                                     std::function<void()> handler)
+                                     std::function<void()> handler,
+                                     bool autoRepeat)
 {
     // Prevent duplicate registration
     for (const auto& a : m_actions) {
@@ -22,7 +23,8 @@ void ShortcutManager::registerAction(const QString& id, const QString& displayNa
             return;
         }
     }
-    m_actions.append({id, displayName, category, defaultKey, defaultKey, std::move(handler)});
+    m_actions.append({id, displayName, category, defaultKey, defaultKey,
+                      std::move(handler), autoRepeat});
 }
 
 void ShortcutManager::setBinding(const QString& actionId, const QKeySequence& key)
@@ -126,7 +128,7 @@ void ShortcutManager::rebuildShortcuts(QWidget* parent,
         if (a.currentKey.isEmpty() || !a.handler) continue;
 
         auto* sc = new QShortcut(a.currentKey, parent);
-        sc->setAutoRepeat(false);
+        sc->setAutoRepeat(a.autoRepeat);
         auto handler = a.handler;
         connect(sc, &QShortcut::activated, this, [guardFn, handler]() {
             if (guardFn && !guardFn()) return;

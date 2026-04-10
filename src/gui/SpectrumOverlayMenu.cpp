@@ -1040,6 +1040,26 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         });
     }
 
+    // Grid Lines toggle
+    {
+        auto* lbl = new QLabel("Grid Lines:");
+        lbl->setStyleSheet(labelStyle);
+        grid->addWidget(lbl, row, 0, 1, 2);
+
+        m_showGridBtn = new QPushButton("On");
+        m_showGridBtn->setCheckable(true);
+        m_showGridBtn->setChecked(true);
+        m_showGridBtn->setFixedSize(36, 18);
+        m_showGridBtn->setStyleSheet(btnStyle);
+        grid->addWidget(m_showGridBtn, row, 2, 1, 2);
+        ++row;
+
+        connect(m_showGridBtn, &QPushButton::toggled, this, [this](bool on) {
+            m_showGridBtn->setText(on ? "On" : "Off");
+            emit showGridChanged(on);
+        });
+    }
+
     // Weighted Average: label spans col 0-1, button in col 2
     {
         auto* waLbl = new QLabel("Weighted Average:");
@@ -1208,6 +1228,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
     m_fpsSlider->setToolTip("FFT refresh rate in frames per second.");
     m_fillSlider->setToolTip("Opacity of the spectrum fill area below the trace.");
     if (m_heatMapBtn) m_heatMapBtn->setToolTip("Colors the spectrum trace by signal strength instead of a single color.");
+    if (m_showGridBtn) m_showGridBtn->setToolTip("Show or hide the frequency and dB grid lines on the panadapter.");
     if (m_weightedAvgBtn) m_weightedAvgBtn->setToolTip("Weights recent FFT frames more heavily for faster response to signal changes.");
     m_gainSlider->setToolTip("Waterfall color gain. Higher values brighten weak signals.");
     m_blackSlider->setToolTip("Waterfall black level. Increase to darken the noise floor.");
@@ -1227,7 +1248,8 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
                                                bool weightedAvg, const QColor& fillColor,
                                                int gain, int black, bool autoBlack, int rate,
                                                int floorPos, bool floorEnable,
-                                               bool heatMap, int colorScheme)
+                                               bool heatMap, int colorScheme,
+                                               bool showGrid)
 {
     if (!m_avgSlider) return;  // panel not built yet
 
@@ -1268,6 +1290,11 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
         QSignalBlocker bh(m_heatMapBtn);
         m_heatMapBtn->setChecked(heatMap);
         m_heatMapBtn->setText(heatMap ? "On" : "Off");
+    }
+    if (m_showGridBtn) {
+        QSignalBlocker bg(m_showGridBtn);
+        m_showGridBtn->setChecked(showGrid);
+        m_showGridBtn->setText(showGrid ? "On" : "Off");
     }
     if (m_colorSchemeCmb) {
         QSignalBlocker bc(m_colorSchemeCmb);

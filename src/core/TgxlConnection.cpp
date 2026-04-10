@@ -17,11 +17,14 @@ TgxlConnection::TgxlConnection(QObject* parent)
 
 void TgxlConnection::connectToTgxl(const QString& host, quint16 port)
 {
-    if (m_connected) disconnect();
-    m_seq = 0;
+    // Abort any pending or active connection before starting a new one (#1039)
+    m_pollTimer.stop();
+    m_connected = false;
     m_gotVersion = false;
     m_version.clear();
     m_readBuf.clear();
+    m_seq = 0;
+    m_socket.abort();
     qCDebug(lcTuner) << "TgxlConnection: connecting to" << host << ":" << port;
     m_socket.connectToHost(host, port);
 }
@@ -51,6 +54,7 @@ void TgxlConnection::onError(QAbstractSocket::SocketError error)
 {
     qCWarning(lcTuner) << "TgxlConnection: socket error" << error
                         << m_socket.errorString();
+    emit connectionFailed(m_socket.errorString());
 }
 
 void TgxlConnection::onReadyRead()

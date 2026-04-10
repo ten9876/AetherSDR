@@ -174,7 +174,9 @@ bool AudioEngine::startRxStream()
 void AudioEngine::stopRxStream()
 {
     if (m_audioSink) {
-        m_audioSink->stop();
+        // Guard: same stale-device-handle crash can occur on the RX side (#1059).
+        if (m_audioSink->state() != QAudio::StoppedState)
+            m_audioSink->stop();
         delete m_audioSink;
         m_audioSink   = nullptr;
         m_audioDevice = nullptr;
@@ -875,7 +877,11 @@ void AudioEngine::stopTxStream()
     }
 #endif
     if (m_audioSource) {
-        m_audioSource->stop();
+        // Guard: calling stop() on an already-stopped QAudioSource on macOS causes
+        // AudioOutputUnitStop to dereference a stale CoreAudio device handle,
+        // producing EXC_ARM_DA_ALIGN / EXC_BAD_ACCESS (#1059).
+        if (m_audioSource->state() != QAudio::StoppedState)
+            m_audioSource->stop();
         delete m_audioSource;
         m_audioSource = nullptr;
         m_micDevice   = nullptr;

@@ -86,7 +86,7 @@ This menu gives you both offline guidance and troubleshooting tools.
 
 - `Getting Started...`
 - `AetherSDR Help...`
-- `Understanding Data Modes...`
+- `Configuring Data Modes...`
 - `Contributing to AetherSDR...`
 - `Support...`
 - `Slice Troubleshooting...`

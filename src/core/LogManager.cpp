@@ -123,19 +123,32 @@ void LogManager::clearLog()
         f.close();
 }
 
+// AppSettings XML keys cannot contain dots — replace '.' with '_'
+static QString settingsKey(const QString& id)
+{
+    QString key = "LogCategory_" + id;
+    key.replace('.', '_');
+    return key;
+}
+
 void LogManager::saveSettings()
 {
     auto& s = AppSettings::instance();
     for (const auto& c : m_categories)
-        s.setValue(QString("LogCategory_%1").arg(c.id), c.enabled ? "True" : "False");
+        s.setValue(settingsKey(c.id), c.enabled ? "True" : "False");
     s.save();
 }
 
 void LogManager::loadSettings()
 {
     auto& s = AppSettings::instance();
+    // Default Discovery, Commands, and Status to on
+    static const QStringList defaultOn = {
+        "aether.discovery", "aether.connection", "aether.protocol"
+    };
     for (auto& c : m_categories) {
-        c.enabled = s.value(QString("LogCategory_%1").arg(c.id), "False").toString() == "True";
+        QString def = defaultOn.contains(c.id) ? "True" : "False";
+        c.enabled = s.value(settingsKey(c.id), def).toString() == "True";
     }
     applyFilterRules();
 }

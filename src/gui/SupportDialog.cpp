@@ -53,6 +53,7 @@ void SupportDialog::buildUI()
     for (const auto& cat : cats) {
         auto* cb = new QCheckBox(cat.label);
         cb->setToolTip(cat.description);
+        cb->setChecked(cat.enabled);
         cb->setStyleSheet("QCheckBox { color: #c8d8e8; }");
         gridLayout->addWidget(cb, row, col);
 

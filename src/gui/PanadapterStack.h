@@ -6,6 +6,7 @@
 
 namespace AetherSDR {
 
+class BandStackPanel;
 class PanadapterApplet;
 class SpectrumWidget;
 
@@ -41,6 +42,8 @@ public:
     SpectrumWidget* activeSpectrum() const;
     void setActivePan(const QString& panId);
     void setSplitterOrientation(Qt::Orientation o) { m_splitter->setOrientation(o); }
+    BandStackPanel* bandStackPanel() const { return m_bandStackPanel; }
+    void setBandStackVisible(bool visible);
     void equalizeSizes();
     void rearrangeLayout(const QString& layoutId);
 
@@ -48,6 +51,7 @@ signals:
     void activePanChanged(const QString& panId);
 
 private:
+    BandStackPanel* m_bandStackPanel{nullptr};
     QSplitter* m_splitter{nullptr};
     QMap<QString, PanadapterApplet*> m_pans;
     QString m_activePanId;

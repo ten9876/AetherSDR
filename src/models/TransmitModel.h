@@ -154,6 +154,7 @@ public:
     void setVoxLevel(int level);
     void setVoxDelay(int delay);
     void setMicBoost(bool on);
+    void setMicBias(bool on);
     void setAmCarrierLevel(int level);
     void setDexp(bool on);
     void setDexpLevel(int level);
