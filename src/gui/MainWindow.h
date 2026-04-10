@@ -251,6 +251,9 @@ private:
     QLabel* m_gpsStatusLabel{nullptr};
     QLabel* m_gridLabel{nullptr};
     QLabel* m_paTempLabel{nullptr};
+    QLabel* m_cpuLabel{nullptr};
+    int     m_cpuDisplayMode{0};
+    QTimer* m_cpuTimer{nullptr};
     QLabel* m_supplyVoltLabel{nullptr};
     QLabel* m_networkLabel{nullptr};
     QLabel* m_tgxlIndicator{nullptr};
