@@ -1,0 +1,6 @@
+{
+    "IID": "org.aethersdr.IAmpPlugin/1.0",
+    "name": "AmpStub",
+    "version": "1.0",
+    "description": "Minimal stub amp plugin — logs frequency changes to qDebug. Use as a template."
+}

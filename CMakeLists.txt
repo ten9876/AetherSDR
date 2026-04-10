@@ -1,11 +1,20 @@
 cmake_minimum_required(VERSION 3.20)
-project(AetherSDR VERSION 0.8.5 LANGUAGES C CXX)
+project(AetherSDR VERSION 0.8.8 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+
+# Verify What's New data includes the current version.
+# Run scripts/gen_whatsnew.py after updating CHANGELOG.md for a new release.
+file(READ "${CMAKE_SOURCE_DIR}/src/generated/WhatsNewData.cpp" _whatsnew_content)
+if(NOT _whatsnew_content MATCHES "\"${PROJECT_VERSION}\"")
+    message(FATAL_ERROR
+        "WhatsNewData.cpp has no entry for version ${PROJECT_VERSION}. "
+        "Update CHANGELOG.md and run: python3 scripts/gen_whatsnew.py CHANGELOG.md src/generated/WhatsNewData.cpp")
+endif()
 
 # macOS: ensure Homebrew lib/include paths are in the search path
 # (universal builds with CMAKE_OSX_ARCHITECTURES may not search /opt/homebrew by default)
@@ -188,7 +197,13 @@ if(AETHER_GPU_SPECTRUM)
         find_package(Qt6 REQUIRED COMPONENTS ShaderTools)
         # Qt6GuiPrivate provides QRhi headers needed for GPU rendering.
         find_package(Qt6GuiPrivate QUIET)
-        message(STATUS "GPU spectrum rendering enabled (QRhi, Qt ${Qt6_VERSION})")
+        if(Qt6GuiPrivate_FOUND)
+            message(STATUS "GPU spectrum rendering enabled (QRhi, Qt ${Qt6_VERSION})")
+        else()
+            set(AETHER_GPU_SPECTRUM OFF)
+            message(STATUS "GPU spectrum rendering disabled — Qt6GuiPrivate not found "
+                           "(install qt6-base-private-dev / qt6-qtbase-private-devel)")
+        endif()
     endif()
 else()
     message(STATUS "GPU spectrum rendering disabled (use -DAETHER_GPU_SPECTRUM=ON to enable)")
@@ -280,9 +295,53 @@ else()
     endif()
 endif()
 
+# DeepFilterNet3 DFNR — bundled neural noise reduction (MIT/Apache-2.0)
+# Pre-built static library from Rust crate (libdf), model weights embedded.
+option(ENABLE_DFNR "Enable DFNR DeepFilterNet3 noise reduction" ON)
+if(ENABLE_DFNR)
+    set(DEEPFILTER_DIR ${CMAKE_SOURCE_DIR}/third_party/deepfilter)
+    if(WIN32)
+        set(DFNR_LIB_DIR "${DEEPFILTER_DIR}/lib/windows-x86_64")
+        if(MINGW)
+            set(DFNR_LIB "${DFNR_LIB_DIR}/libdeepfilter.dll.a")
+            set(DFNR_DLL "${DFNR_LIB_DIR}/deepfilter.dll")
+        else()
+            # MSVC: prefer .dll.lib import library, fall back to .lib
+            if(EXISTS "${DFNR_LIB_DIR}/deepfilter.dll.lib")
+                set(DFNR_LIB "${DFNR_LIB_DIR}/deepfilter.dll.lib")
+            else()
+                set(DFNR_LIB "${DFNR_LIB_DIR}/deepfilter.lib")
+            endif()
+            set(DFNR_DLL "${DFNR_LIB_DIR}/deepfilter.dll")
+        endif()
+    elseif(APPLE)
+        if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+            set(DFNR_LIB_DIR "${DEEPFILTER_DIR}/lib/darwin-arm64")
+        else()
+            set(DFNR_LIB_DIR "${DEEPFILTER_DIR}/lib/darwin-x86_64")
+        endif()
+        set(DFNR_LIB "${DFNR_LIB_DIR}/libdeepfilter.a")
+    else()
+        if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+            set(DFNR_LIB_DIR "${DEEPFILTER_DIR}/lib/linux-aarch64")
+        else()
+            set(DFNR_LIB_DIR "${DEEPFILTER_DIR}/lib/linux-x86_64")
+        endif()
+        set(DFNR_LIB "${DFNR_LIB_DIR}/libdeepfilter.a")
+    endif()
+    if(EXISTS ${DFNR_LIB})
+        message(STATUS "DFNR (DeepFilterNet3) enabled — ${DFNR_LIB}")
+    else()
+        set(ENABLE_DFNR OFF)
+        message(STATUS "DFNR (DeepFilterNet3) disabled — library not found at ${DFNR_LIB} "
+                       "(run ./setup-deepfilter.sh before cmake to enable)")
+    endif()
+endif()
+
 # Sources
 set(CORE_SOURCES
     src/core/AppSettings.cpp
+    src/core/BandStackSettings.cpp
     src/core/RadioDiscovery.cpp
     src/core/RadioConnection.cpp
     src/core/TgxlConnection.cpp
@@ -298,10 +357,12 @@ set(CORE_SOURCES
     src/core/WsjtxClient.cpp
     src/core/SpotCollectorClient.cpp
     src/core/PotaClient.cpp
+    src/core/PropForecastClient.cpp
     src/core/RigctlServer.cpp
     src/core/TciServer.cpp
     src/core/TciProtocol.cpp
     src/core/PgxlConnection.cpp
+    src/core/PluginManager.cpp
     src/core/FirmwareUploader.cpp
     src/core/DvkWavTransfer.cpp
     src/core/FirmwareStager.cpp
@@ -310,6 +371,7 @@ set(CORE_SOURCES
     src/core/CwDecoder.cpp
     src/core/Resampler.cpp
     src/core/NvidiaBnrFilter.cpp
+    src/core/DeepFilterFilter.cpp
     src/core/RADEEngine.cpp
     src/core/LogManager.cpp
     src/core/ShortcutManager.cpp
@@ -364,6 +426,7 @@ set(GUI_SOURCES
     src/gui/DspParamPopup.cpp
     src/gui/DxClusterDialog.cpp
     src/gui/CwxPanel.cpp
+    src/gui/BandStackPanel.cpp
     src/gui/DvkPanel.cpp
     src/gui/AmpApplet.cpp
     src/gui/MeterApplet.cpp
@@ -595,11 +658,7 @@ if(HIDAPI_FOUND)
     target_compile_definitions(AetherSDR PRIVATE HAVE_HIDAPI)
     target_sources(AetherSDR PRIVATE
         src/core/HidEncoderManager.cpp
-        src/core/HidDeviceParser.cpp
-        src/core/StreamDeckDevice.cpp
-        src/core/StreamDeckManager.cpp
-        src/core/StreamDeckKeyRenderer.cpp
-        src/gui/StreamDeckDialog.cpp)
+        src/core/HidDeviceParser.cpp)
     set(HIDAPI_NORMALIZED_INCLUDE_DIRS ${HIDAPI_INCLUDE_DIRS})
     foreach(hidapi_dir IN LISTS HIDAPI_INCLUDE_DIRS)
         if(EXISTS "${hidapi_dir}/hidapi.h")
@@ -696,13 +755,13 @@ if(ENABLE_SPECBLEACH)
         if(FFTW3_INCLUDE_DIRS)
             target_include_directories(AetherSDR PRIVATE ${FFTW3_INCLUDE_DIRS})
         else()
-            find_path(FFTW3_H_DIR fftw3.h)
+            find_path(FFTW3_H_DIR fftw3.h HINTS ${CMAKE_SOURCE_DIR}/third_party/fftw3/include)
             if(FFTW3_H_DIR)
                 target_include_directories(AetherSDR PRIVATE ${FFTW3_H_DIR})
             endif()
         endif()
         # libspecbleach uses fftwf (float precision FFTW3)
-        find_library(FFTW3F_LIB fftw3f HINTS /opt/homebrew/lib /usr/local/lib)
+        find_library(FFTW3F_LIB fftw3f HINTS /opt/homebrew/lib /usr/local/lib ${CMAKE_SOURCE_DIR}/third_party/fftw3/lib)
         if(FFTW3F_LIB)
             target_link_libraries(AetherSDR PRIVATE ${FFTW3F_LIB})
         else()
@@ -710,6 +769,52 @@ if(ENABLE_SPECBLEACH)
         endif()
         # Suppress warnings from third-party C code
         set_source_files_properties(${SPECBLEACH_SOURCES} PROPERTIES COMPILE_FLAGS "-w")
+    endif()
+endif()
+
+if(ENABLE_DFNR)
+    target_compile_definitions(AetherSDR PRIVATE HAVE_DFNR)
+    target_include_directories(AetherSDR PRIVATE ${DEEPFILTER_DIR}/include)
+    target_link_libraries(AetherSDR PRIVATE ${DFNR_LIB})
+    if(WIN32)
+        target_link_libraries(AetherSDR PRIVATE ws2_32 bcrypt userenv ntdll)
+    elseif(APPLE)
+        # Rust runtime deps on macOS
+        target_link_libraries(AetherSDR PRIVATE "-framework Security" "-framework CoreFoundation")
+    else()
+        # Rust runtime deps on Linux
+        target_link_libraries(AetherSDR PRIVATE pthread dl m)
+    endif()
+    # Copy DLL and model to build directory
+    if(DFNR_DLL AND EXISTS ${DFNR_DLL})
+        add_custom_command(TARGET AetherSDR POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${DFNR_DLL}" "$<TARGET_FILE_DIR:AetherSDR>"
+            COMMENT "Copying deepfilter.dll to build directory")
+    endif()
+    set(DFNR_MODEL "${DEEPFILTER_DIR}/models/DeepFilterNet3_onnx.tar.gz")
+    if(EXISTS ${DFNR_MODEL})
+        if(APPLE)
+            # macOS: place in Resources/ so notarization doesn't reject a
+            # non-Mach-O file inside Contents/MacOS/
+            add_custom_command(TARGET AetherSDR POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_BUNDLE_DIR:AetherSDR>/Contents/Resources"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${DFNR_MODEL}" "$<TARGET_BUNDLE_DIR:AetherSDR>/Contents/Resources/"
+                COMMENT "Copying DeepFilterNet3 model to app bundle Resources")
+        else()
+            add_custom_command(TARGET AetherSDR POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${DFNR_MODEL}" "$<TARGET_FILE_DIR:AetherSDR>"
+                COMMENT "Copying DeepFilterNet3 model to build directory")
+        endif()
+    endif()
+    # Install the model alongside the binary for cmake --install
+    if(NOT APPLE)
+        install(FILES "${DFNR_MODEL}"
+            DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/AetherSDR"
+            OPTIONAL)
     endif()
 endif()
 

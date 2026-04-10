@@ -58,6 +58,10 @@ public:
     // Show/hide the AMP button and applet based on amplifier presence.
     void setAmpVisible(bool visible);
 
+    // Called after PluginManager loads (#1109).  Keeps the AMP button visible
+    // even when the radio has no built-in amplifier, as long as plugins exist.
+    void setPluginsLoaded(bool loaded);
+
     // Show/hide the AG button and applet based on Antenna Genius presence.
     void setAgVisible(bool visible);
 
@@ -99,6 +103,7 @@ private:
     TunerApplet* m_tunerApplet{nullptr};
     AmpApplet*   m_ampApplet{nullptr};
     QPushButton* m_ampBtn{nullptr};
+    bool         m_pluginsLoaded{false};  // true when PluginManager found plugins (#1109)
     TxApplet*      m_txApplet{nullptr};
     PhoneCwApplet* m_phoneCwApplet{nullptr};
     PhoneApplet*   m_phoneApplet{nullptr};

@@ -5,6 +5,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QSignalBlocker>
+#include <QTabWidget>
+#include <QFrame>
 
 namespace AetherSDR {
 
@@ -71,6 +73,33 @@ AmpApplet::AmpApplet(QWidget* parent)
     telRow->addWidget(m_operateBtn, 1);
 
     vbox->addLayout(telRow);
+
+    // ── Plugin tab section (#1109) ────────────────────────────────────────────
+    // Hidden until addPluginTab() is called. A horizontal rule separates
+    // the PGXL gauges from the plugin tabs.
+    m_pluginSection = new QWidget;
+    auto* pluginLayout = new QVBoxLayout(m_pluginSection);
+    pluginLayout->setContentsMargins(0, 6, 0, 0);
+    pluginLayout->setSpacing(4);
+
+    auto* sep = new QFrame;
+    sep->setFrameShape(QFrame::HLine);
+    sep->setStyleSheet("QFrame { color: #203040; }");
+    pluginLayout->addWidget(sep);
+
+    m_pluginTabs = new QTabWidget;
+    m_pluginTabs->setTabPosition(QTabWidget::North);
+    m_pluginTabs->setStyleSheet(
+        "QTabWidget::pane { border: 1px solid #203040; background: #0a1020; }"
+        "QTabBar::tab { background: #1a2a3a; color: #8aa8c0; "
+        "border: 1px solid #203040; padding: 3px 8px; margin-right: 2px; "
+        "font-size: 10px; }"
+        "QTabBar::tab:selected { background: #0a1020; color: #c8d8e8; "
+        "border-bottom-color: #0a1020; }");
+    pluginLayout->addWidget(m_pluginTabs);
+
+    m_pluginSection->hide();
+    vbox->addWidget(m_pluginSection);
 }
 
 void AmpApplet::setFwdPower(float watts)
@@ -135,6 +164,12 @@ void AmpApplet::setMeff(const QString& meff)
 {
     m_meffLabel->setText(QStringLiteral("MEffA:\u00A0\u00A0\u00A0%1").arg(meff));
     m_meffLabel->show();
+}
+
+void AmpApplet::addPluginTab(const QString& tabLabel, QWidget* widget)
+{
+    m_pluginTabs->addTab(widget, tabLabel);
+    m_pluginSection->show();
 }
 
 } // namespace AetherSDR

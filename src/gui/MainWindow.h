@@ -17,6 +17,7 @@
 #include "core/WsjtxClient.h"
 #include "core/SpotCollectorClient.h"
 #include "core/PotaClient.h"
+#include "core/PropForecastClient.h"
 #ifdef HAVE_WEBSOCKETS
 #include "core/FreeDvClient.h"
 #endif
@@ -30,13 +31,12 @@
 #endif
 #ifdef HAVE_HIDAPI
 #include "core/HidEncoderManager.h"
-#include "core/StreamDeckManager.h"
-#include "gui/StreamDeckDialog.h"
 #endif
 #include "core/ShortcutManager.h"
 #include "core/TgxlConnection.h"
 #include "core/PgxlConnection.h"
 #include "core/DxccColorProvider.h"
+#include "core/PluginManager.h"
 
 #include <QMainWindow>
 #include <QSplitter>
@@ -116,10 +116,13 @@ private:
     void wireVfoWidget(VfoWidget* w, SliceModel* s);
     void enableNr2WithWisdom();  // Wisdom-gated NR2 enable (shared by VFO + overlay)
     void registerShortcutActions();
+    void applyUiScale(int pct);
+    void stepUiScale(int direction);  // +1 = zoom in, -1 = zoom out
     void toggleMinimalMode(bool on);
     void updateKeyerAvailability(const QString& mode);
     void showNr2ParamPopup(const QPoint& globalPos);
     void showNr4ParamPopup(const QPoint& globalPos);
+    void showDfnrParamPopup(const QPoint& globalPos);
     void applyPanLayout(const QString& layoutId);
     void createPansSequentially(const QString& layoutId, int total,
                                 std::shared_ptr<QStringList> panIds, int created);
@@ -153,13 +156,15 @@ private:
     AntennaGeniusModel m_antennaGenius;
     TgxlConnection    m_tgxlConn;        // direct TCP 9010 to TGXL for manual relay control
     PgxlConnection    m_pgxlConn;        // direct TCP 9008 to PGXL for telemetry
+    PluginManager     m_pluginManager;   // amp plugin ecosystem (#1109)
     BandPlanManager*  m_bandPlanMgr{nullptr};
     CwDecoder         m_cwDecoder;
     DxClusterClient*   m_dxCluster{nullptr};
     DxClusterClient*   m_rbnClient{nullptr};
     WsjtxClient*       m_wsjtxClient{nullptr};
     SpotCollectorClient* m_spotCollectorClient{nullptr};
-    PotaClient*        m_potaClient{nullptr};
+    PotaClient*          m_potaClient{nullptr};
+    PropForecastClient*  m_propForecast{nullptr};
 #ifdef HAVE_WEBSOCKETS
     FreeDvClient*      m_freedvClient{nullptr};
 #endif
@@ -180,20 +185,12 @@ private:
     SerialPortController* m_serialPort{nullptr};
     FlexControlManager*   m_flexControl{nullptr};
     QTimer               m_flexCoalesceTimer;
-    int                  m_flexPendingSteps{0};
+    double               m_flexTargetMhz{-1.0};
 #endif
 #ifdef HAVE_HIDAPI
     HidEncoderManager*   m_hidEncoder{nullptr};
     QTimer               m_hidCoalesceTimer;
     int                  m_hidPendingSteps{0};
-    StreamDeckManager*   m_streamDeck{nullptr};
-    QPointer<QDialog>    m_streamDeckDialog;
-    QTimer               m_sdRenderTimer;
-    QHash<int, QByteArray> m_sdKeyCache;  // key index → last sent image bytes
-    QByteArray           m_sdTouchCache;  // last sent touchscreen image
-    void updateStreamDeckLiveKeys();
-    void sdSendKey(const QString& serial, int key, const QByteArray& img);
-    void sdSendTouch(const QString& serial, const StreamDeckDeviceInfo* info, const QByteArray& img);
 #endif
 #ifdef HAVE_MIDI
     MidiControlManager*  m_midiControl{nullptr};
@@ -255,6 +252,10 @@ private:
     QLabel* m_gpsLabel{nullptr};
     QLabel* m_gpsStatusLabel{nullptr};
     QLabel* m_gridLabel{nullptr};
+    QLabel* m_bandStackIndicator{nullptr};
+    QLabel* m_cpuLabel{nullptr};
+    QLabel* m_memLabel{nullptr};
+    QTimer* m_cpuTimer{nullptr};
     QLabel* m_paTempLabel{nullptr};
     QLabel* m_supplyVoltLabel{nullptr};
     QLabel* m_networkLabel{nullptr};

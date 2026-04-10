@@ -4,6 +4,7 @@
 #include <QPushButton>
 
 class QLabel;
+class QTabWidget;
 
 namespace AetherSDR {
 
@@ -22,6 +23,10 @@ public:
     void setState(const QString& state);
     void setMeff(const QString& meff);
 
+    // Add a plugin tab (#1109). widget is reparented into the tab.
+    // The plugin section becomes visible as soon as the first tab is added.
+    void addPluginTab(const QString& tabLabel, QWidget* widget);
+
 signals:
     void operateToggled(bool on);
 
@@ -36,6 +41,10 @@ private:
     QPushButton* m_operateBtn{nullptr};
     int      m_mainsVolts{0};
     float    m_drainAmps{0};
+
+    // Plugin tab section — hidden until at least one plugin is loaded (#1109)
+    QWidget*    m_pluginSection{nullptr};
+    QTabWidget* m_pluginTabs{nullptr};
 };
 
 } // namespace AetherSDR
