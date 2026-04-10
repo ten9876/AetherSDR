@@ -60,6 +60,7 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
 
     // ── CW decode panel (hidden by default, shown in CW mode) ─────────
     m_cwPanel = new QWidget(this);
+    m_cwPanel->setCursor(Qt::ArrowCursor);  // prevent invisible cursor from native-window parent (#1096)
     m_cwPanel->setFixedHeight(80);
     m_cwPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_cwPanel->setStyleSheet("QWidget { background: #0a0a14; border-top: 1px solid #203040; }");
