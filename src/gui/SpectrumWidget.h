@@ -303,6 +303,7 @@ signals:
     void tnfDepthRequested(int id, int depthDb);
     void tnfPermanentRequested(int id, bool permanent);
     void sliceCloseRequested(int sliceId);
+    void sliceTuneRequested(int sliceId, double freqMhz);
     void sliceTxRequested(int sliceId);
     // Spot signals
     void spotAddRequested(double freqMhz, const QString& callsign,

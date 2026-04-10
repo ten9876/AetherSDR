@@ -5443,6 +5443,11 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         if (m_radioModel.slices().size() <= 1) return;
         m_radioModel.sendCommand(QString("slice remove %1").arg(sliceId));
     });
+    connect(sw, &SpectrumWidget::sliceTuneRequested,
+            this, [this](int sliceId, double freqMhz) {
+        if (auto* s = m_radioModel.slice(sliceId))
+            s->setFrequency(freqMhz);
+    });
 
     // ── Band selection ───────────────────────────────────────────────────
     connect(menu, &SpectrumOverlayMenu::bandSelected,

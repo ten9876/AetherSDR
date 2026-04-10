@@ -911,14 +911,16 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         return;
     }
 
-    // Click on off-screen slice indicator → absorb or switch slice
-    for (int oi = 0; oi < m_offScreenRects.size(); ++oi) {
-        if (!m_offScreenRects[oi].isNull() &&
-            m_offScreenRects[oi].contains(QPoint(static_cast<int>(ev->position().x()), y))) {
-            const auto& so = m_sliceOverlays[oi];
-            if (!so.isActive) emit sliceClicked(so.sliceId);
-            ev->accept();
-            return;
+    // Left-click on off-screen slice indicator → absorb or switch slice
+    if (ev->button() == Qt::LeftButton) {
+        for (int oi = 0; oi < m_offScreenRects.size(); ++oi) {
+            if (!m_offScreenRects[oi].isNull() &&
+                m_offScreenRects[oi].contains(QPoint(static_cast<int>(ev->position().x()), y))) {
+                const auto& so = m_sliceOverlays[oi];
+                if (!so.isActive) emit sliceClicked(so.sliceId);
+                ev->accept();
+                return;
+            }
         }
     }
 
@@ -962,6 +964,30 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
     if (ev->button() == Qt::RightButton) {
         m_draggingTnfId = -1;
         const int mx = static_cast<int>(ev->position().x());
+
+        // Right-click on off-screen slice indicator → slice context menu
+        for (int oi = 0; oi < m_offScreenRects.size(); ++oi) {
+            if (!m_offScreenRects[oi].isNull() &&
+                m_offScreenRects[oi].contains(QPoint(mx, y))) {
+                const auto& so = m_sliceOverlays[oi];
+                const QChar letter = QChar('A' + (so.sliceId & 3));
+                QMenu menu(this);
+                menu.addAction(QString("Close Slice %1").arg(letter), this,
+                    [this, id = so.sliceId]{ emit sliceCloseRequested(id); });
+                menu.addAction(QString("Move Slice %1 Here").arg(letter), this,
+                    [this, id = so.sliceId]{ emit sliceTuneRequested(id, m_centerMhz); });
+                menu.addAction(QString("Center Slice %1").arg(letter), this,
+                    [this, freq = so.freqMhz]{
+                        m_centerMhz = freq;
+                        markOverlayDirty();
+                        emit centerChangeRequested(m_centerMhz);
+                    });
+                menu.exec(ev->globalPosition().toPoint());
+                ev->accept();
+                return;
+            }
+        }
+
         const double freqMhz = xToMhz(mx);
         const int hitTnf = tnfAtPixel(mx);
 
