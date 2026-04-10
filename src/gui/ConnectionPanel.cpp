@@ -144,6 +144,11 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
             this, &ConnectionPanel::onListSelectionChanged);
     connect(m_connectBtn, &QPushButton::clicked,
             this, &ConnectionPanel::onConnectClicked);
+    connect(m_radioList, &QListWidget::itemDoubleClicked,
+            this, [this](QListWidgetItem*) {
+                if (!m_connected)
+                    onConnectClicked();
+            });
 }
 
 void ConnectionPanel::setConnected(bool connected)
