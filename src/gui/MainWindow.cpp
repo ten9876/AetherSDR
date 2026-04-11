@@ -4414,8 +4414,12 @@ void MainWindow::onSliceAdded(SliceModel* s)
         m_updatingFromModel = false;
 
         // Feed frequency to Antenna Genius for band→antenna recall
-        if (s->sliceId() == m_activeSliceId)
+        if (s->sliceId() == m_activeSliceId) {
             m_antennaGenius.setRadioFrequency(mhz);
+            // Keep currentBand in sync so the duplicate-fire guard in bandSelected
+            // reflects the actual band, not the last explicitly-clicked band (#1161).
+            m_bandSettings.setCurrentBand(BandSettings::bandForFrequency(mhz));
+        }
     });
 
     // Feed current frequency immediately (AG may connect later and reprocess).
