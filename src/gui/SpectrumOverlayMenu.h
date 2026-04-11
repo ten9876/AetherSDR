@@ -3,6 +3,7 @@
 #include <QWidget>
 #include <QVector>
 #include <QStringList>
+#include <QPoint>
 #include <QWheelEvent>
 #include <QMouseEvent>
 
@@ -135,6 +136,7 @@ private:
     void toggleDisplayPanel();
     void buildDisplayPanel();
     void hideAllSubPanels();
+    void showBandPanelAt(const QPoint& pos);
     void syncAntPanel();
 
     QPushButton* m_toggleBtn{nullptr};
