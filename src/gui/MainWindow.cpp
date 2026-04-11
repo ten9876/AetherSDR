@@ -1874,6 +1874,8 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Restore saved geometry from XML settings
     auto& s = AppSettings::instance();
+    m_startupCenterMhz = s.value("LastFrequency", "0").toDouble();
+    m_startupCenterPending = (m_startupCenterMhz > 0.0);
     const QString geomB64 = s.value("MainWindowGeometry").toString();
     if (!geomB64.isEmpty())
         restoreGeometry(QByteArray::fromBase64(geomB64.toLatin1()));
@@ -4308,9 +4310,10 @@ void MainWindow::onSliceAdded(SliceModel* s)
     if (m_applyingLayout) return;
 
     qDebug() << "MainWindow: slice added" << s->sliceId();
+    const bool firstSlice = (m_activeSliceId < 0);
 
     // First slice — wire everything up
-    if (m_activeSliceId < 0) {
+    if (firstSlice) {
         setActiveSlice(s->sliceId());
 
         // Detect initial band from radio's frequency
@@ -4628,6 +4631,14 @@ void MainWindow::onSliceAdded(SliceModel* s)
         updateSplitState();
         // Auto-focus the TX VFO so the user can immediately tune the TX offset
         setActiveSlice(s->sliceId());
+    }
+
+    if (firstSlice && m_startupCenterPending) {
+        m_startupCenterPending = false;
+        const double startupCenter = m_startupCenterMhz;
+        QTimer::singleShot(0, this, [this, startupCenter]() {
+            centerActiveSliceInPanadapter(true, startupCenter);
+        });
     }
 }
 
@@ -5955,6 +5966,35 @@ void MainWindow::updateKeyerAvailability(const QString& mode)
         m_dvkIndicator->setStyleSheet(isSsb ? kAvail : kDisabled);
     }
     m_dvkIndicator->setCursor(isSsb ? Qt::PointingHandCursor : Qt::ArrowCursor);
+}
+
+void MainWindow::centerActiveSliceInPanadapter(bool forceRadioCenter, double centerMhz)
+{
+    auto* s = activeSlice();
+    if (!s || s->panId().isEmpty()) return;
+
+    auto* sw = spectrumForSlice(s);
+    if (!sw) return;
+
+    auto* pan = m_radioModel.panadapter(s->panId());
+    const double bandwidthMhz = pan ? pan->bandwidthMhz() : m_radioModel.panBandwidthMhz();
+    const double targetMhz = (centerMhz > 0.0) ? centerMhz : s->frequency();
+
+    if (m_panStack) {
+        if (auto* applet = m_panStack->panadapter(s->panId()))
+            m_panStack->setActivePan(applet->panId());
+    }
+
+    // Keep the local spectrum centered immediately so the active slice marker
+    // is visible before the radio's status echo arrives.
+    sw->setFrequencyRange(targetMhz, bandwidthMhz);
+    sw->setVfoFrequency(targetMhz);
+
+    if (forceRadioCenter && m_radioModel.isConnected()) {
+        m_radioModel.sendCommand(
+            QString("display pan set %1 center=%2")
+                .arg(s->panId()).arg(targetMhz, 0, 'f', 6));
+    }
 }
 
 void MainWindow::registerShortcutActions()
