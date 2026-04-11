@@ -198,6 +198,21 @@ if(AETHER_GPU_SPECTRUM)
         find_package(Qt6 REQUIRED COMPONENTS ShaderTools)
         # Qt6GuiPrivate provides QRhi headers needed for GPU rendering.
         find_package(Qt6GuiPrivate QUIET)
+
+        # Detect Debian paths early
+        if(NOT Qt6GuiPrivate_FOUND)
+            message(STATUS "Qt6GuiPrivate not found, checking Debian multi-arch paths...")
+            find_path(DEBIAN_PRIVATE_INC
+                NAMES "QtGui/${Qt6_VERSION}/QtGui/private/qhighdpiscaling_p.h"
+                PATHS "/usr/include/x86_64-linux-gnu/qt6" "/usr/include/qt6"
+                NO_DEFAULT_PATH
+            )
+            if(DEBIAN_PRIVATE_INC)
+                set(Qt6GuiPrivate_FOUND TRUE)
+                set(DEBIAN_GPU_FIX_REQUIRED TRUE) # Mark for Step 2
+            endif()
+        endif()
+
         if(Qt6GuiPrivate_FOUND)
             message(STATUS "GPU spectrum rendering enabled (QRhi, Qt ${Qt6_VERSION})")
         else()
@@ -605,6 +620,34 @@ endif()
 if(Qt6Keychain_FOUND)
     target_compile_definitions(AetherSDR PRIVATE HAVE_KEYCHAIN)
     target_link_libraries(AetherSDR PRIVATE Qt6Keychain::Qt6Keychain)
+endif()
+
+if(AETHER_GPU_SPECTRUM)
+    target_compile_definitions(AetherSDR PRIVATE AETHER_GPU_SPECTRUM)
+
+    # Apply the Debian include paths now that AetherSDR exists
+    if(DEBIAN_GPU_FIX_REQUIRED)
+        message(STATUS "Applying Debian GPU include paths to AetherSDR")
+        target_include_directories(AetherSDR PRIVATE
+            "${DEBIAN_PRIVATE_INC}/QtGui/${Qt6_VERSION}"
+            "${DEBIAN_PRIVATE_INC}/QtGui/${Qt6_VERSION}/QtGui"
+        )
+    endif()
+
+    if(TARGET Qt6::GuiPrivate)
+        target_link_libraries(AetherSDR PRIVATE Qt6::GuiPrivate)
+    endif()
+
+    qt_add_shaders(AetherSDR "aether_shaders"
+        PREFIX "/shaders"
+        FILES
+            resources/shaders/texturedquad.vert
+            resources/shaders/texturedquad.frag
+            resources/shaders/overlay.vert
+            resources/shaders/overlay.frag
+            resources/shaders/spectrum.vert
+            resources/shaders/spectrum.frag
+    )
 endif()
 
 # Bundled RtMidi (MIT license) — MIDI controller support on all platforms
