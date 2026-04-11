@@ -1,4 +1,7 @@
 #include "SliceTroubleshootingDialog.h"
+#include "GuardedSlider.h"
+#include "core/AppSettings.h"
+#include "core/AudioEngine.h"
 #include "models/RadioModel.h"
 
 #include <QApplication>
@@ -16,6 +19,7 @@
 #include <QSaveFile>
 #include <QTabWidget>
 #include <QVBoxLayout>
+#include <QStringList>
 
 namespace AetherSDR {
 
@@ -128,10 +132,76 @@ QString formatTxBandBullet(const QJsonObject& band)
         .arg(yesNo(band["tx3"].toBool()));
 }
 
+QString nr2GainMethodName(int id)
+{
+    static const char* kNames[] = {"Linear", "Log", "Gamma", "Trained"};
+    return (id >= 0 && id < 4) ? kNames[id] : QString("Unknown (%1)").arg(id);
+}
+
+QString nr2NpeMethodName(int id)
+{
+    static const char* kNames[] = {"OSMS", "MMSE", "NSTAT"};
+    return (id >= 0 && id < 3) ? kNames[id] : QString("Unknown (%1)").arg(id);
+}
+
+QString nr4MethodName(int id)
+{
+    static const char* kNames[] = {"SPP-MMSE", "Brandt", "Martin"};
+    return (id >= 0 && id < 3) ? kNames[id] : QString("Unknown (%1)").arg(id);
+}
+
+QJsonObject buildClientDspSnapshot(const AudioEngine* audio)
+{
+    auto& settings = AppSettings::instance();
+
+    const int nr2GainMethod = settings.value("NR2GainMethod", "2").toInt();
+    const int nr2NpeMethod = settings.value("NR2NpeMethod", "0").toInt();
+    const int nr4MethodId = settings.value("NR4NoiseEstimationMethod", "0").toInt();
+
+    QJsonObject nr2;
+    nr2["enabled"] = audio ? audio->nr2Enabled() : false;
+    nr2["gain_method_id"] = nr2GainMethod;
+    nr2["gain_method"] = nr2GainMethodName(nr2GainMethod);
+    nr2["npe_method_id"] = nr2NpeMethod;
+    nr2["npe_method"] = nr2NpeMethodName(nr2NpeMethod);
+    nr2["ae_filter"] = settings.value("NR2AeFilter", "True").toString() == "True";
+    nr2["gain_max"] = settings.value("NR2GainMax", "1.50").toFloat();
+    nr2["gain_smooth"] = settings.value("NR2GainSmooth", "0.85").toFloat();
+    nr2["qspp"] = settings.value("NR2Qspp", "0.20").toFloat();
+
+    QJsonObject nr4;
+    nr4["enabled"] = audio ? audio->nr4Enabled() : false;
+    nr4["noise_method_id"] = nr4MethodId;
+    nr4["noise_method"] = nr4MethodName(nr4MethodId);
+    nr4["adaptive_noise"] = settings.value("NR4AdaptiveNoise", "True").toString() == "True";
+    nr4["reduction_db"] = settings.value("NR4ReductionAmount", "10.0").toFloat();
+    nr4["smoothing_pct"] = settings.value("NR4SmoothingFactor", "0.0").toFloat();
+    nr4["whitening_pct"] = settings.value("NR4WhiteningFactor", "0.0").toFloat();
+    nr4["masking_depth"] = settings.value("NR4MaskingDepth", "0.50").toFloat();
+    nr4["suppression_strength"] = settings.value("NR4SuppressionStrength", "0.50").toFloat();
+
+    QJsonObject rn2;
+    rn2["enabled"] = audio ? audio->rn2Enabled() : false;
+    rn2["parameters"] = "none";
+
+    QJsonObject dfnr;
+    dfnr["enabled"] = audio ? audio->dfnrEnabled() : false;
+    dfnr["atten_limit_db"] = settings.value("DfnrAttenLimit", "100").toFloat();
+    dfnr["post_filter_beta"] = settings.value("DfnrPostFilterBeta", "0.0").toFloat();
+
+    QJsonObject clientDsp;
+    clientDsp["available"] = audio != nullptr;
+    clientDsp["nr2"] = nr2;
+    clientDsp["nr4"] = nr4;
+    clientDsp["rn2"] = rn2;
+    clientDsp["dfnr"] = dfnr;
+    return clientDsp;
+}
+
 } // namespace
 
-SliceTroubleshootingDialog::SliceTroubleshootingDialog(RadioModel* model, QWidget* parent)
-    : QDialog(parent), m_model(model)
+SliceTroubleshootingDialog::SliceTroubleshootingDialog(RadioModel* model, AudioEngine* audio, QWidget* parent)
+    : QDialog(parent), m_model(model), m_audio(audio)
 {
     setWindowTitle("Slice Troubleshooting");
     setMinimumSize(920, 720);
@@ -211,6 +281,12 @@ void SliceTroubleshootingDialog::refreshSnapshot()
     else
         m_snapshot = QJsonObject{};
 
+    QJsonObject ui;
+    ui["controls_locked"] = ::ControlsLock::isLocked();
+    m_snapshot["ui"] = ui;
+    m_snapshot["client_dsp"] = buildClientDspSnapshot(m_audio);
+    m_snapshot["schema_version"] = 2;
+
     m_summaryText = buildSummary(m_snapshot);
     m_jsonText = QString::fromUtf8(QJsonDocument(m_snapshot).toJson(QJsonDocument::Indented));
 
@@ -274,6 +350,7 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
     QStringList lines;
 
     const QJsonObject app = snapshot["app"].toObject();
+    const QJsonObject ui = snapshot["ui"].toObject();
     const QJsonObject radio = snapshot["radio"].toObject();
     const QJsonObject network = radio["network"].toObject();
     const QJsonObject ownership = radio["ownership"].toObject();
@@ -292,11 +369,17 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
     const QJsonObject apd = transmit["apd"].toObject();
     const QJsonObject profiles = transmit["profiles"].toObject();
     const QJsonObject counts = snapshot["counts"].toObject();
+    const QJsonObject clientDsp = snapshot["client_dsp"].toObject();
+    const QJsonObject nr2 = clientDsp["nr2"].toObject();
+    const QJsonObject nr4 = clientDsp["nr4"].toObject();
+    const QJsonObject rn2 = clientDsp["rn2"].toObject();
+    const QJsonObject dfnr = clientDsp["dfnr"].toObject();
 
     lines << "# Slice Troubleshooting Snapshot";
     lines << "";
     lines << "> Captured from AetherSDR's in-memory models and cached meter values.";
     lines << "> This report does not query the radio directly.";
+    lines << "> Client DSP enable state comes from the live audio engine; parameter values come from saved app settings.";
     lines << "> Privacy filter is enabled: radio name, nickname, callsign, serials, MAC/IPs, GPS data, and client station names are omitted.";
     lines << "";
     lines << QString("- Captured: `%1`").arg(orPlaceholder(snapshot["captured_at"].toString()));
@@ -331,6 +414,11 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
                  .arg(counts["panadapters"].toInt())
                  .arg(counts["meters_total"].toInt())
                  .arg(counts["slice_meters"].toInt());
+    lines << "";
+
+    lines << "## App UI State";
+    lines << QString("- Global LCK: `%1`")
+                 .arg(yesNo(ui["controls_locked"].toBool()));
     lines << "";
 
     lines << "## Global Radio State";
@@ -380,6 +468,42 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
                  .arg(orPlaceholder(amplifier["model"].toString()))
                  .arg(orPlaceholder(amplifier["handle"].toString()))
                  .arg(yesNo(amplifier["operate"].toBool()));
+    lines << "";
+
+    lines << "## Client-Side DSP";
+    if (!clientDsp["available"].toBool()) {
+        lines << "- Live audio engine state is unavailable in this snapshot.";
+    } else {
+        lines << QString("- NR2: enabled `%1`, method `%2` (`%3`), NPE `%4` (`%5`), AE filter `%6`, "
+                          "reduction depth `%7`, smoothing `%8`, voice threshold `%9`")
+                     .arg(yesNo(nr2["enabled"].toBool()))
+                     .arg(nr2["gain_method"].toString())
+                     .arg(nr2["gain_method_id"].toInt())
+                     .arg(nr2["npe_method"].toString())
+                     .arg(nr2["npe_method_id"].toInt())
+                     .arg(yesNo(nr2["ae_filter"].toBool()))
+                     .arg(formatNumber(nr2["gain_max"], 2))
+                     .arg(formatNumber(nr2["gain_smooth"], 2))
+                     .arg(formatNumber(nr2["qspp"], 2));
+        lines << QString("- NR4: enabled `%1`, method `%2` (`%3`), adaptive noise `%4`, reduction `%5 dB`, "
+                          "smoothing `%6%`, whitening `%7%`, masking depth `%8`, suppression `%9`")
+                     .arg(yesNo(nr4["enabled"].toBool()))
+                     .arg(nr4["noise_method"].toString())
+                     .arg(nr4["noise_method_id"].toInt())
+                     .arg(yesNo(nr4["adaptive_noise"].toBool()))
+                     .arg(formatNumber(nr4["reduction_db"], 1))
+                     .arg(formatNumber(nr4["smoothing_pct"], 0))
+                     .arg(formatNumber(nr4["whitening_pct"], 0))
+                     .arg(formatNumber(nr4["masking_depth"], 2))
+                     .arg(formatNumber(nr4["suppression_strength"], 2));
+        lines << QString("- RN2: enabled `%1`, parameters `%2`")
+                     .arg(yesNo(rn2["enabled"].toBool()))
+                     .arg(orPlaceholder(rn2["parameters"].toString()));
+        lines << QString("- DFNR: enabled `%1`, attenuation limit `%2 dB`, post-filter beta `%3`")
+                     .arg(yesNo(dfnr["enabled"].toBool()))
+                     .arg(formatNumber(dfnr["atten_limit_db"], 0))
+                     .arg(formatNumber(dfnr["post_filter_beta"], 2));
+    }
     lines << "";
 
     lines << "## Clients";

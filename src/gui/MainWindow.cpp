@@ -3191,7 +3191,7 @@ void MainWindow::buildMenuBar()
         dlg.exec();
     });
     helpMenu->addAction("Slice Troubleshooting...", this, [this]() {
-        SliceTroubleshootingDialog dlg(&m_radioModel, this);
+        SliceTroubleshootingDialog dlg(&m_radioModel, m_audio, this);
         dlg.exec();
     });
     helpMenu->addAction("What's New...", this, [this]() {

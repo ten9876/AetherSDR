@@ -9,12 +9,13 @@ class QPlainTextEdit;
 namespace AetherSDR {
 
 class RadioModel;
+class AudioEngine;
 
 class SliceTroubleshootingDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit SliceTroubleshootingDialog(RadioModel* model, QWidget* parent = nullptr);
+    explicit SliceTroubleshootingDialog(RadioModel* model, AudioEngine* audio = nullptr, QWidget* parent = nullptr);
 
 private:
     void refreshSnapshot();
@@ -26,6 +27,7 @@ private:
     static QString buildSummary(const QJsonObject& snapshot);
 
     RadioModel* m_model{nullptr};
+    AudioEngine* m_audio{nullptr};
     QJsonObject m_snapshot;
     QString m_summaryText;
     QString m_jsonText;
