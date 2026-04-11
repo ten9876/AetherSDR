@@ -1903,8 +1903,18 @@ MainWindow::MainWindow(QWidget* parent)
     // Also check for newer release and offer upgrade (#486)
     QTimer::singleShot(600, this, [this]() {
         auto& settings = AppSettings::instance();
+        const bool showWhatsNew =
+            settings.value("ShowWhatsNewEnabled", "True").toString() == "True";
         QString lastSeen = settings.value("LastSeenVersion").toString();
         QString current = QCoreApplication::applicationVersion();
+
+        if (!showWhatsNew) {
+            if (lastSeen != current) {
+                settings.setValue("LastSeenVersion", current);
+                settings.save();
+            }
+            return;
+        }
 
         // Version changed since last launch — show What's New immediately
         if (lastSeen != current) {
@@ -3126,6 +3136,16 @@ void MainWindow::buildMenuBar()
         dlg.exec();
         // Rebuild shortcuts in case bindings changed
         m_shortcutManager.rebuildShortcuts(this, shortcutGuard);
+    });
+
+    auto* showWhatsNewAct = viewMenu->addAction("Show What's New");
+    showWhatsNewAct->setCheckable(true);
+    showWhatsNewAct->setChecked(
+        AppSettings::instance().value("ShowWhatsNewEnabled", "True").toString() == "True");
+    connect(showWhatsNewAct, &QAction::toggled, this, [this](bool on) {
+        auto& settings = AppSettings::instance();
+        settings.setValue("ShowWhatsNewEnabled", on ? "True" : "False");
+        settings.save();
     });
 
     viewMenu->addSeparator();
