@@ -514,9 +514,11 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
                               "value changes while scrolling");
         m_lockBtn->setAccessibleName("Lock controls");
         m_lockBtn->setAccessibleDescription("Lock sidebar controls to prevent accidental value changes");
-        bool locked = settings.value("ControlsLocked", "False").toString() == "True";
-        m_lockBtn->setChecked(locked);
-        ControlsLock::setLocked(locked);
+        // LCK is session-only: start every app launch unlocked and do not
+        // restore or persist the prior session's state.
+        AppSettings::instance().remove("ControlsLocked");
+        m_lockBtn->setChecked(false);
+        ControlsLock::setLocked(false);
         btnLayout2->addWidget(m_lockBtn);
         connect(m_lockBtn, &QPushButton::toggled, this, [this](bool on) {
             setControlsLocked(on);
@@ -873,7 +875,6 @@ void AppletPanel::setControlsLocked(bool locked)
     ControlsLock::setLocked(locked);
     m_lockBtn->setText("LCK");
     m_lockBtn->setChecked(locked);
-    AppSettings::instance().setValue("ControlsLocked", locked ? "True" : "False");
 }
 
 void AppletPanel::setSlice(SliceModel* slice)
