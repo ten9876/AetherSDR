@@ -5957,6 +5957,35 @@ void MainWindow::updateKeyerAvailability(const QString& mode)
     m_dvkIndicator->setCursor(isSsb ? Qt::PointingHandCursor : Qt::ArrowCursor);
 }
 
+void MainWindow::centerActiveSliceInPanadapter(bool forceRadioCenter, double centerMhz)
+{
+    auto* s = activeSlice();
+    if (!s || s->panId().isEmpty()) return;
+
+    auto* sw = spectrumForSlice(s);
+    if (!sw) return;
+
+    auto* pan = m_radioModel.panadapter(s->panId());
+    const double bandwidthMhz = pan ? pan->bandwidthMhz() : m_radioModel.panBandwidthMhz();
+    const double targetMhz = (centerMhz > 0.0) ? centerMhz : s->frequency();
+
+    if (m_panStack) {
+        if (auto* applet = m_panStack->panadapter(s->panId()))
+            m_panStack->setActivePan(applet->panId());
+    }
+
+    // Keep the local spectrum centered immediately so the active slice marker
+    // is visible before the radio's status echo arrives.
+    sw->setFrequencyRange(targetMhz, bandwidthMhz);
+    sw->setVfoFrequency(targetMhz);
+
+    if (forceRadioCenter && m_radioModel.isConnected()) {
+        m_radioModel.sendCommand(
+            QString("display pan set %1 center=%2")
+                .arg(s->panId()).arg(targetMhz, 0, 'f', 6));
+    }
+}
+
 void MainWindow::registerShortcutActions()
 {
     // Helper: nudge active slice frequency by N steps.
@@ -6005,7 +6034,13 @@ void MainWindow::registerShortcutActions()
             auto* s = activeSlice();
             auto* sw = s ? spectrumForSlice(s) : nullptr;
             auto* vfo = (s && sw) ? sw->vfoWidget(s->sliceId()) : nullptr;
-            if (vfo) vfo->beginDirectEntry();
+            if (!s || !vfo) return;
+            centerActiveSliceInPanadapter(true);
+            QPointer<VfoWidget> vfoGuard = vfo;
+            QTimer::singleShot(0, this, [vfoGuard]() {
+                if (vfoGuard)
+                    vfoGuard->beginDirectEntry();
+            });
         });
 
     // ── Band ────────────────────────────────────────────────────────────
