@@ -251,12 +251,14 @@ void CatApplet::buildUI()
             if (port < 1024 || port > 65535) port = 50001;
             auto& ss = AppSettings::instance();
             ss.setValue("TciPort", QString::number(port));
+            ss.setValue("AutoStartTCI", on ? "True" : "False");
             ss.save();
             if (on)
                 m_tciServer->start(static_cast<quint16>(port));
             else
                 m_tciServer->stop();
             updateTciStatus();
+            emit tciToggled(on);
         });
     }
 #endif

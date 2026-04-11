@@ -45,6 +45,7 @@ public:
     void setDaxIqLevel(int channel, float rms);
 
 signals:
+    void tciToggled(bool on);
     void daxToggled(bool on);
     void daxRxGainChanged(int channel, float gain);  // 1-4, 0.0–1.0
     void daxTxGainChanged(float gain);
