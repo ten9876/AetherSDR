@@ -924,36 +924,18 @@ void AppletPanel::dockSMeter()
 {
     if (!m_floatingWindows.contains("VU")) { return; }
 
-    FloatingAppletWindow* win = m_floatingWindows.value("VU");
+    FloatingAppletWindow* win = m_floatingWindows.take("VU");
 
-    // Retrieve content from floating window's layout (same structure as dockApplet)
-    QWidget* appletWidget = nullptr;
-    if (win && win->layout() && win->layout()->count() >= 2) {
-        if (auto* rootLayout = qobject_cast<QVBoxLayout*>(win->layout())) {
-            if (auto* contentItem = rootLayout->itemAt(1)) {
-                if (auto* contentLayout = contentItem->layout()) {
-                    if (contentLayout->count() > 0) {
-                        if (auto* item = contentLayout->itemAt(0))
-                            appletWidget = item->widget();
-                    }
-                }
-            }
-        }
+    // m_sMeterContent is a named member — use it directly rather than walking
+    // the floating window's internal layout. Reparent before deleteLater() so
+    // Qt's parent-chain destruction cannot reach m_sMeterContent or its children.
+    if (auto* wl = qobject_cast<QVBoxLayout*>(m_sMeterSection->layout())) {
+        m_sMeterContent->setParent(m_sMeterSection);
+        wl->addWidget(m_sMeterContent);
+        m_sMeterContent->show();
     }
 
-    if (appletWidget) {
-        if (auto* wl = qobject_cast<QVBoxLayout*>(m_sMeterSection->layout())) {
-            appletWidget->setParent(m_sMeterSection);
-            wl->addWidget(appletWidget);
-            appletWidget->show();
-        }
-    }
-
-    if (win) {
-        win->hideAndSave();
-        win->deleteLater();
-    }
-    m_floatingWindows.remove("VU");
+    if (win) { win->hideAndSave(); win->deleteLater(); }
     m_sMeterSection->show();
 
     AppSettings::instance().setValue(AetherSDR::floatKey("VU"), "False");
