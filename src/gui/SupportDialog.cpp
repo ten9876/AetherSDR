@@ -1,4 +1,6 @@
 #include "SupportDialog.h"
+#include "core/AppSettings.h"
+#include "core/AudioEngine.h"
 #include "core/LogManager.h"
 #include "core/SupportBundle.h"
 #include "models/RadioModel.h"
@@ -7,6 +9,8 @@
 #include <QCheckBox>
 #include <QCursor>
 #include <QDesktopServices>
+#include <QDir>
+#include <QFile>
 #include <QMessageBox>
 #include <QFileInfo>
 #include <QGridLayout>
@@ -16,6 +20,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QStringList>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QClipboard>
@@ -114,12 +119,16 @@ void SupportDialog::buildUI()
     auto* refreshBtn = new QPushButton("Refresh");
     auto* clearBtn = new QPushButton("Clear Log");
     auto* openBtn = new QPushButton("Open Log Folder");
+    auto* resetBtn = new QPushButton("Reset Settings");
     refreshBtn->setFixedHeight(26);
     clearBtn->setFixedHeight(26);
     openBtn->setFixedHeight(26);
+    resetBtn->setFixedHeight(26);
+    resetBtn->setToolTip("Delete AetherSDR's local settings and NR2 wisdom cache. Radio settings stay on the radio.");
     connect(refreshBtn, &QPushButton::clicked, this, &SupportDialog::refreshLog);
     connect(clearBtn, &QPushButton::clicked, this, &SupportDialog::clearLog);
     connect(openBtn, &QPushButton::clicked, this, &SupportDialog::openLogFolder);
+    connect(resetBtn, &QPushButton::clicked, this, &SupportDialog::resetSettings);
     auto* sendBtn = new QPushButton("File an Issue");
     sendBtn->setFixedHeight(26);
     sendBtn->setStyleSheet("QPushButton { background: #00607a; color: #e0f0ff; font-weight: bold; }");
@@ -269,6 +278,7 @@ void SupportDialog::buildUI()
     actionRow->addWidget(refreshBtn);
     actionRow->addWidget(clearBtn);
     actionRow->addWidget(openBtn);
+    actionRow->addWidget(resetBtn);
     actionRow->addStretch();
     actionRow->addWidget(sendBtn);
     layout->addLayout(actionRow);
@@ -337,6 +347,66 @@ void SupportDialog::openLogFolder()
 {
     QFileInfo fi(LogManager::instance().logFilePath());
     QDesktopServices::openUrl(QUrl::fromLocalFile(fi.absolutePath()));
+}
+
+void SupportDialog::resetSettings()
+{
+    QStringList resetPaths = {
+        AppSettings::instance().filePath(),
+        AudioEngine::wisdomFilePath()
+    };
+#ifdef Q_OS_MAC
+    resetPaths << (QDir::homePath() + "/Library/Preferences/com.aethersdr.AetherSDR.plist");
+#endif
+
+    const QString prompt = QString(
+        "This will remove AetherSDR's app-specific settings only.\n"
+        "It will not change settings stored on the radio.\n"
+        "AetherSDR will close immediately after reset so these files are not recreated.\n\n"
+        "Files to remove:\n"
+        "%1\n\n"
+        "Continue?")
+        .arg(QString("- %1").arg(resetPaths.join("\n- ")));
+
+    if (QMessageBox::question(this, "Reset Settings", prompt,
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes) {
+        return;
+    }
+
+    QCoreApplication::instance()->setProperty("AetherSettingsResetInProgress", true);
+
+    QStringList removed;
+    QStringList failed;
+
+    const auto removeIfPresent = [&](const QString& path) {
+        if (!QFileInfo::exists(path))
+            return;
+        if (QFile::remove(path))
+            removed << path;
+        else
+            failed << path;
+    };
+
+    for (const QString& path : resetPaths)
+        removeIfPresent(path);
+
+    AppSettings::instance().reset();
+
+    if (failed.isEmpty()) {
+        QApplication::quit();
+        return;
+    }
+
+    QMessageBox::warning(
+        this, "Reset Settings",
+        QString(
+            "Some files could not be removed.\n\n"
+            "Removed: %1\n"
+            "Failed: %2\n\n"
+            "AetherSDR will now close to avoid rewriting settings.")
+            .arg(removed.isEmpty() ? "none" : removed.join("\n"),
+                 failed.join("\n")));
+    QApplication::quit();
 }
 
 void SupportDialog::enableAll()

@@ -148,6 +148,7 @@ public:
     // Ensure FFTW wisdom is loaded/generated. Returns true if wisdom
     // needs to be generated (slow). Call generateWisdom() in that case.
     static bool needsWisdomGeneration();
+    static QString wisdomFilePath();
     // Must be called from a worker thread — blocks for several minutes.
     static void generateWisdom(std::function<void(int,int,const std::string&)> progress = nullptr);
 

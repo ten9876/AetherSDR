@@ -23,6 +23,7 @@ private slots:
     void refreshLog();
     void clearLog();
     void openLogFolder();
+    void resetSettings();
     void enableAll();
     void disableAll();
     void sendToSupport();

@@ -46,6 +46,9 @@ public:
     // File path for the settings file.
     QString filePath() const { return m_filePath; }
 
+    // Clear all loaded settings from memory without writing anything back out.
+    void reset();
+
     // Migrate from old QSettings (INI format) if XML file doesn't exist yet.
     void migrateFromQSettings();
 
