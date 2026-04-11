@@ -193,6 +193,21 @@ VfoWidget::VfoWidget(QWidget* parent)
 
 void VfoWidget::wheelEvent(QWheelEvent* ev)
 {
+    // In collapsed mode, scroll anywhere to tune by step size
+    if (m_collapsed && m_slice && !m_slice->isLocked()) {
+        int stepHz = m_slice->stepHz();
+        if (stepHz > 0) {
+            int delta = ev->angleDelta().y();
+            int steps = qBound(-1, delta / 120, 1);
+            if (steps != 0) {
+                double newMhz = m_slice->frequency() + steps * stepHz / 1e6;
+                m_slice->setFrequency(newMhz);
+            }
+        }
+        ev->accept();
+        return;
+    }
+
     // Scroll over the frequency display tunes by step size.
     // Everything else in the VFO is a dead zone for wheel events.
     if (m_freqStack && m_slice && !m_slice->isLocked()) {
@@ -216,8 +231,37 @@ void VfoWidget::wheelEvent(QWheelEvent* ev)
 void VfoWidget::mousePressEvent(QMouseEvent* ev)
 {
     ev->accept();
+    if (m_collapsed) {
+        // Match the painted geometry in paintEvent
+        const int badgeSize = 20;
+        const int margin = (width() - badgeSize) / 2;
+        const QRect txRect(margin, 26, badgeSize, 16);
+
+        // Click on painted TX badge → toggle TX assignment
+        if (ev->button() == Qt::LeftButton && txRect.contains(ev->pos())) {
+            if (m_slice) {
+                m_slice->setTxSlice(!m_slice->isTxSlice());
+            }
+            update();  // repaint TX badge color
+            return;
+        }
+        // Click anywhere else on collapsed widget → expand (deferred)
+        QTimer::singleShot(0, this, [this] { setCollapsed(false); });
+        return;
+    }
+    // Click on the slice badge → collapse the flag (deferred)
+    if (ev->button() == Qt::LeftButton && m_sliceBadge && m_sliceBadge->isVisible()
+        && m_sliceBadge->geometry().contains(ev->pos())) {
+        QTimer::singleShot(0, this, [this] { setCollapsed(true); });
+        return;
+    }
     if (m_slice)
         emit sliceActivationRequested(m_slice->sliceId());
+}
+
+void VfoWidget::mouseReleaseEvent(QMouseEvent* ev)
+{
+    ev->accept();
 }
 
 VfoWidget::~VfoWidget()
@@ -230,6 +274,7 @@ VfoWidget::~VfoWidget()
     delete m_lockVfoBtn.data();
     delete m_recordBtn.data();
     delete m_playBtn.data();
+    delete m_collapsedFreqLabel.data();
 }
 
 void VfoWidget::buildUI()
@@ -312,6 +357,7 @@ void VfoWidget::buildUI()
     m_sliceBadge = new QLabel("A");
     m_sliceBadge->setFixedSize(20, 20);
     m_sliceBadge->setAlignment(Qt::AlignCenter);
+    m_sliceBadge->setCursor(Qt::PointingHandCursor);
     m_sliceBadge->setStyleSheet(
         "QLabel { background: #0070c0; color: #ffffff; "
         "border-radius: 3px; font-weight: bold; font-size: 11px; }");
@@ -395,6 +441,15 @@ void VfoWidget::buildUI()
     connect(m_playBtn, &QPushButton::clicked, this, [this](bool checked) {
         emit playToggled(checked);
     });
+
+    // ── Collapsed-mode frequency label (child of parent like close/lock) ───
+    m_collapsedFreqLabel = new QLabel(btnParent);
+    m_collapsedFreqLabel->setStyleSheet(
+        "QLabel { background: rgba(10,10,20,220); border: 1px solid rgba(255,255,255,60);"
+        " border-radius: 3px; color: #c8d8e8; font-size: 14px; font-weight: bold;"
+        " padding: 1px 4px; }");
+    m_collapsedFreqLabel->setAlignment(Qt::AlignCenter);
+    m_collapsedFreqLabel->hide();
 
     // ── Frequency row (right-aligned, double-click to edit) ────────────────
     m_freqStack = new QStackedWidget;
@@ -1655,6 +1710,151 @@ void VfoWidget::showTab(int index)
     adjustSize();
 }
 
+// ── Collapsed flag toggle ─────────────────────────────────────────────────────
+
+void VfoWidget::setCollapsed(bool collapsed)
+{
+    if (m_collapsed == collapsed) return;
+    m_collapsed = collapsed;
+
+    // Persist per-slice preference
+    if (m_slice) {
+        auto& s = AppSettings::instance();
+        s.setValue(QString("SliceFlagCollapsed_%1").arg(m_slice->sliceId()),
+                   collapsed ? "True" : "False");
+    }
+
+    if (collapsed) {
+        // Remember which children were already hidden so we don't show them on expand
+        m_hiddenBeforeCollapse.clear();
+        const QList<QWidget*> children = findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly);
+        for (QWidget* child : children) {
+            if (!child->isVisible()) {
+                m_hiddenBeforeCollapse.insert(child);
+            }
+            child->setVisible(false);
+            // Make children ignore mouse events so external code that shows
+            // them (e.g. updateSplitBadge) can't intercept our clicks
+            child->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        }
+        // Hide external buttons (and remember their state)
+        if (m_closeSliceBtn) {
+            if (!m_closeSliceBtn->isVisible()) m_hiddenBeforeCollapse.insert(m_closeSliceBtn);
+            m_closeSliceBtn->hide();
+        }
+        if (m_lockVfoBtn) {
+            if (!m_lockVfoBtn->isVisible()) m_hiddenBeforeCollapse.insert(m_lockVfoBtn);
+            m_lockVfoBtn->hide();
+        }
+        if (m_recordBtn) {
+            if (!m_recordBtn->isVisible()) m_hiddenBeforeCollapse.insert(m_recordBtn);
+            m_recordBtn->hide();
+        }
+        if (m_playBtn) {
+            if (!m_playBtn->isVisible()) m_hiddenBeforeCollapse.insert(m_playBtn);
+            m_playBtn->hide();
+        }
+
+        // Resize to narrow collapsed width with fixed height for painted content
+        setMinimumWidth(COLLAPSED_W);
+        setMaximumWidth(COLLAPSED_W);
+        setFixedHeight(44);  // slice badge (20) + gap (2) + TX badge (16) + padding (6)
+
+        // Show collapsed frequency label and position it immediately
+        if (m_collapsedFreqLabel) {
+            updateFreqLabel();
+            m_collapsedFreqLabel->setText(m_freqLabel->text());
+            m_collapsedFreqLabel->adjustSize();
+            m_collapsedFreqLabel->show();
+
+            // Position now based on current widget location
+            const int freqGap = 2;
+            int freqH = m_collapsedFreqLabel->sizeHint().height();
+            int freqW = m_collapsedFreqLabel->sizeHint().width();
+            int freqY = pos().y() + (44 - freqH) / 2;
+            int freqX = m_lastOnLeft
+                ? pos().x() - freqW - freqGap
+                : pos().x() + COLLAPSED_W + freqGap;
+            m_collapsedFreqLabel->move(freqX, freqY);
+        }
+    } else {
+        // Restore full width, remove fixed height constraint
+        setMinimumWidth(WIDGET_W);
+        setMaximumWidth(WIDGET_W);
+        setMinimumHeight(0);
+        setMaximumHeight(QWIDGETSIZE_MAX);
+
+        // Hide collapsed frequency label
+        if (m_collapsedFreqLabel) {
+            m_collapsedFreqLabel->hide();
+        }
+
+        // Restore only widgets that were visible before collapse.
+        // Block signals on interactive buttons during restore to prevent
+        // spurious clicked/toggled signals from visibility changes.
+        const QList<QWidget*> children = findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly);
+        for (QWidget* child : children) {
+            child->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+            if (!m_hiddenBeforeCollapse.contains(child)) {
+                QSignalBlocker sb(child);
+                child->setVisible(true);
+            }
+        }
+        // Tab stack starts hidden (opened by tab clicks)
+        if (m_tabStack) {
+            m_tabStack->hide();
+            m_activeTab = -1;
+            for (QLabel* lbl : m_tabBtns) {
+                lbl->setStyleSheet(kTabLblNormal);
+            }
+        }
+        // Restore external buttons to pre-collapse state and reposition them
+        // based on the new expanded width (they were positioned for COLLAPSED_W)
+        {
+            const int btnSize = 20;
+            const int gap = 2;
+            int btnX;
+            if (m_lastOnLeft)
+                btnX = pos().x() - btnSize - gap;
+            else
+                btnX = pos().x() + WIDGET_W + gap;
+
+            int btnY = pos().y();
+            if (m_closeSliceBtn && !m_hiddenBeforeCollapse.contains(m_closeSliceBtn)) {
+                m_closeSliceBtn->show();
+                m_closeSliceBtn->move(btnX, btnY);
+                btnY += btnSize + gap;
+            }
+            if (m_lockVfoBtn && !m_hiddenBeforeCollapse.contains(m_lockVfoBtn)) {
+                m_lockVfoBtn->show();
+                m_lockVfoBtn->move(btnX, btnY);
+                btnY += btnSize + gap;
+            }
+            if (m_recordBtn && !m_hiddenBeforeCollapse.contains(m_recordBtn)) {
+                m_recordBtn->show();
+                m_recordBtn->move(btnX, btnY);
+                btnY += btnSize + gap;
+            }
+            if (m_playBtn && !m_hiddenBeforeCollapse.contains(m_playBtn)) {
+                m_playBtn->show();
+                m_playBtn->move(btnX, btnY);
+            }
+        }
+        m_hiddenBeforeCollapse.clear();
+
+        // Let syncFromSlice restore mode-dependent widget visibility
+        syncFromSlice();
+    }
+
+    adjustSize();
+    update();
+
+    // Trigger parent repaint so SpectrumWidget repositions us and the freq label
+    if (parentWidget()) {
+        parentWidget()->update();
+    }
+}
+
 // ── Positioning ───────────────────────────────────────────────────────────────
 
 void VfoWidget::setDiversityAllowed(bool allowed)
@@ -1740,19 +1940,36 @@ void VfoWidget::updatePosition(int vfoX, int specTop, FlagDir dir)
             btnX = x + w + gap;        // right of VFO widget
 
         int btnY = specTop;
-        m_closeSliceBtn->move(btnX, btnY);
-        btnY += btnSize + gap;
-
-        m_lockVfoBtn->move(btnX, btnY);
-        btnY += btnSize + gap;
-
-        if (m_recordBtn) {
-            m_recordBtn->move(btnX, btnY);
+        if (!m_collapsed) {
+            m_closeSliceBtn->move(btnX, btnY);
             btnY += btnSize + gap;
+
+            m_lockVfoBtn->move(btnX, btnY);
+            btnY += btnSize + gap;
+
+            if (m_recordBtn) {
+                m_recordBtn->move(btnX, btnY);
+                btnY += btnSize + gap;
+            }
+            if (m_playBtn) {
+                m_playBtn->move(btnX, btnY);
+            }
         }
-        if (m_playBtn) {
-            m_playBtn->move(btnX, btnY);
+    }
+
+    // Position collapsed frequency label next to the collapsed widget
+    if (m_collapsedFreqLabel && m_collapsed) {
+        const int freqGap = 2;
+        int freqX;
+        int freqH = m_collapsedFreqLabel->sizeHint().height();
+        int freqY = specTop + (height() - freqH) / 2;  // vertically centered
+        int freqW = m_collapsedFreqLabel->sizeHint().width();
+        if (onLeft) {
+            freqX = x - freqW - freqGap;
+        } else {
+            freqX = x + w + freqGap;
         }
+        m_collapsedFreqLabel->move(freqX, freqY);
     }
 }
 
@@ -1774,6 +1991,49 @@ void VfoWidget::paintEvent(QPaintEvent* event)
     p.setPen(QColor(255, 255, 255, 13));
     p.setBrush(QColor(255, 255, 255, 13));
     p.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 3, 3);
+
+    if (m_collapsed) {
+        // ── Collapsed mode: draw slice badge and TX badge via painter ──────
+        const int badgeSize = 20;
+        const int margin = (width() - badgeSize) / 2;
+        int yPos = 4;
+
+        // Slice letter badge
+        int sliceId = m_slice ? m_slice->sliceId() : 0;
+        const char* badgeColor = (sliceId >= 0 && sliceId < kSliceColorCount)
+            ? kSliceColors[sliceId].hexActive : "#0070c0";
+        QRect badgeRect(margin, yPos, badgeSize, badgeSize);
+        p.setBrush(QColor(badgeColor));
+        p.setPen(Qt::NoPen);
+        p.drawRoundedRect(badgeRect, 3, 3);
+
+        QFont badgeFont = p.font();
+        badgeFont.setPixelSize(11);
+        badgeFont.setBold(true);
+        p.setFont(badgeFont);
+        p.setPen(QColor(0, 0, 0));
+        const char letters[] = "ABCDEFGH";
+        QChar letter = (sliceId >= 0 && sliceId < 8) ? QChar(letters[sliceId]) : QChar('?');
+        p.drawText(badgeRect, Qt::AlignCenter, QString(letter));
+
+        yPos += badgeSize + 2;
+
+        // TX badge
+        bool isTx = m_slice && m_slice->isTxSlice();
+        QRect txRect(margin, yPos, badgeSize, 16);
+        p.setPen(Qt::NoPen);
+        p.setBrush(isTx ? QColor(0xcc, 0x00, 0x00) : QColor(0x40, 0x40, 0x40));
+        p.drawRoundedRect(txRect, 2, 2);
+
+        QFont txFont = p.font();
+        txFont.setPixelSize(10);
+        txFont.setBold(true);
+        p.setFont(txFont);
+        p.setPen(isTx ? QColor(0xff, 0xff, 0xff) : QColor(0x80, 0x80, 0x80));
+        p.drawText(txRect, Qt::AlignCenter, "TX");
+
+        return;  // skip S-meter painting
+    }
 
     p.setRenderHint(QPainter::Antialiasing, false);
 
@@ -2205,6 +2465,16 @@ void VfoWidget::setSlice(SliceModel* slice)
         m_lockVfoBtn->setText(locked ? "\xF0\x9F\x94\x92" : "\xF0\x9F\x94\x93");
     });
 
+    // Restore collapsed state from AppSettings
+    {
+        auto& s = AppSettings::instance();
+        bool savedCollapsed = s.value(
+            QString("SliceFlagCollapsed_%1").arg(m_slice->sliceId()), "False").toString() == "True";
+        if (savedCollapsed != m_collapsed) {
+            setCollapsed(savedCollapsed);
+        }
+    }
+
     syncFromSlice();
 }
 
@@ -2316,9 +2586,9 @@ void VfoWidget::syncFromSlice()
         m_lockVfoBtn->setChecked(m_slice->isLocked());
         m_lockVfoBtn->setText(m_slice->isLocked() ? "\xF0\x9F\x94\x92" : "\xF0\x9F\x94\x93");
     }
-    const char letters[] = "ABCD";
+    const char letters[] = "ABCDEFGH";
     int id = m_slice->sliceId();
-    m_sliceBadge->setText(QString(QChar(id >= 0 && id < 4 ? letters[id] : '?')));
+    m_sliceBadge->setText(QString(QChar(id >= 0 && id < 8 ? letters[id] : '?')));
     // Color-code the slice badge to match the spectrum overlay colors
     const char* badgeColor = (id >= 0 && id < kSliceColorCount)
         ? kSliceColors[id].hexActive : "#0070c0";
@@ -2488,10 +2758,17 @@ void VfoWidget::updateFreqLabel()
     int mhzPart = static_cast<int>(hz / 1000000);
     int khzPart = static_cast<int>((hz / 1000) % 1000);
     int hzPart  = static_cast<int>(hz % 1000);
-    m_freqLabel->setText(QString("%1.%2.%3")
+    QString freqText = QString("%1.%2.%3")
         .arg(mhzPart)
         .arg(khzPart, 3, 10, QChar('0'))
-        .arg(hzPart, 3, 10, QChar('0')));
+        .arg(hzPart, 3, 10, QChar('0'));
+    m_freqLabel->setText(freqText);
+
+    // Keep collapsed frequency label in sync
+    if (m_collapsed && m_collapsedFreqLabel) {
+        m_collapsedFreqLabel->setText(freqText);
+        m_collapsedFreqLabel->adjustSize();
+    }
 }
 
 void VfoWidget::updateFilterLabel()

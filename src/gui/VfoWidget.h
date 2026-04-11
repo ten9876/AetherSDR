@@ -6,6 +6,7 @@
 #include <QMouseEvent>
 #include <QVector>
 #include <QStringList>
+#include <QSet>
 
 class QPushButton;
 class ScrollableLabel;
@@ -64,6 +65,9 @@ public:
     void beginDirectEntry();
     QLabel* freqLabel() const { return m_freqLabel; }
 
+    bool isCollapsed() const { return m_collapsed; }
+    void setCollapsed(bool collapsed);
+
 #ifdef HAVE_RADE
     void setRadeActive(bool on);
     void setRadeSynced(bool synced);
@@ -99,6 +103,7 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
     void wheelEvent(QWheelEvent* ev) override;
     void mousePressEvent(QMouseEvent* ev) override;
+    void mouseReleaseEvent(QMouseEvent* ev) override;
 
 private:
     void buildUI();
@@ -120,6 +125,10 @@ private:
     bool           m_updatingFromModel{false};
     bool           m_lastOnLeft{true};
     float          m_signalDbm{-130.0f};
+    bool           m_collapsed{false};
+    bool           m_collapseToggled{false};  // guard: absorb release after toggle
+    QPointer<QLabel> m_collapsedFreqLabel;
+    QSet<QWidget*> m_hiddenBeforeCollapse;    // widgets already hidden before collapse
 
     // Header row
     QPushButton* m_rxAntBtn{nullptr};
@@ -237,6 +246,7 @@ private:
 #endif
 
     static constexpr int WIDGET_W = 252;
+    static constexpr int COLLAPSED_W = 34;
 };
 
 } // namespace AetherSDR
