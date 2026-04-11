@@ -808,6 +808,23 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
     m_txPollTimer->setInterval(5);
     connect(m_txPollTimer, &QTimer::timeout, this, &AudioEngine::onTxAudioReady);
     m_txPollTimer->start();
+
+    // Guard against CoreAudio silently stopping the source after extended
+    // runtime (~16h). Detect the silent stop, pause the timer, and restart
+    // cleanly so onTxAudioReady never touches a stale m_micBuffer. (#1149)
+    connect(m_audioSource, &QAudioSource::stateChanged, this,
+            [this](QAudio::State state) {
+        if (state != QAudio::StoppedState) return;
+        if (!m_txPollTimer) return;  // intentional stop already handled
+        m_txPollTimer->stop();
+        QHostAddress addr = m_txAddress;
+        quint16 port = m_txPort;
+        QMetaObject::invokeMethod(this, [this, addr, port]() {
+            qCWarning(lcAudio) << "AudioEngine: QAudioSource stopped silently (#1149), restarting TX";
+            stopTxStream();
+            startTxStream(addr, port);
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
 #else
     // Linux/Windows: pull mode works fine
     m_audioSource = new QAudioSource(dev, fmt, this);
@@ -901,7 +918,10 @@ void AudioEngine::stopTxStream()
 void AudioEngine::onTxAudioReady()
 {
 #ifdef Q_OS_MAC
-    if (!m_micBuffer || (m_txStreamId == 0 && m_remoteTxStreamId == 0)) return;
+    if (!m_micBuffer || !m_audioSource) return;
+    if (m_audioSource->state() == QAudio::StoppedState) return;
+    if (!m_micBuffer->isOpen()) return;
+    if (m_txStreamId == 0 && m_remoteTxStreamId == 0) return;
     qint64 avail = m_micBuffer->pos();
     if (avail <= 0) return;
     QByteArray data = m_micBuffer->data();
