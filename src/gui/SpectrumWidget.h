@@ -7,6 +7,7 @@
 #include <QImage>
 #include <QColor>
 #include <QDateTime>
+#include <QTimer>
 
 #ifdef AETHER_GPU_SPECTRUM
 #include <QRhiWidget>
@@ -160,6 +161,8 @@ public:
     void setSingleClickTune(bool on) { m_singleClickTune = on; }
     void setShowCursorFreq(bool on) { m_showCursorFreq = on; update(); }
     bool showCursorFreq() const { return m_showCursorFreq; }
+    void setShowTuneGuides(bool on);
+    bool showTuneGuides() const { return m_showTuneGuides; }
     void setBackgroundImage(const QString& path);
     QString backgroundImagePath() const { return m_bgImagePath; }
     void setBackgroundOpacity(int pct) { m_bgOpacity = qBound(0, pct, 100); markOverlayDirty(); }
@@ -489,6 +492,22 @@ private:
     // Cursor frequency label
     bool   m_showCursorFreq{false};
     QPoint m_cursorPos{-1, -1};
+
+    // Tune guide overlay (vertical line + freq label, auto-hides after 4s)
+    bool    m_showTuneGuides{false};
+    bool    m_tuneGuideVisible{false};
+    QTimer* m_tuneGuideTimer{nullptr};
+
+    // State change detector cache (per-instance, NOT static — multiple
+    // panadapters have different values and static vars cause an infinite
+    // render loop that starves the event loop)
+    double m_lastDetectCenter{0};
+    double m_lastDetectBw{0};
+    float  m_lastDetectRef{0};
+    float  m_lastDetectDyn{0};
+    float  m_lastDetectFrac{0};
+    bool   m_lastDetectWnb{false};
+    int    m_lastDetectRfGain{0};
 
     // NB Waterfall Blanker (#277)
     bool  m_wfBlankerEnabled{false};

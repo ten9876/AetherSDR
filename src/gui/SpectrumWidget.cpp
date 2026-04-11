@@ -137,6 +137,15 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     m_overlayMenu = new SpectrumOverlayMenu(this);
     m_overlayMenu->raise();
 
+    // Tune guide auto-hide timer (2-second inactivity timeout)
+    m_tuneGuideTimer = new QTimer(this);
+    m_tuneGuideTimer->setSingleShot(true);
+    m_tuneGuideTimer->setInterval(4000);
+    connect(m_tuneGuideTimer, &QTimer::timeout, this, [this]() {
+        m_tuneGuideVisible = false;
+        markOverlayDirty();
+    });
+
     // Load display settings (panIndex 0 by default — loadSettings() can be
     // called again after setPanIndex() for multi-pan)
     loadSettings();
@@ -235,6 +244,7 @@ void SpectrumWidget::loadSettings()
         std::clamp(s.value(settingsKey("DisplayWfColorScheme"), "0").toInt(),
                    0, static_cast<int>(WfColorScheme::Count) - 1));
     m_singleClickTune = s.value("SingleClickTune", "False").toString() == "True";
+    m_showTuneGuides  = s.value("ShowTuneGuides", "False").toString() == "True";
 
     // Background image — default to bundled logo, "none" = explicitly cleared
     QString bgPath = s.value(settingsKey("BackgroundImage"), ":/bg-default.jpg").toString();
@@ -320,6 +330,32 @@ void SpectrumWidget::setShowGrid(bool on) {
     s.setValue(settingsKey("DisplayShowGrid"), on ? "True" : "False");
     s.save();
     markOverlayDirty();
+}
+void SpectrumWidget::setShowTuneGuides(bool on) {
+    m_showTuneGuides = on;
+    if (!on) {
+        m_tuneGuideVisible = false;
+        m_tuneGuideTimer->stop();
+    }
+    auto& s = AppSettings::instance();
+    s.setValue("ShowTuneGuides", on ? "True" : "False");
+    s.save();
+    markOverlayDirty();
+
+    // Propagate to all sibling SpectrumWidgets so the toggle is global
+    if (QWidget* top = window()) {
+        const auto siblings = top->findChildren<SpectrumWidget*>();
+        for (SpectrumWidget* sw : siblings) {
+            if (sw != this && sw->m_showTuneGuides != on) {
+                sw->m_showTuneGuides = on;
+                if (!on) {
+                    sw->m_tuneGuideVisible = false;
+                    sw->m_tuneGuideTimer->stop();
+                }
+                sw->markOverlayDirty();
+            }
+        }
+    }
 }
 void SpectrumWidget::setFftLineWidth(float w) {
     m_fftLineWidth = std::clamp(w, 0.0f, 5.0f);
@@ -1095,6 +1131,12 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
             }
         }
 
+        menu.addSeparator();
+        QAction* tuneGuideAction = menu.addAction("Show Tune Guides");
+        tuneGuideAction->setCheckable(true);
+        tuneGuideAction->setChecked(m_showTuneGuides);
+        connect(tuneGuideAction, &QAction::toggled, this, &SpectrumWidget::setShowTuneGuides);
+
         menu.exec(ev->globalPosition().toPoint());
         ev->accept();
         return;
@@ -1395,8 +1437,12 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         setCursor(Qt::CrossCursor);
     }
 
-    // Track cursor position for frequency label overlay
-    if (m_showCursorFreq) {
+    // Track cursor position for frequency label overlay and tune guides
+    if (m_showTuneGuides) {
+        m_tuneGuideVisible = true;
+        m_tuneGuideTimer->start();
+    }
+    if (m_showCursorFreq || m_showTuneGuides) {
         m_cursorPos = ev->position().toPoint();
         markOverlayDirty();
     }
@@ -1621,7 +1667,7 @@ void SpectrumWidget::mouseDoubleClickEvent(QMouseEvent* ev)
 void SpectrumWidget::leaveEvent(QEvent* event)
 {
     QWidget::leaveEvent(event);
-    if (m_showCursorFreq) {
+    if (m_showCursorFreq || m_showTuneGuides) {
         m_cursorPos = {-1, -1};
         markOverlayDirty();
     }
@@ -1647,6 +1693,13 @@ void SpectrumWidget::setBackgroundImage(const QString& path)
 
 bool SpectrumWidget::event(QEvent* ev)
 {
+    // Re-assert mouse tracking after native window changes (reparenting into
+    // QSplitter, window recreation). Without this, QRhiWidget's native Metal
+    // surface loses mouse tracking and mouseMoveEvent stops firing.
+    if (ev->type() == QEvent::WinIdChange || ev->type() == QEvent::ParentChange) {
+        setMouseTracking(true);
+    }
+
     if (ev->type() == QEvent::NativeGesture) {
         auto* ge = static_cast<QNativeGestureEvent*>(ev);
         if (ge->gestureType() == Qt::ZoomNativeGesture) {
@@ -1746,6 +1799,10 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
 void SpectrumWidget::resizeEvent(QResizeEvent* ev)
 {
     SPECTRUM_BASE_CLASS::resizeEvent(ev);
+
+    // Re-assert mouse tracking — on macOS with WA_NativeWindow, reparenting
+    // into a QSplitter can reset native window properties.
+    setMouseTracking(true);
 
     const int chromeH  = FREQ_SCALE_H + DIVIDER_H;
     const int contentH = height() - chromeH;
@@ -2109,15 +2166,45 @@ void SpectrumWidget::initialize(QRhiCommandBuffer* cb)
     m_wfLastUploadedRow = m_wfWriteRow;
     m_rhiInitialized = true;
 
-    // Re-apply cursor now that the native HWND exists on Windows. (#1096)
-    // setCursor() in the constructor runs before QRhiWidget creates its native
-    // surface; calling it again here ensures the HWND gets the correct cursor
-    // shape rather than defaulting to NULL (invisible).
+    // Force full overlay repaint + upload — the new GPU texture is empty.
+    // Without this, m_overlayStaticDirty and m_overlayNeedsUpload may be
+    // false from the previous render cycle, leaving the overlay invisible.
+    m_overlayStaticDirty = true;
+    m_overlayNeedsUpload = true;
+
+    // Re-apply cursor and mouse tracking now that the native surface exists.
     setCursor(cursor());
+    setMouseTracking(true);
 }
 
 void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
 {
+    // Guard: QRhiWidget surface recreation (add/remove panadapter, reparent)
+    // can silently clear mouse tracking on macOS. Re-assert cheaply per frame.
+    if (!hasMouseTracking()) {
+        setMouseTracking(true);
+    }
+
+    // Tune guide recovery: after reparenting (add/remove panadapter), Qt may
+    // not deliver mouseMoveEvents even with mouse tracking enabled (missing
+    // enterEvent, stale widget state). Poll the actual cursor position to
+    // detect when the mouse is inside the widget but events aren't flowing.
+    if (m_showTuneGuides) {
+        QPoint localPos = mapFromGlobal(QCursor::pos());
+        if (rect().contains(localPos)) {
+            if (localPos != m_cursorPos) {
+                m_cursorPos = localPos;
+                m_tuneGuideVisible = true;
+                m_tuneGuideTimer->start();
+                m_overlayStaticDirty = true;
+            }
+        } else if (m_cursorPos.x() >= 0) {
+            // Mouse left the widget without a leaveEvent
+            m_cursorPos = {-1, -1};
+            m_overlayStaticDirty = true;
+        }
+    }
+
     QRhi* r = rhi();
     const int w = width();
     const int h = height();
@@ -2133,19 +2220,15 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
 
     // Detect display state changes that may bypass markOverlayDirty()
     {
-        static double lastCenter = 0, lastBw = 0;
-        static float lastRef = 0, lastDyn = 0, lastFrac = 0;
-        static bool lastWnb = false;
-        static int lastRfGain = 0;
-        if (m_centerMhz != lastCenter || m_bandwidthMhz != lastBw ||
-            m_refLevel != lastRef || m_dynamicRange != lastDyn ||
-            m_spectrumFrac != lastFrac ||
-            m_wnbActive != lastWnb || m_rfGainValue != lastRfGain) {
+        if (m_centerMhz != m_lastDetectCenter || m_bandwidthMhz != m_lastDetectBw ||
+            m_refLevel != m_lastDetectRef || m_dynamicRange != m_lastDetectDyn ||
+            m_spectrumFrac != m_lastDetectFrac ||
+            m_wnbActive != m_lastDetectWnb || m_rfGainValue != m_lastDetectRfGain) {
             markOverlayDirty();
-            lastCenter = m_centerMhz; lastBw = m_bandwidthMhz;
-            lastRef = m_refLevel; lastDyn = m_dynamicRange;
-            lastFrac = m_spectrumFrac;
-            lastWnb = m_wnbActive; lastRfGain = m_rfGainValue;
+            m_lastDetectCenter = m_centerMhz; m_lastDetectBw = m_bandwidthMhz;
+            m_lastDetectRef = m_refLevel; m_lastDetectDyn = m_dynamicRange;
+            m_lastDetectFrac = m_spectrumFrac;
+            m_lastDetectWnb = m_wnbActive; m_lastDetectRfGain = m_rfGainValue;
         }
     }
 
@@ -2324,6 +2407,37 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 if (lx + tw > w) lx = m_cursorPos.x() - tw - 4;
                 int ly = m_cursorPos.y() - th - 4;
                 if (ly < 0) ly = m_cursorPos.y() + 16;
+                p.fillRect(lx, ly, tw, th, QColor(0x0f, 0x0f, 0x1a, 200));
+                p.setPen(QColor(0xc8, 0xd8, 0xe8));
+                p.drawText(lx + 4, ly + fm.ascent() + 2, label);
+            }
+
+            // Tune guide overlay (vertical line + frequency label)
+            if (m_showTuneGuides && m_tuneGuideVisible
+                && m_cursorPos.x() >= 0 && m_cursorPos.y() >= 0) {
+                const int cx = m_cursorPos.x();
+                p.setPen(QPen(QColor(0x60, 0x70, 0x80), 1));
+                p.drawLine(cx, 0, cx, h);
+
+                const double freqMhz = xToMhz(cx);
+                long long hz = static_cast<long long>(std::round(freqMhz * 1e6));
+                int mhzPart = static_cast<int>(hz / 1000000);
+                int khzPart = static_cast<int>((hz / 1000) % 1000);
+                int hzPart  = static_cast<int>(hz % 1000);
+                const QString label = QString("%1.%2.%3")
+                    .arg(mhzPart)
+                    .arg(khzPart, 3, 10, QChar('0'))
+                    .arg(hzPart, 3, 10, QChar('0'));
+                QFont f = p.font();
+                f.setPointSize(12);
+                p.setFont(f);
+                const QFontMetrics fm(f);
+                const int tw = fm.horizontalAdvance(label) + 8;
+                const int th = fm.height() + 4;
+                int lx = cx + 12;
+                if (lx + tw > w) { lx = cx - tw - 4; }
+                int ly = m_cursorPos.y() - th - 4;
+                if (ly < 0) { ly = m_cursorPos.y() + 16; }
                 p.fillRect(lx, ly, tw, th, QColor(0x0f, 0x0f, 0x1a, 200));
                 p.setPen(QColor(0xc8, 0xd8, 0xe8));
                 p.drawText(lx + 4, ly + fm.ascent() + 2, label);
@@ -2894,6 +3008,37 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
         if (lx + tw > width()) lx = m_cursorPos.x() - tw - 4;
         int ly = m_cursorPos.y() - th - 4;
         if (ly < 0) ly = m_cursorPos.y() + 16;
+        p.fillRect(lx, ly, tw, th, QColor(0x0f, 0x0f, 0x1a, 200));
+        p.setPen(QColor(0xc8, 0xd8, 0xe8));
+        p.drawText(lx + 4, ly + fm.ascent() + 2, label);
+    }
+
+    // ── Tune guide overlay (vertical line + frequency label) ──────────────
+    if (m_showTuneGuides && m_tuneGuideVisible
+        && m_cursorPos.x() >= 0 && m_cursorPos.y() >= 0) {
+        const int cx = m_cursorPos.x();
+        p.setPen(QPen(QColor(0x60, 0x70, 0x80), 1));
+        p.drawLine(cx, 0, cx, height());
+
+        const double freqMhz = xToMhz(cx);
+        long long hz = static_cast<long long>(std::round(freqMhz * 1e6));
+        int mhzPart = static_cast<int>(hz / 1000000);
+        int khzPart = static_cast<int>((hz / 1000) % 1000);
+        int hzPart  = static_cast<int>(hz % 1000);
+        const QString label = QString("%1.%2.%3")
+            .arg(mhzPart)
+            .arg(khzPart, 3, 10, QChar('0'))
+            .arg(hzPart, 3, 10, QChar('0'));
+        QFont f = p.font();
+        f.setPointSize(12);
+        p.setFont(f);
+        const QFontMetrics fm(f);
+        const int tw = fm.horizontalAdvance(label) + 8;
+        const int th = fm.height() + 4;
+        int lx = cx + 12;
+        if (lx + tw > width()) { lx = cx - tw - 4; }
+        int ly = m_cursorPos.y() - th - 4;
+        if (ly < 0) { ly = m_cursorPos.y() + 16; }
         p.fillRect(lx, ly, tw, th, QColor(0x0f, 0x0f, 0x1a, 200));
         p.setPen(QColor(0xc8, 0xd8, 0xe8));
         p.drawText(lx + 4, ly + fm.ascent() + 2, label);
