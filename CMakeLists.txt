@@ -345,6 +345,7 @@ set(CORE_SOURCES
     src/core/BandStackSettings.cpp
     src/core/RadioDiscovery.cpp
     src/core/RadioConnection.cpp
+    src/core/NetworkPathResolver.cpp
     src/core/TgxlConnection.cpp
     src/core/CommandParser.cpp
     src/core/AudioEngine.cpp

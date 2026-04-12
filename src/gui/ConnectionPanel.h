@@ -48,8 +48,16 @@ signals:
 private slots:
     void onConnectClicked();
     void onListSelectionChanged();
+    void onManualIpChanged(const QString& ip);
 
 private:
+    void refreshManualSourceOptions(const RadioBindSettings* selected = nullptr);
+    void applySavedSourceSelection(const QString& ip);
+    RadioBindSettings currentManualBindSettings(bool* staleSelection = nullptr) const;
+    void saveManualProfile(const QString& targetIp,
+                           const RadioBindSettings& settings,
+                           const QHostAddress& lastSuccessfulLocalIp);
+
     QListWidget* m_radioList;
     QPushButton* m_connectBtn;
     QCheckBox*   m_lowBwCheck;
@@ -72,7 +80,10 @@ private:
     // Manual (routed) connection
     QWidget*     m_manualGroup{nullptr};
     QLineEdit*   m_manualIpEdit{nullptr};
+    QComboBox*   m_manualSourceCombo{nullptr};
+    QLabel*      m_manualSourceWarningLabel{nullptr};
     QPushButton* m_manualProbeBtn{nullptr};
+    QString      m_manualProfileIp;
 };
 
 } // namespace AetherSDR

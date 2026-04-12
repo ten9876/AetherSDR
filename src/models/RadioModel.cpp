@@ -12,7 +12,6 @@
 #include <QtEndian>
 #include <algorithm>
 #include <cmath>
-#include "core/AppSettings.h"
 
 namespace AetherSDR {
 
@@ -831,12 +830,19 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
         // within 10 seconds (e.g. VPN blocks UDP), warn the user. (#894)
         QTimer::singleShot(10000, this, [this]() {
             if (!isConnected()) return;
-            if (m_panStream->totalRxBytes() == 0) {
+            if (!m_wanConn && !m_panStream->hasReceivedPackets()) {
                 qCWarning(lcProtocol) << "RadioModel: no VITA-49 UDP data received after 10s"
-                             << "— possible VPN/firewall blocking UDP (#894)";
-                emit connectionError(tr("No spectrum data received. UDP traffic from the "
-                                        "radio may be blocked by a VPN or firewall. "
-                                        "Ensure UDP port 4991 is routable."));
+                                      << "target=" << targetRadioIp()
+                                      << "sourceMode=" << selectedSourceMode()
+                                      << "sourcePath=" << selectedSourcePath()
+                                      << "localTcp=" << localTcpEndpoint()
+                                      << "localUdp=" << localUdpEndpoint()
+                                      << "udpSeen=" << firstUdpPacketSeen();
+                emit connectionError(
+                    tr("No spectrum data received from %1. Source mode: %2. TCP: %3. UDP: %4. "
+                       "UDP traffic from the radio may be blocked, or the wrong source path may be selected.")
+                        .arg(targetRadioIp(), selectedSourceMode(),
+                             localTcpEndpoint(), localUdpEndpoint()));
             }
         });
 
@@ -1380,6 +1386,55 @@ qint64 RadioModel::rxBytes() const
 qint64 RadioModel::txBytes() const
 {
     return m_panStream->totalTxBytes();
+}
+
+QString RadioModel::targetRadioIp() const
+{
+    return m_lastInfo.address.toString();
+}
+
+QString RadioModel::selectedSourceMode() const
+{
+    return m_lastInfo.bindSettings.modeString();
+}
+
+QString RadioModel::selectedSourcePath() const
+{
+    if (m_lastInfo.bindSettings.mode == RadioBindMode::Explicit)
+        return m_lastInfo.bindSettings.selectionLabel();
+
+    QHostAddress resolved = m_lastInfo.sessionBindAddress;
+    if (resolved.isNull())
+        resolved = m_connection->localAddress();
+    if (!resolved.isNull() && resolved.protocol() == QAbstractSocket::IPv4Protocol)
+        return QStringLiteral("Auto (%1)").arg(resolved.toString());
+    return QStringLiteral("Auto");
+}
+
+QString RadioModel::localTcpEndpoint() const
+{
+    if (m_wanConn)
+        return QStringLiteral("SmartLink/WAN");
+
+    const QHostAddress localAddr = m_connection->localAddress();
+    const quint16 localPort = m_connection->localTcpPort();
+    if (localAddr.isNull() || localPort == 0)
+        return QStringLiteral("Not connected");
+    return QStringLiteral("%1:%2").arg(localAddr.toString()).arg(localPort);
+}
+
+QString RadioModel::localUdpEndpoint() const
+{
+    const QHostAddress localAddr = m_panStream->localAddress();
+    const quint16 localPort = m_panStream->localPort();
+    if (localAddr.isNull() || localPort == 0)
+        return QStringLiteral("Not bound");
+    return QStringLiteral("%1:%2").arg(localAddr.toString()).arg(localPort);
+}
+
+bool RadioModel::firstUdpPacketSeen() const
+{
+    return m_panStream->hasReceivedPackets();
 }
 
 PanadapterStream::CategoryStats RadioModel::categoryStats(PanadapterStream::StreamCategory cat) const

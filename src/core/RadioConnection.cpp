@@ -74,13 +74,67 @@ void RadioConnection::init()
 
 void RadioConnection::connectToRadio(const RadioInfo& info)
 {
-    connectToHost(info.address, info.port);
+    connectToHost(info.address, info.port,
+                  info.bindSettings.mode,
+                  info.bindSettings.bindAddress,
+                  info.sessionBindAddress);
 }
 
-void RadioConnection::connectToHost(const QHostAddress& address, quint16 port)
+void RadioConnection::connectToHost(const QHostAddress& address,
+                                    quint16 port,
+                                    RadioBindMode bindMode,
+                                    const QHostAddress& explicitBindAddr,
+                                    const QHostAddress& sessionBindAddr)
 {
     if (m_state.load() != ConnectionState::Disconnected) return;
     if (!m_socket) { qCWarning(lcConnection) << "RadioConnection: init() not called"; return; }
+
+    m_bindMode = bindMode;
+    m_explicitBindAddr = explicitBindAddr;
+    m_sessionBindAddr = sessionBindAddr;
+    m_radioAddr = address;
+    m_localAddr = QHostAddress();
+    m_localPort = 0;
+    m_socket->abort();
+
+    const QHostAddress preferredBindAddr =
+        (bindMode == RadioBindMode::Explicit) ? explicitBindAddr : sessionBindAddr;
+    const bool shouldBind =
+        !preferredBindAddr.isNull() &&
+        preferredBindAddr.protocol() == QAbstractSocket::IPv4Protocol;
+
+    if (shouldBind) {
+        if (!m_socket->bind(preferredBindAddr, 0)) {
+            const QString msg = QStringLiteral("Failed to bind local TCP source address %1: %2")
+                                    .arg(preferredBindAddr.toString(), m_socket->errorString());
+            if (bindMode == RadioBindMode::Explicit) {
+                qCWarning(lcConnection) << "RadioConnection:" << msg;
+                m_socket->abort();
+                m_socket->close();
+                setState(ConnectionState::Error);
+                emit errorOccurred(msg);
+                return;
+            }
+
+            qCDebug(lcConnection) << "RadioConnection: auto bind to"
+                                  << preferredBindAddr.toString()
+                                  << "failed, falling back to OS routing:"
+                                  << m_socket->errorString();
+        } else {
+            qCDebug(lcConnection) << "RadioConnection: bound local TCP source to"
+                                  << preferredBindAddr.toString()
+                                  << ":" << m_socket->localPort()
+                                  << "(mode"
+                                  << (bindMode == RadioBindMode::Explicit ? "Explicit" : "Auto")
+                                  << ")";
+        }
+    } else {
+        qCDebug(lcConnection) << "RadioConnection: no explicit local TCP bind, letting OS route"
+                              << "(mode"
+                              << (bindMode == RadioBindMode::Explicit ? "Explicit" : "Auto")
+                              << ")";
+    }
+
     qCDebug(lcConnection) << "RadioConnection: connecting to" << address.toString() << ":" << port;
     setState(ConnectionState::Connecting);
     m_socket->connectToHost(address, port);
@@ -114,7 +168,10 @@ void RadioConnection::onSocketConnected()
     qCDebug(lcConnection) << "RadioConnection: TCP connected";
     m_socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
     m_radioAddr = m_socket->peerAddress();
+    m_localAddr = m_socket->localAddress();
     m_localPort = m_socket->localPort();
+    qCDebug(lcConnection) << "RadioConnection: local TCP endpoint"
+                          << m_localAddr.toString() << ":" << m_localPort;
     qDebug() << "RTT method:" << (kernelRttMs() >= 0 ? "kernel TCP_INFO" : "QElapsedTimer fallback");
 }
 
@@ -122,6 +179,8 @@ void RadioConnection::onSocketDisconnected()
 {
     qCDebug(lcConnection) << "RadioConnection: TCP disconnected";
     if (m_heartbeat) m_heartbeat->stop();
+    m_localAddr = QHostAddress();
+    m_localPort = 0;
     setState(ConnectionState::Disconnected);
     emit disconnected();
 }

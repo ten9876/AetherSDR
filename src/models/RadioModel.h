@@ -604,6 +604,12 @@ public:
     int     packetTotalCount() const;
     qint64  rxBytes()          const;
     qint64  txBytes()          const;
+    QString targetRadioIp()    const;
+    QString selectedSourceMode() const;
+    QString selectedSourcePath() const;
+    QString localTcpEndpoint() const;
+    QString localUdpEndpoint() const;
+    bool    firstUdpPacketSeen() const;
 
     // Per-category stream stats (Audio, FFT, Waterfall, Meter, DAX)
     PanadapterStream::CategoryStats categoryStats(PanadapterStream::StreamCategory cat) const;

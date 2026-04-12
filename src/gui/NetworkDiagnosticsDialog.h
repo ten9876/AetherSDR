@@ -23,6 +23,11 @@ private:
     QTimer      m_refreshTimer;
 
     QLabel* m_statusLabel;
+    QLabel* m_targetIpLabel;
+    QLabel* m_sourcePathLabel;
+    QLabel* m_tcpEndpointLabel;
+    QLabel* m_udpEndpointLabel;
+    QLabel* m_udpSeenLabel;
     QLabel* m_rttLabel;
     QLabel* m_maxRttLabel;
     QLabel* m_rxRateLabel;

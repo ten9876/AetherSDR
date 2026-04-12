@@ -12,7 +12,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model, QWidget* p
     : QDialog(parent), m_model(model)
 {
     setWindowTitle("Network Diagnostics");
-    setFixedSize(420, 530);
+    setFixedSize(460, 640);
 
     auto* root = new QVBoxLayout(this);
 
@@ -36,6 +36,27 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model, QWidget* p
     statusGrid->addWidget(new QLabel("Status:"), row, 0);
     m_statusLabel = makeVal();
     statusGrid->addWidget(m_statusLabel, row++, 1);
+
+    statusGrid->addWidget(new QLabel("Target Radio IP:"), row, 0);
+    m_targetIpLabel = makeVal();
+    statusGrid->addWidget(m_targetIpLabel, row++, 1);
+
+    statusGrid->addWidget(new QLabel("Selected Source:"), row, 0);
+    m_sourcePathLabel = makeVal();
+    m_sourcePathLabel->setWordWrap(true);
+    statusGrid->addWidget(m_sourcePathLabel, row++, 1);
+
+    statusGrid->addWidget(new QLabel("Local TCP:"), row, 0);
+    m_tcpEndpointLabel = makeVal();
+    statusGrid->addWidget(m_tcpEndpointLabel, row++, 1);
+
+    statusGrid->addWidget(new QLabel("Local UDP:"), row, 0);
+    m_udpEndpointLabel = makeVal();
+    statusGrid->addWidget(m_udpEndpointLabel, row++, 1);
+
+    statusGrid->addWidget(new QLabel("First UDP Packet:"), row, 0);
+    m_udpSeenLabel = makeVal();
+    statusGrid->addWidget(m_udpSeenLabel, row++, 1);
 
     statusGrid->addWidget(new QLabel("Latency (RTT):"), row, 0);
     m_rttLabel = makeVal();
@@ -156,6 +177,13 @@ void NetworkDiagnosticsDialog::refresh()
 {
     // Status and RTT
     m_statusLabel->setText(m_model->networkQuality());
+    m_targetIpLabel->setText(m_model->targetRadioIp().isEmpty()
+                                 ? "Not connected"
+                                 : m_model->targetRadioIp());
+    m_sourcePathLabel->setText(m_model->selectedSourcePath());
+    m_tcpEndpointLabel->setText(m_model->localTcpEndpoint());
+    m_udpEndpointLabel->setText(m_model->localUdpEndpoint());
+    m_udpSeenLabel->setText(m_model->firstUdpPacketSeen() ? "Yes" : "No");
 
     const int rtt = m_model->lastPingRtt();
     m_rttLabel->setText(rtt < 1 ? "< 1 ms" : QString("%1 ms").arg(rtt));
@@ -171,14 +199,12 @@ void NetworkDiagnosticsDialog::refresh()
     QLabel* rateLabels[] = { m_audioRateLabel, m_fftRateLabel, m_wfRateLabel, m_meterRateLabel };
     QLabel* dropLabels[] = { m_audioDropLabel, m_fftDropLabel, m_wfDropLabel, m_meterDropLabel };
 
-    qint64 catSum = 0;
     for (int i = 0; i < 4; ++i) {
         auto cs = m_model->categoryStats(cats[i]);
         const qint64 delta = cs.bytes - m_lastCatBytes[cats[i]];
         rateLabels[i]->setText(formatRate(delta));
         m_lastCatBytes[cats[i]] = cs.bytes;
         dropLabels[i]->setText(formatDrop(cs));
-        catSum += delta;
     }
 
     // DAX traffic

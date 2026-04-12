@@ -35,14 +35,22 @@ public:
     quint32 clientHandle() const        { return m_handle; }
     bool isConnected() const            { return m_state.load() == ConnectionState::Connected; }
     QHostAddress radioAddress() const   { return m_radioAddr; }
+    QHostAddress localAddress() const   { return m_localAddr; }
     quint16      localTcpPort() const   { return m_localPort; }
+    RadioBindMode bindMode() const      { return m_bindMode; }
+    QHostAddress explicitLocalBindAddress() const { return m_explicitBindAddr; }
+    QHostAddress sessionLocalBindAddress() const  { return m_sessionBindAddr; }
 
     using ResponseCallback = std::function<void(int resultCode, const QString& body)>;
 
 public slots:
     void init();  // Create socket + timer on the worker thread
     void connectToRadio(const RadioInfo& info);
-    void connectToHost(const QHostAddress& address, quint16 port = 4992);
+    void connectToHost(const QHostAddress& address,
+                       quint16 port = 4992,
+                       RadioBindMode bindMode = RadioBindMode::Auto,
+                       const QHostAddress& explicitBindAddr = {},
+                       const QHostAddress& sessionBindAddr = {});
     void disconnectFromRadio();
     // Write a pre-sequenced command to the socket. Called from RadioModel
     // via QMetaObject::invokeMethod (auto-queued to worker thread). (#502)
@@ -83,7 +91,11 @@ private:
     QElapsedTimer m_pingStopwatch;  // fallback when kernel TCP_INFO unavailable
 
     QHostAddress m_radioAddr;   // cached for cross-thread reads
+    QHostAddress m_localAddr;
     quint16      m_localPort{0};
+    RadioBindMode m_bindMode{RadioBindMode::Auto};
+    QHostAddress m_explicitBindAddr;
+    QHostAddress m_sessionBindAddr;
 
     // Callbacks removed — responses emitted via commandResponse signal (#502)
 };

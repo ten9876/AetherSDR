@@ -10,6 +10,44 @@
 
 namespace AetherSDR {
 
+enum class RadioBindMode : quint8 {
+    Auto,
+    Explicit
+};
+
+struct RadioBindSettings {
+    RadioBindMode mode{RadioBindMode::Auto};
+    QHostAddress  bindAddress;
+    QString       interfaceId;
+    QString       interfaceName;
+
+    bool hasBindableAddress() const
+    {
+        return !bindAddress.isNull() && bindAddress.protocol() == QAbstractSocket::IPv4Protocol;
+    }
+
+    QString modeString() const
+    {
+        return mode == RadioBindMode::Explicit ? QStringLiteral("Explicit")
+                                               : QStringLiteral("Auto");
+    }
+
+    QString selectionLabel() const
+    {
+        if (mode == RadioBindMode::Auto)
+            return QStringLiteral("Auto");
+
+        QString iface = interfaceName.trimmed();
+        if (iface.isEmpty())
+            iface = interfaceId.trimmed();
+        if (iface.isEmpty())
+            return bindAddress.toString();
+        if (bindAddress.isNull())
+            return iface;
+        return QStringLiteral("%1 (%2)").arg(iface, bindAddress.toString());
+    }
+};
+
 // Represents a discovered FlexRadio on the network.
 struct RadioInfo {
     QString name;           // e.g. "FLEX-6600"
@@ -24,6 +62,8 @@ struct RadioInfo {
     int maxLicensedVersion{0};
     bool inUse{false};
     bool isRouted{false};
+    RadioBindSettings bindSettings;
+    QHostAddress sessionBindAddress;
 
     // Connected GUI client info (from discovery broadcast)
     QStringList guiClientStations;

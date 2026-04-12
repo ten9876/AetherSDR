@@ -7,6 +7,7 @@
 #include <QMap>
 #include <QSet>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QMutex>
 #include <QMutexLocker>
 
@@ -56,7 +57,9 @@ public:
     void startWanUdpRegister(quint32 clientHandle);
     void stop();
 
+    QHostAddress localAddress() const { return m_localAddress; }
     quint16 localPort() const { return m_localPort; }
+    bool    hasReceivedPackets() const { return m_hasReceivedPacket; }
     bool    isRunning() const;
 
     // Update the dBm range used to scale incoming FFT bins for a specific stream.
@@ -217,13 +220,17 @@ private:
     QMap<quint32, int> m_iqStreamIds;
     QHostAddress m_radioAddress;
     quint16      m_radioPort{0};
+    QHostAddress m_localAddress;
+    bool         m_hasReceivedPacket{false};
 
     // WAN UDP registration and keepalive
     QTimer   m_wanRegisterTimer;   // 50ms: "client udp_register" until first packet
     QTimer   m_wanPingTimer;       // 5s: "client ping" keepalive after registration
+    QTimer   m_routedPrimeTimer;   // 250ms: non-WAN UDP prime retry until first packet
     bool     m_isWanMode{false};
     bool     m_wanRegistered{false};
     quint32  m_wanClientHandle{0};
+    QElapsedTimer m_routedPrimeElapsed;
 };
 
 } // namespace AetherSDR

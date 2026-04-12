@@ -1,5 +1,6 @@
 #include "ConnectionPanel.h"
 #include "core/AppSettings.h"
+#include "core/NetworkPathResolver.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -9,8 +10,63 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSignalBlocker>
 
 namespace AetherSDR {
+
+namespace {
+
+constexpr int kSourceModeRole = Qt::UserRole + 10;
+constexpr int kSourceInterfaceIdRole = Qt::UserRole + 11;
+constexpr int kSourceInterfaceNameRole = Qt::UserRole + 12;
+constexpr int kSourceAddressRole = Qt::UserRole + 13;
+constexpr int kSourceStaleRole = Qt::UserRole + 14;
+
+QJsonObject loadRoutedProfiles()
+{
+    const QByteArray json =
+        AppSettings::instance().value("RoutedProfilesJson", "{}").toString().toUtf8();
+    const QJsonDocument doc = QJsonDocument::fromJson(json);
+    return doc.isObject() ? doc.object() : QJsonObject{};
+}
+
+void saveRoutedProfiles(const QJsonObject& profiles)
+{
+    auto& settings = AppSettings::instance();
+    settings.setValue("RoutedProfilesJson",
+                      QString::fromUtf8(QJsonDocument(profiles).toJson(QJsonDocument::Compact)));
+    settings.save();
+}
+
+RadioBindSettings bindSettingsFromProfile(const QJsonObject& profile)
+{
+    const QJsonObject bind = profile.value("bind").toObject();
+    RadioBindSettings settings;
+    settings.mode = bind.value("mode").toString() == "explicit"
+        ? RadioBindMode::Explicit
+        : RadioBindMode::Auto;
+    settings.interfaceId = bind.value("interface_id").toString();
+    settings.interfaceName = bind.value("interface_name").toString();
+    settings.bindAddress = QHostAddress(bind.value("last_successful_ipv4").toString());
+    return settings;
+}
+
+QString staleSelectionText(const RadioBindSettings& settings)
+{
+    QString iface = settings.interfaceName.trimmed();
+    if (iface.isEmpty())
+        iface = settings.interfaceId.trimmed();
+    if (iface.isEmpty())
+        iface = QStringLiteral("Saved source");
+    const QString addr = settings.bindAddress.isNull()
+        ? QStringLiteral("unknown IPv4")
+        : settings.bindAddress.toString();
+    return QStringLiteral("%1 (unavailable, last %2)").arg(iface, addr);
+}
+
+}
 
 ConnectionPanel::ConnectionPanel(QWidget* parent)
     : QWidget(parent)
@@ -114,6 +170,20 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     manRow->addWidget(m_manualProbeBtn);
     manBox->addLayout(manRow);
 
+    auto* sourceRow = new QHBoxLayout;
+    sourceRow->setContentsMargins(0, 0, 0, 0);
+    sourceRow->addWidget(new QLabel("Source:", m_manualGroup));
+    m_manualSourceCombo = new QComboBox(m_manualGroup);
+    sourceRow->addWidget(m_manualSourceCombo, 1);
+    manBox->addLayout(sourceRow);
+
+    m_manualSourceWarningLabel = new QLabel(m_manualGroup);
+    m_manualSourceWarningLabel->setVisible(false);
+    m_manualSourceWarningLabel->setWordWrap(true);
+    m_manualSourceWarningLabel->setStyleSheet("QLabel { color: #ffbb66; font-size: 10px; }");
+    manBox->addWidget(m_manualSourceWarningLabel);
+    refreshManualSourceOptions();
+
     connect(m_manualProbeBtn, &QPushButton::clicked, this, [this] {
         const QString ip = m_manualIpEdit->text().trimmed();
         if (!ip.isEmpty()) probeRadio(ip);
@@ -122,6 +192,8 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
         const QString ip = m_manualIpEdit->text().trimmed();
         if (!ip.isEmpty()) probeRadio(ip);
     });
+    connect(m_manualIpEdit, &QLineEdit::textChanged,
+            this, &ConnectionPanel::onManualIpChanged);
 
     vbox->addWidget(m_manualGroup);
 
@@ -336,12 +408,169 @@ void ConnectionPanel::paintEvent(QPaintEvent*)
     p.fillRect(rect(), QColor(15, 15, 26));
 }
 
+void ConnectionPanel::refreshManualSourceOptions(const RadioBindSettings* selected)
+{
+    const QSignalBlocker blocker(m_manualSourceCombo);
+    m_manualSourceCombo->clear();
+
+    m_manualSourceCombo->addItem("Auto");
+    m_manualSourceCombo->setItemData(0, static_cast<int>(RadioBindMode::Auto), kSourceModeRole);
+    m_manualSourceCombo->setItemData(0, false, kSourceStaleRole);
+
+    int selectedIndex = 0;
+    const auto candidates = NetworkPathResolver::enumerateIpv4Candidates();
+    for (const auto& candidate : candidates) {
+        const int idx = m_manualSourceCombo->count();
+        m_manualSourceCombo->addItem(candidate.label());
+        m_manualSourceCombo->setItemData(idx, static_cast<int>(RadioBindMode::Explicit), kSourceModeRole);
+        m_manualSourceCombo->setItemData(idx, candidate.interfaceId, kSourceInterfaceIdRole);
+        m_manualSourceCombo->setItemData(idx, candidate.interfaceName, kSourceInterfaceNameRole);
+        m_manualSourceCombo->setItemData(idx, candidate.address.toString(), kSourceAddressRole);
+        m_manualSourceCombo->setItemData(idx, false, kSourceStaleRole);
+
+        if (selected &&
+            selected->mode == RadioBindMode::Explicit &&
+            ((!selected->interfaceId.isEmpty() && selected->interfaceId == candidate.interfaceId) ||
+             (!selected->bindAddress.isNull() && selected->bindAddress == candidate.address))) {
+            selectedIndex = idx;
+        }
+    }
+
+    if (selected &&
+        selected->mode == RadioBindMode::Explicit &&
+        selectedIndex == 0) {
+        selectedIndex = m_manualSourceCombo->count();
+        m_manualSourceCombo->addItem(staleSelectionText(*selected));
+        m_manualSourceCombo->setItemData(selectedIndex, static_cast<int>(RadioBindMode::Explicit), kSourceModeRole);
+        m_manualSourceCombo->setItemData(selectedIndex, selected->interfaceId, kSourceInterfaceIdRole);
+        m_manualSourceCombo->setItemData(selectedIndex, selected->interfaceName, kSourceInterfaceNameRole);
+        m_manualSourceCombo->setItemData(selectedIndex, selected->bindAddress.toString(), kSourceAddressRole);
+        m_manualSourceCombo->setItemData(selectedIndex, true, kSourceStaleRole);
+    }
+
+    m_manualSourceCombo->setCurrentIndex(selectedIndex);
+}
+
+void ConnectionPanel::applySavedSourceSelection(const QString& ip)
+{
+    const QString trimmedIp = ip.trimmed();
+    m_manualProfileIp = trimmedIp;
+    m_manualSourceWarningLabel->clear();
+    m_manualSourceWarningLabel->setVisible(false);
+
+    if (trimmedIp.isEmpty()) {
+        refreshManualSourceOptions();
+        return;
+    }
+
+    const QJsonObject profiles = loadRoutedProfiles();
+    const QJsonObject profile = profiles.value(trimmedIp).toObject();
+    if (profile.isEmpty()) {
+        refreshManualSourceOptions();
+        return;
+    }
+
+    RadioBindSettings settings = bindSettingsFromProfile(profile);
+    if (settings.mode == RadioBindMode::Explicit) {
+        const auto resolved = NetworkPathResolver::resolveExplicitSelection(
+            settings.interfaceId, settings.interfaceName, settings.bindAddress);
+        if (resolved.isValid()) {
+            settings.interfaceId = resolved.interfaceId;
+            settings.interfaceName = resolved.interfaceName;
+            settings.bindAddress = resolved.address;
+        } else {
+            m_manualSourceWarningLabel->setText(
+                QStringLiteral("Saved source path for %1 is unavailable. Re-select a live IPv4 source before connecting.")
+                    .arg(trimmedIp));
+            m_manualSourceWarningLabel->setVisible(true);
+        }
+    }
+
+    refreshManualSourceOptions(&settings);
+}
+
+RadioBindSettings ConnectionPanel::currentManualBindSettings(bool* staleSelection) const
+{
+    RadioBindSettings settings;
+    const int index = m_manualSourceCombo->currentIndex();
+    settings.mode = static_cast<RadioBindMode>(
+        m_manualSourceCombo->itemData(index, kSourceModeRole).toInt());
+    settings.interfaceId = m_manualSourceCombo->itemData(index, kSourceInterfaceIdRole).toString();
+    settings.interfaceName = m_manualSourceCombo->itemData(index, kSourceInterfaceNameRole).toString();
+    settings.bindAddress = QHostAddress(m_manualSourceCombo->itemData(index, kSourceAddressRole).toString());
+    if (staleSelection)
+        *staleSelection = m_manualSourceCombo->itemData(index, kSourceStaleRole).toBool();
+    return settings;
+}
+
+void ConnectionPanel::saveManualProfile(const QString& targetIp,
+                                        const RadioBindSettings& settings,
+                                        const QHostAddress& lastSuccessfulLocalIp)
+{
+    if (targetIp.trimmed().isEmpty())
+        return;
+
+    QJsonObject profiles = loadRoutedProfiles();
+    QJsonObject profile;
+    profile["schema_version"] = 1;
+
+    QJsonObject identity;
+    identity["target_address"] = targetIp;
+    profile["identity"] = identity;
+
+    QJsonObject bind;
+    bind["mode"] = settings.mode == RadioBindMode::Explicit ? "explicit" : "auto";
+    bind["interface_id"] = settings.interfaceId;
+    bind["interface_name"] = settings.interfaceName;
+    bind["last_successful_ipv4"] = lastSuccessfulLocalIp.toString();
+    profile["bind"] = bind;
+
+    profiles[targetIp] = profile;
+    saveRoutedProfiles(profiles);
+}
+
+void ConnectionPanel::onManualIpChanged(const QString& ip)
+{
+    const QString trimmed = ip.trimmed();
+    if (trimmed == m_manualProfileIp)
+        return;
+    applySavedSourceSelection(trimmed);
+}
+
 void ConnectionPanel::probeRadio(const QString& ip)
 {
+    if (m_manualIpEdit->text().trimmed() != ip) {
+        m_manualIpEdit->setText(ip);
+        applySavedSourceSelection(ip);
+    } else if (m_manualProfileIp != ip) {
+        applySavedSourceSelection(ip);
+    }
+
+    bool staleSelection = false;
+    const RadioBindSettings bindSettings = currentManualBindSettings(&staleSelection);
+    if (bindSettings.mode == RadioBindMode::Explicit && staleSelection) {
+        m_manualSourceWarningLabel->setText(
+            QStringLiteral("Selected source path is unavailable. Choose a live IPv4 source before probing."));
+        m_manualSourceWarningLabel->setVisible(true);
+        return;
+    }
+
     m_manualProbeBtn->setEnabled(false);
     m_manualProbeBtn->setText("Probing...");
+    m_manualSourceWarningLabel->setVisible(false);
 
     auto* sock = new QTcpSocket(this);
+    if (bindSettings.mode == RadioBindMode::Explicit &&
+        !sock->bind(bindSettings.bindAddress, 0)) {
+        m_manualSourceWarningLabel->setText(
+            QStringLiteral("Failed to bind source %1: %2")
+                .arg(bindSettings.bindAddress.toString(), sock->errorString()));
+        m_manualSourceWarningLabel->setVisible(true);
+        sock->deleteLater();
+        m_manualProbeBtn->setEnabled(true);
+        m_manualProbeBtn->setText("Go");
+        return;
+    }
     sock->connectToHost(ip, 4992);
 
     // 3-second timeout
@@ -350,14 +579,14 @@ void ConnectionPanel::probeRadio(const QString& ip)
             sock->abort();
             sock->deleteLater();
             m_manualProbeBtn->setEnabled(true);
-            m_manualProbeBtn->setText("Connect");
+            m_manualProbeBtn->setText("Go");
         }
     });
 
-    connect(sock, &QTcpSocket::connected, this, [this, sock, ip] {
+    connect(sock, &QTcpSocket::connected, this, [this, sock, ip, bindSettings] {
         // Connected — read V/H lines, then disconnect
         auto* buf = new QByteArray;
-        connect(sock, &QTcpSocket::readyRead, this, [this, sock, ip, buf] {
+        connect(sock, &QTcpSocket::readyRead, this, [this, sock, ip, buf, bindSettings] {
             buf->append(sock->readAll());
 
             // We need V<version>\n and H<handle>\n
@@ -371,6 +600,7 @@ void ConnectionPanel::probeRadio(const QString& ip)
                     version = line.mid(1);
                 else if (line.startsWith('H')) {
                     // Got both V and H — we have enough info
+                    const QHostAddress localSource = sock->localAddress();
                     sock->disconnectFromHost();
                     sock->deleteLater();
                     delete buf;
@@ -385,6 +615,10 @@ void ConnectionPanel::probeRadio(const QString& ip)
                     info.name = "FLEX";
                     info.serial = ip;  // use IP as unique ID for routed radios
                     info.isRouted = true;
+                    info.bindSettings = bindSettings;
+                    info.sessionBindAddress = localSource;
+
+                    saveManualProfile(ip, bindSettings, info.sessionBindAddress);
 
                     // Check if already in list
                     for (int i = 0; i < m_radios.size(); ++i) {
@@ -406,7 +640,9 @@ void ConnectionPanel::probeRadio(const QString& ip)
                     emit routedRadioFound(info);
 
                     qDebug() << "ConnectionPanel: routed radio found at" << ip
-                             << "version:" << version;
+                             << "version:" << version
+                             << "localSource:" << info.sessionBindAddress.toString()
+                             << "mode:" << info.bindSettings.modeString();
                     return;
                 }
             }
@@ -418,7 +654,7 @@ void ConnectionPanel::probeRadio(const QString& ip)
         qWarning() << "ConnectionPanel: probe failed:" << sock->errorString();
         sock->deleteLater();
         m_manualProbeBtn->setEnabled(true);
-        m_manualProbeBtn->setText("Connect");
+        m_manualProbeBtn->setText("Go");
     });
 }
 
