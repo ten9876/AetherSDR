@@ -1874,6 +1874,8 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Restore saved geometry from XML settings
     auto& s = AppSettings::instance();
+    m_startupCenterMhz = s.value("LastFrequency", "0").toDouble();
+    m_startupCenterPending = (m_startupCenterMhz > 0.0);
     const QString geomB64 = s.value("MainWindowGeometry").toString();
     if (!geomB64.isEmpty())
         restoreGeometry(QByteArray::fromBase64(geomB64.toLatin1()));
@@ -1899,42 +1901,15 @@ MainWindow::MainWindow(QWidget* parent)
             showMemoryDialog();
     });
 
-    // What's New dialog — show on version change (#483)
-    // Also check for newer release and offer upgrade (#486)
-    QTimer::singleShot(600, this, [this]() {
+    // Track last-seen version (used by Help → What's New)
+    {
         auto& settings = AppSettings::instance();
-        QString lastSeen = settings.value("LastSeenVersion").toString();
         QString current = QCoreApplication::applicationVersion();
-
-        // Version changed since last launch — show What's New immediately
-        if (lastSeen != current) {
+        if (settings.value("LastSeenVersion").toString() != current) {
             settings.setValue("LastSeenVersion", current);
             settings.save();
-            m_whatsNewDialog = new WhatsNewDialog(lastSeen, current, this);
-            m_whatsNewDialog->show();
-            return;  // don't also check for upgrade on the same launch
         }
-
-        // Same version — check if a newer release is available
-        auto* nam = new QNetworkAccessManager(this);
-        auto* reply = nam->get(QNetworkRequest(
-            QUrl("https://api.github.com/repos/ten9876/AetherSDR/releases/latest")));
-        connect(reply, &QNetworkReply::finished, this, [this, reply, nam, current] {
-            reply->deleteLater();
-            nam->deleteLater();
-            if (reply->error() != QNetworkReply::NoError) return;
-            auto doc = QJsonDocument::fromJson(reply->readAll());
-            QString latest = doc.object().value("tag_name").toString();
-            if (latest.startsWith('v')) latest = latest.mid(1);
-            auto latestVer = VersionNumber::parse(latest);
-            auto currentVer = VersionNumber::parse(current);
-            if (latestVer.isNull() || currentVer >= latestVer) return;
-
-            // Newer version available — show What's New with upgrade button
-            m_whatsNewDialog = new WhatsNewDialog(current, latest, this, true);
-            m_whatsNewDialog->show();
-        });
-    });
+    }
 }
 
 MainWindow::~MainWindow()
@@ -1978,6 +1953,7 @@ MainWindow::~MainWindow()
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     m_shuttingDown = true;
+    m_panStack->prepareShutdown();
     auto& s = AppSettings::instance();
     s.setValue("MainWindowGeometry", saveGeometry().toBase64());
     s.setValue("MainWindowState",   saveState().toBase64());
@@ -3186,12 +3162,14 @@ void MainWindow::buildMenuBar()
     });
     helpMenu->addSeparator();
     helpMenu->addAction("Support...", this, [this]() {
-        SupportDialog dlg(this);
-        dlg.setRadioModel(&m_radioModel);
-        dlg.exec();
+        auto* dlg = new SupportDialog(this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setRadioModel(&m_radioModel);
+        dlg->show();
+        dlg->raise();
     });
     helpMenu->addAction("Slice Troubleshooting...", this, [this]() {
-        SliceTroubleshootingDialog dlg(&m_radioModel, this);
+        SliceTroubleshootingDialog dlg(&m_radioModel, m_audio, this);
         dlg.exec();
     });
     helpMenu->addAction("What's New...", this, [this]() {
@@ -4308,9 +4286,10 @@ void MainWindow::onSliceAdded(SliceModel* s)
     if (m_applyingLayout) return;
 
     qDebug() << "MainWindow: slice added" << s->sliceId();
+    const bool firstSlice = (m_activeSliceId < 0);
 
     // First slice — wire everything up
-    if (m_activeSliceId < 0) {
+    if (firstSlice) {
         setActiveSlice(s->sliceId());
 
         // Detect initial band from radio's frequency
@@ -4628,6 +4607,14 @@ void MainWindow::onSliceAdded(SliceModel* s)
         updateSplitState();
         // Auto-focus the TX VFO so the user can immediately tune the TX offset
         setActiveSlice(s->sliceId());
+    }
+
+    if (firstSlice && m_startupCenterPending) {
+        m_startupCenterPending = false;
+        const double startupCenter = m_startupCenterMhz;
+        QTimer::singleShot(0, this, [this, startupCenter]() {
+            centerActiveSliceInPanadapter(true, startupCenter);
+        });
     }
 }
 
@@ -5110,6 +5097,18 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             sw, &SpectrumWidget::setNoiseFloorPosition);
     connect(menu, &SpectrumOverlayMenu::noiseFloorEnableChanged,
             sw, &SpectrumWidget::setNoiseFloorEnable);
+
+    // Pop out / dock panadapter
+    connect(sw, &SpectrumWidget::popOutRequested, this, [this, applet](bool popOut) {
+        if (popOut) {
+            m_panStack->floatPanadapter(applet->panId());
+        } else {
+            m_panStack->dockPanadapter(applet->panId());
+        }
+    });
+    connect(applet, &PanadapterApplet::popOutClicked, this, [this, applet]() {
+        m_panStack->floatPanadapter(applet->panId());
+    });
 
     // ── DAX IQ pan routing from overlay menu ───────────────────────────
     // The overlay controls which pan feeds which IQ channel (routing only).
@@ -5629,6 +5628,10 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
         if (m_radioModel.slice(sliceId))
             m_radioModel.cwAutoTune(sliceId, intermittent);
     });
+    connect(w, &VfoWidget::autotuneOnceRequested, this, [this, sliceId]() {
+        if (m_radioModel.slice(sliceId))
+            m_radioModel.cwAutoTuneOnce(sliceId);
+    });
     connect(w, &VfoWidget::addSpotRequested, this, [this](double freqMhz) {
         spectrum()->showAddSpotDialog(freqMhz);
     });
@@ -5957,6 +5960,35 @@ void MainWindow::updateKeyerAvailability(const QString& mode)
     m_dvkIndicator->setCursor(isSsb ? Qt::PointingHandCursor : Qt::ArrowCursor);
 }
 
+void MainWindow::centerActiveSliceInPanadapter(bool forceRadioCenter, double centerMhz)
+{
+    auto* s = activeSlice();
+    if (!s || s->panId().isEmpty()) return;
+
+    auto* sw = spectrumForSlice(s);
+    if (!sw) return;
+
+    auto* pan = m_radioModel.panadapter(s->panId());
+    const double bandwidthMhz = pan ? pan->bandwidthMhz() : m_radioModel.panBandwidthMhz();
+    const double targetMhz = (centerMhz > 0.0) ? centerMhz : s->frequency();
+
+    if (m_panStack) {
+        if (auto* applet = m_panStack->panadapter(s->panId()))
+            m_panStack->setActivePan(applet->panId());
+    }
+
+    // Keep the local spectrum centered immediately so the active slice marker
+    // is visible before the radio's status echo arrives.
+    sw->setFrequencyRange(targetMhz, bandwidthMhz);
+    sw->setVfoFrequency(targetMhz);
+
+    if (forceRadioCenter && m_radioModel.isConnected()) {
+        m_radioModel.sendCommand(
+            QString("display pan set %1 center=%2")
+                .arg(s->panId()).arg(targetMhz, 0, 'f', 6));
+    }
+}
+
 void MainWindow::registerShortcutActions()
 {
     // Helper: nudge active slice frequency by N steps.
@@ -6005,7 +6037,13 @@ void MainWindow::registerShortcutActions()
             auto* s = activeSlice();
             auto* sw = s ? spectrumForSlice(s) : nullptr;
             auto* vfo = (s && sw) ? sw->vfoWidget(s->sliceId()) : nullptr;
-            if (vfo) vfo->beginDirectEntry();
+            if (!s || !vfo) return;
+            centerActiveSliceInPanadapter(true);
+            QPointer<VfoWidget> vfoGuard = vfo;
+            QTimer::singleShot(0, this, [vfoGuard]() {
+                if (vfoGuard)
+                    vfoGuard->beginDirectEntry();
+            });
         });
 
     // ── Band ────────────────────────────────────────────────────────────
