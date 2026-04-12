@@ -41,7 +41,7 @@ public:
                              float lineWidth = 2.0f);
     // Sync blanker/cursor/opacity controls not covered by syncDisplaySettings.
     void syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
-                                  bool cursorFreq, int bgOpacity);
+                                  int bgOpacity);
 
     // Set the panadapter ID this overlay belongs to (for +RX routing).
     void setPanId(const QString& id) { m_panId = id; }
@@ -56,12 +56,12 @@ public:
     // Populate XVTR band sub-panel
     struct XvtrBand { QString name; double rfFreqMhz; };
     void setXvtrBands(const QVector<XvtrBand>& bands);
+    void syncDaxIqChannel(int channel);
     QPushButton* dspNr2Button() const;
     QPushButton* dspRn2Button() const;
     QPushButton* dspBnrButton() const;
     QPushButton* dspNr4Button() const;
     QPushButton* dspDfnrButton() const;
-    QPushButton* cursorFreqButton() const { return m_cursorFreqBtn; }
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -113,7 +113,6 @@ signals:
     // NB Waterfall Blanker (#277)
     void wfBlankerEnabledChanged(bool on);
     void wfBlankerThresholdChanged(float threshold);
-    void cursorFreqToggled(bool on);
     void backgroundImageRequested();
     void backgroundImageCleared();
     void backgroundOpacityChanged(int pct);
@@ -173,7 +172,6 @@ private:
     // DAX sub-panel
     QWidget*   m_daxPanel{nullptr};
     bool       m_daxPanelVisible{false};
-    QComboBox* m_daxCmb{nullptr};
     QComboBox* m_daxIqCmb{nullptr};
 
     // Display sub-panel
@@ -208,7 +206,6 @@ private:
     QLabel*      m_floorLabel{nullptr};
     QPushButton* m_floorEnableBtn{nullptr};
 
-    QPushButton* m_cursorFreqBtn{nullptr};
     QSlider*     m_bgOpacitySlider{nullptr};
     QLabel*      m_bgOpacityLabel{nullptr};
 

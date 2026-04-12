@@ -436,7 +436,22 @@ void CatApplet::setRadioModel(RadioModel* model)
     m_model = model;
     if (model) {
         connect(model, &RadioModel::connectionStateChanged,
-                this, [this](bool) { updateAllChannelStatus(); });
+                this, [this](bool connected) {
+            updateAllChannelStatus();
+            // Reset IQ buttons — streams are per-session, not persisted by radio
+            if (connected) {
+                static const QString kOff =
+                    "QPushButton { background: #1a2a3a; color: #8090a0; "
+                    "border: 1px solid #205070; padding: 2px 8px; border-radius: 3px; font-size: 10px; }";
+                for (int i = 0; i < kChannels; ++i) {
+                    if (m_iqEnable[i]) {
+                        m_iqEnable[i]->setText("Off");
+                        m_iqEnable[i]->setStyleSheet(kOff);
+                        if (m_iqMeter[i]) m_iqMeter[i]->setValue(0);
+                    }
+                }
+            }
+        });
 
         // Wire slice add/remove for DAX channel tracking
         connect(model, &RadioModel::sliceAdded, this, [this](SliceModel* s) {

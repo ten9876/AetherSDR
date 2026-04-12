@@ -42,6 +42,7 @@ public:
     void setPreamp(const QString& pre) {
         if (m_preamp != pre) { m_preamp = pre; emit rfGainChanged(m_rfGain, m_preamp); }
     }
+    int daxiqChannel() const { return m_daxiqChannel; }
 
     // Configuration flags
     bool isResized() const { return m_resized; }
@@ -61,6 +62,7 @@ signals:
     void rfGainInfoChanged(int low, int high, int step);
     void wnbChanged(bool active, int level);
     void waterfallIdChanged(const QString& wfId);
+    void daxiqChannelChanged(int channel);
 
 private:
     QString     m_panId;
@@ -78,6 +80,7 @@ private:
     bool        m_wnbActive{false};
     int         m_wnbLevel{50};
     QString     m_preamp;
+    int         m_daxiqChannel{0};
     bool        m_resized{false};
     bool        m_wfConfigured{false};
 };

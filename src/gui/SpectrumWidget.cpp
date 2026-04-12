@@ -3112,42 +3112,94 @@ void SpectrumWidget::drawSpectrum(QPainter& p, const QRect& r)
     const int h = r.height();
     const int n = m_smoothed.size();
 
-    // Build the spectrum line path (data points only)
-    QPainterPath linePath;
-    bool first = true;
+    // Heat map: blue(0) → cyan(0.25) → green(0.5) → yellow(0.75) → red(1.0)
+    auto heatColor = [](float t) -> QColor {
+        float cr, cg, cb;
+        if (t < 0.25f) {
+            float s = t / 0.25f;
+            cr = 0.0f; cg = s; cb = 1.0f;
+        } else if (t < 0.5f) {
+            float s = (t - 0.25f) / 0.25f;
+            cr = 0.0f; cg = 1.0f; cb = 1.0f - s;
+        } else if (t < 0.75f) {
+            float s = (t - 0.5f) / 0.25f;
+            cr = s; cg = 1.0f; cb = 0.0f;
+        } else {
+            float s = (t - 0.75f) / 0.25f;
+            cr = 1.0f; cg = 1.0f - s; cb = 0.0f;
+        }
+        return QColor::fromRgbF(cr, cg, cb);
+    };
 
+    // Pre-compute positions and normalized levels
+    struct Pt { int x, y; float t; };
+    QVector<Pt> pts(n);
     for (int i = 0; i < n; ++i) {
         const float dbm  = m_smoothed[i];
         const float norm = qBound(0.0f, (m_refLevel - dbm) / m_dynamicRange, 1.0f);
-        const int   x    = r.left() + static_cast<int>(static_cast<float>(i) / n * w);
-        const int   y    = r.top()  + qMin(static_cast<int>(norm * h), h - 1);
-
-        if (first) { linePath.moveTo(x, y); first = false; }
-        else        linePath.lineTo(x, y);
+        pts[i].x = r.left() + static_cast<int>(static_cast<float>(i) / n * w);
+        pts[i].y = r.top()  + qMin(static_cast<int>(norm * h), h - 1);
+        pts[i].t = 1.0f - norm;  // 0=noise floor, 1=strong signal
     }
 
-    // Closed fill path (line + bottom edges) for gradient fill only
-    QPainterPath fillPath(linePath);
-    fillPath.lineTo(r.right(), r.bottom());
-    fillPath.lineTo(r.left(),  r.bottom());
-    fillPath.closeSubpath();
-
-    const int alphaTop = static_cast<int>(200 * m_fftFillAlpha);
-    const int alphaBot = static_cast<int>(60 * m_fftFillAlpha);
-    // Derive darker bottom color from fill color
-    QColor topColor(m_fftFillColor);
-    topColor.setAlpha(alphaTop);
-    QColor botColor = m_fftFillColor.darker(300);
-    botColor.setAlpha(alphaBot);
-    QLinearGradient grad(0, r.top(), 0, r.bottom());
-    grad.setColorAt(0.0, topColor);
-    grad.setColorAt(1.0, botColor);
-
     p.setRenderHint(QPainter::Antialiasing, true);
-    p.fillPath(fillPath, grad);
-    // Stroke only the spectrum line, not the fill closure
-    p.setPen(QPen(m_fftFillColor, 1.5));
-    p.drawPath(linePath);
+
+    if (m_fftHeatMap) {
+        // Heat map fill: per-column vertical gradient from heat color at top to dark blue at base
+        const int bottom = r.bottom();
+        for (int i = 0; i < n - 1; ++i) {
+            QPolygonF trapezoid;
+            trapezoid << QPointF(pts[i].x, pts[i].y)
+                      << QPointF(pts[i+1].x, pts[i+1].y)
+                      << QPointF(pts[i+1].x, bottom)
+                      << QPointF(pts[i].x, bottom);
+
+            float avgT = (pts[i].t + pts[i+1].t) * 0.5f;
+            QColor top = heatColor(avgT);
+            top.setAlphaF(m_fftFillAlpha * 0.3f);
+            QColor bot(0, 0, 77, static_cast<int>(255 * m_fftFillAlpha));
+            QLinearGradient grad(0, qMin(pts[i].y, pts[i+1].y), 0, bottom);
+            grad.setColorAt(0.0, top);
+            grad.setColorAt(1.0, bot);
+            p.setPen(Qt::NoPen);
+            p.setBrush(grad);
+            p.drawPolygon(trapezoid);
+        }
+
+        // Heat map line: per-segment coloring
+        for (int i = 0; i < n - 1; ++i) {
+            float avgT = (pts[i].t + pts[i+1].t) * 0.5f;
+            p.setPen(QPen(heatColor(avgT), 1.5));
+            p.drawLine(pts[i].x, pts[i].y, pts[i+1].x, pts[i+1].y);
+        }
+    } else {
+        // Solid color fill + line
+        QPainterPath linePath;
+        linePath.moveTo(pts[0].x, pts[0].y);
+        for (int i = 1; i < n; ++i) {
+            linePath.lineTo(pts[i].x, pts[i].y);
+        }
+
+        QPainterPath fillPath(linePath);
+        fillPath.lineTo(r.right(), r.bottom());
+        fillPath.lineTo(r.left(),  r.bottom());
+        fillPath.closeSubpath();
+
+        const int alphaTop = static_cast<int>(200 * m_fftFillAlpha);
+        const int alphaBot = static_cast<int>(60 * m_fftFillAlpha);
+        QColor topColor(m_fftFillColor);
+        topColor.setAlpha(alphaTop);
+        QColor botColor = m_fftFillColor.darker(300);
+        botColor.setAlpha(alphaBot);
+        QLinearGradient grad(0, r.top(), 0, r.bottom());
+        grad.setColorAt(0.0, topColor);
+        grad.setColorAt(1.0, botColor);
+
+        p.fillPath(fillPath, grad);
+        p.setPen(QPen(m_fftFillColor, 1.5));
+        p.drawPath(linePath);
+    }
+
     p.setRenderHint(QPainter::Antialiasing, false);
 }
 

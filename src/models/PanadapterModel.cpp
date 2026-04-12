@@ -97,6 +97,13 @@ void PanadapterModel::applyPanStatus(const QMap<QString, QString>& kvs)
     if (kvs.contains("waterfall")) {
         setWaterfallId(kvs["waterfall"]);
     }
+    if (kvs.contains("daxiq_channel")) {
+        int ch = kvs["daxiq_channel"].toInt();
+        if (ch != m_daxiqChannel) {
+            m_daxiqChannel = ch;
+            emit daxiqChannelChanged(ch);
+        }
+    }
 
     if (infoChanged)
         emit this->infoChanged(m_centerMhz, m_bandwidthMhz);

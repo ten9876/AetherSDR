@@ -203,7 +203,15 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             // FWDPWR meter reports in dBm — convert to watts for display.
             // watts = 10^(dBm/10) / 1000
             // e.g. 50 dBm = 100 W, 47 dBm ≈ 50 W, 40 dBm = 10 W
-            m_fwdPower = std::pow(10.0f, v / 10.0f) / 1000.0f;
+            float watts = std::pow(10.0f, v / 10.0f) / 1000.0f;
+            // Smooth: fast attack (α=0.5) to track peaks, slow decay (α=0.15)
+            // for stable display without jitter (#980)
+            if (m_fwdPower < 0.01f) {
+                m_fwdPower = watts;  // first sample — no smoothing
+            } else {
+                float alpha = (watts > m_fwdPower) ? 0.5f : 0.15f;
+                m_fwdPower = alpha * watts + (1.0f - alpha) * m_fwdPower;
+            }
             txChanged = true;
         } else if (idx == m_swrIdx) {
             m_swr = v;

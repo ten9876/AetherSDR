@@ -522,14 +522,6 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
     m_dspRows[13].btn->setVisible(false);
 #endif
 
-    // DAX
-    connect(m_slice, &SliceModel::daxChannelChanged, this, [this](int ch) {
-        m_updatingFromModel = true;
-        QSignalBlocker sb(m_daxCmb);
-        m_daxCmb->setCurrentIndex(ch);
-        m_updatingFromModel = false;
-    });
-
     syncAntPanel();
     syncDspPanel();
     syncDaxPanel();
@@ -735,23 +727,6 @@ void SpectrumOverlayMenu::buildDaxPanel()
     vb->setContentsMargins(6, 6, 6, 6);
     vb->setSpacing(4);
 
-    auto* row = new QHBoxLayout;
-    row->setSpacing(4);
-    auto* lbl = new QLabel("DAX Ch");
-    lbl->setStyleSheet(kLabelStyle);
-    row->addWidget(lbl);
-    m_daxCmb = new GuardedComboBox;
-    m_daxCmb->addItems({"Off", "1", "2", "3", "4"});
-    AetherSDR::applyComboStyle(m_daxCmb);
-    row->addWidget(m_daxCmb, 1);
-    vb->addLayout(row);
-
-    connect(m_daxCmb, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int idx) {
-        if (!m_updatingFromModel && m_slice)
-            m_slice->setDaxChannel(idx);
-    });
-
     auto* iqRow = new QHBoxLayout;
     iqRow->setSpacing(4);
     auto* iqLbl = new QLabel("IQ Ch");
@@ -775,11 +750,16 @@ void SpectrumOverlayMenu::buildDaxPanel()
 
 void SpectrumOverlayMenu::syncDaxPanel()
 {
-    if (!m_slice) return;
-    m_updatingFromModel = true;
-    QSignalBlocker sb(m_daxCmb);
-    m_daxCmb->setCurrentIndex(m_slice->daxChannel());
-    m_updatingFromModel = false;
+    // DAX IQ combo is synced via syncDaxIqChannel() from PanadapterModel.
+    // Regular DAX channel is managed by the VFO widget.
+}
+
+void SpectrumOverlayMenu::syncDaxIqChannel(int channel)
+{
+    if (!m_daxIqCmb) return;
+    QSignalBlocker sb(m_daxIqCmb);
+    int idx = qBound(0, channel, m_daxIqCmb->count() - 1);
+    m_daxIqCmb->setCurrentIndex(idx);
 }
 
 void SpectrumOverlayMenu::toggleDaxPanel()
@@ -1166,7 +1146,6 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         makeToggle("Heat Map", m_heatMapBtn);
         makeToggle("Grid", m_showGridBtn, true);
         makeToggle("Wt Avg", m_weightedAvgBtn);
-        makeToggle("Cursor", m_cursorFreqBtn);
 
         grid->addWidget(toggleRow, row, 0, 1, 4);
         ++row;
@@ -1179,9 +1158,6 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         });
         connect(m_weightedAvgBtn, &QPushButton::toggled, this, [this](bool on) {
             emit fftWeightedAverageChanged(on);
-        });
-        connect(m_cursorFreqBtn, &QPushButton::toggled, this, [this](bool on) {
-            emit cursorFreqToggled(on);
         });
     }
 
@@ -1226,7 +1202,6 @@ void SpectrumOverlayMenu::buildDisplayPanel()
     m_rateSlider->setToolTip("Waterfall line duration. Lower values scroll faster.");
     if (m_wfBlankerThreshSlider) m_wfBlankerThreshSlider->setToolTip("Waterfall noise blanking threshold. Higher values blank more aggressively.");
     if (m_colorSchemeCmb) m_colorSchemeCmb->setToolTip("Selects the waterfall color palette.");
-    if (m_cursorFreqBtn) m_cursorFreqBtn->setToolTip("Shows the frequency at the mouse cursor position on the panadapter.");
     if (m_bgOpacitySlider) m_bgOpacitySlider->setToolTip("Opacity of the background image overlay.");
     if (m_floorEnableBtn) m_floorEnableBtn->setToolTip("Shows a noise floor reference line on the spectrum display.");
     if (m_floorSlider) m_floorSlider->setToolTip("Vertical position of the noise floor reference line.");
@@ -1297,7 +1272,7 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
 }
 
 void SpectrumOverlayMenu::syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
-                                                    bool cursorFreq, int bgOpacity)
+                                                    int bgOpacity)
 {
     if (m_wfBlankerBtn) {
         QSignalBlocker b(m_wfBlankerBtn);
@@ -1310,10 +1285,6 @@ void SpectrumOverlayMenu::syncExtraDisplaySettings(bool blankerOn, float blanker
         m_wfBlankerThreshSlider->setValue(sliderVal);
         if (m_wfBlankerThreshLabel)
             m_wfBlankerThreshLabel->setText(QString::number(blankerThresh, 'f', 2));
-    }
-    if (m_cursorFreqBtn) {
-        QSignalBlocker b(m_cursorFreqBtn);
-        m_cursorFreqBtn->setChecked(cursorFreq);
     }
     if (m_bgOpacitySlider) {
         QSignalBlocker b(m_bgOpacitySlider);

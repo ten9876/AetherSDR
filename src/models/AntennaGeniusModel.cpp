@@ -394,7 +394,7 @@ void AntennaGeniusModel::processResponse(int seq, int code, const QString& body)
                     // On initial connect, recall saved antenna for this band.
                     if (ps.band > 0) {
                         int saved = recallBandAntenna(1, ps.band);
-                        if (saved > 0 && saved != ps.rxAntenna)
+                        if (saved > 0)
                             selectAntenna(1, saved);
                     }
                 } else {
@@ -404,7 +404,7 @@ void AntennaGeniusModel::processResponse(int seq, int code, const QString& body)
                     emit portStatusChanged(2);
                     if (ps.band > 0) {
                         int saved = recallBandAntenna(2, ps.band);
-                        if (saved > 0 && saved != ps.rxAntenna)
+                        if (saved > 0)
                             selectAntenna(2, saved);
                     }
                 }
@@ -645,14 +645,14 @@ void AntennaGeniusModel::onBandChanged(int portId, int oldBand, int oldAnt, int 
     if (newBand == 0) return;  // band "None" — nothing to recall
 
     // Recall the saved antenna for the new band.
+    // Always send the command even if the AG already reports the correct
+    // antenna — the AG's auto-mode can override it milliseconds later,
+    // so we must assert our preference unconditionally (#1213).
     int saved = recallBandAntenna(portId, newBand);
     if (saved > 0) {
-        const auto& ps = (portId == 1) ? m_portA : m_portB;
-        if (saved != ps.rxAntenna) {
-            qCDebug(lcTuner) << "AntennaGenius: recalling antenna" << antennaName(saved)
-                     << "for band" << bandName(newBand) << "on port" << portId;
-            selectAntenna(portId, saved);
-        }
+        qCDebug(lcTuner) << "AntennaGenius: recalling antenna" << antennaName(saved)
+                 << "for band" << bandName(newBand) << "on port" << portId;
+        selectAntenna(portId, saved);
     } else if (newBand > 0) {
         // First visit to this band — save current antenna as default.
         const auto& ps = (portId == 1) ? m_portA : m_portB;
