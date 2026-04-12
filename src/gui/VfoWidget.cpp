@@ -706,11 +706,11 @@ void VfoWidget::buildTabContent()
         m_agcTSlider->setValue(65);
         m_agcTSlider->setStyleSheet(kSliderStyle);
         agcRow->addWidget(m_agcTSlider, 1);
-        auto* agcVal = new QLabel("65");
-        agcVal->setStyleSheet(kLabelStyle);
-        agcVal->setFixedWidth(20);
-        agcVal->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        agcRow->addWidget(agcVal);
+        m_agcValueLbl = new QLabel("65");
+        m_agcValueLbl->setStyleSheet(kLabelStyle);
+        m_agcValueLbl->setFixedWidth(20);
+        m_agcValueLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        agcRow->addWidget(m_agcValueLbl);
         vb->addLayout(agcRow);
 
         // Pan row: DIV button + L + slider (with center marker) + R
@@ -871,10 +871,16 @@ void VfoWidget::buildTabContent()
                 m_slice->setAgcMode(mode);
             }
         });
-        connect(m_agcTSlider, &QSlider::valueChanged, this, [this, agcVal](int v) {
-            agcVal->setText(QString::number(v));
-            m_agcTSlider->setToolTip(QString("AGC Threshold: %1").arg(v));
-            if (!m_updatingFromModel && m_slice) m_slice->setAgcThreshold(v);
+        connect(m_agcTSlider, &QSlider::valueChanged, this, [this](int v) {
+            if (m_agcValueLbl) m_agcValueLbl->setText(QString::number(v));
+            const bool agcOff = m_slice && (m_slice->agcMode() == "off");
+            m_agcTSlider->setToolTip(agcOff
+                ? QString("AGC Off Level: %1").arg(v)
+                : QString("AGC Threshold: %1").arg(v));
+            if (!m_updatingFromModel && m_slice) {
+                if (agcOff) m_slice->setAgcOffLevel(v);
+                else m_slice->setAgcThreshold(v);
+            }
         });
         connect(m_panSlider, &QSlider::valueChanged, this, [this](int v) {
             if (!m_updatingFromModel && m_slice) m_slice->setAudioPan(v);
@@ -2384,11 +2390,19 @@ void VfoWidget::setSlice(SliceModel* slice)
         else if (mode == "slow") m_agcCmb->setCurrentText("Slow");
         else if (mode == "med") m_agcCmb->setCurrentText("Med");
         else if (mode == "fast") m_agcCmb->setCurrentText("Fast");
+        updateAgcSliderFromSlice();
         m_updatingFromModel = false;
     });
     connect(m_slice, &SliceModel::agcThresholdChanged, this, [this](int v) {
+        Q_UNUSED(v);
         m_updatingFromModel = true;
-        m_agcTSlider->setValue(v);
+        if (m_slice && m_slice->agcMode() != "off") updateAgcSliderFromSlice();
+        m_updatingFromModel = false;
+    });
+    connect(m_slice, &SliceModel::agcOffLevelChanged, this, [this](int v) {
+        Q_UNUSED(v);
+        m_updatingFromModel = true;
+        if (m_slice && m_slice->agcMode() == "off") updateAgcSliderFromSlice();
         m_updatingFromModel = false;
     });
     // RIT/XIT
@@ -2627,11 +2641,7 @@ void VfoWidget::syncFromSlice()
         else if (mode == "med") m_agcCmb->setCurrentText("Med");
         else if (mode == "fast") m_agcCmb->setCurrentText("Fast");
     }
-    {
-        QSignalBlocker sb(m_agcTSlider);
-        m_agcTSlider->setValue(m_slice->agcThreshold());
-        m_agcTSlider->setToolTip(QString("AGC Threshold: %1").arg(m_slice->agcThreshold()));
-    }
+    updateAgcSliderFromSlice();
 
     // ESC (diversity beamforming) — phase in radians, display as degrees
     {
@@ -2895,6 +2905,22 @@ QString VfoWidget::formatFilterLabel(int hz)
 {
     if (hz >= 1000) return QString("%1K").arg(hz / 1000.0, 0, 'f', (hz % 1000) ? 1 : 0);
     return QString::number(hz);
+}
+
+void VfoWidget::updateAgcSliderFromSlice()
+{
+    if (!m_slice || !m_agcTSlider || !m_agcValueLbl) return;
+
+    const bool agcOff = (m_slice->agcMode() == "off");
+    const int value = agcOff ? m_slice->agcOffLevel() : m_slice->agcThreshold();
+
+    QSignalBlocker blocker(m_agcTSlider);
+    m_agcTSlider->setValue(value);
+    m_agcTSlider->setToolTip(agcOff
+        ? QString("AGC Off Level: %1").arg(value)
+        : QString("AGC Threshold: %1").arg(value));
+    m_agcTSlider->setAccessibleName(agcOff ? "AGC off level" : "AGC threshold");
+    m_agcValueLbl->setText(QString::number(value));
 }
 
 void VfoWidget::rebuildFilterButtons()

@@ -118,6 +118,7 @@ private:
     void updateFilterHighlight();
     void applyFilterPreset(int widthHz);
     void saveFilterPresets();
+    void updateAgcSliderFromSlice();
     static QString formatFilterLabel(int hz);
 
     SliceModel*    m_slice{nullptr};
@@ -182,6 +183,7 @@ private:
     QSlider* m_sqlSlider{nullptr};
     QComboBox* m_agcCmb{nullptr};
     QSlider* m_agcTSlider{nullptr};
+    QLabel* m_agcValueLbl{nullptr};
     // DSP tab
     QPushButton* m_nbBtn{nullptr};
     QPushButton* m_nrBtn{nullptr};
