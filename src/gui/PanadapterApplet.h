@@ -32,6 +32,8 @@ public:
     void clearSliceTitle();
 
     // CW decode panel
+    void setMultiPanMode(bool multi);  // show/hide title bar decorations
+    void setFloatingState(bool floating);  // switch pop-out ↔ dock icon
     void setCwPanelVisible(bool visible);
     void appendCwText(const QString& text, float cost = 0.0f);
     void setCwStats(float pitchHz, float speedWpm);
@@ -44,6 +46,8 @@ public:
 signals:
     void activated(const QString& panId);
     void closeRequested(const QString& panId);
+    void popOutClicked();
+    void dockClicked();
     void pitchRangeChanged(int minHz, int maxHz);
 
 protected:
@@ -53,6 +57,10 @@ private:
     QString m_panId;
     SpectrumWidget* m_spectrum{nullptr};
     QLabel*         m_titleLabel{nullptr};
+    QPushButton*    m_popOutBtn{nullptr};
+    QPushButton*    m_maxBtn{nullptr};
+    QPushButton*    m_closeBtn{nullptr};
+    bool            m_isFloating{false};
 
     // CW decode
     QWidget*   m_cwPanel{nullptr};

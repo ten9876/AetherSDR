@@ -1,11 +1,21 @@
 #include "PanadapterStack.h"
 #include "BandStackPanel.h"
+#include "PanFloatingWindow.h"
 #include "PanadapterApplet.h"
 #include "SpectrumWidget.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QTimer>
+#include <QWindow>
+
+// After reparenting a QRhiWidget to a different top-level window,
+// force a repaint so the GPU surface binds to the new window.
+static void refreshAfterReparent(AetherSDR::SpectrumWidget* sw)
+{
+    if (!sw) return;
+    sw->update();
+}
 
 namespace AetherSDR {
 
@@ -71,8 +81,13 @@ PanadapterApplet* PanadapterStack::addPanadapter(const QString& panId)
     if (m_activePanId.isEmpty())
         setActivePan(panId);
 
+    // Update multi-pan mode decorations on all applets
+    bool multi = m_pans.size() > 1;
+    for (auto* a : m_pans)
+        a->setMultiPanMode(multi);
+
     // Equalize sizes whenever a pan is added
-    if (m_pans.size() > 1)
+    if (multi)
         equalizeSizes();
 
     return applet;
@@ -80,6 +95,16 @@ PanadapterApplet* PanadapterStack::addPanadapter(const QString& panId)
 
 void PanadapterStack::removePanadapter(const QString& panId)
 {
+    // Close floating window if this pan is floating
+    if (auto* fw = m_floatingWindows.take(panId)) {
+        fw->setShuttingDown(true);
+        // Don't takeApplet — the applet will be deleted below
+        // just disconnect and hide the window
+        fw->disconnect();
+        fw->hide();
+        fw->deleteLater();
+    }
+
     auto* applet = m_pans.take(panId);
     if (!applet) return;
 
@@ -92,6 +117,11 @@ void PanadapterStack::removePanadapter(const QString& panId)
         else
             m_activePanId.clear();
     }
+
+    // Update multi-pan mode decorations
+    bool multi = m_pans.size() > 1;
+    for (auto* a : m_pans)
+        a->setMultiPanMode(multi);
 }
 
 void PanadapterStack::rekey(const QString& oldId, const QString& newId)
@@ -245,6 +275,13 @@ void PanadapterStack::rearrangeLayout(const QString& layoutId)
 
 void PanadapterStack::removeAll()
 {
+    // Close floating windows first
+    for (auto* fw : m_floatingWindows) {
+        fw->takeApplet();
+        delete fw;
+    }
+    m_floatingWindows.clear();
+
     qDeleteAll(m_pans);
     m_pans.clear();
     m_activePanId.clear();
@@ -395,6 +432,88 @@ void PanadapterStack::applyLayout(const QString& layoutId, const QStringList& pa
         addPanadapter(panIds[1]);
         addPanadapter(panIds[2]);
         addPanadapter(panIds[3]);
+    }
+}
+
+// ── Float / Dock ──────────────────────────────────────────────────────────
+
+void PanadapterStack::floatPanadapter(const QString& panId)
+{
+    PanadapterApplet* applet = m_pans.value(panId, nullptr);
+    if (!applet || m_floatingWindows.contains(panId)) return;
+
+    // Remove from splitter (keep in m_pans)
+    applet->setParent(nullptr);
+    applet->spectrumWidget()->setFloating(true);
+    applet->setFloatingState(true);
+
+    auto* fw = new PanFloatingWindow(applet, nullptr);
+    m_floatingWindows[panId] = fw;
+    fw->restoreWindowGeometry();
+    fw->show();
+    fw->raise();
+
+    connect(fw, &PanFloatingWindow::dockRequested,
+            this, &PanadapterStack::dockPanadapter);
+
+    SpectrumWidget* sw = applet->spectrumWidget();
+    QTimer::singleShot(100, this, [this, sw]() {
+        refreshAfterReparent(sw);
+        equalizeSizes();
+    });
+}
+
+void PanadapterStack::dockPanadapter(const QString& panId)
+{
+    PanFloatingWindow* fw = m_floatingWindows.take(panId);
+    if (!fw) return;
+
+    fw->saveWindowGeometry();
+    PanadapterApplet* applet = fw->takeApplet();
+    fw->hide();
+    fw->deleteLater();
+
+    if (!applet) return;
+
+    applet->setFloatingState(false);
+    applet->spectrumWidget()->setFloating(false);
+    // Update multi-pan mode on all applets
+    bool multi = m_pans.size() > 1;
+    for (auto* a : m_pans)
+        a->setMultiPanMode(multi);
+
+    // Add back to splitter and immediately set sizes so both pans
+    // get equal space (prevents the existing pan from hogging 100%).
+    m_splitter->addWidget(applet);
+    applet->show();
+
+    const int count = m_splitter->count();
+    if (count > 1) {
+        int total = (m_splitter->orientation() == Qt::Horizontal)
+                        ? m_splitter->width() : m_splitter->height();
+        int each = total / count;
+        QList<int> sizes;
+        for (int i = 0; i < count; ++i)
+            sizes.append(each);
+        m_splitter->setSizes(sizes);
+    }
+
+    SpectrumWidget* sw = applet->spectrumWidget();
+    QTimer::singleShot(100, this, [sw]() {
+        refreshAfterReparent(sw);
+    });
+}
+
+bool PanadapterStack::isFloating(const QString& panId) const
+{
+    return m_floatingWindows.contains(panId);
+}
+
+void PanadapterStack::prepareShutdown()
+{
+    for (auto* fw : m_floatingWindows) {
+        fw->saveWindowGeometry();
+        fw->setShuttingDown(true);
     }
 }
 

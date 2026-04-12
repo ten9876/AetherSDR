@@ -1980,6 +1980,7 @@ MainWindow::~MainWindow()
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     m_shuttingDown = true;
+    m_panStack->prepareShutdown();
     auto& s = AppSettings::instance();
     s.setValue("MainWindowGeometry", saveGeometry().toBase64());
     s.setValue("MainWindowState",   saveState().toBase64());
@@ -5123,6 +5124,18 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             sw, &SpectrumWidget::setNoiseFloorPosition);
     connect(menu, &SpectrumOverlayMenu::noiseFloorEnableChanged,
             sw, &SpectrumWidget::setNoiseFloorEnable);
+
+    // Pop out / dock panadapter
+    connect(sw, &SpectrumWidget::popOutRequested, this, [this, applet](bool popOut) {
+        if (popOut) {
+            m_panStack->floatPanadapter(applet->panId());
+        } else {
+            m_panStack->dockPanadapter(applet->panId());
+        }
+    });
+    connect(applet, &PanadapterApplet::popOutClicked, this, [this, applet]() {
+        m_panStack->floatPanadapter(applet->panId());
+    });
 
     // ── DAX IQ pan routing from overlay menu ───────────────────────────
     // The overlay controls which pan feeds which IQ channel (routing only).

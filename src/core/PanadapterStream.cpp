@@ -88,10 +88,13 @@ bool PanadapterStream::start(RadioConnection* conn)
 {
     if (isRunning()) stop();  // clean up previous session before rebinding (#561)
 
+    // Try 4991 first (VPN/firewall rules may allow this port specifically),
+    // then count down for Multi-Flex (multiple clients on the same host).
     static constexpr quint16 LAN_VITA_PORT = 4991;
     m_isWanMode = false;
     m_hasReceivedPacket = false;
 
+    // Resolve source address for VPN/routed connections
     const QHostAddress explicitAddr = conn ? conn->explicitLocalBindAddress() : QHostAddress();
     const QHostAddress sessionAddr = conn ? conn->sessionLocalBindAddress() : QHostAddress();
     const QHostAddress tcpAddr = conn ? conn->localAddress() : QHostAddress();
@@ -110,29 +113,24 @@ bool PanadapterStream::start(RadioConnection* conn)
         chosenReason = QStringLiteral("tcp-local");
     }
 
+    // Try port 4991 first (VPN/firewall rules), countdown for Multi-Flex.
+    static constexpr int MAX_PORT_ATTEMPTS = 10;
+    const QHostAddress bindAddr = chosenAddress.isNull() ? QHostAddress(QHostAddress::AnyIPv4) : chosenAddress;
     bool bound = false;
-    if (!chosenAddress.isNull()) {
-        bound = m_socket.bind(chosenAddress, LAN_VITA_PORT, QAbstractSocket::ReuseAddressHint);
+
+    for (int attempt = 0; attempt < MAX_PORT_ATTEMPTS && !bound; ++attempt) {
+        quint16 port = LAN_VITA_PORT - attempt;
+        bound = m_socket.bind(bindAddr, port);
         if (bound) {
             qCDebug(lcVita49) << "PanadapterStream: bound UDP to"
-                              << chosenAddress.toString() << ":" << LAN_VITA_PORT
-                              << "using" << chosenReason;
-        } else {
-            qCDebug(lcVita49) << "PanadapterStream: port" << LAN_VITA_PORT
-                              << "unavailable on" << chosenAddress.toString()
-                              << "- retrying with OS-assigned port";
-            bound = m_socket.bind(chosenAddress, 0, QAbstractSocket::ReuseAddressHint);
+                              << bindAddr.toString() << ":" << port
+                              << (chosenReason.isEmpty() ? "auto" : chosenReason);
         }
-    } else if (bindMode == RadioBindMode::Auto) {
-        bound = m_socket.bind(QHostAddress::AnyIPv4, LAN_VITA_PORT,
-                              QAbstractSocket::ReuseAddressHint);
+    }
+    if (!bound) {
+        bound = m_socket.bind(bindAddr, 0);
         if (bound)
-            qCDebug(lcVita49) << "PanadapterStream: auto-bound to LAN VITA-49 port" << LAN_VITA_PORT;
-        else {
-            qCDebug(lcVita49) << "PanadapterStream: auto path unavailable on port" << LAN_VITA_PORT
-                              << "- using OS-assigned port";
-            bound = m_socket.bind(QHostAddress::AnyIPv4, 0, QAbstractSocket::ReuseAddressHint);
-        }
+            qCDebug(lcVita49) << "PanadapterStream: using OS-assigned port" << m_socket.localPort();
     }
     if (!bound) {
         qCWarning(lcVita49) << "PanadapterStream: failed to bind UDP socket:"

@@ -1137,6 +1137,13 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         tuneGuideAction->setChecked(m_showTuneGuides);
         connect(tuneGuideAction, &QAction::toggled, this, &SpectrumWidget::setShowTuneGuides);
 
+        menu.addSeparator();
+        bool floating = m_isFloating;
+        QAction* popOutAction = menu.addAction(floating ? "\u21a9 Dock" : "\u2197 Pop out");
+        connect(popOutAction, &QAction::triggered, this, [this, floating]() {
+            emit popOutRequested(!floating);
+        });
+
         menu.exec(ev->globalPosition().toPoint());
         ev->accept();
         return;

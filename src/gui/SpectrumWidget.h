@@ -163,6 +163,7 @@ public:
     bool showCursorFreq() const { return m_showCursorFreq; }
     void setShowTuneGuides(bool on);
     bool showTuneGuides() const { return m_showTuneGuides; }
+    void setFloating(bool on) { m_isFloating = on; }
     void setBackgroundImage(const QString& path);
     QString backgroundImagePath() const { return m_bgImagePath; }
     void setBackgroundOpacity(int pct) { m_bgOpacity = qBound(0, pct, 100); markOverlayDirty(); }
@@ -314,6 +315,7 @@ signals:
     void tnfPermanentRequested(int id, bool permanent);
     void sliceCloseRequested(int sliceId);
     void sliceTuneRequested(int sliceId, double freqMhz);
+    void popOutRequested(bool popOut);  // true=float, false=dock
     void sliceTxRequested(int sliceId);
     // Spot signals
     void spotAddRequested(double freqMhz, const QString& callsign,
@@ -495,6 +497,7 @@ private:
 
     // Tune guide overlay (vertical line + freq label, auto-hides after 4s)
     bool    m_showTuneGuides{false};
+    bool    m_isFloating{false};
     bool    m_tuneGuideVisible{false};
     QTimer* m_tuneGuideTimer{nullptr};
 

@@ -135,6 +135,13 @@ void AppSettings::load()
 
 void AppSettings::save()
 {
+    if (QCoreApplication* app = QCoreApplication::instance()) {
+        if (app->property("AetherSettingsResetInProgress").toBool()) {
+            qWarning() << "AppSettings: skipping save during reset-triggered shutdown";
+            return;
+        }
+    }
+
     // Guard: refuse to save if we'd lose more than half the settings.
     // This catches cases where the app crashes early or settings were
     // cleared from memory before save() runs.
@@ -218,6 +225,14 @@ void AppSettings::save()
     if (!QFile::rename(tmpPath, m_filePath)) {
         qWarning() << "AppSettings: atomic rename failed from" << tmpPath << "to" << m_filePath;
     }
+}
+
+void AppSettings::reset()
+{
+    m_settings.clear();
+    m_stationSettings.clear();
+    m_stationName = "AetherSDR";
+    m_loadedCount = 0;
 }
 
 // ─── Top-level accessors ──────────────────────────────────────────────────────

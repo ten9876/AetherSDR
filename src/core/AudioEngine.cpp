@@ -274,10 +274,14 @@ static QString wisdomDir()
     return dir;
 }
 
+QString AudioEngine::wisdomFilePath()
+{
+    return wisdomDir() + "aethersdr_fftw_wisdom";
+}
+
 bool AudioEngine::needsWisdomGeneration()
 {
-    QString path = wisdomDir() + "aethersdr_fftw_wisdom";
-    return !QFile::exists(path);
+    return !QFile::exists(wisdomFilePath());
 }
 
 void AudioEngine::generateWisdom(std::function<void(int,int,const std::string&)> progress)

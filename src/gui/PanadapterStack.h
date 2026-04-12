@@ -7,6 +7,7 @@
 namespace AetherSDR {
 
 class BandStackPanel;
+class PanFloatingWindow;
 class PanadapterApplet;
 class SpectrumWidget;
 
@@ -47,6 +48,12 @@ public:
     void equalizeSizes();
     void rearrangeLayout(const QString& layoutId);
 
+    // Float/dock panadapters
+    void floatPanadapter(const QString& panId);
+    void dockPanadapter(const QString& panId);
+    bool isFloating(const QString& panId) const;
+    void prepareShutdown();
+
 signals:
     void activePanChanged(const QString& panId);
 
@@ -54,6 +61,7 @@ private:
     BandStackPanel* m_bandStackPanel{nullptr};
     QSplitter* m_splitter{nullptr};
     QMap<QString, PanadapterApplet*> m_pans;
+    QMap<QString, PanFloatingWindow*> m_floatingWindows;
     QString m_activePanId;
 };
 
