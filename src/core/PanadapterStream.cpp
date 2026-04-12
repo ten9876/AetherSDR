@@ -396,18 +396,17 @@ void PanadapterStream::processDatagram(const QByteArray& data)
         int channel = daxChannel;
         QByteArray pcm;
         if (pcc == PCC_IF_NARROW) {
+            // Float32 stereo big-endian from radio → native float32 stereo
             const int payloadStart = VITA49_HEADER_BYTES;
             const int payloadBytes = data.size() - payloadStart - (hasTrailer ? 4 : 0);
             if (payloadBytes < 4) return;
             const int numFloats = payloadBytes / 4;
             const uchar* src = raw + payloadStart;
-            pcm.resize(numFloats * 2);
-            auto* dst = reinterpret_cast<qint16*>(pcm.data());
+            pcm.resize(numFloats * static_cast<int>(sizeof(float)));
+            auto* dst = reinterpret_cast<float*>(pcm.data());
             for (int i = 0; i < numFloats; ++i) {
                 const quint32 u = qFromBigEndian<quint32>(src + i * 4);
-                float f;
-                std::memcpy(&f, &u, 4);
-                dst[i] = static_cast<qint16>(qBound(-1.0f, f, 1.0f) * 32767.0f);
+                std::memcpy(&dst[i], &u, 4);
             }
         } else if (pcc == PCC_IF_NARROW_REDUCED) {
             const int payloadStart = VITA49_HEADER_BYTES;
