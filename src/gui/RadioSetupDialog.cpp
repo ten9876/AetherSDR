@@ -2902,15 +2902,16 @@ QWidget* RadioSetupDialog::buildSerialTab()
             "NextSlice", "PrevSlice",
             "ToggleAgc", "VolumeUp", "VolumeDown"
         };
-        static const char* defaultActions[3][2] = {
+        static const char* defaultActions[4][2] = {
             {"StepUp", "StepDown"},
             {"ToggleMox", "ToggleTune"},
             {"ToggleMute", "ToggleLock"},
+            {"StepUp", "StepDown"},      // Knob button
         };
-        static const char* btnLabels[3] = {"Button 1:", "Button 2:", "Button 3:"};
+        static const char* btnLabels[4] = {"Button 1:", "Button 2:", "Button 3:", "Knob Button:"};
         static const char* actLabels[2] = {"Tap", "Double"};
 
-        for (int b = 0; b < 3; ++b) {
+        for (int b = 0; b < 4; ++b) {
             grid->addWidget(new QLabel(btnLabels[b]), b + 1, 0);
             auto* row = new QHBoxLayout;
             for (int a = 0; a < 2; ++a) {
@@ -2942,7 +2943,7 @@ QWidget* RadioSetupDialog::buildSerialTab()
             s.setValue("FlexControlAutoDetect", on ? "True" : "False");
             s.save();
         });
-        grid->addWidget(autoDetect, 4, 0, 1, 3);
+        grid->addWidget(autoDetect, 5, 0, 1, 3);
 
         auto* invertDir = new QCheckBox("Invert tuning direction");
         invertDir->setStyleSheet("QCheckBox { color: #c8d8e8; }");
@@ -2952,7 +2953,7 @@ QWidget* RadioSetupDialog::buildSerialTab()
             s.setValue("FlexControlInvertDir", on ? "True" : "False");
             s.save();
         });
-        grid->addWidget(invertDir, 5, 0, 1, 3);
+        grid->addWidget(invertDir, 6, 0, 1, 3);
 
         vbox->addWidget(group);
     }

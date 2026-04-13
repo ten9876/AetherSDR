@@ -1544,12 +1544,13 @@ MainWindow::MainWindow(QWidget* parent)
             this, [this](int button, int action) {
         QString key = QString("FlexControlBtn%1Action%2").arg(button).arg(action);
         auto& settings = AppSettings::instance();
-        static const char* defaults[3][3] = {
+        static const char* defaults[4][3] = {
             {"StepUp",     "StepDown",     "None"},
             {"ToggleMox",  "ToggleTune",   "None"},
             {"ToggleMute", "ToggleLock",   "None"},
+            {"StepUp",     "StepDown",     "None"},  // Knob button
         };
-        const char* def = (button >= 1 && button <= 3 && action >= 0 && action <= 2)
+        const char* def = (button >= 1 && button <= 4 && action >= 0 && action <= 2)
                           ? defaults[button-1][action] : "None";
         QString actionName = settings.value(key, def).toString();
 

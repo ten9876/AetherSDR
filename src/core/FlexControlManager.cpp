@@ -100,10 +100,10 @@ void FlexControlManager::processCommand(const QByteArray& cmd)
 
     } else if (cmd.startsWith('X') && cmd.size() >= 3) {
         // Button press: X<button><action>
-        //   button: 1, 2, 3
+        //   button: 1, 2, 3, 4 (4 = knob press)
         //   action: S=tap(0), C=double-tap(1), L=hold(2)
         int button = cmd.at(1) - '0';
-        if (button < 1 || button > 3) return;
+        if (button < 1 || button > 4) return;
         char action = cmd.at(2);
         int actionId = (action == 'S') ? 0 : (action == 'C') ? 1 : 2;
         emit buttonPressed(button, actionId);
