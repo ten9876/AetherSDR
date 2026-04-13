@@ -5,16 +5,19 @@
 #include "SpectrumWidget.h"
 
 #include <QHBoxLayout>
+#include <QLayout>
 #include <QVBoxLayout>
 #include <QTimer>
 #include <QWindow>
 
 // After reparenting a QRhiWidget to a different top-level window,
-// force a repaint so the GPU surface binds to the new window.
+// tear down old GPU pipelines and force a fresh initialize() cycle
+// so the Metal/Vulkan surface binds to the new window.
 static void refreshAfterReparent(AetherSDR::SpectrumWidget* sw)
 {
     if (!sw) return;
-    sw->update();
+    sw->releaseResources();  // tear down old GPU surface
+    sw->update();            // triggers initialize() on next frame
 }
 
 namespace AetherSDR {
@@ -496,6 +499,13 @@ void PanadapterStack::dockPanadapter(const QString& panId)
         for (int i = 0; i < count; ++i)
             sizes.append(each);
         m_splitter->setSizes(sizes);
+    }
+
+    // Force layout recalculation to prevent blank gaps on macOS
+    m_splitter->updateGeometry();
+    if (auto* w = window()) {
+        if (auto* l = w->layout())
+            l->invalidate();
     }
 
     SpectrumWidget* sw = applet->spectrumWidget();
