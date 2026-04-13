@@ -86,6 +86,8 @@ This menu gives you both offline guidance and troubleshooting tools.
 
 - `Getting Started...`
 - `AetherSDR Help...`
+- `Understanding Noise Cancellation...`
+- `Configuring AetherSDR Controls...`
 - `Configuring Data Modes...`
 - `Contributing to AetherSDR...`
 - `Support...`
