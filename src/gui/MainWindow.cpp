@@ -1726,6 +1726,23 @@ MainWindow::MainWindow(QWidget* parent)
     }
     m_appletPanel->phoneCwApplet()->setTransmitModel(&m_radioModel.transmitModel());
 
+    // ── CW zero-beat: pitch tracking + VFO adjustment ───────────────────────
+    connect(&m_cwDecoder, &CwDecoder::statsUpdated,
+            m_appletPanel->phoneCwApplet(), [this](float pitchHz, float) {
+        m_appletPanel->phoneCwApplet()->setCwDetectedPitch(pitchHz);
+    });
+
+    connect(m_appletPanel->phoneCwApplet(), &PhoneCwApplet::zeroBeatRequested,
+            this, [this]() {
+        SliceModel* slice = activeSlice();
+        if (!slice) return;
+        float detected = m_cwDecoder.estimatedPitch();
+        if (detected <= 0.0f) return;
+        int configured = m_radioModel.transmitModel().cwPitch();
+        double offsetMhz = (detected - configured) / 1.0e6;
+        slice->setFrequency(slice->frequency() + offsetMhz);
+    });
+
     // ── PHNE applet: VOX + CW controls ──────────────────────────────────────
     m_appletPanel->phoneApplet()->setTransmitModel(&m_radioModel.transmitModel());
 
