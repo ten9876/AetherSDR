@@ -1872,6 +1872,8 @@ MainWindow::MainWindow(QWidget* parent)
                 m_tciServer, &TciServer::onRxAudioReady);
         connect(m_radioModel.panStream(), &PanadapterStream::daxAudioReady,
                 m_tciServer, &TciServer::onDaxAudioReady);
+        connect(m_radioModel.panStream(), &PanadapterStream::iqDataReady,
+                m_tciServer, &TciServer::onIqDataReady);
     }
 
     // TCI client count changes no longer auto-create/remove the audio stream.
