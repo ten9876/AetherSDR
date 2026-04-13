@@ -227,6 +227,21 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     connect(clearBtn, &QPushButton::clicked, this, &PanadapterApplet::clearCwText);
     cwBar->addWidget(clearBtn);
 
+    auto* closeBtn = new QPushButton("\u2715");
+    closeBtn->setToolTip("Close CW decoder");
+    closeBtn->setStyleSheet(
+        "QPushButton { background: #1a2a3a; color: #8090a0; border: 1px solid #203040;"
+        " border-radius: 2px; font-size: 9px; font-weight: bold;"
+        " padding: 1px 6px; }"
+        "QPushButton:hover { color: #ff6060; background: #2a3a4a; }");
+    connect(closeBtn, &QPushButton::clicked, this, [this]() {
+        AppSettings::instance().setValue("CwDecodeOverlay", "False");
+        AppSettings::instance().save();
+        m_cwPanel->hide();
+        emit cwPanelCloseRequested();
+    });
+    cwBar->addWidget(closeBtn);
+
     cwLayout->addLayout(cwBar);
 
     // Text area

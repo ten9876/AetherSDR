@@ -49,6 +49,7 @@ signals:
     void popOutClicked();
     void dockClicked();
     void pitchRangeChanged(int minHz, int maxHz);
+    void cwPanelCloseRequested();
 
 protected:
     bool eventFilter(QObject* obj, QEvent* ev) override;
