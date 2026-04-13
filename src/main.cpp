@@ -13,33 +13,40 @@
 #include <QTextStream>
 #include <QStandardPaths>
 #include <QRegularExpression>
-#include <QGlobalStatic>
 
 static QFile* s_logFile = nullptr;
 
-// PII redaction patterns. Stored as a Q_GLOBAL_STATIC so they are lazily
-// initialised once and never destroyed — outliving function-local statics and
-// surviving abnormal teardown.  The isDestroyed() guard in redactPii() is the
-// safety net if the message handler fires after program-exit teardown (#1233).
-struct PiiPatterns {
-    const QRegularExpression ip     { R"((\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}))" };
-    const QRegularExpression serial { R"(\d{4}-\d{4}-\d{4}-(\d{4}))" };
-    const QRegularExpression token  { R"((id_token[= :]|token[= :])\s*([A-Za-z0-9_\-\.]{20})[A-Za-z0-9_\-\.]+)" };
-    const QRegularExpression mac    { R"(([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2}))" };
-};
-Q_GLOBAL_STATIC(PiiPatterns, s_piiPatterns)
-
 // Redact PII from log messages before writing to file.
 // Patterns: IP addresses, radio serial numbers, Auth0 tokens, MAC addresses.
+//
+// Regex objects are heap-allocated (intentional leak) so they survive static
+// destruction order during abnormal teardown.  Without this, crash cleanup
+// invokes the message handler from dying threads after the function-local
+// statics are destroyed, producing "invalid QRegularExpression" errors (#1233).
 static QString redactPii(const QString& msg)
 {
-    if (s_piiPatterns.isDestroyed())
-        return msg;
     QString out = msg;
-    out.replace(s_piiPatterns->ip,     QStringLiteral("*.*.*. \\4"));
-    out.replace(s_piiPatterns->serial, QStringLiteral("****-****-****-\\1"));
-    out.replace(s_piiPatterns->token,  QStringLiteral("\\1 \\2...REDACTED"));
-    out.replace(s_piiPatterns->mac,    QStringLiteral("**-**-**-**-**-\\6"));
+
+    // IPv4 addresses: 192.168.50.121 → *.*.*. 121 (keep last octet)
+    static const QRegularExpression* ipRe = new QRegularExpression(
+        R"((\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}))");
+    out.replace(*ipRe, QStringLiteral("*.*.*. \\4"));
+
+    // Radio serial: 4424-1213-8600-7836 → ****-****-****-7836
+    static const QRegularExpression* serialRe = new QRegularExpression(
+        R"(\d{4}-\d{4}-\d{4}-(\d{4}))");
+    out.replace(*serialRe, QStringLiteral("****-****-****-\\1"));
+
+    // Auth0 tokens (long base64 strings after id_token or token)
+    static const QRegularExpression* tokenRe = new QRegularExpression(
+        R"((id_token[= :]|token[= :])\s*([A-Za-z0-9_\-\.]{20})[A-Za-z0-9_\-\.]+)");
+    out.replace(*tokenRe, QStringLiteral("\\1 \\2...REDACTED"));
+
+    // MAC addresses: 00-1C-2D-05-37-2A → **-**-**-**-**-2A
+    static const QRegularExpression* macRe = new QRegularExpression(
+        R"(([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2}))");
+    out.replace(*macRe, QStringLiteral("**-**-**-**-**-\\6"));
+
     return out;
 }
 
