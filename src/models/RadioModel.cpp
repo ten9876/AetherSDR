@@ -2201,8 +2201,10 @@ void RadioModel::handleRadioStatus(const QMap<QString, QString>& kvs)
     bool changed = false;
     if (kvs.contains("model"))    { m_model = kvs["model"]; changed = true; }
     if (kvs.contains("slices")) {
-        int n = kvs["slices"].toInt();
-        if (n > m_maxSlices) m_maxSlices = n;  // track highest seen
+        // slices=N reports available (unused) slots; total capacity = open + available
+        int available = kvs["slices"].toInt();
+        int total = m_slices.size() + available;
+        if (total > m_maxSlices) m_maxSlices = total;
         changed = true;
     }
     if (kvs.contains("callsign")) { m_callsign = kvs["callsign"]; changed = true; }

@@ -510,7 +510,7 @@ void SpectrumWidget::setDbmRange(float minDbm, float maxDbm)
 // ─── Slice color table (shared via SliceColors.h) ────────────────────────────
 
 static QColor sliceColor(int sliceId, bool active) {
-    const auto& c = kSliceColors[sliceId & 3];
+    const auto& c = kSliceColors[sliceId % kSliceColorCount];
     if (active) return QColor(c.r, c.g, c.b);
     return QColor(c.dr, c.dg, c.db);
 }

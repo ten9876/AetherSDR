@@ -16,6 +16,8 @@
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QMenu>
+#include <QToolButton>
+#include <QButtonGroup>
 #include <QInputDialog>
 #include "core/AppSettings.h"
 #include <QAction>
@@ -237,6 +239,19 @@ void RxApplet::buildUI()
     root->setContentsMargins(4, 2, 4, 2);
     root->setSpacing(2);
     outer->addWidget(inner);
+
+    // ── Slice tab toggle row (populated later by setMaxSlices) ──────────
+    {
+        m_sliceTabRow = new QWidget;
+        m_sliceTabRow->setVisible(false);  // hidden until setMaxSlices called
+        auto* tabLayout = new QHBoxLayout(m_sliceTabRow);
+        tabLayout->setContentsMargins(0, 0, 0, 0);
+        tabLayout->setSpacing(2);
+        m_sliceGroup = new QButtonGroup(this);
+        m_sliceGroup->setExclusive(true);
+        tabLayout->addStretch();
+        root->addWidget(m_sliceTabRow);
+    }
 
     // ── Header: slice badge | lock | RX ant | TX ant | filter width | QSK ──
     {
@@ -974,6 +989,81 @@ void RxApplet::setAfGain(int pct)
 }
 
 // ─── Slice wiring ─────────────────────────────────────────────────────────────
+
+void RxApplet::setMaxSlices(int maxSlices)
+{
+    // Only create buttons once
+    if (!m_sliceBtns.isEmpty()) return;
+
+    if (maxSlices <= 1) {
+        m_sliceTabRow->setVisible(false);
+        return;
+    }
+
+    auto* layout = qobject_cast<QHBoxLayout*>(m_sliceTabRow->layout());
+    // Insert buttons before the trailing stretch
+    const int stretchIdx = layout->count() - 1;
+
+    for (int i = 0; i < maxSlices; ++i) {
+        auto* btn = new QToolButton;
+        btn->setText(QString(QChar('A' + i)));
+        btn->setCheckable(true);
+        btn->setEnabled(false);  // disabled until a slice occupies this slot
+        btn->setFixedSize(22, 20);
+
+        const char* color = (i < kSliceColorCount) ? kSliceColors[i].hexActive : "#888888";
+        btn->setStyleSheet(
+            QString("QToolButton { background: #2a2a2a; color: %1; border: 1px solid %1; "
+                    "border-radius: 3px; font-weight: bold; font-size: 10px; padding: 0; }"
+                    "QToolButton:checked { background: %1; color: #000000; }"
+                    "QToolButton:disabled { background: #1a1a1a; color: #444444; "
+                    "border-color: #333333; }").arg(color));
+
+        m_sliceGroup->addButton(btn, i);
+        layout->insertWidget(stretchIdx + i, btn);
+        m_sliceBtns.append(btn);
+    }
+
+    // Wire button clicks to emit sliceActivationRequested
+    connect(m_sliceGroup, QOverload<int>::of(&QButtonGroup::idClicked),
+            this, [this](int /*buttonId*/) {
+        // The button ID is the slot index (0=A, 1=B, ...); we need the actual
+        // slice ID. Store the mapping in each button's user data via property.
+        auto* btn = qobject_cast<QToolButton*>(m_sliceGroup->checkedButton());
+        if (btn) {
+            bool ok = false;
+            int sliceId = btn->property("sliceId").toInt(&ok);
+            if (ok) emit sliceActivationRequested(sliceId);
+        }
+    });
+
+    m_sliceTabRow->setVisible(true);
+}
+
+void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSliceId)
+{
+    if (m_sliceBtns.isEmpty()) return;
+
+    // Build a map: slot index → slice ID for open slices
+    // sliceId 0 = slot A, sliceId 1 = slot B, etc.
+    QMap<int, int> slotToId;
+    for (auto* s : slices)
+        slotToId[s->sliceId()] = s->sliceId();
+
+    QSignalBlocker blocker(m_sliceGroup);
+    for (int i = 0; i < m_sliceBtns.size(); ++i) {
+        auto* btn = m_sliceBtns[i];
+        if (slotToId.contains(i)) {
+            btn->setEnabled(true);
+            btn->setProperty("sliceId", slotToId[i]);
+            btn->setChecked(i == activeSliceId);
+        } else {
+            btn->setEnabled(false);
+            btn->setChecked(false);
+            btn->setProperty("sliceId", QVariant());
+        }
+    }
+}
 
 void RxApplet::setSlice(SliceModel* slice)
 {
