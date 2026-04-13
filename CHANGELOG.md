@@ -3,6 +3,78 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.11] — 2026-04-12
+
+### MQTT Station Integration, Triage Fixes, macOS DAX Fix
+
+### New Features
+
+**MQTT station device integration (#699)**
+- Subscribe to MQTT topics and display device status in the applet panel
+- User-defined publish buttons for rotator, antenna, and device control
+- Panadapter overlay: prefix topics with * to show values on the spectrum
+- Bundled libmosquitto — no system dependency needed
+- Requested by VA3MW for Node-RED antenna/rotator integration
+
+### Bug Fixes
+
+**Antenna Genius race condition (#1213)**
+- Always send saved antenna preference on band change; don't skip when AG
+  coincidentally reports the correct antenna first (community: scott-mss)
+
+**Heat map QPainter fallback (#1220, #1180)**
+- Added heat map gradient to the QPainter spectrum path for systems where
+  GPU rendering is unavailable (Windows Intel iGPU)
+
+**DAX channel persistence (#1221)**
+- Per-slice DAX channel saved/restored across restarts via AppSettings
+- DAX IQ channel tracked on PanadapterModel from radio status; overlay synced
+
+**macOS DAX audio corrupted (#1242)**
+- VirtualAudioBridge and PCC_IF_NARROW DAX path updated to float32
+- Fixes VARA HF / WSJT-X audio corruption on macOS (community: pepefrog1234)
+
+**VFO filter label mismatch (#1225)**
+- VFO header now shows filter width (hi − lo), not filter edge value
+
+**TX power meter jitter (#980)**
+- Asymmetric smoothing: fast attack, slow decay for stable TX meter
+
+**Oscillator live-update (#967)**
+- Radio Setup oscillator status updates live when external 10 MHz reference
+  is plugged/unplugged (community fix: NF0T)
+
+**K-index rounding (#1232)**
+- Parse K/A-index as double for decimal XML values from hamqsl.com
+
+**IQ Enable button state (#1221)**
+- Reset DAX IQ buttons on reconnect (streams are per-session)
+
+**File dialog z-order (#1011)**
+- Background image chooser uses spectrum widget as parent
+
+**Status bar cleanup (#1231)**
+- Removed redundant "RADIO:" prefix label
+
+**Cursor button removed**
+- Removed from Display panel (redundant with Tune Guides feature)
+
+**NR2 + Opus documented (#1222)**
+- Help docs updated: NR2 incompatible with Opus, use RN2/NR4/DFNR instead
+
+**macOS NSLocalNetworkUsageDescription (#1242)**
+- Required for UDP broadcast radio discovery on modern macOS
+
+### Contributors
+
+- **pepefrog1234** — macOS DAX float32 fix + NSLocalNetworkUsageDescription
+- **scott-mss** — Antenna Genius bug report with detailed reproduction
+- **NF0T** — Oscillator live-update fix
+- **jensenpat** — VPN source-path binding (v0.8.10), AGC off level, CMake fix
+- **wa2n-code** — K-index rounding report, NR2+Opus investigation
+
+---
+
 ## [v0.8.10] — 2026-04-11
 
 ### Pop-Out Panadapters, VPN Source-Path Binding, Float32 Fixes

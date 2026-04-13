@@ -6,6 +6,23 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.8.11"), QStringLiteral("2026-04-12"), QStringLiteral("Contributors"), {
+            {ChangeCategory::Feature, QStringLiteral("MQTT station device integration"), QStringLiteral("Subscribe to MQTT topics and display device status in the applet panel User-defined publish buttons for rotator, antenna, and device control Panadapter overlay: prefix topics with * to show values ...")},
+            {ChangeCategory::BugFix, QStringLiteral("Antenna Genius race condition"), QStringLiteral("Always send saved antenna preference on band change; don't skip when AG coincidentally reports the correct antenna first (community: scott-mss)")},
+            {ChangeCategory::BugFix, QStringLiteral("Heat map QPainter fallback"), QStringLiteral("Added heat map gradient to the QPainter spectrum path for systems where GPU rendering is unavailable (Windows Intel iGPU)")},
+            {ChangeCategory::BugFix, QStringLiteral("DAX channel persistence"), QStringLiteral("Per-slice DAX channel saved/restored across restarts via AppSettings DAX IQ channel tracked on PanadapterModel from radio status; overlay synced")},
+            {ChangeCategory::BugFix, QStringLiteral("macOS DAX audio corrupted"), QStringLiteral("VirtualAudioBridge and PCC_IF_NARROW DAX path updated to float32 Fixes VARA HF / WSJT-X audio corruption on macOS (community: pepefrog1234)")},
+            {ChangeCategory::BugFix, QStringLiteral("VFO filter label mismatch"), QStringLiteral("VFO header now shows filter width (hi − lo), not filter edge value")},
+            {ChangeCategory::BugFix, QStringLiteral("TX power meter jitter"), QStringLiteral("Asymmetric smoothing: fast attack, slow decay for stable TX meter")},
+            {ChangeCategory::BugFix, QStringLiteral("Oscillator live-update"), QStringLiteral("Radio Setup oscillator status updates live when external 10 MHz reference is plugged/unplugged (community fix: NF0T)")},
+            {ChangeCategory::BugFix, QStringLiteral("K-index rounding"), QStringLiteral("Parse K/A-index as double for decimal XML values from hamqsl.com")},
+            {ChangeCategory::BugFix, QStringLiteral("IQ Enable button state"), QStringLiteral("Reset DAX IQ buttons on reconnect (streams are per-session)")},
+            {ChangeCategory::BugFix, QStringLiteral("File dialog z-order"), QStringLiteral("Background image chooser uses spectrum widget as parent")},
+            {ChangeCategory::BugFix, QStringLiteral("Status bar cleanup"), QStringLiteral("Removed redundant \"RADIO:\" prefix label")},
+            {ChangeCategory::BugFix, QStringLiteral("Cursor button removed"), QStringLiteral("Removed from Display panel (redundant with Tune Guides feature)")},
+            {ChangeCategory::BugFix, QStringLiteral("NR2 + Opus documented"), QStringLiteral("Help docs updated: NR2 incompatible with Opus, use RN2/NR4/DFNR instead")},
+            {ChangeCategory::BugFix, QStringLiteral("macOS NSLocalNetworkUsageDescription"), QStringLiteral("Required for UDP broadcast radio discovery on modern macOS")},
+        }},
         {QStringLiteral("0.8.10"), QStringLiteral("2026-04-11"), QStringLiteral("Contributors"), {
             {ChangeCategory::Feature, QStringLiteral("Pop-out panadapters (community: rfoust)"), QStringLiteral("SmartSDR-style title bar with pop-out (⬈), maximize (□), and close (×) icons Right-click \"Pop out\" in spectrum context menu to detach into floating window Dock back via title bar button; multi-pan ...")},
             {ChangeCategory::Feature, QStringLiteral("VPN source-path binding (#1218, community: jensenpat)"), QStringLiteral("Manual connections can select a specific network interface for TCP+UDP Auto-follows TCP path for VPN/routed radios on multihomed systems Per-target profile persistence in RoutedProfilesJson Network...")},
