@@ -5,8 +5,8 @@
 #include <QLoggingCategory>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QUrl>
-#include <QXmlStreamReader>
 
 Q_LOGGING_CATEGORY(lcPropForecast, "aether.propforecast")
 
@@ -87,29 +87,34 @@ void PropForecastClient::fetch()
             return;
         }
 
-        QByteArray data = reply->readAll();
-        QXmlStreamReader xml(data);
+        // Parse NOAA SWPC WWV bulletin (plain text).
+        // Expected lines:
+        //   "Solar flux 152 and estimated planetary A-index 8."
+        //   "The estimated planetary K-index at 1800 UTC on 12 April was 2.33."
+        QString text = QString::fromUtf8(reply->readAll());
 
         PropForecast fc;
-        while (!xml.atEnd()) {
-            xml.readNext();
-            if (!xml.isStartElement()) { continue; }
-            QString tag = xml.name().toString();
-            if (tag == QLatin1String("kindex")) {
-                // K-index can be decimal (e.g. "1.33") — round to nearest int (#1232)
-                fc.kIndex = qRound(xml.readElementText().toDouble());
-            } else if (tag == QLatin1String("aindex")) {
-                fc.aIndex = qRound(xml.readElementText().toDouble());
-            } else if (tag == QLatin1String("solarflux")) {
-                fc.sfi = xml.readElementText().toInt();
-            }
-        }
 
-        if (xml.hasError()) {
-            qCWarning(lcPropForecast) << "XML parse error:" << xml.errorString();
-            emit fetchError(xml.errorString());
-            return;
-        }
+        // K-index: fractional value from WWV, rounded to nearest int (#1232, #1255)
+        static const QRegularExpression reK(
+            QStringLiteral("K-index[^\\d]+(\\d+\\.?\\d*)"));
+        auto mK = reK.match(text);
+        if (mK.hasMatch())
+            fc.kIndex = qRound(mK.captured(1).toDouble());
+
+        // A-index
+        static const QRegularExpression reA(
+            QStringLiteral("A-index\\s+(\\d+)"));
+        auto mA = reA.match(text);
+        if (mA.hasMatch())
+            fc.aIndex = mA.captured(1).toInt();
+
+        // Solar flux
+        static const QRegularExpression reSFI(
+            QStringLiteral("Solar flux\\s+(\\d+)"));
+        auto mSFI = reSFI.match(text);
+        if (mSFI.hasMatch())
+            fc.sfi = mSFI.captured(1).toInt();
 
         if (fc.kIndex >= 0 && fc.aIndex >= 0 && fc.sfi > 0) {
             m_last = fc;
@@ -119,7 +124,7 @@ void PropForecastClient::fetch()
             qCDebug(lcPropForecast) << "updated — K" << fc.kIndex << "A" << fc.aIndex
                                     << "SFI" << fc.sfi;
         } else {
-            qCWarning(lcPropForecast) << "unexpected XML — kIndex:" << fc.kIndex
+            qCWarning(lcPropForecast) << "failed to parse WWV bulletin — kIndex:" << fc.kIndex
                                       << "aIndex:" << fc.aIndex << "sfi:" << fc.sfi;
         }
     });

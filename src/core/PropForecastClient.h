@@ -12,8 +12,9 @@ struct PropForecast {
     int sfi{-1};     // Solar Flux Index (SFU); -1 = not yet fetched
 };
 
-// Fetches HF propagation conditions from https://www.hamqsl.com/solarxml.php
-// once per hour. The timer is only armed while enabled. Uses QNetworkAccessManager
+// Fetches HF propagation conditions from NOAA SWPC's WWV bulletin
+// (https://services.swpc.noaa.gov/text/wwv.txt) once per hour.
+// The timer is only armed while enabled. Uses QNetworkAccessManager
 // (async) so the download never blocks radio operations.
 //
 // Hardening:
@@ -53,7 +54,7 @@ private:
     bool                 m_fetchInFlight{false};
     qint64               m_lastFetchMs{0};  // QDateTime::currentMSecsSinceEpoch of last success
 
-    static constexpr const char* kUrl = "https://www.hamqsl.com/solarxml.php";
+    static constexpr const char* kUrl = "https://services.swpc.noaa.gov/text/wwv.txt";
     static constexpr int kIntervalMs  = 60 * 60 * 1000;  // 1 hour
 };
 
