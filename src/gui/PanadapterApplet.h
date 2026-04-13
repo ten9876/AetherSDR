@@ -27,9 +27,10 @@ public:
     QString panId() const { return m_panId; }
     void setPanId(const QString& id) { m_panId = id; }
 
-    // Set the slice ID (0=A, 1=B, 2=C, 3=D) shown in the title bar.
+    // Set the slice ID (0=A .. 7=H) shown in the title bar.
     void setSliceId(int id);
     void clearSliceTitle();
+    QString sliceTitle() const;
 
     // CW decode panel
     void setMultiPanMode(bool multi);  // show/hide title bar decorations
@@ -48,6 +49,7 @@ signals:
     void closeRequested(const QString& panId);
     void popOutClicked();
     void dockClicked();
+    void maximizeRequested(const QString& panId);
     void pitchRangeChanged(int minHz, int maxHz);
     void cwPanelCloseRequested();
 
