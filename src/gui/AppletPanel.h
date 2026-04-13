@@ -28,10 +28,11 @@ class AntennaGeniusApplet;
 class MeterApplet;
 class MqttApplet;
 
-// AppletPanel — right-side panel with a row of toggle buttons at the top,
-// an S-Meter gauge below them, and a scrollable stack of applets.
-// Multiple applets can be visible simultaneously. Applets can be reordered
-// by dragging their title bars (QDrag with custom MIME type).
+// AppletPanel — right-side panel with an S-Meter gauge at the top and a
+// scrollable stack of applets below. Each applet has a clickable title bar
+// that collapses/expands its content (accordion style). Multiple applets
+// can be visible simultaneously. Applets can be reordered by dragging
+// their title bars (QDrag with custom MIME type).
 class AppletPanel : public QWidget {
     Q_OBJECT
 
@@ -56,13 +57,13 @@ public:
     MqttApplet*   mqttApplet()   { return m_mqttApplet; }
 #endif
 
-    // Show/hide the TUNE button and applet based on tuner presence.
+    // Show/hide the tuner applet based on tuner presence.
     void setTunerVisible(bool visible);
 
-    // Show/hide the AMP button and applet based on amplifier presence.
+    // Show/hide the amplifier applet based on amplifier presence.
     void setAmpVisible(bool visible);
 
-    // Show/hide the AG button and applet based on Antenna Genius presence.
+    // Show/hide the Antenna Genius applet based on AG presence.
     void setAgVisible(bool visible);
 
     // Reset applet order to default
@@ -77,7 +78,7 @@ public:
         QString id;
         QWidget* widget{nullptr};      // wrapper widget (titleBar + applet)
         QWidget* titleBar{nullptr};    // draggable AppletTitleBar
-        QPushButton* btn{nullptr};     // toggle button in button row
+        QPushButton* btn{nullptr};     // unused (kept for ABI compat)
         bool floating{false};          // true when applet is in a FloatingAppletWindow
     };
 
@@ -87,6 +88,9 @@ public:
 
     // Returns true if the applet with the given id is currently floating
     bool isAppletFloating(const QString& id) const;
+
+    // Toggle visibility of a floating applet window (used by title bar click)
+    void toggleFloatingVisibility(const QString& id);
 
     friend class AppletDropArea;
 
@@ -107,7 +111,6 @@ private:
     RxApplet*    m_rxApplet{nullptr};
     TunerApplet* m_tunerApplet{nullptr};
     AmpApplet*   m_ampApplet{nullptr};
-    QPushButton* m_ampBtn{nullptr};
     TxApplet*      m_txApplet{nullptr};
     PhoneCwApplet* m_phoneCwApplet{nullptr};
     PhoneApplet*   m_phoneApplet{nullptr};
@@ -118,8 +121,6 @@ private:
 #ifdef HAVE_MQTT
     MqttApplet*  m_mqttApplet{nullptr};
 #endif
-    QPushButton* m_tuneBtn{nullptr};
-    QPushButton* m_agBtn{nullptr};
     QVBoxLayout* m_stack{nullptr};
     QScrollArea* m_scrollArea{nullptr};
     QWidget*     m_dropIndicator{nullptr};

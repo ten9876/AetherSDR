@@ -60,15 +60,20 @@ public:
         : QWidget(parent), m_appletId(appletId), m_panel(panel)
     {
         setFixedHeight(16);
-        setCursor(Qt::OpenHandCursor);
+        setCursor(Qt::PointingHandCursor);
         setStyleSheet(
             "QWidget { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-            "stop:0 #3a4a5a, stop:0.5 #2a3a4a, stop:1 #1a2a38); "
-            "border-bottom: 1px solid #0a1a28; }");
+            "stop:0 #4a5a6a, stop:0.5 #3a4a5a, stop:1 #2a3a48); "
+            "border-bottom: 1px solid #1a2a38; }");
 
         auto* layout = new QHBoxLayout(this);
         layout->setContentsMargins(2, 0, 4, 0);
         layout->setSpacing(4);
+
+        // Collapse/expand chevron indicator
+        m_chevron = new QLabel(QString::fromUtf8("\xe2\x96\xbc"));  // ▼
+        m_chevron->setStyleSheet("QLabel { background: transparent; color: #8090a0; font-size: 8px; }");
+        layout->addWidget(m_chevron);
 
         // Drag grip dots
         auto* grip = new QLabel(QString::fromUtf8("\xe2\x8b\xae\xe2\x8b\xae"));  // ⋮⋮
@@ -84,6 +89,20 @@ public:
 
     const QString& appletId() const { return m_appletId; }
     void setTitle(const QString& text) { m_label->setText(text); }
+
+    // Set the content widget that this title bar collapses/expands
+    void setContentWidget(QWidget* w) { m_contentWidget = w; }
+
+    void setCollapsed(bool collapsed) {
+        m_collapsed = collapsed;
+        if (m_chevron)
+            m_chevron->setText(collapsed ? QString::fromUtf8("\xe2\x96\xb6")   // ▶
+                                        : QString::fromUtf8("\xe2\x96\xbc"));  // ▼
+        if (m_contentWidget)
+            m_contentWidget->setVisible(!collapsed);
+    }
+
+    bool isCollapsed() const { return m_collapsed; }
 
 protected:
     void mousePressEvent(QMouseEvent* ev) override {
@@ -110,7 +129,27 @@ protected:
         drag->setHotSpot(ev->pos());
 
         drag->exec(Qt::MoveAction);
-        setCursor(Qt::OpenHandCursor);
+        setCursor(Qt::PointingHandCursor);
+    }
+
+    void mouseReleaseEvent(QMouseEvent* ev) override {
+        if (ev->button() == Qt::LeftButton && !m_dragStartPos.isNull()
+            && (ev->pos() - m_dragStartPos).manhattanLength() < 10) {
+            // Click (not drag) — toggle collapsed state
+            if (m_panel) {
+                if (m_panel->isAppletFloating(m_appletId)) {
+                    // If floating, toggle the floating window visibility
+                    m_panel->toggleFloatingVisibility(m_appletId);
+                } else {
+                    setCollapsed(!m_collapsed);
+                    const QString key = QStringLiteral("Applet_%1").arg(
+                        m_appletId == "VU" ? "ANLG" : m_appletId);
+                    AppSettings::instance().setValue(key, m_collapsed ? "False" : "True");
+                }
+            }
+        }
+        m_dragStartPos = {};
+        QWidget::mouseReleaseEvent(ev);
     }
 
     void contextMenuEvent(QContextMenuEvent* ev) override {
@@ -133,6 +172,9 @@ private:
     QString      m_appletId;
     QPoint       m_dragStartPos;
     QLabel*      m_label{nullptr};
+    QLabel*      m_chevron{nullptr};
+    QWidget*     m_contentWidget{nullptr};
+    bool         m_collapsed{false};
     AppletPanel* m_panel{nullptr};
 };
 
@@ -221,30 +263,36 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
-    // ── Toggle button rows (always at the very top) ──────────────────────────
-    const char* btnRowStyle =
-        "QWidget { background: #0a0a18; }"
+    // ── Controls lock bar (compact, replaces old toggle button rows) ─────────
+    auto* lockBar = new QWidget;
+    lockBar->setStyleSheet(
+        "QWidget { background: #0a0a18; border-bottom: 1px solid #1e2e3e; }"
         "QPushButton { background: #1a2a3a; border: 1px solid #203040; "
         "border-radius: 3px; padding: 2px 3px; font-size: 11px; color: #c8d8e8; }"
         "QPushButton:checked { background: #0070c0; color: #ffffff; "
-        "border: 1px solid #0090e0; }";
+        "border: 1px solid #0090e0; }");
+    auto* lockLayout = new QHBoxLayout(lockBar);
+    lockLayout->setContentsMargins(2, 2, 2, 2);
+    lockLayout->setSpacing(1);
 
-    auto* btnRow1 = new QWidget;
-    btnRow1->setStyleSheet(btnRowStyle);
-    auto* btnLayout1 = new QHBoxLayout(btnRow1);
-    btnLayout1->setContentsMargins(2, 3, 2, 0);
-    btnLayout1->setSpacing(1);
-    root->addWidget(btnRow1);
+    m_lockBtn = new QPushButton("LCK", lockBar);
+    m_lockBtn->setCheckable(true);
+    m_lockBtn->setToolTip("Lock sidebar controls — prevent accidental\n"
+                          "value changes while scrolling");
+    m_lockBtn->setAccessibleName("Lock controls");
+    m_lockBtn->setAccessibleDescription("Lock sidebar controls to prevent accidental value changes");
+    AppSettings::instance().remove("ControlsLocked");
+    m_lockBtn->setChecked(false);
+    ControlsLock::setLocked(false);
+    lockLayout->addWidget(m_lockBtn);
+    lockLayout->addStretch();
+    connect(m_lockBtn, &QPushButton::toggled, this, [this](bool on) {
+        setControlsLocked(on);
+    });
 
-    auto* btnRow2 = new QWidget;
-    btnRow2->setStyleSheet(QString(btnRowStyle) +
-        "QWidget { border-bottom: 1px solid #1e2e3e; }");
-    auto* btnLayout2 = new QHBoxLayout(btnRow2);
-    btnLayout2->setContentsMargins(2, 2, 2, 3);
-    btnLayout2->setSpacing(1);
-    root->addWidget(btnRow2);
+    root->addWidget(lockBar);
 
-    // ── S-Meter section (with title bar, toggled by ANLG button) ─────────────
+    // ── S-Meter section (with collapsible title bar) ──────────────────────────
     m_sMeterSection = new QWidget;
     auto* sMeterLayout = new QVBoxLayout(m_sMeterSection);
     sMeterLayout->setContentsMargins(0, 0, 0, 0);
@@ -260,6 +308,11 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     contentLayout->setContentsMargins(0, 0, 0, 0);
     contentLayout->setSpacing(0);
     sMeterLayout->addWidget(m_sMeterContent);  // index 1
+
+    // Wire title bar to collapse/expand S-Meter content on click
+    sMeterTitle->setContentWidget(m_sMeterContent);
+    bool vuOn = settings.value("Applet_ANLG", "True").toString() == "True";
+    sMeterTitle->setCollapsed(!vuOn);
 
     m_sMeter = new SMeterWidget(m_sMeterContent);
     m_sMeter->setAccessibleName("S-Meter");
@@ -467,7 +520,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
     auto makeEntry = [&](const QString& id, const QString& label,
                          QWidget* applet, bool defaultOn,
-                         QWidget* rowParent, QHBoxLayout* rowLayout) -> AppletEntry {
+                         bool initiallyHidden = false) -> AppletEntry {
         auto* titleBar = new AppletTitleBar(label, id, this);
         auto* wrapper = new QWidget;
         auto* wl = new QVBoxLayout(wrapper);
@@ -477,226 +530,53 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         applet->show();
         wl->addWidget(applet);
 
-        auto* btn = new QPushButton(id, rowParent);
-        btn->setCheckable(true);
-        rowLayout->addWidget(btn);
-
+        // Title bar click toggles applet content visibility (accordion style)
+        titleBar->setContentWidget(applet);
         const QString key = QStringLiteral("Applet_%1").arg(id);
         bool on = settings.value(key, defaultOn ? "True" : "False").toString() == "True";
-        btn->setChecked(on);
-        wrapper->setVisible(on);
+        titleBar->setCollapsed(!on);
 
-        connect(btn, &QPushButton::toggled, this, [this, id, wrapper, key](bool checked) {
-            // If the applet is floating, the toggle button raises/hides the
-            // floating window rather than showing/hiding the docked wrapper.
-            if (m_floatingWindows.contains(id)) {
-                if (checked) { m_floatingWindows[id]->showAndRestore(); }
-                else         { m_floatingWindows[id]->hideAndSave(); }
-                return;
-            }
-            // Re-float if the applet was floating before being toggled off (#959)
-            if (checked) {
-                const QString floatKey = AetherSDR::floatKey(id);
-                if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                    QTimer::singleShot(0, this, [this, id]() { floatApplet(id); });
-                    return;
-                }
-            }
-            wrapper->setVisible(checked);
-            AppSettings::instance().setValue(key, checked ? "True" : "False");
-        });
+        if (initiallyHidden)
+            wrapper->hide();
 
-        return {id, wrapper, titleBar, btn, false};
+        return {id, wrapper, titleBar, nullptr, false};
     };
 
-    // Controls lock toggle — disables wheel/mouse on sidebar sliders (#745)
-    {
-        m_lockBtn = new QPushButton("LCK", btnRow2);
-        m_lockBtn->setCheckable(true);
-        m_lockBtn->setToolTip("Lock sidebar controls — prevent accidental\n"
-                              "value changes while scrolling");
-        m_lockBtn->setAccessibleName("Lock controls");
-        m_lockBtn->setAccessibleDescription("Lock sidebar controls to prevent accidental value changes");
-        // LCK is session-only: start every app launch unlocked and do not
-        // restore or persist the prior session's state.
-        AppSettings::instance().remove("ControlsLocked");
-        m_lockBtn->setChecked(false);
-        ControlsLock::setLocked(false);
-        btnLayout2->addWidget(m_lockBtn);
-        connect(m_lockBtn, &QPushButton::toggled, this, [this](bool on) {
-            setControlsLocked(on);
-        });
-    }
-
-    // ANLG / VU button — toggles the S-Meter section (not in the reorderable stack)
-    {
-        auto* anlgBtn = new QPushButton("VU", btnRow1);
-        anlgBtn->setCheckable(true);
-        bool anlgOn = settings.value("Applet_ANLG", "True").toString() == "True";
-        anlgBtn->setChecked(anlgOn);
-        m_sMeterSection->setVisible(anlgOn);
-        btnLayout1->addWidget(anlgBtn);
-        connect(anlgBtn, &QPushButton::toggled, this, [this](bool on) {
-            // If currently floating, raise/hide the floating window instead of the panel section.
-            if (m_floatingWindows.contains("VU")) {
-                if (on) { m_floatingWindows["VU"]->showAndRestore(); }
-                else    { m_floatingWindows["VU"]->hideAndSave(); }
-                AppSettings::instance().setValue("Applet_ANLG", on ? "True" : "False");
-                return;
-            }
-            // If IsFloating is persisted but the window isn't open yet (e.g. toggled off
-            // then back on before the deferred floatApplet timer fired), re-float it.
-            if (on && AppSettings::instance().value(
-                    AetherSDR::floatKey("VU"), "False").toString() == "True") {
-                QTimer::singleShot(0, this, [this]() { floatApplet("VU"); });
-                AppSettings::instance().setValue("Applet_ANLG", "True");
-                return;
-            }
-            m_sMeterSection->setVisible(on);
-            AppSettings::instance().setValue("Applet_ANLG", on ? "True" : "False");
-        });
-    }
-
-    // Create all applets — row 1: core, row 2: accessories/conditional
+    // Create all applets — title bar click toggles content (accordion style)
     m_rxApplet = new RxApplet;
-    m_appletOrder.append(makeEntry("RX", "RX Controls", m_rxApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("RX", "RX Controls", m_rxApplet, true));
 
     m_tunerApplet = new TunerApplet;
-    {
-        auto* titleBar = new AppletTitleBar("Tuner", "TUN", this);
-        auto* wrapper = new QWidget;
-        auto* wl = new QVBoxLayout(wrapper);
-        wl->setContentsMargins(0, 0, 0, 0);
-        wl->setSpacing(0);
-        wl->addWidget(titleBar);
-        m_tunerApplet->show();
-        wl->addWidget(m_tunerApplet);
-
-        m_tuneBtn = new QPushButton("TUN", btnRow2);
-        m_tuneBtn->setCheckable(true);
-        m_tuneBtn->hide();
-        btnLayout2->addWidget(m_tuneBtn);
-        wrapper->hide();
-        connect(m_tuneBtn, &QPushButton::toggled, this, [this, wrapper](bool checked) {
-            if (m_floatingWindows.contains("TUN")) {
-                if (checked) { m_floatingWindows["TUN"]->showAndRestore(); }
-                else         { m_floatingWindows["TUN"]->hideAndSave(); }
-                AppSettings::instance().setValue("Applet_TUN", checked ? "True" : "False");
-                return;
-            }
-            if (checked) {
-                const QString floatKey = QStringLiteral("FloatingApplet_TUN_IsFloating");
-                if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                    QTimer::singleShot(0, this, [this]() { floatApplet("TUN"); });
-                    AppSettings::instance().setValue("Applet_TUN", "True");
-                    return;
-                }
-            }
-            wrapper->setVisible(checked);
-            AppSettings::instance().setValue("Applet_TUN", checked ? "True" : "False");
-        });
-        m_appletOrder.append({"TUN", wrapper, titleBar, m_tuneBtn});
-    }
+    m_appletOrder.append(makeEntry("TUN", "Tuner", m_tunerApplet, true, true));
 
     m_ampApplet = new AmpApplet;
-    {
-        auto* titleBar = new AppletTitleBar("Amplifier", "AMP", this);
-        auto* wrapper = new QWidget;
-        auto* wl = new QVBoxLayout(wrapper);
-        wl->setContentsMargins(0, 0, 0, 0);
-        wl->setSpacing(0);
-        wl->addWidget(titleBar);
-        m_ampApplet->show();
-        wl->addWidget(m_ampApplet);
-
-        m_ampBtn = new QPushButton("AMP", btnRow2);
-        m_ampBtn->setCheckable(true);
-        m_ampBtn->hide();
-        btnLayout2->addWidget(m_ampBtn);
-        wrapper->hide();
-        connect(m_ampBtn, &QPushButton::toggled, this, [this, wrapper](bool checked) {
-            if (m_floatingWindows.contains("AMP")) {
-                if (checked) { m_floatingWindows["AMP"]->showAndRestore(); }
-                else         { m_floatingWindows["AMP"]->hideAndSave(); }
-                AppSettings::instance().setValue("Applet_AMP", checked ? "True" : "False");
-                return;
-            }
-            if (checked) {
-                const QString floatKey = QStringLiteral("FloatingApplet_AMP_IsFloating");
-                if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                    QTimer::singleShot(0, this, [this]() { floatApplet("AMP"); });
-                    AppSettings::instance().setValue("Applet_AMP", "True");
-                    return;
-                }
-            }
-            wrapper->setVisible(checked);
-            AppSettings::instance().setValue("Applet_AMP", checked ? "True" : "False");
-        });
-        m_appletOrder.append({"AMP", wrapper, titleBar, m_ampBtn});
-    }
+    m_appletOrder.append(makeEntry("AMP", "Amplifier", m_ampApplet, true, true));
 
     m_txApplet = new TxApplet;
-    m_appletOrder.append(makeEntry("TX", "TX Controls", m_txApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("TX", "TX Controls", m_txApplet, true));
 
     m_phoneApplet = new PhoneApplet;
-    m_appletOrder.append(makeEntry("PHNE", "Phone", m_phoneApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("PHNE", "Phone", m_phoneApplet, true));
 
     m_phoneCwApplet = new PhoneCwApplet;
-    m_appletOrder.append(makeEntry("P/CW", "Phone/CW", m_phoneCwApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("P/CW", "Phone/CW", m_phoneCwApplet, true));
 
     m_eqApplet = new EqApplet;
-    m_appletOrder.append(makeEntry("EQ", "Equalizer", m_eqApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("EQ", "Equalizer", m_eqApplet, true));
 
     m_catApplet = new CatApplet;
-    m_appletOrder.append(makeEntry("DIGI", "Digital Mode Controls", m_catApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("DIGI", "Digital Mode Controls", m_catApplet, false));
 
     m_meterApplet = new MeterApplet;
-    m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false));
 
     m_agApplet = new AntennaGeniusApplet;
-    {
-        auto* wrapper = new QWidget;
-        auto* wl = new QVBoxLayout(wrapper);
-        wl->setContentsMargins(0, 0, 0, 0);
-        wl->setSpacing(0);
-        auto* titleBar = new AppletTitleBar("Antenna Genius", "AG", this);
-        wl->addWidget(titleBar);
-        m_agApplet->show();
-        wl->addWidget(m_agApplet);
-
-        m_agBtn = new QPushButton("AG", btnRow2);
-        m_agBtn->setCheckable(true);
-        m_agBtn->hide();
-        btnLayout2->addWidget(m_agBtn);
-        wrapper->hide();
-        connect(m_agBtn, &QPushButton::toggled, this, [this, wrapper](bool checked) {
-            if (m_floatingWindows.contains("AG")) {
-                if (checked) { m_floatingWindows["AG"]->showAndRestore(); }
-                else         { m_floatingWindows["AG"]->hideAndSave(); }
-                AppSettings::instance().setValue("Applet_AG", checked ? "True" : "False");
-                return;
-            }
-            if (checked) {
-                const QString floatKey = QStringLiteral("FloatingApplet_AG_IsFloating");
-                if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                    QTimer::singleShot(0, this, [this]() { floatApplet("AG"); });
-                    AppSettings::instance().setValue("Applet_AG", "True");
-                    return;
-                }
-            }
-            wrapper->setVisible(checked);
-            AppSettings::instance().setValue("Applet_AG", checked ? "True" : "False");
-        });
-        m_appletOrder.append({"AG", wrapper, titleBar, m_agBtn});
-    }
+    m_appletOrder.append(makeEntry("AG", "Antenna Genius", m_agApplet, true, true));
 
 #ifdef HAVE_MQTT
     m_mqttApplet = new MqttApplet;
-    m_appletOrder.append(makeEntry("MQTT", "MQTT", m_mqttApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("MQTT", "MQTT", m_mqttApplet, false));
 #endif
-
-    btnLayout1->addStretch();
-    btnLayout2->addStretch();
 
     // ── Restore saved order ─────────────────────────────────────────────────
     QString savedOrder = settings.value("AppletOrder").toString();
@@ -791,75 +671,67 @@ int AppletPanel::dropIndexFromY(int localY) const
 
 void AppletPanel::setTunerVisible(bool visible)
 {
-    if (visible) {
-        m_tuneBtn->show();
-        // Honor the user's saved checked state; default true on first detection.
-        const bool savedOn =
-            AppSettings::instance().value("Applet_TUN", "True").toString() == "True";
-        if (savedOn && !m_tuneBtn->isChecked()) { m_tuneBtn->setChecked(true); }
-        // Device reconnected — re-show floating window if it still exists,
-        // or re-float based on persisted IsFloating flag (#959)
-        if (m_floatingWindows.contains("TUN")) {
-            m_floatingWindows["TUN"]->showAndRestore();
-        } else {
-            const QString floatKey = QStringLiteral("FloatingApplet_TUN_IsFloating");
-            if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                QTimer::singleShot(0, this, [this]() { floatApplet("TUN"); });
+    for (auto& entry : m_appletOrder) {
+        if (entry.id != "TUN") continue;
+        if (visible) {
+            entry.widget->show();
+            if (m_floatingWindows.contains("TUN")) {
+                m_floatingWindows["TUN"]->showAndRestore();
+            } else {
+                const QString fk = floatKey("TUN");
+                if (AppSettings::instance().value(fk, "False").toString() == "True") {
+                    QTimer::singleShot(0, this, [this]() { floatApplet("TUN"); });
+                }
             }
+        } else {
+            if (m_floatingWindows.contains("TUN")) { m_floatingWindows["TUN"]->hideAndSave(); }
+            entry.widget->hide();
         }
-    } else {
-        // Device disappeared — hide floating window but preserve IsFloating
-        // so it can be restored on reconnect. Do NOT call dockApplet() here
-        // as that would reset IsFloating = False and lose the float state.
-        if (m_floatingWindows.contains("TUN")) { m_floatingWindows["TUN"]->hideAndSave(); }
-        m_tuneBtn->setChecked(false);
-        m_tuneBtn->hide();
+        break;
     }
 }
 
 void AppletPanel::setAmpVisible(bool visible)
 {
-    if (visible) {
-        m_ampBtn->show();
-        // Honor the user's saved checked state; default true on first detection.
-        const bool savedOn =
-            AppSettings::instance().value("Applet_AMP", "True").toString() == "True";
-        if (savedOn && !m_ampBtn->isChecked()) { m_ampBtn->setChecked(true); }
-        if (m_floatingWindows.contains("AMP")) {
-            m_floatingWindows["AMP"]->showAndRestore();
-        } else {
-            const QString floatKey = QStringLiteral("FloatingApplet_AMP_IsFloating");
-            if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                QTimer::singleShot(0, this, [this]() { floatApplet("AMP"); });
+    for (auto& entry : m_appletOrder) {
+        if (entry.id != "AMP") continue;
+        if (visible) {
+            entry.widget->show();
+            if (m_floatingWindows.contains("AMP")) {
+                m_floatingWindows["AMP"]->showAndRestore();
+            } else {
+                const QString fk = floatKey("AMP");
+                if (AppSettings::instance().value(fk, "False").toString() == "True") {
+                    QTimer::singleShot(0, this, [this]() { floatApplet("AMP"); });
+                }
             }
+        } else {
+            if (m_floatingWindows.contains("AMP")) { m_floatingWindows["AMP"]->hideAndSave(); }
+            entry.widget->hide();
         }
-    } else {
-        if (m_floatingWindows.contains("AMP")) { m_floatingWindows["AMP"]->hideAndSave(); }
-        m_ampBtn->setChecked(false);
-        m_ampBtn->hide();
+        break;
     }
 }
 
 void AppletPanel::setAgVisible(bool visible)
 {
-    if (visible) {
-        m_agBtn->show();
-        // Honor the user's saved checked state; default true on first detection.
-        const bool savedOn =
-            AppSettings::instance().value("Applet_AG", "True").toString() == "True";
-        if (savedOn && !m_agBtn->isChecked()) { m_agBtn->setChecked(true); }
-        if (m_floatingWindows.contains("AG")) {
-            m_floatingWindows["AG"]->showAndRestore();
-        } else {
-            const QString floatKey = QStringLiteral("FloatingApplet_AG_IsFloating");
-            if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                QTimer::singleShot(0, this, [this]() { floatApplet("AG"); });
+    for (auto& entry : m_appletOrder) {
+        if (entry.id != "AG") continue;
+        if (visible) {
+            entry.widget->show();
+            if (m_floatingWindows.contains("AG")) {
+                m_floatingWindows["AG"]->showAndRestore();
+            } else {
+                const QString fk = floatKey("AG");
+                if (AppSettings::instance().value(fk, "False").toString() == "True") {
+                    QTimer::singleShot(0, this, [this]() { floatApplet("AG"); });
+                }
             }
+        } else {
+            if (m_floatingWindows.contains("AG")) { m_floatingWindows["AG"]->hideAndSave(); }
+            entry.widget->hide();
         }
-    } else {
-        if (m_floatingWindows.contains("AG")) { m_floatingWindows["AG"]->hideAndSave(); }
-        m_agBtn->setChecked(false);
-        m_agBtn->hide();
+        break;
     }
 }
 
@@ -871,6 +743,14 @@ bool AppletPanel::isAppletFloating(const QString& id) const
         if (e.id == id) { return e.floating; }
     }
     return false;
+}
+
+void AppletPanel::toggleFloatingVisibility(const QString& id)
+{
+    if (!m_floatingWindows.contains(id)) return;
+    auto* win = m_floatingWindows[id];
+    if (win->isVisible()) win->hideAndSave();
+    else win->showAndRestore();
 }
 
 bool AppletPanel::controlsLocked() const
@@ -1062,9 +942,8 @@ void AppletPanel::dockApplet(const QString& id)
     m_floatingWindows.remove(id);
     entry.floating = false;
 
-    // Show wrapper only if the toggle button is checked
-    if (entry.btn && entry.btn->isChecked())
-        entry.widget->show();
+    // Show wrapper (title bar is always visible; content collapse state is preserved)
+    entry.widget->show();
 
     // Persist floating state
     AppSettings::instance().setValue(
