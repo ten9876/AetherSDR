@@ -136,8 +136,15 @@ public:
     // WNB and RF gain state for on-screen indicators.
     bool wnbActive()   const { return m_wnbActive; }
     int  rfGainValue() const { return m_rfGainValue; }
+    bool wideActive()  const { return m_wideActive; }
     void setWnbActive(bool on) { m_wnbActive = on; markOverlayDirty(); }
     void setRfGain(int gain) { m_rfGainValue = gain; markOverlayDirty(); }
+    void setWideActive(bool on) {
+        if (m_wideActive != on) {
+            m_wideActive = on;
+            markOverlayDirty();
+        }
+    }
 
     // HF propagation forecast overlay (K-index, A-index, and Solar Flux Index).
     // Values of -1 mean not yet fetched; visible only when enabled.
@@ -485,6 +492,7 @@ private:
     // On-screen indicators (WNB, RF Gain)
     bool m_wnbActive{false};
     int  m_rfGainValue{0};
+    bool m_wideActive{false};
 
     // HF propagation forecast overlay
     bool m_propForecastVisible{false};
@@ -522,6 +530,7 @@ private:
     float  m_lastDetectFrac{0};
     bool   m_lastDetectWnb{false};
     int    m_lastDetectRfGain{0};
+    bool   m_lastDetectWide{false};
 
     // NB Waterfall Blanker (#277)
     bool  m_wfBlankerEnabled{false};

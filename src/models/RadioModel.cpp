@@ -79,6 +79,7 @@ QJsonObject panToJson(const PanadapterModel* pan, const QString& activePanId)
     obj["preamp"] = pan->preamp();
     obj["wnb_active"] = pan->wnbActive();
     obj["wnb_level"] = pan->wnbLevel();
+    obj["wide_active"] = pan->wideActive();
     obj["resized"] = pan->isResized();
     obj["waterfall_configured"] = pan->isWaterfallConfigured();
     return obj;

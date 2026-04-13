@@ -2247,12 +2247,14 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
         if (m_centerMhz != m_lastDetectCenter || m_bandwidthMhz != m_lastDetectBw ||
             m_refLevel != m_lastDetectRef || m_dynamicRange != m_lastDetectDyn ||
             m_spectrumFrac != m_lastDetectFrac ||
-            m_wnbActive != m_lastDetectWnb || m_rfGainValue != m_lastDetectRfGain) {
+            m_wnbActive != m_lastDetectWnb || m_rfGainValue != m_lastDetectRfGain ||
+            m_wideActive != m_lastDetectWide) {
             markOverlayDirty();
             m_lastDetectCenter = m_centerMhz; m_lastDetectBw = m_bandwidthMhz;
             m_lastDetectRef = m_refLevel; m_lastDetectDyn = m_dynamicRange;
             m_lastDetectFrac = m_spectrumFrac;
             m_lastDetectWnb = m_wnbActive; m_lastDetectRfGain = m_rfGainValue;
+            m_lastDetectWide = m_wideActive;
         }
     }
 
@@ -2388,13 +2390,13 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                     && m_propKIndex >= 0
                     && m_propAIndex >= 0
                     && m_propSfi > 0;
-                if (m_wnbActive || m_rfGainValue != 0 || showProp) {
+                if (m_wnbActive || m_rfGainValue != 0 || showProp || m_wideActive) {
                     QFont indFont(p.font().family(), 14, QFont::Bold);
                     p.setFont(indFont);
                     p.setPen(QColor(0xc8, 0xd8, 0xe8, 180));
                     const QFontMetrics fm(indFont);
                     int y = specRect.top() + fm.ascent() + 4;
-                    // Build combined label (left to right: prop, WNB, RF gain), right-align
+                    // Build combined label (left to right: prop, WNB, RF gain, WIDE), right-align
                     QString label;
                     if (showProp) {
                         label += QString("K%1  A%2  SFI %3")
@@ -2410,6 +2412,10 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                         if (!label.isEmpty()) { label += QStringLiteral("   "); }
                         label += QStringLiteral("%1%2 dB")
                             .arg(m_rfGainValue > 0 ? "+" : "").arg(m_rfGainValue);
+                    }
+                    if (m_wideActive) {
+                        if (!label.isEmpty()) { label += QStringLiteral("   "); }
+                        label += QStringLiteral("WIDE");
                     }
                     int x = specRect.right() - DBM_STRIP_W - 8 - fm.horizontalAdvance(label);
                     p.drawText(x, y, label);
@@ -2988,7 +2994,7 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
             && m_propKIndex >= 0
             && m_propAIndex >= 0
             && m_propSfi > 0;
-        if (m_wnbActive || m_rfGainValue != 0 || showProp) {
+        if (m_wnbActive || m_rfGainValue != 0 || showProp || m_wideActive) {
             QFont indFont = p.font();
             indFont.setPointSize(18);
             indFont.setBold(true);
@@ -3001,7 +3007,15 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
 
             int x = rightEdge;
 
-            // RF Gain (rightmost)
+            // WIDE (rightmost)
+            if (m_wideActive) {
+                int ww = fm.horizontalAdvance("WIDE");
+                x -= ww;
+                p.drawText(x, topY, "WIDE");
+                x -= 10;
+            }
+
+            // RF Gain (to the left of WIDE)
             if (m_rfGainValue != 0) {
                 QString gainStr = (m_rfGainValue > 0)
                     ? QString("+%1dB").arg(m_rfGainValue)
