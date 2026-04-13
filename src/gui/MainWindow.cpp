@@ -919,32 +919,34 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel, &RadioModel::panadapterInfoChanged,
             this, [this]() {
         if (!m_displaySettingsPushed) {
+            auto* sw = spectrum();
+            if (!sw) return;  // pan not yet available
             m_displaySettingsPushed = true;
-            m_radioModel.setPanAverage(spectrum()->fftAverage());
-            m_radioModel.setPanFps(spectrum()->fftFps());
-            m_radioModel.setPanWeightedAverage(spectrum()->fftWeightedAvg());
-            m_radioModel.setWaterfallColorGain(spectrum()->wfColorGain());
-            m_radioModel.setWaterfallBlackLevel(spectrum()->wfBlackLevel());
-            m_radioModel.setWaterfallAutoBlack(spectrum()->wfAutoBlack());
-            int rate = spectrum()->wfLineDuration();
+            m_radioModel.setPanAverage(sw->fftAverage());
+            m_radioModel.setPanFps(sw->fftFps());
+            m_radioModel.setPanWeightedAverage(sw->fftWeightedAvg());
+            m_radioModel.setWaterfallColorGain(sw->wfColorGain());
+            m_radioModel.setWaterfallBlackLevel(sw->wfBlackLevel());
+            m_radioModel.setWaterfallAutoBlack(sw->wfAutoBlack());
+            int rate = sw->wfLineDuration();
             m_radioModel.setWaterfallLineDuration(rate);
             // Restore saved WNB and RF gain
             auto& s = AppSettings::instance();
-            bool wnbOn = s.value(spectrum()->settingsKey("DisplayWnbEnabled"), "False").toString() == "True";
-            int wnbLevel = s.value(spectrum()->settingsKey("DisplayWnbLevel"), "50").toInt();
-            int rfGain = s.value(spectrum()->settingsKey("DisplayRfGain"), "0").toInt();
+            bool wnbOn = s.value(sw->settingsKey("DisplayWnbEnabled"), "False").toString() == "True";
+            int wnbLevel = s.value(sw->settingsKey("DisplayWnbLevel"), "50").toInt();
+            int rfGain = s.value(sw->settingsKey("DisplayRfGain"), "0").toInt();
             m_radioModel.setPanWnb(wnbOn);
             m_radioModel.setPanWnbLevel(wnbLevel);
             m_radioModel.setPanRfGain(rfGain);
-            spectrum()->setWnbActive(wnbOn);
-            spectrum()->setRfGain(rfGain);
-            spectrum()->overlayMenu()->setWnbState(wnbOn, wnbLevel);
-            spectrum()->overlayMenu()->setRfGain(rfGain);
-            QString bgPath = s.value(spectrum()->settingsKey("BackgroundImage")).toString();
+            sw->setWnbActive(wnbOn);
+            sw->setRfGain(rfGain);
+            sw->overlayMenu()->setWnbState(wnbOn, wnbLevel);
+            sw->overlayMenu()->setRfGain(rfGain);
+            QString bgPath = s.value(sw->settingsKey("BackgroundImage")).toString();
             if (!bgPath.isEmpty())
-                spectrum()->setBackgroundImage(bgPath);
-            int bgOpacity = s.value(spectrum()->settingsKey("BackgroundOpacity"), "80").toInt();
-            spectrum()->setBackgroundOpacity(bgOpacity);
+                sw->setBackgroundImage(bgPath);
+            int bgOpacity = s.value(sw->settingsKey("BackgroundOpacity"), "80").toInt();
+            sw->setBackgroundOpacity(bgOpacity);
             // Nudge rate to force waterfall tile re-sync
             QTimer::singleShot(500, this, [this, rate]() {
                 m_radioModel.setWaterfallLineDuration(rate + 1);
@@ -4099,8 +4101,9 @@ void MainWindow::onConnectionStateChanged(bool connected)
                            || model.contains("6700") || model.contains("8600")
                            || model.contains("AU-520");
             // Set diversity allowed on all existing VFO widgets
-            if (auto* vfo = spectrum()->vfoWidget())
-                vfo->setDiversityAllowed(divAllowed);
+            if (auto* sw = spectrum())
+                if (auto* vfo = sw->vfoWidget())
+                    vfo->setDiversityAllowed(divAllowed);
         }
         audioStartRx();
         // TX audio stream will start when the radio assigns a stream ID
@@ -4736,7 +4739,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
         s->setAudioMute(true);  // TX slice in split has no audio output
         // TX slice frequency is already set by the slice create command
         // (with mode-dependent offset), so do NOT override it here (#789).
-        spectrum()->setSplitPair(m_splitRxSliceId, m_splitTxSliceId);
+        if (auto* sw = spectrum()) sw->setSplitPair(m_splitRxSliceId, m_splitTxSliceId);
         updateSplitState();
         // Auto-focus the TX VFO so the user can immediately tune the TX offset
         setActiveSlice(s->sliceId());
@@ -4768,7 +4771,7 @@ void MainWindow::onSliceRemoved(int id)
         m_splitActive = false;
         m_splitRxSliceId = -1;
         m_splitTxSliceId = -1;
-        spectrum()->setSplitPair(-1, -1);
+        if (auto* sw = spectrum()) sw->setSplitPair(-1, -1);
         if (auto* s = activeSlice())
             s->setTxSlice(true);
         updateSplitState();
@@ -4814,7 +4817,7 @@ void MainWindow::onSliceRemoved(int id)
     // If the removed slice was active, switch to the first remaining slice
     if (id == m_activeSliceId) {
         m_appletPanel->setSlice(nullptr);
-        spectrum()->overlayMenu()->setSlice(nullptr);
+        if (auto* sw = spectrum()) sw->overlayMenu()->setSlice(nullptr);
 
         const auto& slices = m_radioModel.slices();
         if (!slices.isEmpty())
@@ -4968,15 +4971,17 @@ void MainWindow::disableSplit()
 
     m_splitRxSliceId = -1;
     m_splitTxSliceId = -1;
-    spectrum()->setSplitPair(-1, -1);
+    if (auto* sw = spectrum()) sw->setSplitPair(-1, -1);
 
     updateSplitState();
 }
 
 void MainWindow::updateSplitState()
 {
+    auto* sw = spectrum();
+    if (!sw) return;
     for (auto* s : m_radioModel.slices()) {
-        if (auto* w = spectrum()->vfoWidget(s->sliceId())) {
+        if (auto* w = sw->vfoWidget(s->sliceId())) {
             bool isTxSlice = (m_splitActive && s->sliceId() == m_splitTxSliceId);
             bool isRxSplit = (m_splitActive && s->sliceId() == m_splitRxSliceId);
             w->updateSplitBadge(isTxSlice, isRxSplit);
@@ -5771,7 +5776,7 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
             m_radioModel.cwAutoTuneOnce(sliceId);
     });
     connect(w, &VfoWidget::addSpotRequested, this, [this](double freqMhz) {
-        spectrum()->showAddSpotDialog(freqMhz);
+        if (auto* sw = spectrum()) sw->showAddSpotDialog(freqMhz);
     });
 
     // Clicking an inactive VfoWidget activates that slice
@@ -6898,11 +6903,13 @@ BandSnapshot MainWindow::captureCurrentBandState() const
         snap.agcThreshold  = s->agcThreshold();
     }
     // Center and bandwidth are radio-authoritative — don't capture.
-    snap.minDbm          = spectrum()->refLevel() - spectrum()->dynamicRange();
-    snap.maxDbm          = spectrum()->refLevel();
-    snap.spectrumFrac    = spectrum()->spectrumFrac();
-    snap.rfGain          = spectrum()->rfGainValue();
-    snap.wnbOn           = spectrum()->wnbActive();
+    if (auto* sw = spectrum()) {
+        snap.minDbm          = sw->refLevel() - sw->dynamicRange();
+        snap.maxDbm          = sw->refLevel();
+        snap.spectrumFrac    = sw->spectrumFrac();
+        snap.rfGain          = sw->rfGainValue();
+        snap.wnbOn           = sw->wnbActive();
+    }
     return snap;
 }
 
@@ -6931,9 +6938,11 @@ void MainWindow::restoreBandState(const BandSnapshot& snap)
     }
     m_radioModel.setPanRfGain(snap.rfGain);
     m_radioModel.setPanWnb(snap.wnbOn);
-    spectrum()->setSpectrumFrac(snap.spectrumFrac);
-    spectrum()->setRfGain(snap.rfGain);
-    spectrum()->setWnbActive(snap.wnbOn);
+    if (auto* sw = spectrum()) {
+        sw->setSpectrumFrac(snap.spectrumFrac);
+        sw->setRfGain(snap.rfGain);
+        sw->setWnbActive(snap.wnbOn);
+    }
     m_updatingFromModel = false;
 }
 
