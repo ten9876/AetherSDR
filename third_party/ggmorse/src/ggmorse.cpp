@@ -82,6 +82,9 @@ const TAlphabet kMorseCode = {
     { "010010",  '"',  },
     { "0001001", '$',  },
     { "011010",  '@',  },
+    { "0101",    '\xC6', }, // Æ (also Ä) — Latin-1 0xC6
+    { "1110",    '\xD8', }, // Ø (also Ö) — Latin-1 0xD8
+    { "01110",   '\xC5', }, // Å          — Latin-1 0xC5
 };
 
 uint64_t t_us() {
