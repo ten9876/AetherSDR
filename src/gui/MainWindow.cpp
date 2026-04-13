@@ -6227,6 +6227,36 @@ void MainWindow::registerShortcutActions()
             if (s) s->setLocked(!s->isLocked());
         });
 
+    auto zoomActivePanadapter = [this](double factor) {
+        if (!m_radioModel.isConnected()) {
+            return;
+        }
+
+        auto* s = activeSlice();
+        if (!s || s->panId().isEmpty()) {
+            return;
+        }
+
+        auto* sw = spectrumForSlice(s);
+        if (!sw) {
+            return;
+        }
+
+        const double currentBw = sw->bandwidthMhz();
+        const double newBw = currentBw * factor;
+        if (newBw < m_radioModel.minPanBandwidthMhz()
+                || newBw > m_radioModel.maxPanBandwidthMhz()) {
+            return;
+        }
+
+        const double currentCenter = sw->centerMhz();
+        sw->setFrequencyRange(currentCenter, newBw);
+        m_radioModel.sendCommand(
+            QString("display pan set %1 bandwidth=%2").arg(s->panId()).arg(newBw, 0, 'f', 6));
+        m_radioModel.sendCommand(
+            QString("display pan set %1 center=%2").arg(s->panId()).arg(currentCenter, 0, 'f', 6));
+    };
+
     // ── DSP ─────────────────────────────────────────────────────────────
     m_shortcutManager.registerAction("nb_toggle", "NB Toggle", "DSP",
         QKeySequence(), [this]() {
@@ -6291,6 +6321,12 @@ void MainWindow::registerShortcutActions()
             if (s) m_radioModel.sendCommand(
                 QString("slice set %1 segment_zoom=1").arg(s->sliceId()));
         });
+    m_shortcutManager.registerAction("pan_zoom_in", "Panadapter Zoom In", "Display",
+        QKeySequence(), [zoomActivePanadapter]() { zoomActivePanadapter(1.0 / 1.5); });
+    m_shortcutManager.registerAction("pan_zoom_out", "Panadapter Zoom Out", "Display",
+        QKeySequence(), [zoomActivePanadapter]() { zoomActivePanadapter(1.5); });
+    m_shortcutManager.registerAction("open_memories", "Open Memories Dialog", "Display",
+        QKeySequence(), [this]() { showMemoryDialog(); });
 
     // ── RIT/XIT ─────────────────────────────────────────────────────────
     m_shortcutManager.registerAction("rit_toggle", "RIT Toggle", "RIT/XIT",

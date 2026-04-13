@@ -103,6 +103,8 @@ public:
     float spectrumFrac()  const { return m_spectrumFrac; }
     float refLevel()      const { return m_refLevel; }
     float dynamicRange()  const { return m_dynamicRange; }
+    double centerMhz()    const { return m_centerMhz; }
+    double bandwidthMhz() const { return m_bandwidthMhz; }
 
     // Set the FFT/waterfall split ratio programmatically.
     void setSpectrumFrac(float f);
