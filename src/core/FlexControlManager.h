@@ -19,6 +19,7 @@ namespace AetherSDR {
 //   X1S;    — button 1 tap (S=tap, C=double, L=hold)
 //   X2S;    — button 2 tap
 //   X3S;    — button 3 tap
+//   X4S;    — knob button tap
 //   F0304;  — device init/reset
 class FlexControlManager : public QObject {
     Q_OBJECT
@@ -42,7 +43,7 @@ public:
 signals:
     // +N = tune up N steps, -N = tune down N steps
     void tuneSteps(int steps);
-    // button 1-3, action: 0=tap, 1=double-tap, 2=hold
+    // button 1-4, action: 0=tap, 1=double-tap, 2=hold
     void buttonPressed(int button, int action);
     void connectionChanged(bool connected);
 
