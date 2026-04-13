@@ -1222,6 +1222,7 @@ QWidget* RadioSetupDialog::buildRxTab()
                 // Set cal_freq and trigger calibration
                 m_model->sendCommand(
                     "radio set cal_freq=" + calEdit->text());
+                m_model->sendCommand("radio calibrate");
             });
             calRow->addWidget(startBtn);
             calRow->addStretch(1);
