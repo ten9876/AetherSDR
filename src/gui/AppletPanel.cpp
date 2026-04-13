@@ -901,6 +901,16 @@ void AppletPanel::setAntennaList(const QStringList& ants)
     m_rxApplet->setAntennaList(ants);
 }
 
+void AppletPanel::setMaxSlices(int maxSlices)
+{
+    m_rxApplet->setMaxSlices(maxSlices);
+}
+
+void AppletPanel::updateSliceButtons(const QList<SliceModel*>& slices, int activeSliceId)
+{
+    m_rxApplet->updateSliceButtons(slices, activeSliceId);
+}
+
 void AppletPanel::floatSMeter()
 {
     if (m_floatingWindows.contains("VU")) { return; }

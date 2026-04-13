@@ -1148,6 +1148,10 @@ MainWindow::MainWindow(QWidget* parent)
         if (auto* s = activeSlice()) s->setAudioGain(v);
     });
 
+    // ── Slice tab toggle: click A/B/C/D → switch active slice (#1278) ──
+    connect(m_appletPanel->rxApplet(), &RxApplet::sliceActivationRequested,
+            this, &MainWindow::setActiveSlice);
+
     // ── NR2/RN2 feedback: AudioEngine → all VFO + overlay buttons ──────
     // Iterate all panadapter spectrums to find VFO widgets and overlay menus,
     // since spectrum()/vfoWidget() lookups can return null depending on
@@ -4122,6 +4126,10 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_stationLabel->setText(m_radioModel.nickname());
         m_connStatusLabel->setText("Connected");
         m_connPanel->setStatusText("Connected");
+
+        // Initialize slice tab toggle in RxApplet (#1278)
+        m_appletPanel->setMaxSlices(m_radioModel.maxSlices());
+
         // Show DIV button on dual-SCU radios
         {
             const QString& model = m_radioModel.model();
@@ -4783,6 +4791,9 @@ void MainWindow::onSliceAdded(SliceModel* s)
             centerActiveSliceInPanadapter(true, startupCenter);
         });
     }
+
+    // Refresh slice tab buttons (#1278)
+    m_appletPanel->updateSliceButtons(m_radioModel.slices(), m_activeSliceId);
 }
 
 void MainWindow::onSliceRemoved(int id)
@@ -4856,6 +4867,9 @@ void MainWindow::onSliceRemoved(int id)
         else
             m_activeSliceId = -1;
     }
+
+    // Refresh slice tab buttons (#1278)
+    m_appletPanel->updateSliceButtons(m_radioModel.slices(), m_activeSliceId);
 }
 
 SliceModel* MainWindow::activeSlice() const
@@ -4900,6 +4914,7 @@ void MainWindow::setActiveSlice(int sliceId)
             m_panStack->activeApplet()->setSliceId(sliceId);
     }
     m_appletPanel->setSlice(s);
+    m_appletPanel->updateSliceButtons(m_radioModel.slices(), sliceId);
     auto* sw = spectrum();
     if (sw) {
         sw->overlayMenu()->setSlice(s);
