@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "ThemeColors.h"
 #ifdef HAVE_MQTT
 #include "MqttApplet.h"
 #endif
@@ -204,7 +205,14 @@ MainWindow::MainWindow(QWidget* parent)
     setMinimumSize(1024, 600);
     resize(1400, 800);
 
-    applyDarkTheme();
+    // Load persisted theme (default: Dark)
+    {
+        auto& tm = ThemeManager::instance();
+        QString saved = AppSettings::instance().value("Theme", "Dark").toString();
+        tm.setTheme(saved);
+        connect(&tm, &ThemeManager::themeChanged, this, &MainWindow::applyTheme);
+    }
+    applyTheme();
 
     // Audio worker thread (#502) — AudioEngine runs on its own thread so
     // audio processing never competes with paintEvent for main thread CPU.
@@ -3931,17 +3939,18 @@ void MainWindow::buildUI()
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
-void MainWindow::applyDarkTheme()
+void MainWindow::applyTheme()
 {
-    setStyleSheet(R"(
+    const auto& p = ThemeManager::instance().palette();
+    setStyleSheet(QString(R"(
         QWidget {
-            background-color: #0f0f1a;
-            color: #c8d8e8;
+            background-color: %1;
+            color: %2;
             font-family: "Inter", "Segoe UI", sans-serif;
             font-size: 13px;
         }
         QGroupBox {
-            border: 1px solid #203040;
+            border: 1px solid %3;
             border-radius: 4px;
             margin-top: 8px;
             padding-top: 8px;
@@ -3949,53 +3958,69 @@ void MainWindow::applyDarkTheme()
         QGroupBox::title {
             subcontrol-origin: margin;
             left: 8px;
-            color: #00b4d8;
+            color: %4;
         }
         QPushButton {
-            background-color: #1a2a3a;
-            border: 1px solid #203040;
+            background-color: %5;
+            border: 1px solid %3;
             border-radius: 4px;
             padding: 4px 10px;
-            color: #c8d8e8;
+            color: %2;
         }
-        QPushButton:hover  { background-color: #203040; }
-        QPushButton:pressed { background-color: #00b4d8; color: #000; }
+        QPushButton:hover  { background-color: %6; }
+        QPushButton:pressed { background-color: %4; color: #000; }
         QComboBox {
-            background-color: #1a2a3a;
-            border: 1px solid #203040;
+            background-color: %5;
+            border: 1px solid %3;
             border-radius: 4px;
             padding: 3px 6px;
         }
         QComboBox::drop-down { border: none; }
         QListWidget {
-            background-color: #111120;
-            border: 1px solid #203040;
-            alternate-background-color: #161626;
+            background-color: %7;
+            border: 1px solid %3;
+            alternate-background-color: %8;
         }
-        QListWidget::item:selected { background-color: #00b4d8; color: #000; }
+        QListWidget::item:selected { background-color: %4; color: #000; }
         QSlider::groove:horizontal {
             height: 4px;
-            background: #203040;
+            background: %3;
             border-radius: 2px;
         }
         QSlider::handle:horizontal {
             width: 14px; height: 14px;
             margin: -5px 0;
-            background: #00b4d8;
+            background: %4;
             border-radius: 7px;
         }
-        QMenuBar { background-color: #0a0a14; }
-        QMenuBar::item:selected { background-color: #1a2a3a; }
-        QMenu { background-color: #111120; border: 1px solid #203040; }
-        QMenu::item:selected { background-color: #00b4d8; color: #000; }
-        QStatusBar { background-color: #0a0a14; border-top: 1px solid #203040; }
+        QMenuBar { background-color: %9; }
+        QMenuBar::item:selected { background-color: %5; }
+        QMenu { background-color: %7; border: 1px solid %3; }
+        QMenu::item:selected { background-color: %4; color: #000; }
+        QStatusBar { background-color: %10; border-top: 1px solid %3; }
         QProgressBar {
-            background-color: #111120;
-            border: 1px solid #203040;
+            background-color: %7;
+            border: 1px solid %3;
             border-radius: 3px;
         }
-        QSplitter::handle { background-color: #203040; width: 2px; }
-    )");
+        QSplitter::handle { background-color: %11; width: 2px; }
+    )")
+        .arg(p.appBackground.name())     // %1
+        .arg(p.textPrimary.name())       // %2
+        .arg(p.borderSubtle.name())      // %3
+        .arg(p.accent.name())            // %4
+        .arg(p.buttonBase.name())        // %5
+        .arg(p.buttonHover.name())       // %6
+        .arg(p.listBg.name())            // %7
+        .arg(p.listAltBg.name())         // %8
+        .arg(p.menuBarBg.name())         // %9
+        .arg(p.statusBarBg.name())       // %10
+        .arg(p.splitterHandle.name()));  // %11
+}
+
+void MainWindow::applyDarkTheme()
+{
+    applyTheme();
 }
 
 // ─── Radio/model event handlers ───────────────────────────────────────────────

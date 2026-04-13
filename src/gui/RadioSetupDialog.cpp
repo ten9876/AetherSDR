@@ -1,4 +1,5 @@
 #include "RadioSetupDialog.h"
+#include "ThemeColors.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "models/RadioModel.h"
@@ -511,6 +512,38 @@ QWidget* RadioSetupDialog::buildRadioTab()
         "QLabel { color: #c08040; font-size: 11px; font-style: italic;"
         " padding: 4px 8px; }");
     vbox->addWidget(disclaimer);
+
+    // Appearance group — Theme selector
+    {
+        auto* group = new QGroupBox("Appearance");
+        group->setStyleSheet(kGroupStyle);
+        auto* grid = new QGridLayout(group);
+        grid->setSpacing(6);
+
+        grid->addWidget(new QLabel("Theme:"), 0, 0);
+        auto* themeCombo = new QComboBox;
+        themeCombo->addItem("Dark");
+        themeCombo->addItem("Light");
+        applyComboStyle(themeCombo);
+        themeCombo->setFixedWidth(120);
+        themeCombo->setCurrentText(ThemeManager::instance().themeName());
+        connect(themeCombo, &QComboBox::currentTextChanged, this,
+                [](const QString& name) {
+            ThemeManager::instance().setTheme(name);
+            auto& s = AppSettings::instance();
+            s.setValue("Theme", name);
+            s.save();
+        });
+        grid->addWidget(themeCombo, 0, 1);
+        grid->setColumnStretch(2, 1);  // push controls left
+
+        for (auto* lbl : group->findChildren<QLabel*>()) {
+            if (lbl->styleSheet().isEmpty())
+                lbl->setStyleSheet(kLabelStyle);
+        }
+
+        vbox->addWidget(group);
+    }
 
     vbox->addStretch(1);
     return page;

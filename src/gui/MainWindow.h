@@ -97,7 +97,8 @@ private slots:
 private:
     void buildUI();
     void buildMenuBar();
-    void applyDarkTheme();
+    void applyTheme();
+    void applyDarkTheme();  // alias kept for backward compat — calls applyTheme()
 
     // Audio thread helpers — invoke AudioEngine methods on the worker thread (#502)
     void audioStartRx();

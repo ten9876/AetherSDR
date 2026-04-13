@@ -44,6 +44,7 @@ signals:
     void blinkEnabledChanged(bool enabled);
 
 private:
+    void applyThemeColors();
     void showFeatureRequestDialog();
     void showFeatureRequestDialogImpl();
     QHBoxLayout* m_hbox{nullptr};

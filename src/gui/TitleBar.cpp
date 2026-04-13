@@ -1,4 +1,5 @@
 #include "TitleBar.h"
+#include "ThemeColors.h"
 #include "GuardedSlider.h"
 #include "core/AppSettings.h"
 
@@ -28,7 +29,9 @@ TitleBar::TitleBar(QWidget* parent)
     : QWidget(parent)
 {
     setFixedHeight(32);
-    setStyleSheet("TitleBar { background: #0a0a14; border-bottom: 1px solid #203040; }");
+    applyThemeColors();
+    connect(&ThemeManager::instance(), &ThemeManager::themeChanged,
+            this, &TitleBar::applyThemeColors);
 
     m_hbox = new QHBoxLayout(this);
     m_hbox->setContentsMargins(4, 2, 8, 2);
@@ -277,6 +280,50 @@ TitleBar::TitleBar(QWidget* parent)
         "QPushButton:hover { background: #504000; color: #ffe080; }");
     connect(featureBtn, &QPushButton::clicked, this, &TitleBar::showFeatureRequestDialog);
     m_hbox->addWidget(featureBtn);
+}
+
+void TitleBar::applyThemeColors()
+{
+    const auto& p = ThemeManager::instance().palette();
+    setStyleSheet(QString("TitleBar { background: %1; border-bottom: 1px solid %2; }")
+        .arg(p.menuBarBg.name(), p.borderSubtle.name()));
+
+    // Update menu bar if already attached
+    if (m_menuBar) {
+        m_menuBar->setStyleSheet(QString(
+            "QMenuBar { background: transparent; color: %1; font-size: 12px; }"
+            "QMenuBar::item { padding: 4px 8px; }"
+            "QMenuBar::item:selected { background: %2; color: #ffffff; }"
+            "QMenu { background: %3; color: %4; border: 1px solid %5; }"
+            "QMenu::item:selected { background: %6; }")
+            .arg(p.titleBarText.name(), p.buttonHover.name(),
+                 p.appBackground.name(), p.textPrimary.name(),
+                 p.tabBorder.name(), p.blueBg.name()));
+    }
+
+    // Slider grooves & labels
+    QString sliderStyle = QString(
+        "QSlider::groove:horizontal { background: %1; height: 4px; border-radius: 2px; }"
+        "QSlider::handle:horizontal { background: %2; width: 10px; margin: -3px 0; border-radius: 5px; }"
+        "QSlider::sub-page:horizontal { background: %2; border-radius: 2px; }")
+        .arg(p.buttonBase.name(), p.accent.name());
+    if (m_masterSlider) m_masterSlider->setStyleSheet(sliderStyle);
+    if (m_hpSlider) m_hpSlider->setStyleSheet(sliderStyle);
+
+    QString volumeLabelStyle = QString("QLabel { color: %1; font-size: 10px; }")
+        .arg(p.titleBarText.name());
+    if (m_masterLabel) m_masterLabel->setStyleSheet(volumeLabelStyle);
+    if (m_hpLabel) m_hpLabel->setStyleSheet(volumeLabelStyle);
+
+    // Minimal mode button
+    if (m_minimalBtn) {
+        m_minimalBtn->setStyleSheet(QString(
+            "QPushButton { background: %1; color: %2; border: 1px solid %3; "
+            "border-radius: 4px; font-size: 18px; padding: 0; }"
+            "QPushButton:hover { background: %4; color: %5; border-color: %5; }")
+            .arg(p.buttonBase.name(), p.textPrimary.name(),
+                 p.tabBorder.name(), p.buttonHover.name(), p.accent.name()));
+    }
 }
 
 void TitleBar::setMenuBar(QMenuBar* mb)
