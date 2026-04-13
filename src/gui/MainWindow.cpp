@@ -1527,6 +1527,25 @@ MainWindow::MainWindow(QWidget* parent)
     // FlexControl signals (auto-queued from worker → main)
     connect(m_flexControl, &FlexControlManager::tuneSteps,
             this, [this](int steps) {
+        switch (m_flexWheelMode) {
+        case FlexWheelMode::Volume: {
+            auto* s = activeSlice();
+            if (!s) return;
+            float gain = s->audioGain() + steps * 2.0f;
+            s->setAudioGain(std::clamp(gain, 0.0f, 100.0f));
+            return;
+        }
+        case FlexWheelMode::Power: {
+            auto& tx = m_radioModel.transmitModel();
+            int power = tx.rfPower() + steps;
+            tx.setRfPower(std::clamp(power, 0, 100));
+            return;
+        }
+        case FlexWheelMode::Frequency:
+        default:
+            break;
+        }
+        // Frequency mode (default)
         auto* s = activeSlice();
         if (!s || s->isLocked()) return;
         int stepHz = spectrum() ? spectrum()->stepSize() : 100;
@@ -1605,6 +1624,12 @@ MainWindow::MainWindow(QWidget* parent)
             if (auto* s = activeSlice()) {
                 s->setAudioGain(std::max(0.0f, s->audioGain() - 5.0f));
             }
+        } else if (actionName == "WheelFrequency") {
+            m_flexWheelMode = FlexWheelMode::Frequency;
+        } else if (actionName == "WheelVolume") {
+            m_flexWheelMode = FlexWheelMode::Volume;
+        } else if (actionName == "WheelPower") {
+            m_flexWheelMode = FlexWheelMode::Power;
         }
     });
 #endif

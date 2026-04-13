@@ -2900,7 +2900,8 @@ QWidget* RadioSetupDialog::buildSerialTab()
             "None", "StepUp", "StepDown", "ToggleMox",
             "ToggleTune", "ToggleMute", "ToggleLock",
             "NextSlice", "PrevSlice",
-            "ToggleAgc", "VolumeUp", "VolumeDown"
+            "ToggleAgc", "VolumeUp", "VolumeDown",
+            "WheelFrequency", "WheelVolume", "WheelPower"
         };
         static const char* defaultActions[4][2] = {
             {"StepUp", "StepDown"},

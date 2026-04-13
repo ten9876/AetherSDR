@@ -71,6 +71,9 @@ using DaxBridge = PipeWireAudioBridge;
 #endif
 class VfoWidget;
 
+// Wheel mode for FlexControl: determines what the encoder knob adjusts
+enum class FlexWheelMode { Frequency, Volume, Power };
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -193,6 +196,7 @@ private:
     FlexControlManager*   m_flexControl{nullptr};
     QTimer               m_flexCoalesceTimer;
     double               m_flexTargetMhz{-1.0};
+    FlexWheelMode        m_flexWheelMode{FlexWheelMode::Frequency};
 #endif
 #ifdef HAVE_HIDAPI
     HidEncoderManager*   m_hidEncoder{nullptr};
