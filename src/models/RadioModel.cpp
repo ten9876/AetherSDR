@@ -1936,6 +1936,22 @@ void RadioModel::onStatusReceived(const QString& object,
     // "amplifier <handle> model=TunerGeniusXL operate=1 relayC1=20 ..."
     static const QRegularExpression ampRe(R"(^amplifier\s+(\S+)$)");
     if (object.startsWith("amplifier")) {
+        // Handle amplifier removal — "amplifier <handle> removed" arrives
+        // with no '=' so the parser puts the whole string in 'object'
+        if (kvs.contains("removed") || object.endsWith("removed")) {
+            if (m_hasAmplifier) {
+                qCDebug(lcProtocol) << "RadioModel: amplifier removed";
+                m_hasAmplifier = false;
+                m_ampHandle.clear();
+                m_ampIp.clear();
+                m_ampModel.clear();
+                m_ampOperate = false;
+                emit amplifierChanged(false);
+                emit ampStateChanged();
+            }
+            return;
+        }
+
         const auto m = ampRe.match(object);
         if (m.hasMatch()) {
             const QString handle = m.captured(1);

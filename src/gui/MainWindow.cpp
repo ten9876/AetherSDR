@@ -1333,6 +1333,15 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_pgxlConn, &PgxlConnection::connected, this, [this]() {
         qDebug() << "PGXL direct connection established, version:" << m_pgxlConn.version();
     });
+    // Safety net: hide amplifier panel when direct PGXL TCP connection drops,
+    // even if the radio never sends an explicit "removed" status (#1229)
+    connect(&m_pgxlConn, &PgxlConnection::disconnected, this, [this]() {
+        if (m_radioModel.hasAmplifier()) {
+            qDebug() << "PGXL disconnected — hiding amplifier panel";
+            m_appletPanel->setAmpVisible(false);
+            m_pgxlIndicator->setVisible(false);
+        }
+    });
     // OPERATE button → PGXL standby/operate command via radio amplifier API
     connect(m_appletPanel->ampApplet(), &AmpApplet::operateToggled, this, [this](bool on) {
         if (!m_radioModel.ampHandle().isEmpty())
