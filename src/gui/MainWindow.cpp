@@ -5542,9 +5542,6 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     // ── Band selection ───────────────────────────────────────────────────
     connect(menu, &SpectrumOverlayMenu::bandSelected,
             this, [this, applet](const QString& bandName, double freqMhz, const QString& mode) {
-        // Guard against double-fire from multiple pan overlays
-        if (bandName == m_bandSettings.currentBand()) return;
-
         qDebug() << "MainWindow: switching to band" << bandName
                  << "freq:" << freqMhz << "mode:" << mode;
 
