@@ -1189,8 +1189,7 @@ MainWindow::MainWindow(QWidget* parent)
     // ── Antenna list from radio → applet panel ─────────────────────────────
     connect(&m_radioModel, &RadioModel::antListChanged,
             m_appletPanel, &AppletPanel::setAntennaList);
-    connect(&m_radioModel, &RadioModel::antListChanged,
-            spectrum()->overlayMenu(), &SpectrumOverlayMenu::setAntennaList);
+    // Overlay-menu antenna wiring is now per-pan in wirePanadapter() (#1260).
     // Antenna list and S-meter are now wired per-widget in onSliceAdded.
 
     // ── Title bar: PC Audio, master volume, headphone volume ────────────────
@@ -4976,6 +4975,11 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 
     // Set panId on the overlay menu so +RX routes to the correct pan
     menu->setPanId(applet->panId());
+
+    // Antenna list → this overlay menu (per-pan, mirrors VfoWidget pattern) (#1260)
+    connect(&m_radioModel, &RadioModel::antListChanged,
+            menu, &SpectrumOverlayMenu::setAntennaList);
+    menu->setAntennaList(m_radioModel.antennaList());
 
     // Apply current prop forecast state to this (possibly new) panadapter
     if (m_propForecast) {
