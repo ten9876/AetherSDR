@@ -47,6 +47,11 @@
 #include <QMenu>
 #include <QStatusBar>
 
+class QResizeEvent;
+class QShowEvent;
+class QWindow;
+class QVBoxLayout;
+
 namespace AetherSDR {
 
 class ConnectionPanel;
@@ -80,6 +85,9 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    void showEvent(QShowEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+    void changeEvent(QEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -98,6 +106,10 @@ private:
     void buildUI();
     void buildMenuBar();
     void applyDarkTheme();
+    void configureMacWindowFlags();
+    void applyMacWindowChromeIfNeeded();
+    void updateMacTitleBarMetrics();
+    void connectMacWindowSignals();
 
     // Audio thread helpers — invoke AudioEngine methods on the worker thread (#502)
     void audioStartRx();
@@ -212,6 +224,7 @@ private:
 
     // GUI — main area
     TitleBar*         m_titleBar{nullptr};
+    QVBoxLayout*      m_mainLayout{nullptr};
     QSplitter*        m_splitter{nullptr};
     PanadapterStack*  m_panStack{nullptr};
     QPointer<PanadapterApplet> m_panApplet;  // backward compat alias to active applet
@@ -314,6 +327,11 @@ private:
     QString m_savedMicSelection;  // restore on stopDax
     bool startDax();
     void stopDax();
+#endif
+
+#ifdef Q_OS_MAC
+    QPointer<QWindow> m_macObservedWindow;
+    bool m_macChromeApplied{false};
 #endif
 };
 

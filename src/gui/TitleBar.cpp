@@ -2,6 +2,7 @@
 #include "GuardedSlider.h"
 #include "core/AppSettings.h"
 
+#include <algorithm>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QDialog>
@@ -14,8 +15,10 @@
 #include <QDesktopServices>
 #include <QClipboard>
 #include <QApplication>
+#include <QMouseEvent>
 #include <QTimer>
 #include <QMenu>
+#include <QWindow>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QJsonDocument>
@@ -24,10 +27,54 @@
 
 namespace AetherSDR {
 
+#ifdef Q_OS_MAC
+namespace {
+
+class MacTitleDragStrip : public QWidget {
+public:
+    explicit MacTitleDragStrip(QWidget* parent = nullptr)
+        : QWidget(parent)
+    {
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        setCursor(Qt::OpenHandCursor);
+        setAccessibleName("Window drag strip");
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        if (event->button() == Qt::LeftButton && startNativeMove()) {
+            event->accept();
+            return;
+        }
+        QWidget::mousePressEvent(event);
+    }
+
+    void mouseMoveEvent(QMouseEvent* event) override
+    {
+        if ((event->buttons() & Qt::LeftButton) && startNativeMove()) {
+            event->accept();
+            return;
+        }
+        QWidget::mouseMoveEvent(event);
+    }
+
+private:
+    bool startNativeMove()
+    {
+        QWidget* topLevel = window();
+        QWindow* handle = topLevel ? topLevel->windowHandle() : nullptr;
+        return handle && handle->startSystemMove();
+    }
+};
+
+} // namespace
+#endif
+
 TitleBar::TitleBar(QWidget* parent)
     : QWidget(parent)
 {
-    setFixedHeight(32);
+    setFixedHeight(m_baseHeightPx);
     setStyleSheet("TitleBar { background: #0a0a14; border-bottom: 1px solid #203040; }");
 
     m_hbox = new QHBoxLayout(this);
@@ -96,6 +143,10 @@ TitleBar::TitleBar(QWidget* parent)
     m_hbox->addStretch(1);
     m_hbox->addWidget(m_heartbeat);
     m_hbox->addSpacing(4);
+#else
+    m_nativeInsetSpacer = new QWidget(this);
+    m_nativeInsetSpacer->setFixedWidth(0);
+    m_hbox->addWidget(m_nativeInsetSpacer);
 #endif
 
     auto* appName = new QLabel("AetherSDR");
@@ -120,9 +171,12 @@ TitleBar::TitleBar(QWidget* parent)
     // macOS: heartbeat after multiFLEX (left-aligned, no menu bar in title)
     m_hbox->addSpacing(4);
     m_hbox->addWidget(m_heartbeat);
-#endif
-
+    m_dragStrip = new MacTitleDragStrip(this);
+    m_dragStrip->setMinimumWidth(24);
+    m_hbox->addWidget(m_dragStrip, 1);
+#else
     m_hbox->addStretch(1);
+#endif
 
     // ── Right: Other client TX indicator + PC Audio + Master Vol + HP Vol ──
     m_otherTxLabel = new QLabel();
@@ -319,6 +373,19 @@ void TitleBar::setHeadphoneVolume(int pct)
     QSignalBlocker b(m_hpSlider);
     m_hpSlider->setValue(pct);
     m_hpLabel->setText(QString::number(pct));
+}
+
+void TitleBar::setMacChromeMetrics(int leadingInsetPx, int titleBarHeightPx)
+{
+#ifdef Q_OS_MAC
+    if (m_nativeInsetSpacer)
+        m_nativeInsetSpacer->setFixedWidth(std::max(0, leadingInsetPx));
+
+    setFixedHeight(std::max(m_baseHeightPx, titleBarHeightPx));
+#else
+    Q_UNUSED(leadingInsetPx);
+    Q_UNUSED(titleBarHeightPx);
+#endif
 }
 
 void TitleBar::setMultiFlexStatus(int count, const QStringList& names)

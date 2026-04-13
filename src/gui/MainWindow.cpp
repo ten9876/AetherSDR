@@ -57,7 +57,9 @@
 #endif
 #include "AetherDspDialog.h"
 #include "DspParamPopup.h"
+#include "platform/macos/MacWindowChrome.h"
 
+#include <algorithm>
 #include <memory>
 #include <functional>
 #include <QApplication>
@@ -101,6 +103,7 @@
 #include <QComboBox>
 #include <QProgressDialog>
 #include <QThread>
+#include <QWindow>
 #include "core/AppSettings.h"
 #ifdef HAVE_RADE
 #include "core/RADEEngine.h"
@@ -199,6 +202,7 @@ static bool shortcutGuard() {
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
+    configureMacWindowFlags();
     setWindowTitle(QString("AetherSDR v%1").arg(QCoreApplication::applicationVersion()));
     setWindowIcon(QIcon(":/icon.png"));
     setMinimumSize(1024, 600);
@@ -2327,6 +2331,117 @@ void MainWindow::audioStartTx(const QHostAddress& addr, quint16 port)
     });
 }
 
+void MainWindow::showEvent(QShowEvent* event)
+{
+    QMainWindow::showEvent(event);
+    applyMacWindowChromeIfNeeded();
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+    applyMacWindowChromeIfNeeded();
+}
+
+void MainWindow::changeEvent(QEvent* event)
+{
+    QMainWindow::changeEvent(event);
+
+#ifdef Q_OS_MAC
+    if (!event)
+        return;
+
+    switch (event->type()) {
+    case QEvent::WindowStateChange:
+    case QEvent::ActivationChange:
+        applyMacWindowChromeIfNeeded();
+        break;
+    default:
+        break;
+    }
+#endif
+}
+
+void MainWindow::configureMacWindowFlags()
+{
+#ifdef Q_OS_MAC
+    // Keep a native titled window on macOS so the traffic lights, fullscreen,
+    // and edge resize behavior stay AppKit-managed instead of going frameless.
+    //
+    // Qt Widgets respects a window's safe area by default, which keeps a
+    // QMainWindow's internal layout below the titlebar. Opt the top-level
+    // widget layout into the full rect so the custom TitleBar can actually
+    // live inside the expanded client area.
+    setAttribute(Qt::WA_LayoutOnEntireRect, true);
+    setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea, false);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    // Qt 6.9 added these client-area hints; older Qt still builds and falls
+    // back to the AppKit chrome helper below.
+    setWindowFlag(Qt::ExpandedClientAreaHint, true);
+    setWindowFlag(Qt::NoTitleBarBackgroundHint, true);
+#endif
+#endif
+}
+
+void MainWindow::applyMacWindowChromeIfNeeded()
+{
+#ifdef Q_OS_MAC
+    connectMacWindowSignals();
+    if (!m_macChromeApplied)
+        m_macChromeApplied = applyMacWindowChrome(window());
+    updateMacTitleBarMetrics();
+#endif
+}
+
+void MainWindow::updateMacTitleBarMetrics()
+{
+#ifdef Q_OS_MAC
+    if (!m_titleBar || !m_mainLayout)
+        return;
+
+    connectMacWindowSignals();
+
+    const MacChromeMetrics metrics = queryMacChromeMetrics(window());
+    int effectiveLeadingInset = metrics.leadingInsetPx;
+    int effectiveTitleBarHeight = metrics.titleBarHeightPx;
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    // Qt 6.9 exposes safe-area changes for notched displays; older Qt keeps
+    // compiling without this code path.
+    if (auto* handle = windowHandle()) {
+        const QMargins safeArea = handle->safeAreaMargins();
+        effectiveLeadingInset = std::max(effectiveLeadingInset, safeArea.left());
+        effectiveTitleBarHeight = std::max(effectiveTitleBarHeight, safeArea.top());
+    }
+#endif
+
+    m_titleBar->setMacChromeMetrics(effectiveLeadingInset, effectiveTitleBarHeight);
+#endif
+}
+
+void MainWindow::connectMacWindowSignals()
+{
+#ifdef Q_OS_MAC
+    auto* handle = windowHandle();
+    if (!handle || m_macObservedWindow == handle)
+        return;
+
+    m_macObservedWindow = handle;
+    m_macChromeApplied = false;
+
+    connect(handle, &QWindow::screenChanged, this, [this](QScreen*) {
+        updateMacTitleBarMetrics();
+    });
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    // Guard the 6.9+ safe-area signal so older Qt branches still compile.
+    connect(handle, &QWindow::safeAreaMarginsChanged, this, [this](const QMargins&) {
+        updateMacTitleBarMetrics();
+    });
+#endif
+#endif
+}
+
 void MainWindow::audioStopTx()
 {
     QMetaObject::invokeMethod(m_audio, &AudioEngine::stopTxStream);
@@ -2336,6 +2451,10 @@ void MainWindow::audioStopTx()
 
 void MainWindow::buildMenuBar()
 {
+#ifdef Q_OS_MAC
+    menuBar()->setNativeMenuBar(true);
+#endif
+
     auto* fileMenu = menuBar()->addMenu("&File");
     auto* quitAct = fileMenu->addAction("&Quit");
     quitAct->setShortcut(QKeySequence::Quit);
@@ -3355,8 +3474,10 @@ void MainWindow::buildUI()
 {
     // ── Title bar + central splitter ─────────────────────────────────────────
     m_titleBar = new TitleBar(this);
-    // Embed the menu bar into the title bar (left side)
+#ifndef Q_OS_MAC
+    // Linux/Windows keep the in-window menu bar layout.
     m_titleBar->setMenuBar(menuBar());
+#endif
     connect(m_titleBar, &TitleBar::multiFlexClicked, this, [this] {
         MultiFlexDialog dlg(&m_radioModel, this);
         dlg.exec();
@@ -3373,11 +3494,13 @@ void MainWindow::buildUI()
     m_splitter->setHandleWidth(0);
 
     auto* central = new QWidget(this);
-    auto* vbox = new QVBoxLayout(central);
-    vbox->setContentsMargins(0, 0, 0, 0);
-    vbox->setSpacing(0);
-    vbox->addWidget(m_titleBar);
-    vbox->addWidget(m_splitter, 1);
+    central->setAttribute(Qt::WA_LayoutOnEntireRect, true);
+    central->setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea, false);
+    m_mainLayout = new QVBoxLayout(central);
+    m_mainLayout->setContentsMargins(0, 0, 0, 0);
+    m_mainLayout->setSpacing(0);
+    m_mainLayout->addWidget(m_titleBar);
+    m_mainLayout->addWidget(m_splitter, 1);
     setCentralWidget(central);
 
     auto* splitter = m_splitter;

@@ -23,6 +23,7 @@ public:
     void setPcAudioEnabled(bool on);
     void setMasterVolume(int pct);
     void setHeadphoneVolume(int pct);
+    void setMacChromeMetrics(int leadingInsetPx, int titleBarHeightPx);
     void setOtherClientTx(bool transmitting, const QString& station);
     void setMultiFlexStatus(int clientCount, const QStringList& names);
     void onHeartbeat();       // Call when a discovery packet arrives
@@ -48,6 +49,8 @@ private:
     void showFeatureRequestDialogImpl();
     QHBoxLayout* m_hbox{nullptr};
     QMenuBar*    m_menuBar{nullptr};
+    QWidget*     m_nativeInsetSpacer{nullptr};
+    QWidget*     m_dragStrip{nullptr};
     QLabel*      m_otherTxLabel{nullptr};
     QPushButton* m_mfBtn{nullptr};
     QPushButton* m_pcBtn{nullptr};
@@ -69,6 +72,7 @@ private:
     bool         m_alarmRed{false};
     bool         m_blinkEnabled{true};  // persisted via AppSettings "HeartbeatBlinkEnabled"
     bool         m_discovering{false};  // solid amber while waiting for connection
+    int          m_baseHeightPx{32};
 };
 
 } // namespace AetherSDR

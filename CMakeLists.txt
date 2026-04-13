@@ -583,6 +583,10 @@ qt_add_resources(RESOURCES resources.qrc)
 
 add_executable(AetherSDR ${ALL_SOURCES} ${RNNOISE_SOURCES} ${GGMORSE_SOURCES} ${RADE_SOURCES} ${BNR_SOURCES} ${SPECBLEACH_SOURCES} ${RESOURCES})
 
+if(APPLE)
+    target_sources(AetherSDR PRIVATE src/platform/macos/MacWindowChrome.mm)
+endif()
+
 # Windows: GUI app (no console window) + icon resource
 if(WIN32)
     set_target_properties(AetherSDR PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -599,7 +603,7 @@ if(APPLE)
         MACOSX_BUNDLE_ICON_FILE "AetherSDR.icns"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/packaging/macos/Info.plist.in"
     )
-    target_link_libraries(AetherSDR PRIVATE "-framework AVFoundation")
+    target_link_libraries(AetherSDR PRIVATE "-framework AVFoundation" "-framework AppKit")
     set(MACOSX_ICON "${CMAKE_SOURCE_DIR}/docs/AetherSDR.icns")
     if(EXISTS "${MACOSX_ICON}")
         target_sources(AetherSDR PRIVATE "${MACOSX_ICON}")
