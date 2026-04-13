@@ -26,6 +26,7 @@ public:
 
 signals:
     void micLevelChanged(int level);  // slider value 0-100
+    void zeroBeatRequested();         // CW zero-beat button pressed
 
 public slots:
     // Phone meters (mic level / compression)
@@ -38,6 +39,9 @@ public slots:
 
     // Switch between Phone and CW sub-panels based on slice mode.
     void setMode(const QString& mode);
+
+    // Update the Zero button enabled state based on detected CW pitch.
+    void setCwDetectedPitch(float pitchHz);
 
 private:
     void buildPhonePanel();
@@ -92,6 +96,8 @@ private:
     QLabel*      m_pitchLabel{nullptr};
     QPushButton* m_pitchDown{nullptr};
     QPushButton* m_pitchUp{nullptr};
+
+    QPushButton* m_zeroBtn{nullptr};
 
     // ── Shared state ─────────────────────────────────────────────────────
 
