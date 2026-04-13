@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <QHostAddress>
 #include <QList>
+#include <QVector>
 
 class QUdpSocket;
 class QTcpSocket;
@@ -25,6 +26,15 @@ struct AgDeviceInfo {
     QString   mode;       // "master" / "slave"
 };
 
+// Group type for antennas with sub-selectable outputs.
+enum class AgGroupType { None, FourSquare, Stack, Other };
+
+// Information about a single output within a grouped antenna.
+struct AgOutputInfo {
+    int     id{0};
+    QString label;    // e.g. "NE", "SW", "Top", "Mid", "Bot"
+};
+
 // Information about a single antenna port on the device.
 struct AgAntennaInfo {
     int     id{0};
@@ -32,6 +42,9 @@ struct AgAntennaInfo {
     quint16 txBandMask{0};
     quint16 rxBandMask{0};
     quint16 inbandMask{0};
+    AgGroupType groupType{AgGroupType::None};
+    QVector<AgOutputInfo> outputs;
+    int activeOutput{0};  // currently selected output (0 = none/default)
 };
 
 // Information about a band definition on the device.
@@ -107,6 +120,10 @@ public:
     // permission for the current band; otherwise keeps current txant.
     void selectAntenna(int portId, int antennaId);
 
+    // Select a specific output within a grouped antenna (four-square direction,
+    // stack element, etc.). outputId is 1-based index into the antenna's outputs.
+    void selectOutput(int antennaId, int outputId);
+
     // Set auto-mode for a port.
     void setAutoMode(int portId, bool on);
 
@@ -128,6 +145,9 @@ public:
     // Get antenna name by ID.
     QString antennaName(int antennaId) const;
 
+    // Get antenna info by ID (nullptr if not found).
+    const AgAntennaInfo* antennaInfo(int antennaId) const;
+
 signals:
     void deviceDiscovered(const AgDeviceInfo& info);
     void deviceLost(const QString& serial);
@@ -140,6 +160,7 @@ signals:
     void portStatusChanged(int portId);  // port A or B status updated
     void presenceChanged(bool present);  // any device discovered/lost
     void radioBandChanged(int bandId);   // client-side band derived from radio freq
+    void outputChanged(int antennaId, int outputId);  // active output changed for grouped antenna
 
 private slots:
     void onDiscoveryDatagram();

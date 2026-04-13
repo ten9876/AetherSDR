@@ -347,6 +347,47 @@ void AntennaGeniusModel::processResponse(int seq, int code, const QString& body)
                 ant.txBandMask  = kvs.value("tx", "0").toUShort(nullptr, 16);
                 ant.rxBandMask  = kvs.value("rx", "0").toUShort(nullptr, 16);
                 ant.inbandMask  = kvs.value("inband", "0").toUShort(nullptr, 16);
+
+                // Parse group type and outputs if present.
+                // AG protocol: type=foursquare|stack|none outputs=4
+                //              output_names=NE,NW,SE,SW (comma-separated)
+                QString typeStr = kvs.value("type", "none").toLower();
+                if (typeStr == "foursquare" || typeStr == "4square")
+                    ant.groupType = AgGroupType::FourSquare;
+                else if (typeStr == "stack")
+                    ant.groupType = AgGroupType::Stack;
+                else if (typeStr != "none" && !typeStr.isEmpty())
+                    ant.groupType = AgGroupType::Other;
+
+                int outputCount = kvs.value("outputs", "0").toInt();
+                QString outputNames = kvs.value("output_names");
+                QStringList labels;
+                if (!outputNames.isEmpty())
+                    labels = outputNames.replace('_', ' ').split(',');
+
+                // Generate default labels if not provided by device.
+                if (outputCount > 0 && labels.isEmpty()) {
+                    if (ant.groupType == AgGroupType::FourSquare) {
+                        labels = {"NE", "NW", "SE", "SW"};
+                        while (labels.size() > outputCount) labels.removeLast();
+                    } else if (ant.groupType == AgGroupType::Stack) {
+                        if (outputCount == 2) labels = {"Top", "Bot"};
+                        else if (outputCount == 3) labels = {"Top", "Mid", "Bot"};
+                        else for (int o = 1; o <= outputCount; ++o)
+                            labels.append(QString("Out %1").arg(o));
+                    } else {
+                        for (int o = 1; o <= outputCount; ++o)
+                            labels.append(QString("Out %1").arg(o));
+                    }
+                }
+
+                for (int o = 0; o < labels.size(); ++o) {
+                    AgOutputInfo out;
+                    out.id = o + 1;
+                    out.label = labels[o];
+                    ant.outputs.append(out);
+                }
+
                 m_antennas.append(ant);
             }
             qCDebug(lcTuner) << "AntennaGenius:" << m_antennas.size() << "antennas loaded";
@@ -447,7 +488,26 @@ void AntennaGeniusModel::processStatus(const QString& body)
         qCDebug(lcTuner) << "AntennaGenius: antenna reload, re-fetching list";
         m_seqAntennaList = sendCommand("antenna list");
     }
-    // "relay tx=00 rx=04 state=04" — informational, ignore for now.
+    // "relay tx=00 rx=04 state=04" or "relay antenna=3 output=2"
+    // Parse relay status to track active output for grouped antennas.
+    if (body.startsWith("relay ")) {
+        auto kvs = parseKeyValues(body);
+        int antId = kvs.value("antenna", "0").toInt();
+        int outId = kvs.value("output", "0").toInt();
+        if (antId > 0 && outId > 0) {
+            for (auto& ant : m_antennas) {
+                if (ant.id == antId && !ant.outputs.isEmpty()) {
+                    if (ant.activeOutput != outId) {
+                        ant.activeOutput = outId;
+                        qCDebug(lcTuner) << "AntennaGenius: antenna" << ant.name
+                                 << "active output →" << outId;
+                        emit outputChanged(antId, outId);
+                    }
+                    break;
+                }
+            }
+        }
+    }
 }
 
 // ── Init sequence ──────────────────────────────────────────────────────────
@@ -526,6 +586,20 @@ void AntennaGeniusModel::selectAntenna(int portId, int antennaId)
         qCDebug(lcTuner) << "AntennaGenius: no band known for port" << portId
                  << "— cannot save antenna mapping";
     }
+}
+
+void AntennaGeniusModel::selectOutput(int antennaId, int outputId)
+{
+    if (!m_connected) return;
+
+    // Validate the antenna has outputs.
+    const AgAntennaInfo* ant = antennaInfo(antennaId);
+    if (!ant || ant->outputs.isEmpty()) return;
+    if (outputId < 1 || outputId > ant->outputs.size()) return;
+
+    QString cmd = QString("antenna set %1 output=%2").arg(antennaId).arg(outputId);
+    qCDebug(lcTuner) << "AntennaGenius:" << cmd;
+    sendCommand(cmd);
 }
 
 void AntennaGeniusModel::setAutoMode(int portId, bool on)
@@ -700,6 +774,14 @@ QString AntennaGeniusModel::bandName(int bandId) const
         if (b.id == bandId) return b.name;
     }
     return bandId == 0 ? "None" : QString::number(bandId);
+}
+
+const AgAntennaInfo* AntennaGeniusModel::antennaInfo(int antennaId) const
+{
+    for (const auto& a : m_antennas) {
+        if (a.id == antennaId) return &a;
+    }
+    return nullptr;
 }
 
 QString AntennaGeniusModel::antennaName(int antennaId) const

@@ -7,6 +7,7 @@ class QPushButton;
 class QLabel;
 class QComboBox;
 class QLineEdit;
+class QFrame;
 
 namespace AetherSDR {
 
@@ -35,6 +36,8 @@ private:
     void syncFromModel();
     void rebuildAntennaButtons();
     void updatePortDisplay(int portId);
+    void showOutputPopup(int antennaId, QPushButton* anchorBtn);
+    void hideOutputPopup();
 
     AntennaGeniusModel* m_model{nullptr};
     bool m_updatingFromModel{false};
@@ -64,6 +67,11 @@ private:
     // Port sections (for hiding Port B if device has only 1 port)
     QWidget*     m_portASection{nullptr};
     QWidget*     m_portBSection{nullptr};
+
+    // Output selection popup for grouped antennas (four-square, stack)
+    QFrame*      m_outputPopup{nullptr};
+    int          m_outputPopupAntennaId{0};
+    QList<QPushButton*> m_outputBtns;
 };
 
 } // namespace AetherSDR

@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QComboBox>
 #include <QLineEdit>
+#include <QFrame>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -314,9 +315,10 @@ void AntennaGeniusApplet::setModel(AntennaGeniusModel* model)
         m_connectBtn->setText("Connect");
         m_statusLabel->setText("Disconnected");
         m_statusLabel->setStyleSheet("color: #606878; font-size: 10px;");
-        // Clear antenna buttons.
+        // Clear antenna buttons and dismiss output popup.
         m_portABtns.clear();
         m_portBBtns.clear();
+        hideOutputPopup();
     });
 
     connect(m_model, &AntennaGeniusModel::connectionError, this,
@@ -338,6 +340,22 @@ void AntennaGeniusApplet::setModel(AntennaGeniusModel* model)
 
     // Radio band changed (from frequency) → refresh button colours / permissions.
     connect(m_model, &AntennaGeniusModel::radioBandChanged, this, [this]() {
+        updatePortDisplay(1);
+        updatePortDisplay(2);
+    });
+
+    // Output changed → update popup button highlights.
+    connect(m_model, &AntennaGeniusModel::outputChanged, this,
+            [this](int antennaId, int outputId) {
+        if (m_outputPopup && m_outputPopupAntennaId == antennaId) {
+            const auto* ant = m_model->antennaInfo(antennaId);
+            if (!ant) return;
+            for (int i = 0; i < m_outputBtns.size() && i < ant->outputs.size(); ++i) {
+                QSignalBlocker b(m_outputBtns[i]);
+                m_outputBtns[i]->setChecked(ant->outputs[i].id == outputId);
+            }
+        }
+        // Also refresh port displays — output name may appear in antenna label.
         updatePortDisplay(1);
         updatePortDisplay(2);
     });
@@ -366,24 +384,38 @@ void AntennaGeniusApplet::rebuildAntennaButtons()
         // Create a button per antenna, 4 columns.
         int col = 0, row = 0;
         for (const auto& ant : antennas) {
-            auto* btn = new QPushButton(ant.name);
+            QString btnLabel = ant.name;
+            if (!ant.outputs.isEmpty())
+                btnLabel += " \xe2\x96\xbe";  // ▾ down-pointing triangle
+            auto* btn = new QPushButton(btnLabel);
             btn->setCheckable(true);
             btn->setStyleSheet(QString(kButtonBase) + kBlueActive);
-            btn->setToolTip(QString("Antenna %1: %2").arg(ant.id).arg(ant.name));
+            btn->setToolTip(ant.outputs.isEmpty()
+                ? QString("Antenna %1: %2").arg(ant.id).arg(ant.name)
+                : QString("Antenna %1: %2 (%3 outputs — click to select)")
+                    .arg(ant.id).arg(ant.name).arg(ant.outputs.size()));
             btn->setFixedHeight(24);
             btn->setMinimumWidth(0);
             btn->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
 
             int antId = ant.id;
-            connect(btn, &QPushButton::clicked, this, [this, portId, antId]() {
+            bool hasOutputs = !ant.outputs.isEmpty();
+            connect(btn, &QPushButton::clicked, this, [this, portId, antId, btn, hasOutputs]() {
                 if (!m_model || !m_model->isConnected() || m_updatingFromModel)
                     return;
-                // Click on already-active antenna → deselect (set to 0).
                 const auto& ps = (portId == 1) ? m_model->portA() : m_model->portB();
-                if (ps.rxAntenna == antId)
-                    m_model->selectAntenna(portId, 0);
-                else
+                if (ps.rxAntenna == antId) {
+                    // Already active — show output popup if grouped, else deselect.
+                    if (hasOutputs)
+                        showOutputPopup(antId, btn);
+                    else
+                        m_model->selectAntenna(portId, 0);
+                } else {
                     m_model->selectAntenna(portId, antId);
+                    // If grouped, show output popup after selecting.
+                    if (hasOutputs)
+                        showOutputPopup(antId, btn);
+                }
             });
 
             gl->addWidget(btn, row, col);
@@ -419,8 +451,17 @@ void AntennaGeniusApplet::updatePortDisplay(int portId)
     // Band name
     bandLabel->setText(m_model->bandName(band));
 
-    // Active antenna name
+    // Active antenna name — append active output label for grouped antennas.
     QString antName = m_model->antennaName(ps.rxAntenna);
+    const auto* antInfo = m_model->antennaInfo(ps.rxAntenna);
+    if (antInfo && !antInfo->outputs.isEmpty() && antInfo->activeOutput > 0) {
+        for (const auto& out : antInfo->outputs) {
+            if (out.id == antInfo->activeOutput) {
+                antName += QString(" [%1]").arg(out.label);
+                break;
+            }
+        }
+    }
     antLabel->setText(antName);
 
     // TX indicator — highlight antenna label red when transmitting.
@@ -524,6 +565,93 @@ void AntennaGeniusApplet::syncFromModel()
     if (!m_model) return;
     updatePortDisplay(1);
     updatePortDisplay(2);
+}
+
+void AntennaGeniusApplet::showOutputPopup(int antennaId, QPushButton* anchorBtn)
+{
+    if (!m_model) return;
+
+    const auto* ant = m_model->antennaInfo(antennaId);
+    if (!ant || ant->outputs.isEmpty()) return;
+
+    // If popup already showing for this antenna, toggle it off.
+    if (m_outputPopup && m_outputPopupAntennaId == antennaId) {
+        hideOutputPopup();
+        return;
+    }
+
+    hideOutputPopup();
+
+    m_outputPopupAntennaId = antennaId;
+    m_outputPopup = new QFrame(this);
+    m_outputPopup->setFrameStyle(QFrame::Box);
+    m_outputPopup->setStyleSheet(
+        "QFrame { background: #0e1a26; border: 1px solid #0070c0; border-radius: 4px; }");
+
+    auto* layout = new QVBoxLayout(m_outputPopup);
+    layout->setContentsMargins(4, 4, 4, 4);
+    layout->setSpacing(2);
+
+    // Header showing group type.
+    QString typeLabel;
+    switch (ant->groupType) {
+    case AgGroupType::FourSquare: typeLabel = "Four-Square"; break;
+    case AgGroupType::Stack:      typeLabel = "Stack"; break;
+    default:                      typeLabel = "Outputs"; break;
+    }
+    auto* header = new QLabel(QString("%1 — %2").arg(ant->name, typeLabel));
+    header->setStyleSheet("color: #00b4d8; font-size: 10px; font-weight: bold; border: none;");
+    header->setAlignment(Qt::AlignCenter);
+    layout->addWidget(header);
+
+    // Use a grid: 2 columns for four-square (directional layout), 1 column for stacks.
+    auto* grid = new QGridLayout;
+    grid->setSpacing(2);
+
+    m_outputBtns.clear();
+    int cols = (ant->groupType == AgGroupType::FourSquare) ? 2 : 1;
+    int r = 0, c = 0;
+
+    for (const auto& out : ant->outputs) {
+        auto* btn = new QPushButton(out.label);
+        btn->setCheckable(true);
+        btn->setChecked(out.id == ant->activeOutput);
+        btn->setFixedHeight(24);
+        btn->setMinimumWidth(40);
+        btn->setStyleSheet(QString(kButtonBase) + kGreenActive);
+
+        int outId = out.id;
+        connect(btn, &QPushButton::clicked, this, [this, antennaId, outId]() {
+            if (m_model && m_model->isConnected())
+                m_model->selectOutput(antennaId, outId);
+        });
+
+        grid->addWidget(btn, r, c);
+        m_outputBtns.append(btn);
+
+        if (++c >= cols) { c = 0; ++r; }
+    }
+    layout->addLayout(grid);
+
+    m_outputPopup->adjustSize();
+
+    // Position below the anchor button.
+    QPoint pos = anchorBtn->mapTo(this, QPoint(0, anchorBtn->height() + 2));
+    // Keep within applet bounds.
+    int x = qBound(0, pos.x(), width() - m_outputPopup->width());
+    m_outputPopup->move(x, pos.y());
+    m_outputPopup->show();
+    m_outputPopup->raise();
+}
+
+void AntennaGeniusApplet::hideOutputPopup()
+{
+    if (m_outputPopup) {
+        m_outputPopup->deleteLater();
+        m_outputPopup = nullptr;
+        m_outputPopupAntennaId = 0;
+        m_outputBtns.clear();
+    }
 }
 
 } // namespace AetherSDR
