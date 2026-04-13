@@ -1797,9 +1797,9 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_antennaGenius, &AntennaGeniusModel::presenceChanged,
             m_appletPanel, &AppletPanel::setAgVisible);
 
-    // ── 4-channel CAT: rigctld + PTY (A-D, each bound to a slice) ────────────
+    // ── 8-channel CAT: rigctld + PTY (A-H, each bound to a slice) ────────────
     {
-        static const char kLetters[] = "ABCD";
+        static const char kLetters[] = "ABCDEFGH";
         for (int i = 0; i < kCatChannels; ++i) {
             m_rigctlServers[i] = new RigctlServer(&m_radioModel, this);
             m_rigctlServers[i]->setSliceIndex(i);
@@ -4134,7 +4134,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
             if (m_appletPanel && m_appletPanel->catApplet())
                 m_appletPanel->catApplet()->setTcpEnabled(true);
         }
-        // Auto-start 4-channel CAT virtual serial ports if enabled
+        // Auto-start 8-channel CAT virtual serial ports if enabled
         if (as.value("AutoStartCAT", "False").toString() == "True") {
             for (int i = 0; i < kCatChannels; ++i) {
                 if (m_rigctlPtys[i] && !m_rigctlPtys[i]->isRunning()) {

@@ -578,7 +578,7 @@ void SpectrumWidget::setDbmRange(float minDbm, float maxDbm)
 // ─── Slice color table (shared via SliceColors.h) ────────────────────────────
 
 static QColor sliceColor(int sliceId, bool active) {
-    const auto& c = kSliceColors[sliceId & 3];
+    const auto& c = kSliceColors[sliceId % kSliceColorCount];
     if (active) return QColor(c.r, c.g, c.b);
     return QColor(c.dr, c.dg, c.db);
 }
@@ -1084,7 +1084,7 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
             if (!m_offScreenRects[oi].isNull() &&
                 m_offScreenRects[oi].contains(QPoint(mx, y))) {
                 const auto& so = m_sliceOverlays[oi];
-                const QChar letter = QChar('A' + (so.sliceId & 3));
+                const QChar letter = QChar('A' + (so.sliceId % kSliceColorCount));
                 QMenu menu(this);
                 menu.addAction(QString("Close Slice %1").arg(letter), this,
                     [this, id = so.sliceId]{ emit sliceCloseRequested(id); });
@@ -3987,7 +3987,7 @@ void SpectrumWidget::drawOffScreenSlices(QPainter& p, const QRect& specRect)
 
         const bool isRight = (so.freqMhz > endMhz);
         const QColor col = sliceColor(so.sliceId, so.isActive);
-        const QChar letter = QChar('A' + (so.sliceId & 3));
+        const QChar letter = QChar('A' + (so.sliceId % kSliceColorCount));
 
         long long hz = static_cast<long long>(std::round(so.freqMhz * 1e6));
         int mhzPart = static_cast<int>(hz / 1000000);

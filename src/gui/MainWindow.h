@@ -149,8 +149,8 @@ private:
     AudioEngine*      m_audio{nullptr};
     QThread*          m_audioThread{nullptr};
     BandSettings      m_bandSettings;
-    // 4-channel CAT: each channel (A-D) binds to a slice index (0-3)
-    static constexpr int kCatChannels = 4;
+    // 8-channel CAT: each channel (A-H) binds to a slice index (0-7)
+    static constexpr int kCatChannels = 8;
     RigctlServer*     m_rigctlServers[kCatChannels]{};
     RigctlPty*        m_rigctlPtys[kCatChannels]{};
 #ifdef HAVE_WEBSOCKETS
