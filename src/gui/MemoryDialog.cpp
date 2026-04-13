@@ -2,11 +2,14 @@
 #include "core/AppSettings.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
+#include "models/TransmitModel.h"
 #include "core/RadioConnection.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
+#include <QComboBox>
+#include <QLabel>
 #include <QHeaderView>
 #include <QDebug>
 #include <QPointer>
@@ -146,6 +149,18 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
 
     auto* root = new QVBoxLayout(this);
 
+    // ── Profile filter ───────────────────────────────────────────────────
+    auto* filterRow = new QHBoxLayout;
+    filterRow->addWidget(new QLabel("Filter by Profile:"));
+    m_filterCombo = new QComboBox;
+    m_filterCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    rebuildFilterCombo();
+    filterRow->addWidget(m_filterCombo);
+    root->addLayout(filterRow);
+
+    connect(m_filterCombo, &QComboBox::currentIndexChanged,
+            this, [this](int) { populateTable(); });
+
     // ── Table ─────────────────────────────────────────────────────────────
     m_table = new QTableWidget(0, COLUMNS.size());
     m_table->setHorizontalHeaderLabels(COLUMNS);
@@ -193,6 +208,12 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
     connect(selectBtn, &QPushButton::clicked, this, &MemoryDialog::onSelect);
     connect(removeBtn, &QPushButton::clicked, this, &MemoryDialog::onRemove);
 
+    // Rebuild filter combo when profile lists change
+    connect(model, &RadioModel::globalProfilesChanged,
+            this, &MemoryDialog::rebuildFilterCombo);
+    connect(&model->transmitModel(), &TransmitModel::profileListChanged,
+            this, &MemoryDialog::rebuildFilterCombo);
+
     // Listen for live memory updates while dialog is open
     connect(model, &RadioModel::memoryChanged,
             this, [this](int) {
@@ -231,9 +252,15 @@ void MemoryDialog::populateTable()
     m_table->setSortingEnabled(false);
     m_table->setRowCount(0);
     const auto& memories = m_model->memories();
+    const QString filterProfile = m_filterCombo->currentData().toString();
 
     for (auto it = memories.begin(); it != memories.end(); ++it) {
         const auto& m = it.value();
+
+        // Apply profile filter: skip memories whose group doesn't match
+        if (!filterProfile.isEmpty() && m.group != filterProfile) {
+            continue;
+        }
         int row = m_table->rowCount();
         m_table->insertRow(row);
 
@@ -362,6 +389,12 @@ void MemoryDialog::onAdd()
         send(base + QString("freq=%1").arg(s->frequency(), 0, 'f', 6));
         send(base + QString("mode=%1").arg(s->mode()));
         send(base + QString("owner=%1").arg(encodeMemoryText(model->callsign())));
+
+        // Tag the memory with the active global profile name for filtering
+        const QString activeProfile = model->activeGlobalProfile();
+        if (!activeProfile.isEmpty()) {
+            send(base + QString("group=%1").arg(encodeMemoryText(activeProfile)));
+        }
         send(base + QString("step=%1").arg(s->stepHz()));
         send(base + QString("rx_filter_low=%1").arg(s->filterLow()));
         send(base + QString("rx_filter_high=%1").arg(s->filterHigh()));
@@ -382,6 +415,7 @@ void MemoryDialog::onAdd()
         m.freq = s->frequency();
         m.mode = s->mode();
         m.owner = model->callsign();
+        m.group = activeProfile;
         m.step = s->stepHz();
         m.rxFilterLow = s->filterLow();
         m.rxFilterHigh = s->filterHigh();
@@ -401,6 +435,9 @@ void MemoryDialog::onAdd()
         kvs["freq"] = QString::number(m.freq, 'f', 6);
         kvs["mode"] = m.mode;
         kvs["owner"] = encodeMemoryText(m.owner);
+        if (!activeProfile.isEmpty()) {
+            kvs["group"] = encodeMemoryText(activeProfile);
+        }
         kvs["step"] = QString::number(m.step);
         kvs["rx_filter_low"] = QString::number(m.rxFilterLow);
         kvs["rx_filter_high"] = QString::number(m.rxFilterHigh);
@@ -447,6 +484,40 @@ void MemoryDialog::onRemove()
         if (dialogGuard)
             dialogGuard->populateTable();
     });
+}
+
+void MemoryDialog::rebuildFilterCombo()
+{
+    const QSignalBlocker blocker(m_filterCombo);
+    const QString previous = m_filterCombo->currentData().toString();
+    m_filterCombo->clear();
+
+    // "All" shows every memory regardless of group
+    m_filterCombo->addItem("All Memories", QString());
+
+    // Collect unique profile names from global and transmit profiles
+    QStringList profileNames;
+    for (const QString& p : m_model->globalProfiles()) {
+        if (!profileNames.contains(p)) {
+            profileNames.append(p);
+        }
+    }
+    for (const QString& p : m_model->transmitModel().profileList()) {
+        if (!profileNames.contains(p)) {
+            profileNames.append(p);
+        }
+    }
+    profileNames.sort(Qt::CaseInsensitive);
+
+    for (const QString& name : profileNames) {
+        m_filterCombo->addItem(name, name);
+    }
+
+    // Restore previous selection if still present
+    int idx = m_filterCombo->findData(previous);
+    if (idx >= 0) {
+        m_filterCombo->setCurrentIndex(idx);
+    }
 }
 
 } // namespace AetherSDR

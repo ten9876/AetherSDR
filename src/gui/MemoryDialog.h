@@ -5,6 +5,8 @@
 #include <QTableWidget>
 #include <QMap>
 
+class QComboBox;
+
 namespace AetherSDR {
 
 class RadioModel;
@@ -25,9 +27,11 @@ private:
     void onSelect();
     void onRemove();
     bool isSortableColumn(int column) const;
+    void rebuildFilterCombo();
 
     RadioModel* m_model;
     QTableWidget* m_table;
+    QComboBox* m_filterCombo;
     int m_sortColumn{2};
     Qt::SortOrder m_sortOrder{Qt::AscendingOrder};
 };
