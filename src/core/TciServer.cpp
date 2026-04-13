@@ -271,7 +271,14 @@ void TciServer::onTextMessage(const QString& msg)
         }
         if (trimmed.startsWith("audio_stream_sample_type:")) {
             int colonIdx2 = trimmed.indexOf(':');
-            int fmt = trimmed.mid(colonIdx2 + 1).toInt();
+            QString fmtStr = trimmed.mid(colonIdx2 + 1).trimmed();
+            int fmt;
+            if (fmtStr == "float32")
+                fmt = 3;
+            else if (fmtStr == "int16")
+                fmt = 0;
+            else
+                fmt = fmtStr.toInt();  // numeric value
             if (fmt == 0 || fmt == 3)  // int16 or float32
                 client.audioFormat = fmt;
             ws->sendTextMessage(QStringLiteral("audio_stream_sample_type:%1;")
@@ -407,11 +414,23 @@ void TciServer::onBinaryMessage(const QByteArray& data)
     if (pcm.isEmpty()) return;
 
     // ─── TX resampling: 48kHz (TCI) → 24kHz (radio native DAX) ───────────
-    // Resampler now works with float32 directly — no format conversion needed.
+    // Detect mono vs stereo from payload size relative to hdr.length.
+    // WSJT-X sends mono float32: hdr.length floats in a flat array.
+    // If payload contains hdr.length floats (not 2×), it's mono.
     if (m_txResampler) {
-        int stereoFrames = pcm.size() / (2 * static_cast<int>(sizeof(float)));
+        int totalFloats = pcm.size() / static_cast<int>(sizeof(float));
+        int declaredSamples = static_cast<int>(hdr.length);
         const auto* fSrc = reinterpret_cast<const float*>(pcm.constData());
-        pcm = m_txResampler->processStereoToStereo(fSrc, stereoFrames);
+
+        if (totalFloats <= declaredSamples) {
+            // Mono: upmix to stereo then resample
+            int monoFrames = totalFloats;
+            pcm = m_txResampler->processMonoToStereo(fSrc, monoFrames);
+        } else {
+            // Stereo: resample directly
+            int stereoFrames = totalFloats / 2;
+            pcm = m_txResampler->processStereoToStereo(fSrc, stereoFrames);
+        }
         if (pcm.isEmpty()) return;
     }
 
@@ -481,7 +500,7 @@ void TciServer::onRxAudioReady(const QByteArray& pcm)
                 hdr.receiver = 0;
                 hdr.sampleRate = static_cast<quint32>(cs.audioSampleRate);
                 hdr.format = 0;  // int16
-                hdr.length = static_cast<quint32>(srcSamples);
+                hdr.length = static_cast<quint32>(audioFrames);
                 hdr.type = 1;    // RX_AUDIO
                 hdr.channels = 2;
                 std::memcpy(frame.data(), &hdr, sizeof(hdr));
@@ -570,7 +589,7 @@ QByteArray TciServer::buildAudioFrame(int receiver, int type,
     hdr.format     = 3;  // float32
     hdr.codec      = 0;
     hdr.crc        = 0;
-    hdr.length     = static_cast<quint32>(totalFloats);
+    hdr.length     = static_cast<quint32>(sampleCount);
     hdr.type       = static_cast<quint32>(type);
     hdr.channels   = static_cast<quint32>(channels);
     std::memset(hdr.reserved, 0, sizeof(hdr.reserved));
