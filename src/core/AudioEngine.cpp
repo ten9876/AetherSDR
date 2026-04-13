@@ -119,7 +119,7 @@ bool AudioEngine::startRxStream()
 #ifdef Q_OS_WIN
     m_resampleTo48k = false;
     m_audioSink = new QAudioSink(dev, fmt, this);
-    m_audioSink->setVolume(m_rxVolume.load());
+    m_audioSink->setVolume((m_muted.load() || m_sliceMuted.load()) ? 0.0f : m_rxVolume.load());
     m_audioDevice = m_audioSink->start();
     if (!m_audioDevice) {
         qCWarning(lcAudio) << "AudioEngine: 24kHz sink failed to open, trying 48kHz";
@@ -127,7 +127,7 @@ bool AudioEngine::startRxStream()
         fmt.setSampleRate(48000);
         m_resampleTo48k = true;
         m_audioSink = new QAudioSink(dev, fmt, this);
-        m_audioSink->setVolume(m_rxVolume.load());
+        m_audioSink->setVolume((m_muted.load() || m_sliceMuted.load()) ? 0.0f : m_rxVolume.load());
         m_audioDevice = m_audioSink->start();
         if (!m_audioDevice) {
             qCWarning(lcAudio) << "AudioEngine: 48kHz sink also failed";
@@ -156,7 +156,7 @@ bool AudioEngine::startRxStream()
 #endif
 
     m_audioSink   = new QAudioSink(dev, fmt, this);
-    m_audioSink->setVolume(m_rxVolume.load());
+    m_audioSink->setVolume((m_muted.load() || m_sliceMuted.load()) ? 0.0f : m_rxVolume.load());
     m_audioDevice = m_audioSink->start();   // push-mode
 
     if (!m_audioDevice) {
@@ -188,14 +188,21 @@ void AudioEngine::setRxVolume(float v)
 {
     m_rxVolume.store(qBound(0.0f, v, 1.0f));
     if (m_audioSink)
-        m_audioSink->setVolume(m_muted.load() ? 0.0f : m_rxVolume.load());
+        m_audioSink->setVolume((m_muted.load() || m_sliceMuted.load()) ? 0.0f : m_rxVolume.load());
 }
 
 void AudioEngine::setMuted(bool muted)
 {
     m_muted.store(muted);
     if (m_audioSink)
-        m_audioSink->setVolume(muted ? 0.0f : m_rxVolume.load());
+        m_audioSink->setVolume((muted || m_sliceMuted.load()) ? 0.0f : m_rxVolume.load());
+}
+
+void AudioEngine::setSliceMuted(bool muted)
+{
+    m_sliceMuted.store(muted);
+    if (m_audioSink)
+        m_audioSink->setVolume((muted || m_muted.load()) ? 0.0f : m_rxVolume.load());
 }
 
 // Resample 24kHz stereo float32 → 48kHz stereo float32 via r8brain.

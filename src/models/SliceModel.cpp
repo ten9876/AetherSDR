@@ -421,7 +421,9 @@ void SliceModel::setAudioMute(bool mute)
 {
     if (m_audioMute == mute) return;
     m_audioMute = mute;
-    sendCommand(QString("slice set %1 audio_mute=%2").arg(m_id).arg(mute ? 1 : 0));
+    // Muting is handled locally (AudioEngine zeros speaker output) so that
+    // the radio keeps sending audio.  TCI clients receive the un-muted
+    // stream and can route it independently of the PC speaker.  (#1179)
     emit audioMuteChanged(mute);
 }
 
@@ -560,11 +562,14 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
         emit audioPanChanged(m_audioPan);
     }
     if (kvs.contains("audio_mute")) {
-        bool mute = kvs["audio_mute"] == "1";
-        if (mute != m_audioMute) {
-            m_audioMute = mute;
-            emit audioMuteChanged(mute);
-        }
+        bool radioMute = kvs["audio_mute"] == "1";
+        // If the radio has audio_mute=1 (e.g. from a previous session or
+        // another client), clear it so the VITA-49 audio stream keeps
+        // flowing.  Local muting is handled in AudioEngine.  (#1179)
+        if (radioMute)
+            sendCommand(QString("slice set %1 audio_mute=0").arg(m_id));
+        // Local mute state is independent of the radio's audio_mute flag;
+        // do not overwrite m_audioMute from the radio status.
     }
     // Parse child/parent flags before emitting diversityChanged so handlers
     // can check isDiversityChild() to gate ESC panel visibility.

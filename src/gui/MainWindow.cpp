@@ -4804,6 +4804,16 @@ void MainWindow::setActiveSlice(int sliceId)
     // Update CWX/DVK indicator availability for this slice's mode
     updateKeyerAvailability(s->mode());
 
+    // Wire slice mute → AudioEngine local mute so muting a slice only
+    // silences the PC speaker, leaving the radio audio stream (and TCI
+    // clients) unaffected.  (#1179)
+    QObject::disconnect(m_sliceMuteConn);
+    if (m_audio) {
+        m_audio->setSliceMuted(s->audioMute());
+        m_sliceMuteConn = connect(s, &SliceModel::audioMuteChanged,
+                                  m_audio, &AudioEngine::setSliceMuted);
+    }
+
     // Detect band from frequency
     if (m_bandSettings.currentBand().isEmpty())
         m_bandSettings.setCurrentBand(BandSettings::bandForFrequency(s->frequency()));

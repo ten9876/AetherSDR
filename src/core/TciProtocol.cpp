@@ -749,12 +749,10 @@ QString TciProtocol::cmdMute(const QStringList& args, bool isSet)
     if (args.size() < 2) return {};
     int trx = args[0].toInt();
     bool mute = (args[1].toLower() == "true");
-    auto* s = sliceForTrx(trx);
-    if (s) {
-        QMetaObject::invokeMethod(s, [s, mute]() { s->setAudioMute(mute); },
-                                  Qt::QueuedConnection);
-    }
 
+    // TCI mute is informational — the TCI client handles its own audio
+    // muting locally.  Do NOT call setAudioMute() on the slice; that
+    // would mute the PC speaker and is independent of TCI audio.  (#1179)
     m_pendingNotification = QStringLiteral("mute:%1,%2;")
                                 .arg(trx).arg(mute ? "true" : "false");
     return {};
@@ -1226,8 +1224,8 @@ QString TciProtocol::cmdRxMute(const QStringList& args, bool isSet)
 
     if (args.size() < 2) return {};
     bool mute = (args[1].toLower() == "true");
-    QMetaObject::invokeMethod(s, [s, mute]() { s->setAudioMute(mute); },
-                              Qt::QueuedConnection);
+    // TCI rx_mute is informational — do NOT call setAudioMute() on the
+    // slice; that would mute the PC speaker.  (#1179)
     m_pendingNotification = QStringLiteral("rx_mute:%1,%2;")
                                 .arg(trx).arg(mute ? "true" : "false");
     return {};

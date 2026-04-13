@@ -273,6 +273,7 @@ private:
 
     // Active slice tracking for multi-slice support
     int m_activeSliceId{-1};
+    QMetaObject::Connection m_sliceMuteConn;  // active slice → AudioEngine mute (#1179)
     bool m_splitActive{false};
     int  m_splitRxSliceId{-1};
     int  m_splitTxSliceId{-1};

@@ -71,6 +71,11 @@ public:
 
     bool isMuted() const       { return m_muted.load(); }
     void setMuted(bool m);
+
+    // Slice-level mute: silences speaker output for the active slice
+    // without affecting the radio's audio stream (TCI stays live).  (#1179)
+    bool isSliceMuted() const  { return m_sliceMuted.load(); }
+    void setSliceMuted(bool m);
     bool isTxStreaming() const { return m_audioSource != nullptr; }
 
     // Client-side PC mic gain (0-100 → 0.0-1.0, applied before Opus encoding)
@@ -230,6 +235,7 @@ private:
     QAudioDevice m_inputDevice;
     std::atomic<float> m_rxVolume{1.0f};
     std::atomic<bool>  m_muted{false};
+    std::atomic<bool>  m_sliceMuted{false};  // per-slice mute (local only, #1179)
     bool  m_resampleTo48k{false};      // RX: upsample 24kHz → 48kHz output
     std::unique_ptr<Resampler> m_rxResampler;  // 24k stereo → 48k stereo (lazy init)
     bool  m_txNeedsResample{false};      // TX: input rate != 24kHz, needs resampling
