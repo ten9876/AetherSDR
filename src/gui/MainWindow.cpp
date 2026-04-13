@@ -3494,8 +3494,10 @@ void MainWindow::buildUI()
     m_splitter->setHandleWidth(0);
 
     auto* central = new QWidget(this);
+#ifdef Q_OS_MAC
     central->setAttribute(Qt::WA_LayoutOnEntireRect, true);
     central->setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea, false);
+#endif
     m_mainLayout = new QVBoxLayout(central);
     m_mainLayout->setContentsMargins(0, 0, 0, 0);
     m_mainLayout->setSpacing(0);
