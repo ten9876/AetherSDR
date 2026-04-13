@@ -6,6 +6,7 @@
 #include "LogManager.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
+#include "models/DaxIqModel.h"
 #include "models/MeterModel.h"
 #include "models/TransmitModel.h"
 #include "models/SpotModel.h"
@@ -199,6 +200,24 @@ void TciServer::onClientDisconnected()
                     }, Qt::QueuedConnection);
                 }
             }
+            // Clean up IQ stream if this client started one
+            if (m_clients[i].iqEnabled && m_model) {
+                int ch = m_clients[i].iqChannel + 1;  // TRX 0 → DAX channel 1
+                // Only remove if no other client uses the same IQ channel
+                bool otherUsing = false;
+                for (int j = 0; j < m_clients.size(); ++j) {
+                    if (j != i && m_clients[j].iqEnabled &&
+                        m_clients[j].iqChannel == m_clients[i].iqChannel) {
+                        otherUsing = true;
+                        break;
+                    }
+                }
+                if (!otherUsing) {
+                    QMetaObject::invokeMethod(m_model, [this, ch]() {
+                        m_model->daxIqModel().removeStream(ch);
+                    }, Qt::QueuedConnection);
+                }
+            }
             delete m_clients[i].protocol;
             delete m_clients[i].resampler;
             m_clients.removeAt(i);
@@ -271,8 +290,19 @@ void TciServer::onTextMessage(const QString& msg)
         }
         if (trimmed.startsWith("audio_stream_sample_type:")) {
             int colonIdx2 = trimmed.indexOf(':');
-            int fmt = trimmed.mid(colonIdx2 + 1).toInt();
-            if (fmt == 0 || fmt == 3)  // int16 or float32
+            QString val = trimmed.mid(colonIdx2 + 1).trimmed();
+            bool ok;
+            int fmt = val.toInt(&ok);
+            if (!ok) {
+                // Handle string format names (e.g. "float32", "int16")
+                if (val.contains("float"))
+                    fmt = 3;
+                else if (val.contains("16"))
+                    fmt = 0;
+                else
+                    fmt = -1;  // unrecognized — keep current
+            }
+            if (fmt == 0 || fmt == 3)
                 client.audioFormat = fmt;
             ws->sendTextMessage(QStringLiteral("audio_stream_sample_type:%1;")
                                     .arg(client.audioFormat));
@@ -295,6 +325,35 @@ void TciServer::onTextMessage(const QString& msg)
             ws->sendTextMessage(QStringLiteral("tx_sensors_enable:%1;")
                                     .arg(client.txSensorsEnabled ? "true" : "false"));
             qCInfo(lcCat) << "TCI: tx_sensors" << (client.txSensorsEnabled ? "enabled" : "disabled");
+            continue;
+        }
+
+        // IQ start/stop — track per-client IQ state, then forward to protocol
+        if (trimmed.startsWith("iq_start:")) {
+            int colonIdx2 = trimmed.indexOf(':');
+            int trx = trimmed.mid(colonIdx2 + 1).trimmed().toInt();
+            client.iqEnabled = true;
+            client.iqChannel = trx;
+            qCInfo(lcCat) << "TCI: IQ started for client"
+                          << ws->peerAddress().toString()
+                          << "trx=" << trx;
+            // Forward to protocol to create DAX IQ stream on the radio
+            QString response = client.protocol->handleCommand(cmd.trimmed());
+            if (!response.isEmpty())
+                ws->sendTextMessage(response);
+            continue;
+        }
+        if (trimmed.startsWith("iq_stop:")) {
+            int colonIdx2 = trimmed.indexOf(':');
+            int trx = trimmed.mid(colonIdx2 + 1).trimmed().toInt();
+            if (client.iqChannel == trx)
+                client.iqEnabled = false;
+            qCInfo(lcCat) << "TCI: IQ stopped for client"
+                          << ws->peerAddress().toString()
+                          << "trx=" << trx;
+            QString response = client.protocol->handleCommand(cmd.trimmed());
+            if (!response.isEmpty())
+                ws->sendTextMessage(response);
             continue;
         }
 
@@ -481,7 +540,7 @@ void TciServer::onRxAudioReady(const QByteArray& pcm)
                 hdr.receiver = 0;
                 hdr.sampleRate = static_cast<quint32>(cs.audioSampleRate);
                 hdr.format = 0;  // int16
-                hdr.length = static_cast<quint32>(srcSamples);
+                hdr.length = static_cast<quint32>(audioFrames);  // per-channel count
                 hdr.type = 1;    // RX_AUDIO
                 hdr.channels = 2;
                 std::memcpy(frame.data(), &hdr, sizeof(hdr));
@@ -557,20 +616,20 @@ QByteArray TciServer::buildAudioFrame(int receiver, int type,
                                       int sampleRate, int channels,
                                       const float* samples, int sampleCount)
 {
-    // sampleCount = number of frames (mono) or frame pairs (stereo counted as frames)
+    // sampleCount = number of frames (samples per channel)
     int totalFloats = sampleCount * channels;
     int payloadBytes = totalFloats * static_cast<int>(sizeof(float));
 
     QByteArray frame(sizeof(TciAudioHeader) + payloadBytes, Qt::Uninitialized);
 
-    // Fill header
+    // Fill header — length = samples per channel (frames), per TCI v2.0 spec
     TciAudioHeader hdr{};
     hdr.receiver   = static_cast<quint32>(receiver);
     hdr.sampleRate = static_cast<quint32>(sampleRate);
     hdr.format     = 3;  // float32
     hdr.codec      = 0;
     hdr.crc        = 0;
-    hdr.length     = static_cast<quint32>(totalFloats);
+    hdr.length     = static_cast<quint32>(sampleCount);
     hdr.type       = static_cast<quint32>(type);
     hdr.channels   = static_cast<quint32>(channels);
     std::memset(hdr.reserved, 0, sizeof(hdr.reserved));
@@ -789,6 +848,38 @@ void TciServer::broadcastStatus()
                     cs.socket->sendTextMessage(freqMsg);
             }
         }
+    }
+}
+
+// ── IQ data from DAX IQ stream → TCI binary frames (type=0) ───────────
+
+void TciServer::onIqDataReady(int channel, const QByteArray& rawPayload, int sampleRate)
+{
+    // Check if any client wants IQ for this channel
+    bool anyIq = false;
+    int trx = channel - 1;  // DAX IQ channel 1 → TRX 0
+    for (const auto& cs : m_clients) {
+        if (cs.iqEnabled && cs.iqChannel == trx) { anyIq = true; break; }
+    }
+    if (!anyIq) return;
+
+    // Byte-swap big-endian float32 → native little-endian
+    const int numFloats = rawPayload.size() / 4;
+    QByteArray swapped(rawPayload.size(), Qt::Uninitialized);
+    const quint32* src = reinterpret_cast<const quint32*>(rawPayload.constData());
+    quint32* dst = reinterpret_cast<quint32*>(swapped.data());
+    for (int i = 0; i < numFloats; ++i)
+        dst[i] = qFromBigEndian(src[i]);
+
+    // Build TCI IQ binary frame (type=0, channels=2 for I/Q pair)
+    const int iqFrames = numFloats / 2;  // I/Q pairs
+    QByteArray frame = buildAudioFrame(trx, 0 /*IQ*/, sampleRate, 2,
+                                       reinterpret_cast<const float*>(swapped.constData()),
+                                       iqFrames);
+
+    for (auto& cs : m_clients) {
+        if (cs.iqEnabled && cs.iqChannel == trx)
+            cs.socket->sendBinaryMessage(frame);
     }
 }
 

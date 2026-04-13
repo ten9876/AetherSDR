@@ -41,10 +41,12 @@ public:
     void wireSpotModel();
 
 public slots:
-    // RX audio from main audio pipeline (int16 stereo, 24 kHz, LE)
+    // RX audio from main audio pipeline (float32 stereo, 24 kHz)
     void onRxAudioReady(const QByteArray& pcm);
-    // RX audio from DAX pipeline (int16 stereo, 24 kHz, LE)
+    // RX audio from DAX pipeline (float32 stereo, 24 kHz)
     void onDaxAudioReady(int channel, const QByteArray& pcm);
+    // IQ data from DAX IQ stream (big-endian float32 I/Q pairs)
+    void onIqDataReady(int channel, const QByteArray& rawPayload, int sampleRate);
 
 signals:
     void clientCountChanged(int count);
@@ -78,6 +80,8 @@ private:
         Resampler*   resampler{nullptr};    // null if rate == 24000 (native)
         bool         rxSensorsEnabled{false};
         bool         txSensorsEnabled{false};
+        bool         iqEnabled{false};       // client sent IQ_START
+        int          iqChannel{0};           // TCI TRX → DAX IQ channel (0-based)
     };
 
     RadioModel*       m_model;
