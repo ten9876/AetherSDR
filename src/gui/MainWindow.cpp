@@ -4943,6 +4943,8 @@ void MainWindow::routeCwDecoderOutput()
                        &m_cwDecoder, &CwDecoder::lockSpeed);
         disconnect(m_cwDecoderApplet, &PanadapterApplet::pitchRangeChanged,
                    &m_cwDecoder, &CwDecoder::setPitchRange);
+        disconnect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
+                   &m_cwDecoder, &CwDecoder::stop);
     }
 
     m_cwDecoderApplet = target;
@@ -4959,6 +4961,8 @@ void MainWindow::routeCwDecoderOutput()
                 &m_cwDecoder, &CwDecoder::lockSpeed);
         connect(m_cwDecoderApplet, &PanadapterApplet::pitchRangeChanged,
                 &m_cwDecoder, &CwDecoder::setPitchRange);
+        connect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
+                &m_cwDecoder, &CwDecoder::stop);
     }
 }
 
