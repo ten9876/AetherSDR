@@ -87,6 +87,13 @@ void PanadapterModel::applyPanStatus(const QMap<QString, QString>& kvs)
             emit wnbChanged(m_wnbActive, m_wnbLevel);
         }
     }
+    if (kvs.contains("wide")) {
+        bool wide = kvs["wide"].toInt() != 0;
+        if (wide != m_wideActive) {
+            m_wideActive = wide;
+            emit wideChanged(m_wideActive);
+        }
+    }
     if (kvs.contains("ant_list")) {
         QStringList ants = kvs["ant_list"].split(',', Qt::SkipEmptyParts);
         if (ants != m_antList) {

@@ -38,6 +38,7 @@ public:
     void setRfGainInfo(int low, int high, int step);
     bool wnbActive() const { return m_wnbActive; }
     int wnbLevel() const { return m_wnbLevel; }
+    bool wideActive() const { return m_wideActive; }
     QString preamp() const { return m_preamp; }
     void setPreamp(const QString& pre) {
         if (m_preamp != pre) { m_preamp = pre; emit rfGainChanged(m_rfGain, m_preamp); }
@@ -61,6 +62,7 @@ signals:
     void rfGainChanged(int gain, const QString& preamp);
     void rfGainInfoChanged(int low, int high, int step);
     void wnbChanged(bool active, int level);
+    void wideChanged(bool active);
     void waterfallIdChanged(const QString& wfId);
     void daxiqChannelChanged(int channel);
 
@@ -78,6 +80,7 @@ private:
     int         m_rfGainHigh{32};
     int         m_rfGainStep{8};
     bool        m_wnbActive{false};
+    bool        m_wideActive{false};
     int         m_wnbLevel{50};
     QString     m_preamp;
     int         m_daxiqChannel{0};
