@@ -402,6 +402,7 @@ set(CORE_SOURCES
     src/core/PgxlConnection.cpp
     src/core/FirmwareUploader.cpp
     src/core/DvkWavTransfer.cpp
+    src/core/QsoRecorder.cpp
     src/core/FirmwareStager.cpp
     src/core/RNNoiseFilter.cpp
     src/core/SpecbleachFilter.cpp

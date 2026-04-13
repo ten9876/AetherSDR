@@ -13,6 +13,7 @@
 #include "core/SmartLinkClient.h"
 #include "core/WanConnection.h"
 #include "core/CwDecoder.h"
+#include "core/QsoRecorder.h"
 #include "core/DxClusterClient.h"
 #ifdef HAVE_MQTT
 #include "core/MqttClient.h"
@@ -147,6 +148,7 @@ private:
     DxccColorProvider m_dxccProvider;
     AudioEngine*      m_audio{nullptr};
     QThread*          m_audioThread{nullptr};
+    QsoRecorder*      m_qsoRecorder{nullptr};
     BandSettings      m_bandSettings;
     // 4-channel CAT: each channel (A-D) binds to a slice index (0-3)
     static constexpr int kCatChannels = 4;
