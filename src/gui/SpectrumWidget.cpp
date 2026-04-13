@@ -1263,8 +1263,11 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         if (wfHeight > 0 && width() > 0) {
             QImage newWf(width(), wfHeight, QImage::Format_RGB32);
             newWf.fill(Qt::black);
-            if (!m_waterfall.isNull())
-                newWf = m_waterfall.scaled(width(), wfHeight, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+            if (!m_waterfall.isNull()) {
+                QImage scaled = m_waterfall.scaled(width(), wfHeight, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+                if (!scaled.isNull())
+                    newWf = std::move(scaled);
+            }
             m_waterfall = std::move(newWf);
             m_wfWriteRow = 0;
         }
@@ -1817,9 +1820,12 @@ void SpectrumWidget::resizeEvent(QResizeEvent* ev)
     if (wfHeight > 0 && width() > 0) {
         QImage newWf(width(), wfHeight, QImage::Format_RGB32);
         newWf.fill(Qt::black);
-        if (!m_waterfall.isNull())
-            newWf = m_waterfall.scaled(width(), wfHeight, Qt::IgnoreAspectRatio, Qt::FastTransformation);
-        m_waterfall = newWf;
+        if (!m_waterfall.isNull()) {
+            QImage scaled = m_waterfall.scaled(width(), wfHeight, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+            if (!scaled.isNull())
+                newWf = std::move(scaled);
+        }
+        m_waterfall = std::move(newWf);
         m_wfWriteRow = 0;
     }
 
