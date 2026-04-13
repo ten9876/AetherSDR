@@ -269,6 +269,9 @@ MainWindow::MainWindow(QWidget* parent)
     m_audio->moveToThread(m_audioThread);
     m_audioThread->start();
 
+    // QSO audio recorder (#1297) — lives on main thread, audio feeds are thread-safe
+    m_qsoRecorder = new QsoRecorder(this);
+
     // Band plan manager — must be created before buildMenuBar() which references it
     m_bandPlanMgr = new BandPlanManager(this);
     m_bandPlanMgr->loadPlans();
@@ -1126,6 +1129,14 @@ MainWindow::MainWindow(QWidget* parent)
     // audioDataReady(); we feed that directly to the QAudioSink.
     connect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
             m_audio, &AudioEngine::feedAudioData);
+
+    // ── QSO recorder: tap RX and TX audio, trigger on MOX (#1297) ───────
+    connect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
+            m_qsoRecorder, &QsoRecorder::feedRxAudio);
+    connect(m_audio, &AudioEngine::txRawPcmReady,
+            m_qsoRecorder, &QsoRecorder::feedTxAudio);
+    connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
+            m_qsoRecorder, &QsoRecorder::onMoxChanged);
 
     // ── BNR container autostart ─────────────────────────────────────────
 #ifdef HAVE_BNR
@@ -4911,6 +4922,9 @@ void MainWindow::setActiveSlice(int sliceId)
             sl->mode(), sl->rttyMark(), sl->rttyShift(),
             sl->ritOn(), sl->ritFreq(), sl->xitOn(), sl->xitFreq());
     }
+
+    // QSO recorder: track active slice for frequency/mode metadata (#1297)
+    m_qsoRecorder->setSlice(s);
 
     // Re-wire applet panel, overlay menu to the new active slice
     if (m_panStack) {
