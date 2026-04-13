@@ -24,6 +24,7 @@
 #include <QDialogButtonBox>
 #include <QLabel>
 #include <QApplication>
+#include <QGuiApplication>
 #include <QClipboard>
 #include <QDesktopServices>
 #include <QUrl>
@@ -126,6 +127,16 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     // context because the parent window's surface type is RasterSurface, not MetalSurface.
     // A native window gives QRhiWidget its own Metal-capable surface to render into.
     setAttribute(Qt::WA_NativeWindow);
+#  else
+    // Warn if running under XWayland — GLX context switching between the main
+    // window and child dialogs (e.g. Radio Setup) can trigger BadAccess (#1233).
+    // main.cpp normally forces native Wayland, but log it if we ended up here.
+    if (QGuiApplication::platformName() == QLatin1String("xcb")
+        && qEnvironmentVariable("XDG_SESSION_TYPE") == QLatin1String("wayland")) {
+        qWarning() << "SpectrumWidget: running under XWayland with OpenGL — "
+                      "GLX context issues may occur. Set QT_QPA_PLATFORM=wayland "
+                      "or AETHER_NO_GPU=1 to work around (#1233)";
+    }
 #  endif
 #else
     setAttribute(Qt::WA_OpaquePaintEvent);
