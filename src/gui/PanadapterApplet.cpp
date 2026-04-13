@@ -270,8 +270,8 @@ void PanadapterApplet::setFloatingState(bool floating)
 
 void PanadapterApplet::setSliceId(int id)
 {
-    const char letters[] = "ABCD";
-    const char letter = (id >= 0 && id < 4) ? letters[id] : '?';
+    const char letters[] = "ABCDEFGH";
+    const char letter = (id >= 0 && id < 8) ? letters[id] : '?';
     m_titleLabel->setText(QString("Slice %1").arg(letter));
 }
 
