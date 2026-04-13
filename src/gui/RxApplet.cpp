@@ -299,6 +299,8 @@ void RxApplet::buildUI()
             QMenu menu(this);
             const QString cur = m_slice ? m_slice->txAntenna() : "";
             for (const QString& ant : m_antList) {
+                if (ant.startsWith("RX", Qt::CaseInsensitive))
+                    continue;  // skip RX-only antenna ports
                 QAction* act = menu.addAction(ant);
                 act->setCheckable(true);
                 act->setChecked(ant == cur);

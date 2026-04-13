@@ -311,6 +311,8 @@ void VfoWidget::buildUI()
         if (!m_slice) return;
         QMenu menu(this);
         for (const QString& ant : m_antList) {
+            if (ant.startsWith("RX", Qt::CaseInsensitive))
+                continue;  // skip RX-only antenna ports
             auto* act = menu.addAction(ant);
             act->setCheckable(true);
             act->setChecked(ant == m_slice->txAntenna());
