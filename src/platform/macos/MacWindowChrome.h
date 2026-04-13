@@ -15,6 +15,7 @@ struct MacChromeMetrics {
 #if defined(Q_OS_MAC)
 bool applyMacWindowChrome(QWidget* topLevel);
 MacChromeMetrics queryMacChromeMetrics(QWidget* topLevel);
+bool toggleMacWindowZoom(QWidget* topLevel);
 #else
 inline bool applyMacWindowChrome(QWidget*)
 {
@@ -24,6 +25,11 @@ inline bool applyMacWindowChrome(QWidget*)
 inline MacChromeMetrics queryMacChromeMetrics(QWidget*)
 {
     return {};
+}
+
+inline bool toggleMacWindowZoom(QWidget*)
+{
+    return false;
 }
 #endif
 

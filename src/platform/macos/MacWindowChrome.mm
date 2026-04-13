@@ -107,6 +107,18 @@ MacChromeMetrics queryMacChromeMetrics(QWidget* topLevel)
     return metricsForWindow(nativeWindowForWidget(topLevel));
 }
 
+bool toggleMacWindowZoom(QWidget* topLevel)
+{
+    NSWindow* nsWindow = nativeWindowForWidget(topLevel);
+    if (!nsWindow)
+        return false;
+
+    // Use AppKit's zoom behavior so double-clicking the custom titlebar strip
+    // matches the native titled window action without entering fullscreen.
+    [nsWindow zoom:nil];
+    return true;
+}
+
 } // namespace AetherSDR
 
 #endif

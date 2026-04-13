@@ -1,6 +1,7 @@
 #include "TitleBar.h"
 #include "GuardedSlider.h"
 #include "core/AppSettings.h"
+#include "platform/macos/MacWindowChrome.h"
 
 #include <algorithm>
 #include <QHBoxLayout>
@@ -57,6 +58,15 @@ protected:
             return;
         }
         QWidget::mouseMoveEvent(event);
+    }
+
+    void mouseDoubleClickEvent(QMouseEvent* event) override
+    {
+        if (event->button() == Qt::LeftButton && toggleMacWindowZoom(window())) {
+            event->accept();
+            return;
+        }
+        QWidget::mouseDoubleClickEvent(event);
     }
 
 private:
