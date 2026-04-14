@@ -1928,18 +1928,24 @@ void VfoWidget::updatePosition(int vfoX, int specTop, FlagDir dir)
         onLeft = !lowerSideband;
     }
 
+    // 20px dead-band: only flip side when the widget clearly overruns the edge.
+    // Without this, the flip threshold can oscillate frame-to-frame while
+    // m_centerMhz is animating, snapping the VFO panel back and forth.
+    constexpr int kEdgeHysteresis = 20;
+
     int x;
     if (onLeft) {
         x = vfoX - w;
-        // Flip to right if would clip off left edge
-        if (x < 0) {
+        // Flip to right only when clearly clipping the left edge
+        if (x < -kEdgeHysteresis) {
             x = vfoX;
             onLeft = false;
         }
     } else {
         x = vfoX;
-        // Flip to left if would clip off right edge
-        if (parentWidget() && x + w > parentWidget()->width()) {
+        // Flip to left only when clearly clipping the right edge
+        const int parentW = parentWidget() ? parentWidget()->width() : INT_MAX;
+        if (x + w > parentW + kEdgeHysteresis) {
             x = vfoX - w;
             onLeft = true;
         }

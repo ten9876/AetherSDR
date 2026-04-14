@@ -597,16 +597,24 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
         return;
     }
 
-    m_panCenterTarget = centerMhz;
+    // Only reproject the waterfall when starting a fresh animation.  If we are
+    // already animating toward a different target (rapid edge scroll: multiple
+    // echo-backs arrive before the first animation finishes), skip the reproject.
+    // The waterfall was already shifted at the start of this animation session;
+    // re-shifting on every retarget causes repeated horizontal jumps.
+    const bool animAlreadyRunning = m_panCenterAnim &&
+        m_panCenterAnim->state() != QAbstractAnimation::Stopped;
 
-    // Scroll the waterfall history to align with the new center *before* the
-    // animation begins.  Without this, old rows (captured at the old center)
-    // and new rows (arriving from the radio for the new center) are at
-    // different horizontal positions, so signals appear to jump vertically.
-    // We do NOT reset m_wfWriteRow or clear bins — the shift is small, the
-    // old spectrum data is close enough to the new center data, and new rows
-    // will fill in naturally within 1–2 frames.
-    reprojectWaterfall(m_centerMhz, m_bandwidthMhz, centerMhz, m_bandwidthMhz);
+    if (!animAlreadyRunning) {
+        // Scroll waterfall history to align with the new center before the
+        // animation begins.  Without this, old rows (at old center) and new
+        // rows (at new center) are at different pixel positions, so signals
+        // appear to jump vertically.  We do NOT reset m_wfWriteRow or clear
+        // bins — the shift is small and new rows fill in naturally.
+        reprojectWaterfall(m_centerMhz, m_bandwidthMhz, centerMhz, m_bandwidthMhz);
+    }
+
+    m_panCenterTarget = centerMhz;
 
     if (!m_panCenterAnim) {
         m_panCenterAnim = new QVariantAnimation(this);
@@ -2853,83 +2861,11 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
     }
 
     cb->endPass();
-
-    // Reposition VFO widgets (same as paintEvent)
-    {
-        struct VfoPos { int sliceId; int x; VfoWidget* w; int splitPartner; };
-        QVector<VfoPos> vfos;
-        for (const auto& so : m_sliceOverlays) {
-            if (auto* vw = m_vfoWidgets.value(so.sliceId, nullptr)) {
-                int x = mhzToX(so.freqMhz);
-                if (so.mode == "RTTY" || so.mode == "DIGL") {
-                    double hiMhz = so.freqMhz + so.filterHighHz / 1.0e6;
-                    x = mhzToX(hiMhz) + 4;
-                }
-                vfos.append({so.sliceId, x, vw, so.splitPartnerId});
-            }
-        }
-        std::sort(vfos.begin(), vfos.end(), [](const VfoPos& a, const VfoPos& b) {
-            return a.x < b.x;
-        });
-
-        const int panelW = vfos.isEmpty() ? 0 : vfos[0].w->width();
-        const int specW = specRect.width();
-
-        // First pass: assign directions for split pairs
-        QMap<int, VfoWidget::FlagDir> dirMap;
-        for (int i = 0; i < vfos.size(); ++i) {
-            if (vfos[i].splitPartner < 0) continue;
-            if (dirMap.contains(vfos[i].sliceId)) continue;
-            int pi = -1;
-            for (int j = 0; j < vfos.size(); ++j) {
-                if (vfos[j].sliceId == vfos[i].splitPartner) { pi = j; break; }
-            }
-            if (pi < 0) continue;
-            int leftIdx  = (vfos[i].x <= vfos[pi].x) ? i : pi;
-            int rightIdx = (leftIdx == i) ? pi : i;
-            dirMap[vfos[leftIdx].sliceId]  = VfoWidget::ForceLeft;
-            dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceRight;
-            if (vfos[leftIdx].x < panelW)
-                dirMap[vfos[leftIdx].sliceId] = VfoWidget::ForceRight;
-            if (vfos[rightIdx].x + panelW > specW)
-                dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceLeft;
-        }
-
-        // Second pass: RTTY/DIGL force right
-        for (const auto& so : m_sliceOverlays) {
-            if (so.mode == "RTTY" || so.mode == "DIGL")
-                dirMap[so.sliceId] = VfoWidget::ForceRight;
-        }
-
-        if (vfos.size() == 1) {
-            VfoWidget::FlagDir dir = dirMap.value(vfos[0].sliceId, VfoWidget::Auto);
-            vfos[0].w->updatePosition(vfos[0].x, specRect.top(), dir);
-        } else {
-            for (int i = 0; i < vfos.size(); ++i) {
-                VfoWidget::FlagDir dir = VfoWidget::Auto;
-                if (dirMap.contains(vfos[i].sliceId)) {
-                    dir = dirMap[vfos[i].sliceId];
-                } else if (vfos.size() == 2) {
-                    dir = (i == 0) ? VfoWidget::ForceLeft : VfoWidget::ForceRight;
-                    if (i == 0 && vfos[i].x < panelW) dir = VfoWidget::ForceRight;
-                    if (i == 1 && vfos[i].x + panelW > specW) dir = VfoWidget::ForceLeft;
-                } else {
-                    if (i == 0) {
-                        dir = VfoWidget::ForceLeft;
-                        if (vfos[i].x < panelW) dir = VfoWidget::ForceRight;
-                    } else if (i == vfos.size() - 1) {
-                        dir = VfoWidget::ForceRight;
-                        if (vfos[i].x + panelW > specW) dir = VfoWidget::ForceLeft;
-                    } else {
-                        int gapLeft = vfos[i].x - vfos[i-1].x;
-                        int gapRight = vfos[i+1].x - vfos[i].x;
-                        dir = (gapLeft >= gapRight) ? VfoWidget::ForceLeft : VfoWidget::ForceRight;
-                    }
-                }
-                vfos[i].w->updatePosition(vfos[i].x, specRect.top(), dir);
-            }
-        }
-    }
+    // VFO widget positioning is handled exclusively in paintEvent() below.
+    // Calling updatePosition() here too would race against the animation timer:
+    // m_centerMhz can advance between renderGpuFrame() and paintEvent() within
+    // the same event-loop turn, causing the VFO widget to move() to two
+    // slightly different positions per display frame and appear to jitter.
 }
 
 void SpectrumWidget::render(QRhiCommandBuffer* cb)
