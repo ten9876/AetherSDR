@@ -52,9 +52,13 @@ AudioEngine::AudioEngine(QObject* parent)
     // Monitor audio output device list for changes — when a USB audio device
     // (like Connect6) power-cycles or WASAPI sessions reset after idle/screensaver,
     // restart the RX stream to re-acquire a fresh handle. (#1361)
+    // Windows/macOS only: PipeWire on Linux crashes in pw_stream_connect when
+    // audioOutputsChanged fires during device enumeration. The zombie sink
+    // watchdog and stateChanged handlers cover Linux recovery instead.
+#ifdef Q_OS_WIN
     m_mediaDevices = new QMediaDevices(this);
     connect(m_mediaDevices, &QMediaDevices::audioOutputsChanged, this, [this]() {
-        if (!m_audioSink) return;  // not streaming
+        if (!m_audioSink) return;
         qCWarning(lcAudio) << "AudioEngine: audio output device list changed, restarting RX (#1361)";
         QMetaObject::invokeMethod(this, [this]() {
             if (!m_audioSink) return;
@@ -62,6 +66,7 @@ AudioEngine::AudioEngine(QObject* parent)
             startRxStream();
         }, Qt::QueuedConnection);
     });
+#endif
 
     // Opus TX pacing timer — sends one queued packet every 10ms for even
     // delivery timing. Without this, QAudioSource delivers bursts of samples
@@ -197,8 +202,10 @@ bool AudioEngine::startRxStream()
     // screensaver/idle, which the original #1303 handler missed. (#1361)
     connect(m_audioSink, &QAudioSink::stateChanged, this,
             [this](QAudio::State state) {
+#ifdef Q_OS_WIN
+        // IdleState with pending data = stale WASAPI session (#1361).
+        // PipeWire uses IdleState legitimately — skip on Linux.
         if (state == QAudio::IdleState && !m_rxBuffer.isEmpty()) {
-            // Sink went idle while we have data to play — likely stale session
             qCWarning(lcAudio) << "AudioEngine: QAudioSink went idle with pending data, restarting RX (#1361)";
             QMetaObject::invokeMethod(this, [this]() {
                 if (!m_audioSink) return;
@@ -207,6 +214,7 @@ bool AudioEngine::startRxStream()
             }, Qt::QueuedConnection);
             return;
         }
+#endif
         if (state != QAudio::StoppedState) return;
         if (!m_audioSink) return;   // intentional stop (stopRxStream nulls this)
         QMetaObject::invokeMethod(this, [this]() {
@@ -218,6 +226,7 @@ bool AudioEngine::startRxStream()
     });
     qCWarning(lcAudio) << "AudioEngine: RX stream started at" << fmt.sampleRate() << "Hz"
                        << "device:" << dev.description();
+    m_rxStreamStarted = true;
     emit rxStarted();
     return true;
 #else
@@ -253,6 +262,7 @@ bool AudioEngine::startRxStream()
     // (not Stopped) when the session goes stale after idle. (#1361)
     connect(m_audioSink, &QAudioSink::stateChanged, this,
             [this](QAudio::State state) {
+#ifdef Q_OS_WIN
         if (state == QAudio::IdleState && !m_rxBuffer.isEmpty()) {
             qCWarning(lcAudio) << "AudioEngine: QAudioSink went idle with pending data, restarting RX (#1361)";
             QMetaObject::invokeMethod(this, [this]() {
@@ -262,6 +272,7 @@ bool AudioEngine::startRxStream()
             }, Qt::QueuedConnection);
             return;
         }
+#endif
         if (state != QAudio::StoppedState) return;
         if (!m_audioSink) return;   // intentional stop (stopRxStream nulls this)
         QMetaObject::invokeMethod(this, [this]() {
@@ -273,6 +284,7 @@ bool AudioEngine::startRxStream()
     });
     qCDebug(lcAudio) << "AudioEngine: RX stream started";
     m_rxBufferSampleRate.store(fmt.sampleRate());
+    m_rxStreamStarted = true;
     emit rxStarted();
     return true;
 }

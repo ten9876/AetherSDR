@@ -201,7 +201,7 @@ private:
     float         m_displayFrac{0.0f};
     float         m_targetFrac{0.0f};
     static constexpr int   kAnimIntervalMs = 8;
-    static constexpr float kAttackSeconds  = 0.045f;
+    static constexpr float kAttackSeconds  = 0.030f;
     static constexpr float kReleaseSeconds = 0.180f;
     static constexpr float kSnapEpsilon    = 0.001f;
 };

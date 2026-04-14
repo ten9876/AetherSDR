@@ -285,6 +285,7 @@ private:
     // Audio device change detection — restarts RX when USB devices
     // power-cycle or WASAPI sessions reset after idle (#1361)
     QMediaDevices* m_mediaDevices{nullptr};
+    bool           m_rxStreamStarted{false};  // guard: ignore device changes before first start
 
     // Zombie sink watchdog: tracks consecutive RX timer ticks where we have
     // data to write but bytesFree() == 0, indicating a stale WASAPI handle.
