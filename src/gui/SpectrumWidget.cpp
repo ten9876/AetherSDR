@@ -198,6 +198,7 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     auto emitZoom = [this](double factor) {
         const double newBw = m_bandwidthMhz * factor;
         if (newBw < m_minBwMhz || newBw > m_maxBwMhz) { return; }  // at limit
+        reprojectWaterfall(m_centerMhz, m_bandwidthMhz, m_centerMhz, newBw);
         m_bandwidthMhz = newBw;
         markOverlayDirty();
         emit bandwidthChangeRequested(newBw);
@@ -486,10 +487,66 @@ void SpectrumWidget::clearDisplay()
     markOverlayDirty();
 }
 
+void SpectrumWidget::reprojectWaterfall(double oldCenterMhz, double oldBandwidthMhz,
+                                        double newCenterMhz, double newBandwidthMhz)
+{
+    if (m_waterfall.isNull()) {
+        return;
+    }
+    if (oldBandwidthMhz <= 0.0 || newBandwidthMhz <= 0.0) {
+        return;
+    }
+
+    const int imageWidth = m_waterfall.width();
+    const int imageHeight = m_waterfall.height();
+    if (imageWidth <= 0 || imageHeight <= 0) {
+        return;
+    }
+
+    const double oldStartMhz = oldCenterMhz - oldBandwidthMhz / 2.0;
+    const double oldEndMhz = oldCenterMhz + oldBandwidthMhz / 2.0;
+    const double newStartMhz = newCenterMhz - newBandwidthMhz / 2.0;
+    const double newEndMhz = newCenterMhz + newBandwidthMhz / 2.0;
+    const double overlapStartMhz = std::max(oldStartMhz, newStartMhz);
+    const double overlapEndMhz = std::min(oldEndMhz, newEndMhz);
+
+    QImage reprojected(imageWidth, imageHeight, QImage::Format_RGB32);
+    reprojected.fill(Qt::black);
+
+    if (overlapEndMhz > overlapStartMhz) {
+        const double srcLeft = (overlapStartMhz - oldStartMhz) / oldBandwidthMhz * imageWidth;
+        const double srcRight = (overlapEndMhz - oldStartMhz) / oldBandwidthMhz * imageWidth;
+        const double dstLeft = (overlapStartMhz - newStartMhz) / newBandwidthMhz * imageWidth;
+        const double dstRight = (overlapEndMhz - newStartMhz) / newBandwidthMhz * imageWidth;
+
+        if (srcRight > srcLeft && dstRight > dstLeft) {
+            QPainter painter(&reprojected);
+            painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+            painter.drawImage(QRectF(dstLeft, 0.0, dstRight - dstLeft, imageHeight),
+                              m_waterfall,
+                              QRectF(srcLeft, 0.0, srcRight - srcLeft, imageHeight));
+        }
+    }
+
+    m_waterfall = std::move(reprojected);
+    m_prevTileScanline.clear();
+#ifdef AETHER_GPU_SPECTRUM
+    m_wfTexFullUpload = true;
+#endif
+}
+
 void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
 {
     if (centerMhz == m_centerMhz && bandwidthMhz == m_bandwidthMhz)
         return;
+
+    const double oldCenterMhz = m_centerMhz;
+    const double oldBandwidthMhz = m_bandwidthMhz;
+
+    if (oldBandwidthMhz > 0.0 && bandwidthMhz > 0.0) {
+        reprojectWaterfall(oldCenterMhz, oldBandwidthMhz, centerMhz, bandwidthMhz);
+    }
+
     qDebug() << "SpectrumWidget::setFrequencyRange center="
              << QString::number(centerMhz, 'f', 6)
              << "bw=" << QString::number(bandwidthMhz, 'f', 6)
@@ -1308,6 +1365,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         const double newBw = std::clamp(m_bwDragStartBw * scale, m_minBwMhz, m_maxBwMhz);
         const double mouseXFrac = static_cast<double>(m_bwDragStartX) / width() - 0.5;
         const double zoomCenter = m_bwDragAnchorMhz - mouseXFrac * newBw;
+        reprojectWaterfall(m_centerMhz, m_bandwidthMhz, zoomCenter, newBw);
         m_bandwidthMhz = newBw;
         m_centerMhz = zoomCenter;
         markOverlayDirty();
@@ -1348,6 +1406,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         // Dragging right moves the view right → center shifts left
         const double deltaMhz = -(static_cast<double>(dx) / width()) * m_bandwidthMhz;
         const double newCenter = m_panDragStartCenter + deltaMhz;
+        reprojectWaterfall(m_centerMhz, m_bandwidthMhz, newCenter, m_bandwidthMhz);
         m_centerMhz = newCenter;
         markOverlayDirty();
         emit centerChangeRequested(newCenter);
@@ -1741,6 +1800,7 @@ bool SpectrumWidget::event(QEvent* ev)
             const double mouseXFrac = ge->position().x() / width() - 0.5;
             const double anchorMhz = m_centerMhz + mouseXFrac * m_bandwidthMhz;
             const double newCenter = anchorMhz - mouseXFrac * newBw;
+            reprojectWaterfall(m_centerMhz, m_bandwidthMhz, newCenter, newBw);
             m_bandwidthMhz = newBw;
             m_centerMhz = newCenter;
             markOverlayDirty();
