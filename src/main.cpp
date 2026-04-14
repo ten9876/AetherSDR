@@ -90,6 +90,12 @@ int main(int argc, char* argv[])
         const QByteArray session = qgetenv("XDG_SESSION_TYPE");
         if (session == "wayland" && qEnvironmentVariableIsSet("WAYLAND_DISPLAY")) {
             qputenv("QT_QPA_PLATFORM", "wayland");
+            // Safety net: if the Wayland platform plugin is not installed,
+            // Qt silently falls back to xcb (XWayland).  Force EGL instead
+            // of GLX on xcb to avoid GLXMakeCurrent BadAccess crashes when
+            // child dialogs (Radio Setup, etc.) create GL contexts (#1403).
+            if (!qEnvironmentVariableIsSet("QT_XCB_GL_INTEGRATION"))
+                qputenv("QT_XCB_GL_INTEGRATION", "xcb_egl");
         }
     }
 
@@ -179,6 +185,14 @@ int main(int argc, char* argv[])
     AetherSDR::LogManager::instance().loadSettings();
 
     qDebug() << "Starting AetherSDR" << app.applicationVersion();
+    qDebug() << "Platform:" << app.platformName();
+
+    // Warn when we requested Wayland but ended up on xcb (XWayland) — the
+    // Wayland platform plugin is probably missing (e.g. qt6-wayland).
+    if (qgetenv("QT_QPA_PLATFORM") == "wayland" && app.platformName() == "xcb") {
+        qWarning() << "Wayland platform requested but xcb is active — "
+                      "install qt6-wayland for native Wayland support (#1403)";
+    }
 
     AetherSDR::MainWindow window;
     window.show();
