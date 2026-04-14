@@ -3,6 +3,17 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.12.1] — 2026-04-14
+
+### Hotfix: Bundle OpenSSL for Windows and AppImage
+
+**Fix startup crash on Windows (#1341, #1362)**
+- Bundle `libssl-3-x64.dll` and `libcrypto-3-x64.dll` in Windows installer and portable ZIP
+- Bundle `libssl.so.3` and `libcrypto.so.3` in AppImage
+- MQTT TLS support added in v0.8.12 linked OpenSSL dynamically but packaging did not include the runtime DLLs
+
+---
+
 ## [v0.8.12] — 2026-04-14
 
 ### Major PR Review, Community Contributions, CW & TCI Improvements

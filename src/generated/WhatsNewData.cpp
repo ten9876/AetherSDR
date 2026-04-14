@@ -6,6 +6,9 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.8.12.1"), QStringLiteral("2026-04-14"), QStringLiteral(""), {
+            {ChangeCategory::BugFix, QStringLiteral("Fix startup crash on Windows"), QStringLiteral("Bundle `libssl-3-x64.dll` and `libcrypto-3-x64.dll` in Windows installer and portable ZIP Bundle `libssl.so.3` and `libcrypto.so.3` in AppImage MQTT TLS support added in v0.8.12 linked OpenSSL dyna...")},
+        }},
         {QStringLiteral("0.8.12"), QStringLiteral("2026-04-14"), QStringLiteral("Enhancements"), {
             {ChangeCategory::Feature, QStringLiteral("QSO audio recorder"), QStringLiteral("Client-side WAV recording with auto-record on TX and idle timeout Radio Side / Client Side mode selector in Radio Setup → Audio Playback of last recording through speaker with live RX muted during ...")},
             {ChangeCategory::Feature, QStringLiteral("TCI IQ stream support"), QStringLiteral("Stream DAX IQ data to TCI clients for panadapter/waterfall display Enables TCI Remote Android app (by ON7OFF) to show live spectrum")},
