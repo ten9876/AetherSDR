@@ -4618,21 +4618,25 @@ void MainWindow::onSliceAdded(SliceModel* s)
     }
 
     // Set initial hasTxSlice for waterfall freeze logic
-    if (s->isTxSlice())
-        spectrumForSlice(s)->setHasTxSlice(true);
+    if (s->isTxSlice()) {
+        if (auto* sw = spectrumForSlice(s))
+            sw->setHasTxSlice(true);
+    }
 
     // Sync show-TX-in-waterfall on first slice
-    spectrumForSlice(s)->setShowTxInWaterfall(
-        m_radioModel.transmitModel().showTxInWaterfall());
+    if (auto* sw = spectrumForSlice(s))
+        sw->setShowTxInWaterfall(
+            m_radioModel.transmitModel().showTxInWaterfall());
 
     // Connect slice state changes → spectrum overlay updates
     connect(s, &SliceModel::frequencyChanged, this, [this, s](double mhz) {
         m_updatingFromModel = true;
-        spectrumForSlice(s)->setSliceOverlay(s->sliceId(), mhz,
-            s->filterLow(), s->filterHigh(), s->isTxSlice(),
-            s->sliceId() == m_activeSliceId,
-            s->mode(), s->rttyMark(), s->rttyShift(),
-            s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq());
+        if (auto* sw = spectrumForSlice(s))
+            sw->setSliceOverlay(s->sliceId(), mhz,
+                s->filterLow(), s->filterHigh(), s->isTxSlice(),
+                s->sliceId() == m_activeSliceId,
+                s->mode(), s->rttyMark(), s->rttyShift(),
+                s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq());
         m_updatingFromModel = false;
 
         // Feed frequency to Antenna Genius for band→antenna recall
@@ -4646,6 +4650,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
 
     connect(s, &SliceModel::filterChanged, this, [this, s](int lo, int hi) {
         auto* sw = spectrumForSlice(s);
+        if (!sw) return;
         // Skip overlay update while user is dragging a filter edge — the radio's
         // status echo would overwrite the drag position, causing snap-to-zero (#764)
         if (sw->isDraggingFilter()) return;
@@ -4664,11 +4669,12 @@ void MainWindow::onSliceAdded(SliceModel* s)
             if (!m_panStack && m_panApplet)
                 m_panApplet->spectrumWidget()->setHasTxSlice(true);
         }
-        spectrumForSlice(s)->setSliceOverlay(s->sliceId(), s->frequency(),
-            s->filterLow(), s->filterHigh(), tx,
-            s->sliceId() == m_activeSliceId,
-            s->mode(), s->rttyMark(), s->rttyShift(),
-            s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq());
+        if (auto* sw = spectrumForSlice(s))
+            sw->setSliceOverlay(s->sliceId(), s->frequency(),
+                s->filterLow(), s->filterHigh(), tx,
+                s->sliceId() == m_activeSliceId,
+                s->mode(), s->rttyMark(), s->rttyShift(),
+                s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq());
         updateSplitState();
     });
 
@@ -4743,12 +4749,16 @@ void MainWindow::onSliceAdded(SliceModel* s)
         }
         // Re-add on the new pan
         auto* sw = spectrumForSlice(s);
-        sw->addVfoWidget(s->sliceId());
+        if (!sw) return;
+        auto* vfo = sw->addVfoWidget(s->sliceId());
+        wireVfoWidget(vfo, s);
         pushSliceOverlay(s);
     });
 
     // Create a VfoWidget for this slice on the correct panadapter
-    auto* vfo = spectrumForSlice(s)->addVfoWidget(s->sliceId());
+    auto* swForVfo = spectrumForSlice(s);
+    if (!swForVfo) return;
+    auto* vfo = swForVfo->addVfoWidget(s->sliceId());
 
     // Set SmartSDR+ flag before wireVfoWidget so rebuildFilterButtons
     // sees the correct value when setSlice() triggers the first build (#1356)
@@ -4951,10 +4961,11 @@ void MainWindow::setActiveSlice(int sliceId)
     // Update all overlay isActive flags on each slice's correct spectrum
     for (auto* sl : m_radioModel.slices()) {
         const bool isActive = (sl->sliceId() == sliceId);
-        spectrumForSlice(sl)->setSliceOverlay(sl->sliceId(), sl->frequency(),
-            sl->filterLow(), sl->filterHigh(), sl->isTxSlice(), isActive,
-            sl->mode(), sl->rttyMark(), sl->rttyShift(),
-            sl->ritOn(), sl->ritFreq(), sl->xitOn(), sl->xitFreq());
+        if (auto* sw = spectrumForSlice(sl))
+            sw->setSliceOverlay(sl->sliceId(), sl->frequency(),
+                sl->filterLow(), sl->filterHigh(), sl->isTxSlice(), isActive,
+                sl->mode(), sl->rttyMark(), sl->rttyShift(),
+                sl->ritOn(), sl->ritFreq(), sl->xitOn(), sl->xitFreq());
     }
 
     // QSO recorder: track active slice for frequency/mode metadata (#1297)
