@@ -950,6 +950,8 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         m_draggingBandwidth = true;
         m_bwDragStartX = static_cast<int>(ev->position().x());
         m_bwDragStartBw = m_bandwidthMhz;
+        const double mouseXFrac = ev->position().x() / width() - 0.5;
+        m_bwDragAnchorMhz = m_centerMhz + mouseXFrac * m_bandwidthMhz;
         setCursor(Qt::SizeHorCursor);
         ev->accept();
         return;
@@ -1303,9 +1305,9 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         const int dx = static_cast<int>(ev->position().x()) - m_bwDragStartX;
         // 4x multiplier: dragging 1/4 of widget width doubles/halves bandwidth
         const double scale = std::pow(2.0, static_cast<double>(-dx) / (width() / 4.0));
-        const double newBw = std::clamp(m_bwDragStartBw * scale, 0.004, 14.0);
-        // Keep the current pan center on zoom — don't snap to VFO. (#1093)
-        double zoomCenter = m_centerMhz;
+        const double newBw = std::clamp(m_bwDragStartBw * scale, m_minBwMhz, m_maxBwMhz);
+        const double mouseXFrac = static_cast<double>(m_bwDragStartX) / width() - 0.5;
+        const double zoomCenter = m_bwDragAnchorMhz - mouseXFrac * newBw;
         m_bandwidthMhz = newBw;
         m_centerMhz = zoomCenter;
         markOverlayDirty();
