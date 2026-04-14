@@ -714,7 +714,7 @@ void PhoneCwApplet::updateMeters(float micLevel, float compLevel,
         return;
     }
 
-    m_levelGauge->setValue(micLevel);
+    m_levelGauge->setValue(micPeak);
     m_levelGauge->setPeakValue(micPeak);
     // Compression gauge is now driven exclusively by updateCompression()
 }

@@ -1840,7 +1840,7 @@ MainWindow::MainWindow(QWidget* parent)
                 *heldPeak = peakDb;
             else
                 *heldPeak = qMax(*heldLevel, *heldPeak - kDecayPerUpdate * 0.5f);
-            m_appletPanel->phoneCwApplet()->updateMeters(*heldLevel, 0.0f, *heldPeak, 0.0f);
+            m_appletPanel->phoneCwApplet()->updateMeters(*heldPeak, 0.0f, *heldPeak, 0.0f);
         });
     }
     m_appletPanel->phoneCwApplet()->setTransmitModel(&m_radioModel.transmitModel());
