@@ -6,6 +6,20 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.8.12"), QStringLiteral("2026-04-14"), QStringLiteral("Enhancements"), {
+            {ChangeCategory::Feature, QStringLiteral("QSO audio recorder"), QStringLiteral("Client-side WAV recording with auto-record on TX and idle timeout Radio Side / Client Side mode selector in Radio Setup → Audio Playback of last recording through speaker with live RX muted during ...")},
+            {ChangeCategory::Feature, QStringLiteral("TCI IQ stream support"), QStringLiteral("Stream DAX IQ data to TCI clients for panadapter/waterfall display Enables TCI Remote Android app (by ON7OFF) to show live spectrum")},
+            {ChangeCategory::Feature, QStringLiteral("Profile-based memory channel filtering"), QStringLiteral("Filter memories by global profile in the Memory Channels dialog New memories auto-tagged with active profile name")},
+            {ChangeCategory::Feature, QStringLiteral("Configuring AetherSDR Controls help guide"), QStringLiteral("Comprehensive 659-line offline guide covering keyboard shortcuts, FlexControl, MIDI, USB HID devices, Stream Deck, and serial PTT/CW (community: jensenpat)")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix XWayland GLX crash when opening child dialogs"), QStringLiteral("Auto-detect Wayland sessions and set QT_QPA_PLATFORM=wayland Add AETHER_NO_GPU=1 runtime fallback for software rendering PII redaction regex objects survive abnormal teardown")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix TCI audio corruption"), QStringLiteral("Header length now reports per-channel sample count per TCI v2.0 spec Detect mono vs stereo TX audio from WSJT-X Handle string format names in audio_stream_sample_type negotiation")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix antenna dropdown not populating in overlay menu"), QStringLiteral("Moved antenna list wiring to per-pan in wirePanadapter() with initial sync")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix band button reselection"), QStringLiteral("Removed same-band guard that blocked re-selecting GEN/transverter bands")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix frequency offset calibration Start button"), QStringLiteral("Added missing `radio calibrate` command")},
+            {ChangeCategory::BugFix, QStringLiteral("Filter RX-only antenna ports from TX selector"), QStringLiteral("Skip ports starting with \"RX\" in TX antenna dropdown")},
+            {ChangeCategory::BugFix, QStringLiteral("Guard QImage::scaled() null waterfall"), QStringLiteral("Prevents permanent waterfall loss during rapid resize on compositing WMs")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix audio input device combo"), QStringLiteral("Shows active device instead of system default in Radio Setup")},
+        }},
         {QStringLiteral("0.8.11"), QStringLiteral("2026-04-12"), QStringLiteral("Contributors"), {
             {ChangeCategory::Feature, QStringLiteral("MQTT station device integration"), QStringLiteral("Subscribe to MQTT topics and display device status in the applet panel User-defined publish buttons for rotator, antenna, and device control Panadapter overlay: prefix topics with * to show values ...")},
             {ChangeCategory::BugFix, QStringLiteral("Antenna Genius race condition"), QStringLiteral("Always send saved antenna preference on band change; don't skip when AG coincidentally reports the correct antenna first (community: scott-mss)")},

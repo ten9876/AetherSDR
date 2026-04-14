@@ -3,6 +3,102 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.12] — 2026-04-14
+
+### Major PR Review, Community Contributions, CW & TCI Improvements
+
+### New Features
+
+**QSO audio recorder (#1297)**
+- Client-side WAV recording with auto-record on TX and idle timeout
+- Radio Side / Client Side mode selector in Radio Setup → Audio
+- Playback of last recording through speaker with live RX muted during playback
+
+**TCI IQ stream support (#1182)**
+- Stream DAX IQ data to TCI clients for panadapter/waterfall display
+- Enables TCI Remote Android app (by ON7OFF) to show live spectrum
+
+**Profile-based memory channel filtering (#1251)**
+- Filter memories by global profile in the Memory Channels dialog
+- New memories auto-tagged with active profile name
+
+**Configuring AetherSDR Controls help guide**
+- Comprehensive 659-line offline guide covering keyboard shortcuts, FlexControl,
+  MIDI, USB HID devices, Stream Deck, and serial PTT/CW (community: jensenpat)
+
+### Enhancements
+
+**Spectrum & waterfall**
+- Anchor frequency-bar drag zoom to cursor position (community: rfoust)
+- Sync waterfall history on pan/zoom — existing rows shift to match (community: rfoust)
+- Add WIDE indicator badge to spectrum display (community: jensenpat)
+- Guard noise floor auto-adjust during TX to prevent waterfall disappearing (#1302)
+- Smooth S-meter needle with asymmetric attack/release timing (community: rfoust)
+
+**CW decoder & keying**
+- CW Zero Beat button — client-side zero-beat for non-SmartSDR+ users (#1228)
+- Close button on CW decoder panel (session-only, not persistent) (#1287)
+- CPY ALL / CPY VIS buttons for copying decoded text (#1299)
+- Nordic character support: Æ, Ø, Å (#1280)
+
+**FlexControl**
+- Knob button (X4S) as configurable action (#1295)
+- Assignable wheel modes: Frequency, Volume, TX Power (#1282)
+
+**Multi-slice & multi-pan**
+- 8-slice support for Flex 6700 with 4 new slice colors (#1281)
+- Slice tab toggle (A/B/C/D) in RxApplet header — inline for ≤4 slices (#1278)
+- Fix popout panadapters on macOS/Windows — GPU rebind on reparent (#1240)
+- Guard all null spectrum() dereferences in multi-pan mode (#1199)
+
+**Network & audio**
+- Richer network status tooltip with per-stream stats (community: rfoust)
+- Non-modal Network Diagnostics dialog with audio playback section (community: rfoust)
+- Restart RX audio sink when backend stops unexpectedly (#1303)
+- Switch K-index source from hamqsl.com to NOAA SWPC WWV bulletin (#1255)
+
+### Bug Fixes
+
+**Fix XWayland GLX crash when opening child dialogs (#1233)**
+- Auto-detect Wayland sessions and set QT_QPA_PLATFORM=wayland
+- Add AETHER_NO_GPU=1 runtime fallback for software rendering
+- PII redaction regex objects survive abnormal teardown
+
+**Fix TCI audio corruption (#1239)**
+- Header length now reports per-channel sample count per TCI v2.0 spec
+- Detect mono vs stereo TX audio from WSJT-X
+- Handle string format names in audio_stream_sample_type negotiation
+
+**Fix antenna dropdown not populating in overlay menu (#1260)**
+- Moved antenna list wiring to per-pan in wirePanadapter() with initial sync
+
+**Fix band button reselection (#1284)**
+- Removed same-band guard that blocked re-selecting GEN/transverter bands
+
+**Fix frequency offset calibration Start button (#1237)**
+- Added missing `radio calibrate` command
+
+**Filter RX-only antenna ports from TX selector (#1238)**
+- Skip ports starting with "RX" in TX antenna dropdown
+
+**Guard QImage::scaled() null waterfall (#1250)**
+- Prevents permanent waterfall loss during rapid resize on compositing WMs
+
+**Fix audio input device combo (#1334)**
+- Shows active device instead of system default in Radio Setup
+
+### Contributors
+
+- **rfoust** — zoom anchor, waterfall reprojection, S-meter smoothing, network diagnostics, pan-follow-VFO (in progress)
+- **jensenpat** — WIDE indicator, controls help guide
+- **chibondking** — pan-follow-VFO (in progress)
+- **wa2n-code** — K-index NOAA source investigation
+- **rskunath** — XWayland crash report with detailed logs
+- **WX7Y** — TCI audio persistence and testing
+- **LB2EG** — FlexControl X4S protocol documentation
+
+---
+
 ## [v0.8.11] — 2026-04-12
 
 ### MQTT Station Integration, Triage Fixes, macOS DAX Fix
