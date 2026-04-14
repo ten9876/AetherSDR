@@ -95,6 +95,7 @@ jobs:
           fi
 
           # Bundle OpenSSL for MQTT TLS support (#1341, #1362)
+          mkdir -p AppDir/usr/lib
           for lib in libssl.so.3 libcrypto.so.3; do
             src=$(find /usr/lib -name "$lib" -print -quit 2>/dev/null)
             if [ -n "$src" ]; then
