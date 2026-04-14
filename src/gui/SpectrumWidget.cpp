@@ -487,6 +487,19 @@ void SpectrumWidget::clearDisplay()
     markOverlayDirty();
 }
 
+void SpectrumWidget::resetGpuResources()
+{
+#ifdef AETHER_GPU_SPECTRUM
+    // On macOS/Windows, the GPU surface doesn't survive reparenting — tear
+    // down old pipelines so initialize() rebuilds them for the new window.
+    // On Linux (OpenGL), a simple update() is sufficient (#1240).
+#ifndef Q_OS_LINUX
+    releaseResources();
+#endif
+#endif
+    update();
+}
+
 void SpectrumWidget::reprojectWaterfall(double oldCenterMhz, double oldBandwidthMhz,
                                         double newCenterMhz, double newBandwidthMhz)
 {

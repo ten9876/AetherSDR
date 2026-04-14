@@ -16,8 +16,7 @@
 static void refreshAfterReparent(AetherSDR::SpectrumWidget* sw)
 {
     if (!sw) return;
-    sw->releaseResources();  // tear down old GPU surface
-    sw->update();            // triggers initialize() on next frame
+    sw->resetGpuResources();
 }
 
 namespace AetherSDR {
