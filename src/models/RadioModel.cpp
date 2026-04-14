@@ -331,6 +331,20 @@ void RadioModel::disconnectFromRadio()
         m_wanConn->disconnect(this);  // remove signal connections to prevent duplicates on reconnect (#224)
         m_wanConn->disconnectFromRadio();
         m_wanConn = nullptr;
+    } else if (m_connection->isConnected()) {
+        // Graceful disconnect: tell the radio to tear down our session before
+        // closing TCP.  Without this the radio keeps the client slot alive until
+        // its keepalive timeout expires, and reconnecting with the same
+        // GUIClientID during that window can put the Maestro into an
+        // inconsistent state (hard lock). (#1359)
+        if (!m_rxAudioStreamId.isEmpty())
+            sendCmd(QString("stream remove 0x%1").arg(m_rxAudioStreamId));
+        sendCmd(QString("client disconnect handle=0x%1").arg(clientHandle(), 0, 16));
+        // Allow a short window for the commands to flush over TCP before
+        // tearing down the socket.
+        QTimer::singleShot(200, this, [this]() {
+            QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
+        });
     } else {
         QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
     }
@@ -340,7 +354,16 @@ void RadioModel::forceDisconnect()
 {
     // Close TCP without setting m_intentionalDisconnect — allows auto-reconnect
     // when the radio reappears in discovery or via the repeating reconnect timer.
-    QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
+    // Send client disconnect first if the socket is still up, to avoid stale
+    // sessions that can lock up the Maestro on reconnect. (#1359)
+    if (m_connection->isConnected()) {
+        sendCmd(QString("client disconnect handle=0x%1").arg(clientHandle(), 0, 16));
+        QTimer::singleShot(150, this, [this]() {
+            QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
+        });
+    } else {
+        QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
+    }
 }
 
 void RadioModel::setTransmit(bool tx)

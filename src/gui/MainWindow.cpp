@@ -83,6 +83,7 @@
 #include <QActionGroup>
 #include <QLabel>
 #include <QCloseEvent>
+#include <QElapsedTimer>
 #include <QMessageBox>
 #include <QShortcut>
 #include <QScrollArea>
@@ -2162,6 +2163,14 @@ void MainWindow::closeEvent(QCloseEvent* event)
 
     m_discovery.stopListening();
     m_radioModel.disconnectFromRadio();
+    // Allow time for the graceful disconnect commands (stream remove + client
+    // disconnect) to flush over TCP before we tear down the socket and
+    // audio engine.  Without this the app can exit before the commands reach
+    // the radio, leaving a stale session that locks up the Maestro. (#1359)
+    QElapsedTimer flushWait;
+    flushWait.start();
+    while (flushWait.elapsed() < 250)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
     audioStopRx();
 
     // Stop spot client worker thread
