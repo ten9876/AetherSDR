@@ -286,6 +286,85 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
 
     m_cwPanel->hide();
     layout->addWidget(m_cwPanel);
+
+    // ── RTTY decode panel (hidden by default, shown in RTTY/DIGL mode) ──
+    m_rttyPanel = new QWidget(this);
+    m_rttyPanel->setCursor(Qt::ArrowCursor);
+    m_rttyPanel->setFixedHeight(80);
+    m_rttyPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_rttyPanel->setStyleSheet("QWidget { background: #0a0a14; border-top: 1px solid #203040; }");
+
+    auto* rttyLayout = new QVBoxLayout(m_rttyPanel);
+    rttyLayout->setContentsMargins(4, 2, 4, 2);
+    rttyLayout->setSpacing(1);
+
+    // Stats bar
+    auto* rttyBar = new QHBoxLayout;
+    rttyBar->setSpacing(6);
+    auto* rttyTitle = new QLabel("RTTY");
+    rttyTitle->setStyleSheet("QLabel { color: #d8a000; font-size: 10px; font-weight: bold; background: transparent; }");
+    rttyBar->addWidget(rttyTitle);
+    auto* rttyHint = new QLabel("(requires PC Audio)");
+    rttyHint->setStyleSheet("QLabel { color: #405060; font-size: 9px; background: transparent; }");
+    rttyBar->addWidget(rttyHint);
+
+    m_rttyStatsLabel = new QLabel;
+    m_rttyStatsLabel->setStyleSheet("QLabel { color: #6a8090; font-size: 10px; background: transparent; }");
+    rttyBar->addWidget(m_rttyStatsLabel);
+
+    rttyBar->addStretch();
+
+    const QString rttyBtnStyle =
+        "QPushButton { background: #1a2a3a; color: #8090a0; border: 1px solid #203040;"
+        " border-radius: 2px; font-size: 9px; font-weight: bold;"
+        " padding: 1px 6px; }"
+        "QPushButton:hover { color: #c8d8e8; background: #2a3a4a; }";
+
+    auto* rttyCopyBtn = new QPushButton("CPY ALL");
+    rttyCopyBtn->setToolTip("Copy all decoded text to clipboard");
+    rttyCopyBtn->setStyleSheet(rttyBtnStyle);
+    connect(rttyCopyBtn, &QPushButton::clicked, this, [this] {
+        QGuiApplication::clipboard()->setText(m_rttyText->toPlainText());
+    });
+    rttyBar->addWidget(rttyCopyBtn);
+
+    auto* rttyClearBtn = new QPushButton("CLR");
+    rttyClearBtn->setStyleSheet(rttyBtnStyle);
+    connect(rttyClearBtn, &QPushButton::clicked, this, &PanadapterApplet::clearRttyText);
+    rttyBar->addWidget(rttyClearBtn);
+
+    auto* rttyCloseBtn = new QPushButton("\u2715");
+    rttyCloseBtn->setToolTip("Close RTTY decoder");
+    rttyCloseBtn->setStyleSheet(
+        "QPushButton { background: #1a2a3a; color: #8090a0; border: 1px solid #203040;"
+        " border-radius: 2px; font-size: 9px; font-weight: bold;"
+        " padding: 1px 6px; }"
+        "QPushButton:hover { color: #ff6060; background: #2a3a4a; }");
+    connect(rttyCloseBtn, &QPushButton::clicked, this, [this]() {
+        m_rttyPanel->hide();
+        emit rttyPanelCloseRequested();
+    });
+    rttyBar->addWidget(rttyCloseBtn);
+
+    rttyLayout->addLayout(rttyBar);
+
+    // Text area
+    m_rttyText = new QTextEdit;
+    m_rttyText->setReadOnly(true);
+    m_rttyText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_rttyText->setStyleSheet(
+        "QTextEdit { background: #0a0a14; color: #d8a000; border: none;"
+        " font-family: monospace; font-size: 13px; font-weight: bold; }"
+        "QScrollBar:vertical { width: 6px; background: #0a0a14; }"
+        "QScrollBar::handle:vertical { background: #304050; border-radius: 3px; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }");
+    m_rttyText->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_rttyText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_rttyText->setWordWrapMode(QTextOption::WrapAnywhere);
+    rttyLayout->addWidget(m_rttyText);
+
+    m_rttyPanel->hide();
+    layout->addWidget(m_rttyPanel);
 }
 
 void PanadapterApplet::setMultiPanMode(bool multi)
@@ -366,6 +445,47 @@ void PanadapterApplet::setCwStats(float pitchHz, float speedWpm)
 void PanadapterApplet::clearCwText()
 {
     m_cwText->clear();
+}
+
+void PanadapterApplet::setRttyPanelVisible(bool visible)
+{
+    m_rttyPanel->setVisible(visible);
+}
+
+void PanadapterApplet::appendRttyText(const QString& text, float confidence)
+{
+    // Color by confidence: higher = better signal separation
+    //   >= 0.85  green   (strong lock)
+    //   >= 0.70  yellow  (marginal)
+    //   < 0.70   red     (weak)
+    QString color;
+    if (confidence >= 0.85f)      color = "#00ff88";
+    else if (confidence >= 0.70f) color = "#d8a000";
+    else                          color = "#ff4040";
+
+    m_rttyText->moveCursor(QTextCursor::End);
+    // Handle CR/LF as actual line breaks
+    QString display = text;
+    display.replace('\r', "");
+    if (display == "\n") {
+        m_rttyText->insertPlainText("\n");
+    } else {
+        m_rttyText->insertHtml(QString("<span style=\"color:%1\">%2</span>")
+            .arg(color, display.toHtmlEscaped()));
+    }
+    m_rttyText->moveCursor(QTextCursor::End);
+}
+
+void PanadapterApplet::setRttyStats(float snrDb, bool locked)
+{
+    QString lockStr = locked ? "LOCKED" : "UNLOCK";
+    m_rttyStatsLabel->setText(QString("SNR %1 dB  %2")
+        .arg(snrDb, 0, 'f', 1).arg(lockStr));
+}
+
+void PanadapterApplet::clearRttyText()
+{
+    m_rttyText->clear();
 }
 
 bool PanadapterApplet::eventFilter(QObject* obj, QEvent* ev)

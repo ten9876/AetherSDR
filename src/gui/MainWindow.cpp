@@ -1166,6 +1166,11 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
             &m_cwDecoder, &CwDecoder::feedAudio);
 
+    // ── RTTY decoder: feed audio (#1392) ────────────────────────────────
+    // Same audio tap as CW decoder; output routed via routeRttyDecoderOutput().
+    connect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
+            &m_rttyDecoder, &RttyDecoder::feedAudio);
+
     // ── AF gain from applet panel → radio per-slice audio_level ─────────
     connect(m_appletPanel->rxApplet(), &RxApplet::afGainChanged, this, [this](int v) {
         if (auto* s = activeSlice()) s->setAudioGain(v);
@@ -2533,12 +2538,14 @@ void MainWindow::buildMenuBar()
                 m_flexControl->setInvertDirection(fcInvert);
             });
 #endif
-            // Re-evaluate CW decode overlay visibility
+            // Re-evaluate CW/RTTY decode overlay visibility
             bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
             auto* s = activeSlice();
             if (s) {
                 bool isCw = (s->mode() == "CW" || s->mode() == "CWL");
+                bool isRtty = (s->mode() == "RTTY" || s->mode() == "DIGL");
                 if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
+                if (m_rttyDecoderApplet) m_rttyDecoderApplet->setRttyPanelVisible(isRtty && decodeOn);
             }
 
             // If audio compression changed, recreate the RX audio stream
@@ -3679,17 +3686,26 @@ void MainWindow::buildUI()
         if (auto* applet = m_panStack->panadapter(panId))
             setActivePanApplet(applet);
 
-        // Show/hide CW decode panel based on the new active pan's slice mode
+        // Show/hide CW/RTTY decode panels based on the new active pan's slice mode
         for (auto* sl : m_radioModel.slices()) {
             if (sl->panId() == panId) {
                 bool isCw = (sl->mode() == "CW" || sl->mode() == "CWL");
+                bool isRtty = (sl->mode() == "RTTY" || sl->mode() == "DIGL");
                 bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
-                if (auto* applet = m_panStack->panadapter(panId))
+                if (auto* applet = m_panStack->panadapter(panId)) {
                     applet->setCwPanelVisible(isCw && decodeOn);
+                    applet->setRttyPanelVisible(isRtty && decodeOn);
+                }
                 if (isCw && !m_cwDecoder.isRunning())
                     m_cwDecoder.start();
                 else if (!isCw && m_cwDecoder.isRunning())
                     m_cwDecoder.stop();
+                if (isRtty && !m_rttyDecoder.isRunning()) {
+                    m_rttyDecoder.setMarkFreqHz(sl->rttyMark());
+                    m_rttyDecoder.setShiftHz(sl->rttyShift());
+                    m_rttyDecoder.start();
+                } else if (!isRtty && m_rttyDecoder.isRunning())
+                    m_rttyDecoder.stop();
                 break;
             }
         }
@@ -4537,17 +4553,24 @@ void MainWindow::onSliceAdded(SliceModel* s)
                 }
             }
 
-            // Deferred CW decoder restart after profile load (#305).
+            // Deferred CW/RTTY decoder restart after profile load (#305, #1392).
             // Mode status arrives asynchronously — by the time setActiveSlice
             // runs, the slice may still have its default mode (not CW).
             // Re-check after status has settled.
             auto* sl = activeSlice();
             if (sl) {
                 bool isCw = (sl->mode() == "CW" || sl->mode() == "CWL");
+                bool isRtty = (sl->mode() == "RTTY" || sl->mode() == "DIGL");
                 bool decodeOn = settings.value("CwDecodeOverlay", "True").toString() == "True";
                 if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
                 if (isCw && !m_cwDecoder.isRunning())
                     m_cwDecoder.start();
+                if (m_rttyDecoderApplet) m_rttyDecoderApplet->setRttyPanelVisible(isRtty && decodeOn);
+                if (isRtty && !m_rttyDecoder.isRunning()) {
+                    m_rttyDecoder.setMarkFreqHz(sl->rttyMark());
+                    m_rttyDecoder.setShiftHz(sl->rttyShift());
+                    m_rttyDecoder.start();
+                }
             }
         });
     }
@@ -4696,15 +4719,23 @@ void MainWindow::onSliceAdded(SliceModel* s)
         // Update spectrum overlay with new mode (for RTTY mark/space lines)
         pushSliceOverlay(s);
 
-        // Show/hide CW decode panel and start/stop decoder
+        // Show/hide CW/RTTY decode panels and start/stop decoders
         if (s->sliceId() == m_activeSliceId) {
             bool isCw = (mode == "CW" || mode == "CWL");
+            bool isRtty = (mode == "RTTY" || mode == "DIGL");
             bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
             if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
             if (isCw && !m_cwDecoder.isRunning())
                 m_cwDecoder.start();
             else if (!isCw && m_cwDecoder.isRunning())
                 m_cwDecoder.stop();
+            if (m_rttyDecoderApplet) m_rttyDecoderApplet->setRttyPanelVisible(isRtty && decodeOn);
+            if (isRtty && !m_rttyDecoder.isRunning()) {
+                m_rttyDecoder.setMarkFreqHz(s->rttyMark());
+                m_rttyDecoder.setShiftHz(s->rttyShift());
+                m_rttyDecoder.start();
+            } else if (!isRtty && m_rttyDecoder.isRunning())
+                m_rttyDecoder.stop();
 
             // Update CWX/DVK indicator availability for new mode
             updateKeyerAvailability(mode);
@@ -4730,9 +4761,18 @@ void MainWindow::onSliceAdded(SliceModel* s)
         }
     });
 
-    // Update RTTY mark/space lines on spectrum when mark/shift changes
-    connect(s, &SliceModel::rttyMarkChanged, this, [this, s](int) { pushSliceOverlay(s); });
-    connect(s, &SliceModel::rttyShiftChanged, this, [this, s](int) { pushSliceOverlay(s); });
+    // Update RTTY mark/space lines on spectrum when mark/shift changes,
+    // and update RTTY decoder parameters (#1392)
+    connect(s, &SliceModel::rttyMarkChanged, this, [this, s](int hz) {
+        pushSliceOverlay(s);
+        if (s->sliceId() == m_activeSliceId && m_rttyDecoder.isRunning())
+            m_rttyDecoder.setMarkFreqHz(hz);
+    });
+    connect(s, &SliceModel::rttyShiftChanged, this, [this, s](int hz) {
+        pushSliceOverlay(s);
+        if (s->sliceId() == m_activeSliceId && m_rttyDecoder.isRunning())
+            m_rttyDecoder.setShiftHz(hz);
+    });
     connect(s, &SliceModel::ritChanged, this, [this, s](bool, int) { pushSliceOverlay(s); });
     connect(s, &SliceModel::xitChanged, this, [this, s](bool, int) { pushSliceOverlay(s); });
 
@@ -5000,17 +5040,26 @@ void MainWindow::setActiveSlice(int sliceId)
     // Update filter limits for the active slice's mode
     updateFilterLimitsForMode(s->mode());
 
-    // Route CW decoder output to the pan owning this slice (#864)
+    // Route CW/RTTY decoder output to the pan owning this slice (#864, #1392)
     routeCwDecoderOutput();
+    routeRttyDecoderOutput();
 
-    // Show/hide CW decode panel for the active slice's current mode
+    // Show/hide CW/RTTY decode panels for the active slice's current mode
     bool isCw = (s->mode() == "CW" || s->mode() == "CWL");
+    bool isRtty = (s->mode() == "RTTY" || s->mode() == "DIGL");
     bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
     if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
     if (isCw && !m_cwDecoder.isRunning())
         m_cwDecoder.start();
     else if (!isCw && m_cwDecoder.isRunning())
         m_cwDecoder.stop();
+    if (m_rttyDecoderApplet) m_rttyDecoderApplet->setRttyPanelVisible(isRtty && decodeOn);
+    if (isRtty && !m_rttyDecoder.isRunning()) {
+        m_rttyDecoder.setMarkFreqHz(s->rttyMark());
+        m_rttyDecoder.setShiftHz(s->rttyShift());
+        m_rttyDecoder.start();
+    } else if (!isRtty && m_rttyDecoder.isRunning())
+        m_rttyDecoder.stop();
 
     // Update CWX/DVK indicator availability for this slice's mode
     updateKeyerAvailability(s->mode());
@@ -5110,8 +5159,9 @@ void MainWindow::setActivePanApplet(PanadapterApplet* applet)
     if (applet == m_panApplet) return;
     m_panApplet = applet;
 
-    // Re-route CW decoder output: the active slice may now belong to this pan
+    // Re-route CW/RTTY decoder output: the active slice may now belong to this pan
     routeCwDecoderOutput();
+    routeRttyDecoderOutput();
 }
 
 // Route CW decoder text/stats output to the pan that owns the active slice,
@@ -5162,6 +5212,40 @@ void MainWindow::routeCwDecoderOutput()
                 &m_cwDecoder, &CwDecoder::setPitchRange);
         connect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
                 &m_cwDecoder, &CwDecoder::stop);
+    }
+}
+
+// Route RTTY decoder text/stats output to the pan that owns the active slice (#1392).
+void MainWindow::routeRttyDecoderOutput()
+{
+    PanadapterApplet* target = nullptr;
+    if (auto* s = activeSlice(); s && m_panStack && !s->panId().isEmpty())
+        target = m_panStack->panadapter(s->panId());
+    if (!target)
+        target = m_panApplet;
+
+    if (target == m_rttyDecoderApplet) return;
+
+    // Disconnect from old applet
+    if (m_rttyDecoderApplet) {
+        disconnect(&m_rttyDecoder, &RttyDecoder::textDecoded,
+                   m_rttyDecoderApplet, &PanadapterApplet::appendRttyText);
+        disconnect(&m_rttyDecoder, &RttyDecoder::statsUpdated,
+                   m_rttyDecoderApplet, &PanadapterApplet::setRttyStats);
+        disconnect(m_rttyDecoderApplet, &PanadapterApplet::rttyPanelCloseRequested,
+                   &m_rttyDecoder, &RttyDecoder::stop);
+    }
+
+    m_rttyDecoderApplet = target;
+
+    // Connect to new applet
+    if (m_rttyDecoderApplet) {
+        connect(&m_rttyDecoder, &RttyDecoder::textDecoded,
+                m_rttyDecoderApplet, &PanadapterApplet::appendRttyText);
+        connect(&m_rttyDecoder, &RttyDecoder::statsUpdated,
+                m_rttyDecoderApplet, &PanadapterApplet::setRttyStats);
+        connect(m_rttyDecoderApplet, &PanadapterApplet::rttyPanelCloseRequested,
+                &m_rttyDecoder, &RttyDecoder::stop);
     }
 }
 

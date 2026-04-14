@@ -42,6 +42,12 @@ public:
     QPushButton* lockPitchButton() const { return m_lockPitchBtn; }
     QPushButton* lockSpeedButton() const { return m_lockSpeedBtn; }
 
+    // RTTY decode panel
+    void setRttyPanelVisible(bool visible);
+    void appendRttyText(const QString& text, float confidence);
+    void setRttyStats(float snrDb, bool locked);
+    void clearRttyText();
+
     QSize sizeHint() const override { return {800, 316}; }
 
 signals:
@@ -52,6 +58,7 @@ signals:
     void maximizeRequested(const QString& panId);
     void pitchRangeChanged(int minHz, int maxHz);
     void cwPanelCloseRequested();
+    void rttyPanelCloseRequested();
 
 protected:
     bool eventFilter(QObject* obj, QEvent* ev) override;
@@ -77,6 +84,11 @@ private:
     QLabel*       m_pitchMinValLabel{nullptr};
     QLabel*       m_pitchMaxValLabel{nullptr};
     float         m_cwCostThreshold{0.70f};
+
+    // RTTY decode
+    QWidget*   m_rttyPanel{nullptr};
+    QTextEdit* m_rttyText{nullptr};
+    QLabel*    m_rttyStatsLabel{nullptr};
 };
 
 } // namespace AetherSDR

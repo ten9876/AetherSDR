@@ -13,6 +13,7 @@
 #include "core/SmartLinkClient.h"
 #include "core/WanConnection.h"
 #include "core/CwDecoder.h"
+#include "core/RttyDecoder.h"
 #include "core/QsoRecorder.h"
 #include "core/DxClusterClient.h"
 #ifdef HAVE_MQTT
@@ -119,6 +120,7 @@ private:
     void wirePanadapter(PanadapterApplet* applet);
     void setActivePanApplet(PanadapterApplet* applet);
     void routeCwDecoderOutput();  // wire CW decoder to the pan owning the active slice
+    void routeRttyDecoderOutput();  // wire RTTY decoder to the pan owning the active slice
     SpectrumWidget* spectrumForSlice(SliceModel* s) const;
     void wireVfoWidget(VfoWidget* w, SliceModel* s);
     void enableNr2WithWisdom();  // Wisdom-gated NR2 enable (shared by VFO + overlay)
@@ -168,6 +170,7 @@ private:
     PgxlConnection    m_pgxlConn;        // direct TCP 9008 to PGXL for telemetry
     BandPlanManager*  m_bandPlanMgr{nullptr};
     CwDecoder         m_cwDecoder;
+    RttyDecoder       m_rttyDecoder;
     DxClusterClient*   m_dxCluster{nullptr};
     DxClusterClient*   m_rbnClient{nullptr};
 #ifdef HAVE_MQTT
@@ -223,6 +226,7 @@ private:
     PanadapterStack*  m_panStack{nullptr};
     QPointer<PanadapterApplet> m_panApplet;  // backward compat alias to active applet
     QPointer<PanadapterApplet> m_cwDecoderApplet;  // applet receiving CW decoder output
+    QPointer<PanadapterApplet> m_rttyDecoderApplet;  // applet receiving RTTY decoder output
 
     // GUI — right applet panel
     AppletPanel*     m_appletPanel{nullptr};
