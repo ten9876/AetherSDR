@@ -10,6 +10,8 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QTextEdit>
+#include <QGuiApplication>
+#include <QClipboard>
 
 namespace AetherSDR {
 
@@ -218,12 +220,34 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
 
     cwBar->addStretch();
 
-    auto* clearBtn = new QPushButton("CLR");
-    clearBtn->setStyleSheet(
+    const QString cwBtnStyle =
         "QPushButton { background: #1a2a3a; color: #8090a0; border: 1px solid #203040;"
         " border-radius: 2px; font-size: 9px; font-weight: bold;"
         " padding: 1px 6px; }"
-        "QPushButton:hover { color: #c8d8e8; background: #2a3a4a; }");
+        "QPushButton:hover { color: #c8d8e8; background: #2a3a4a; }";
+
+    auto* copyAllBtn = new QPushButton("CPY");
+    copyAllBtn->setToolTip("Copy all decoded text to clipboard");
+    copyAllBtn->setStyleSheet(cwBtnStyle);
+    connect(copyAllBtn, &QPushButton::clicked, this, [this] {
+        QGuiApplication::clipboard()->setText(m_cwText->toPlainText());
+    });
+    cwBar->addWidget(copyAllBtn);
+
+    auto* copyVisBtn = new QPushButton(QString("CPY %1").arg(QChar(0x229E)));
+    copyVisBtn->setToolTip("Copy visible text to clipboard");
+    copyVisBtn->setStyleSheet(cwBtnStyle);
+    connect(copyVisBtn, &QPushButton::clicked, this, [this] {
+        QRect visibleRect = m_cwText->viewport()->rect();
+        QTextCursor topCursor = m_cwText->cursorForPosition(visibleRect.topLeft());
+        QTextCursor bottomCursor = m_cwText->cursorForPosition(visibleRect.bottomRight());
+        topCursor.setPosition(bottomCursor.position(), QTextCursor::KeepAnchor);
+        QGuiApplication::clipboard()->setText(topCursor.selectedText().replace(QChar(0x2029), '\n'));
+    });
+    cwBar->addWidget(copyVisBtn);
+
+    auto* clearBtn = new QPushButton("CLR");
+    clearBtn->setStyleSheet(cwBtnStyle);
     connect(clearBtn, &QPushButton::clicked, this, &PanadapterApplet::clearCwText);
     cwBar->addWidget(clearBtn);
 
