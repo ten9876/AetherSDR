@@ -97,7 +97,7 @@ void PropForecastClient::fetch()
 
         // K-index: fractional value from WWV, rounded to nearest int (#1232, #1255)
         static const QRegularExpression reK(
-            QStringLiteral("K-index[^\\d]+(\\d+\\.?\\d*)"));
+            QStringLiteral("K-index.*\\bwas\\s+(\\d+\\.?\\d*)"));
         auto mK = reK.match(text);
         if (mK.hasMatch())
             fc.kIndex = qRound(mK.captured(1).toDouble());
