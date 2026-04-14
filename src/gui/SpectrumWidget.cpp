@@ -557,6 +557,18 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
     const double oldCenterMhz = m_centerMhz;
     const double oldBandwidthMhz = m_bandwidthMhz;
 
+    // Stale-echo guard: if animation is running and the incoming center equals
+    // the value m_centerMhz had when the animation started, this is a status
+    // echo from a radio command sent *before* the pan-follow (e.g. a floor-level
+    // change whose echo-back includes the pre-animation center).  Accepting it
+    // would either reverse the in-flight animation or trigger a false large-shift
+    // that blanks the spectrum, so skip it.
+    if (m_panCenterAnim &&
+        m_panCenterAnim->state() != QAbstractAnimation::Stopped &&
+        centerMhz == m_panCenterStart) {
+        return;
+    }
+
     // Distinguish pan-follow nudges (#989) from large jumps (band change, click-to-tune).
     // Nudges shift center by ~10% of halfBw; 25% threshold comfortably separates the two.
     const double halfBw = bandwidthMhz / 2.0;
@@ -613,6 +625,10 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
         m_panCenterAnim->state() != QAbstractAnimation::Stopped;
 
     if (!animAlreadyRunning) {
+        // Record the start position so the stale-echo guard above can
+        // recognise echo-backs that refer to the pre-animation center.
+        m_panCenterStart = m_centerMhz;
+
         // Scroll waterfall history to align with the new center before the
         // animation begins.  Without this, old rows (at old center) and new
         // rows (at new center) are at different pixel positions, so signals
