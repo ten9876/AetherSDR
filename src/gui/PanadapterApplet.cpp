@@ -226,7 +226,7 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
         " padding: 1px 6px; }"
         "QPushButton:hover { color: #c8d8e8; background: #2a3a4a; }";
 
-    auto* copyAllBtn = new QPushButton("CPY");
+    auto* copyAllBtn = new QPushButton("CPY ALL");
     copyAllBtn->setToolTip("Copy all decoded text to clipboard");
     copyAllBtn->setStyleSheet(cwBtnStyle);
     connect(copyAllBtn, &QPushButton::clicked, this, [this] {
@@ -234,7 +234,7 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     });
     cwBar->addWidget(copyAllBtn);
 
-    auto* copyVisBtn = new QPushButton(QString("CPY %1").arg(QChar(0x229E)));
+    auto* copyVisBtn = new QPushButton("CPY VIS");
     copyVisBtn->setToolTip("Copy visible text to clipboard");
     copyVisBtn->setStyleSheet(cwBtnStyle);
     connect(copyVisBtn, &QPushButton::clicked, this, [this] {
