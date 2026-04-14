@@ -24,6 +24,12 @@
 
 namespace AetherSDR {
 
+void AudioEngine::updateRxBufferStats()
+{
+    m_rxBufferBytes.store(m_rxBuffer.size());
+    m_rxBufferPeakBytes.store(std::max(m_rxBufferPeakBytes.load(), m_rxBuffer.size()));
+}
+
 AudioEngine::AudioEngine(QObject* parent)
     : QObject(parent)
 {
@@ -76,13 +82,20 @@ AudioEngine::AudioEngine(QObject* parent)
             m_rxBuffer.remove(0, m_rxBuffer.size() - maxBufBytes);
         }
 
-        qsizetype len = m_audioSink->bytesFree();
+        const qsizetype freeBytes = m_audioSink->bytesFree();
+        if (freeBytes > 0 && m_rxBuffer.isEmpty()) {
+            m_rxBufferUnderrunCount.fetch_add(1);
+        }
+
+        qsizetype len = freeBytes;
         len = std::min(len, m_rxBuffer.size());
         if (len > 0)
         {
             len = m_audioDevice->write(m_rxBuffer.left(len));
             m_rxBuffer.remove(0, len);
         }
+
+        m_rxBufferBytes.store(m_rxBuffer.size());
     });
     m_rxTimer->start();
 }
@@ -107,6 +120,12 @@ QAudioFormat AudioEngine::makeFormat() const
 bool AudioEngine::startRxStream()
 {
     if (m_audioSink) return true;   // already running
+
+    m_rxBuffer.clear();
+    m_rxBufferBytes.store(0);
+    m_rxBufferPeakBytes.store(0);
+    m_rxBufferUnderrunCount.store(0);
+    m_rxBufferSampleRate.store(DEFAULT_SAMPLE_RATE);
 
     QAudioFormat fmt = makeFormat();
     const QAudioDevice dev = m_outputDevice.isNull()
@@ -195,12 +214,17 @@ bool AudioEngine::startRxStream()
         }, Qt::QueuedConnection);
     });
     qCDebug(lcAudio) << "AudioEngine: RX stream started";
+    m_rxBufferSampleRate.store(fmt.sampleRate());
     emit rxStarted();
     return true;
 }
 
 void AudioEngine::stopRxStream()
 {
+    m_rxBuffer.clear();
+    m_rxBufferBytes.store(0);
+    m_rxBufferSampleRate.store(DEFAULT_SAMPLE_RATE);
+
     if (m_audioSink) {
         // Guard: same stale-device-handle crash can occur on the RX side (#1059).
         if (m_audioSink->state() != QAudio::StoppedState)
@@ -247,7 +271,8 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
         if (m_resampleTo48k)
             m_rxBuffer.append(resampleStereo(data));
         else
-            m_rxBuffer.append(data); 
+            m_rxBuffer.append(data);
+        updateRxBufferStats();
     };
 
     // Bypass client-side DSP during TX (#367). NR2/RN2/BNR adapt their
@@ -607,7 +632,8 @@ void AudioEngine::processBnr(const QByteArray& stereoPcm)
             if (m_resampleTo48k)
                 m_rxBuffer.append(resampleStereo(chunk));
             else
-                m_rxBuffer.append(chunk); 
+                m_rxBuffer.append(chunk);
+            updateRxBufferStats();
         }
         emit levelChanged(computeRMS(chunk));
     }
@@ -1428,6 +1454,7 @@ void AudioEngine::feedDecodedSpeech(const QByteArray& pcm)
         m_rxBuffer.append(resampleStereo(pcm));
     else
         m_rxBuffer.append(pcm);
+    updateRxBufferStats();
 }
 
 } // namespace AetherSDR

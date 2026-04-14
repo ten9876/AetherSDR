@@ -88,6 +88,13 @@ bool PanadapterStream::start(RadioConnection* conn)
 {
     if (isRunning()) stop();  // clean up previous session before rebinding (#561)
 
+    m_audioPacketGapMs.store(0);
+    m_audioPacketGapMaxMs.store(0);
+    m_audioPacketJitterMs.store(0);
+    m_audioPacketTimerStarted = false;
+    m_previousAudioPacketGapMs = 0;
+    m_audioPacketJitterEstimateMs = 0.0;
+
     // Try 4991 first (VPN/firewall rules may allow this port specifically),
     // then count down for Multi-Flex (multiple clients on the same host).
     static constexpr quint16 LAN_VITA_PORT = 4991;
@@ -180,6 +187,13 @@ bool PanadapterStream::startWan(const QHostAddress& radioAddr, quint16 radioUdpP
 {
     if (isRunning()) stop();  // clean up previous session before rebinding (#561)
 
+    m_audioPacketGapMs.store(0);
+    m_audioPacketGapMaxMs.store(0);
+    m_audioPacketJitterMs.store(0);
+    m_audioPacketTimerStarted = false;
+    m_previousAudioPacketGapMs = 0;
+    m_audioPacketJitterEstimateMs = 0.0;
+
     // For WAN: bind to any port. The actual UDP registration happens later
     // in startWanUdpRegister() once the client handle is known.
     bool bound = m_socket.bind(QHostAddress::AnyIPv4, 0);
@@ -236,6 +250,12 @@ void PanadapterStream::stop()
     m_radioPort = 0;
     m_localAddress = QHostAddress();
     m_localPort = 0;
+    m_audioPacketGapMs.store(0);
+    m_audioPacketGapMaxMs.store(0);
+    m_audioPacketJitterMs.store(0);
+    m_audioPacketTimerStarted = false;
+    m_previousAudioPacketGapMs = 0;
+    m_audioPacketJitterEstimateMs = 0.0;
 }
 
 // ─── Datagram reception ───────────────────────────────────────────────────────
@@ -390,6 +410,25 @@ void PanadapterStream::processDatagram(const QByteArray& data)
             }
         }
         stats.lastSeq = seq;
+
+        if (cat == CatAudio) {
+            if (m_audioPacketTimerStarted) {
+                const int gapMs = static_cast<int>(m_audioPacketTimer.restart());
+                m_audioPacketGapMs.store(gapMs);
+                m_audioPacketGapMaxMs.store(std::max(m_audioPacketGapMaxMs.load(), gapMs));
+                if (m_previousAudioPacketGapMs > 0) {
+                    const double variation = std::abs(gapMs - m_previousAudioPacketGapMs);
+                    m_audioPacketJitterEstimateMs +=
+                        (variation - m_audioPacketJitterEstimateMs) / 8.0;
+                    m_audioPacketJitterMs.store(
+                        static_cast<int>(std::lround(m_audioPacketJitterEstimateMs)));
+                }
+                m_previousAudioPacketGapMs = gapMs;
+            } else {
+                m_audioPacketTimer.start();
+                m_audioPacketTimerStarted = true;
+            }
+        }
     }
 
     if (daxChannel >= 0) {

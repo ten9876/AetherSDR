@@ -9,17 +9,19 @@
 namespace AetherSDR {
 
 class RadioModel;
+class AudioEngine;
 
 class NetworkDiagnosticsDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit NetworkDiagnosticsDialog(RadioModel* model, QWidget* parent = nullptr);
+    explicit NetworkDiagnosticsDialog(RadioModel* model, AudioEngine* audio, QWidget* parent = nullptr);
 
 private:
     void refresh();
 
     RadioModel* m_model;
+    AudioEngine* m_audio;
     QTimer      m_refreshTimer;
 
     QLabel* m_statusLabel;
@@ -47,9 +49,17 @@ private:
     QLabel* m_wfDropLabel;
     QLabel* m_meterDropLabel;
     QLabel* m_daxDropLabel;
+    QLabel* m_audioBufferLabel;
+    QLabel* m_audioBufferPeakLabel;
+    QLabel* m_audioUnderrunLabel;
+    QLabel* m_audioUnderrunRateLabel;
+    QLabel* m_audioPacketGapLabel;
+    QLabel* m_audioPacketGapMaxLabel;
+    QLabel* m_audioJitterLabel;
 
     qint64 m_lastRxBytes{0};
     qint64 m_lastTxBytes{0};
+    quint64 m_lastAudioUnderrunCount{0};
 
     // Per-category byte snapshots for rate calculation
     qint64 m_lastCatBytes[PanadapterStream::CatCount]{};

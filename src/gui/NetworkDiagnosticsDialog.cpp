@@ -1,6 +1,8 @@
 #include "NetworkDiagnosticsDialog.h"
+#include "core/AudioEngine.h"
 #include "models/RadioModel.h"
 
+#include <QScrollArea>
 #include <QVBoxLayout>
 #include <QGroupBox>
 #include <QGridLayout>
@@ -8,17 +10,33 @@
 
 namespace AetherSDR {
 
-NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model, QWidget* parent)
-    : QDialog(parent), m_model(model)
+NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model, AudioEngine* audio, QWidget* parent)
+    : QDialog(parent), m_model(model), m_audio(audio)
 {
     setWindowTitle("Network Diagnostics");
-    setFixedSize(460, 640);
+    setMinimumSize(920, 680);
+    resize(980, 760);
 
     auto* root = new QVBoxLayout(this);
+    auto* scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    root->addWidget(scroll);
+
+    auto* content = new QWidget;
+    scroll->setWidget(content);
+    auto* contentLayout = new QGridLayout(content);
+    contentLayout->setContentsMargins(8, 8, 8, 8);
+    contentLayout->setColumnStretch(0, 1);
+    contentLayout->setColumnStretch(1, 1);
+    contentLayout->setHorizontalSpacing(16);
+    contentLayout->setVerticalSpacing(14);
 
     auto makeVal = [](const QString& init = "") {
         auto* l = new QLabel(init);
-        l->setAlignment(Qt::AlignRight);
+        l->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        l->setWordWrap(true);
+        l->setMinimumHeight(l->fontMetrics().height() + 1);
         l->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; }");
         return l;
     };
@@ -27,12 +45,24 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model, QWidget* p
         return makeVal(init);
     };
 
+    auto makeNote = [](const QString& text) {
+        auto* l = new QLabel(text);
+        l->setWordWrap(true);
+        l->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; line-height: 1.2; }");
+        return l;
+    };
+
     // ── Network Status group ─────────────────────────────────────────────
     auto* statusGroup = new QGroupBox("Network Status");
     auto* statusGrid = new QGridLayout(statusGroup);
     statusGrid->setColumnStretch(1, 1);
+    statusGrid->setVerticalSpacing(2);
+    statusGrid->setHorizontalSpacing(12);
 
     int row = 0;
+    statusGrid->addWidget(makeNote(
+        "Connection path and TCP latency. Use this to confirm the selected route "
+        "to the radio is stable."), row++, 0, 1, 2);
     statusGrid->addWidget(new QLabel("Status:"), row, 0);
     m_statusLabel = makeVal();
     statusGrid->addWidget(m_statusLabel, row++, 1);
@@ -66,14 +96,17 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model, QWidget* p
     m_maxRttLabel = makeVal();
     statusGrid->addWidget(m_maxRttLabel, row++, 1);
 
-    root->addWidget(statusGroup);
-
     // ── Stream Rates group ───────────────────────────────────────────────
-    auto* rateGroup = new QGroupBox("Stream Rates");
+    auto* rateGroup = new QGroupBox("Incoming Stream Rates");
     auto* rateGrid = new QGridLayout(rateGroup);
     rateGrid->setColumnStretch(1, 1);
+    rateGrid->setVerticalSpacing(2);
+    rateGrid->setHorizontalSpacing(12);
 
     row = 0;
+    rateGrid->addWidget(makeNote(
+        "Current receive/transmit bitrates by stream type. Large swings can indicate "
+        "bursty delivery even when no packets are lost."), row++, 0, 1, 2);
     rateGrid->addWidget(new QLabel("Audio:"), row, 0);
     m_audioRateLabel = makeVal();
     rateGrid->addWidget(m_audioRateLabel, row++, 1);
@@ -102,14 +135,17 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model, QWidget* p
     m_txRateLabel = makeDim();
     rateGrid->addWidget(m_txRateLabel, row++, 1);
 
-    root->addWidget(rateGroup);
-
     // ── Packet Loss group ────────────────────────────────────────────────
-    auto* dropGroup = new QGroupBox("Packet Loss");
+    auto* dropGroup = new QGroupBox("Packet Loss (Sequence Gaps)");
     auto* dropGrid = new QGridLayout(dropGroup);
     dropGrid->setColumnStretch(1, 1);
+    dropGrid->setVerticalSpacing(2);
+    dropGrid->setHorizontalSpacing(12);
 
     row = 0;
+    dropGrid->addWidget(makeNote(
+        "Inferred packet loss from missing VITA sequence numbers. Zero loss here does "
+        "not rule out jitter or late bursts."), row++, 0, 1, 2);
     dropGrid->addWidget(new QLabel("Audio:"), row, 0);
     m_audioDropLabel = makeDim();
     dropGrid->addWidget(m_audioDropLabel, row++, 1);
@@ -135,9 +171,50 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model, QWidget* p
     m_droppedLabel->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; }");
     dropGrid->addWidget(m_droppedLabel, row++, 0, 1, 2);
 
-    root->addWidget(dropGroup);
+    // ── Audio Playback group ──────────────────────────────────────────────
+    auto* audioGroup = new QGroupBox("Audio Playback");
+    auto* audioGrid = new QGridLayout(audioGroup);
+    audioGrid->setColumnStretch(1, 1);
+    audioGrid->setVerticalSpacing(2);
+    audioGrid->setHorizontalSpacing(12);
 
-    root->addStretch();
+    row = 0;
+    audioGrid->addWidget(makeNote(
+        "Speaker-side buffer health. If underruns rise while the buffer stays near zero, "
+        "playback is starving. Arrival gap and jitter measure timing, not packet loss."),
+        row++, 0, 1, 2);
+    audioGrid->addWidget(new QLabel("RX Buffer Now:"), row, 0);
+    m_audioBufferLabel = makeVal();
+    audioGrid->addWidget(m_audioBufferLabel, row++, 1);
+
+    audioGrid->addWidget(new QLabel("RX Buffer Peak:"), row, 0);
+    m_audioBufferPeakLabel = makeVal();
+    audioGrid->addWidget(m_audioBufferPeakLabel, row++, 1);
+
+    audioGrid->addWidget(new QLabel("Underruns (total):"), row, 0);
+    m_audioUnderrunLabel = makeVal();
+    audioGrid->addWidget(m_audioUnderrunLabel, row++, 1);
+
+    audioGrid->addWidget(new QLabel("Underruns (last sec):"), row, 0);
+    m_audioUnderrunRateLabel = makeVal();
+    audioGrid->addWidget(m_audioUnderrunRateLabel, row++, 1);
+
+    audioGrid->addWidget(new QLabel("Audio Arrival Gap:"), row, 0);
+    m_audioPacketGapLabel = makeVal();
+    audioGrid->addWidget(m_audioPacketGapLabel, row++, 1);
+
+    audioGrid->addWidget(new QLabel("Max Arrival Gap:"), row, 0);
+    m_audioPacketGapMaxLabel = makeVal();
+    audioGrid->addWidget(m_audioPacketGapMaxLabel, row++, 1);
+
+    audioGrid->addWidget(new QLabel("Jitter Estimate:"), row, 0);
+    m_audioJitterLabel = makeVal();
+    audioGrid->addWidget(m_audioJitterLabel, row++, 1);
+
+    contentLayout->addWidget(statusGroup, 0, 0);
+    contentLayout->addWidget(rateGroup, 0, 1);
+    contentLayout->addWidget(dropGroup, 1, 0);
+    contentLayout->addWidget(audioGroup, 1, 1);
 
     // ── Close button ─────────────────────────────────────────────────────
     auto* closeBtn = new QPushButton("Close");
@@ -151,6 +228,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model, QWidget* p
     // Snapshot initial byte counts for rate calculation
     m_lastRxBytes = m_model->rxBytes();
     m_lastTxBytes = m_model->txBytes();
+    m_lastAudioUnderrunCount = m_audio ? m_audio->rxBufferUnderrunCount() : 0;
     for (int i = 0; i < PanadapterStream::CatCount; ++i)
         m_lastCatBytes[i] = m_model->categoryStats(static_cast<PanadapterStream::StreamCategory>(i)).bytes;
 
@@ -171,6 +249,23 @@ static QString formatRate(qint64 bytesDelta)
 {
     const int kbps = static_cast<int>((bytesDelta * 8) / 1000);
     return QString("%1 kbps").arg(kbps);
+}
+
+static QString formatAudioBuffer(qsizetype bytes, int sampleRate)
+{
+    if (sampleRate <= 0) {
+        return QString("%1 bytes").arg(bytes);
+    }
+
+    static constexpr int kStereoChannels = 2;
+    static constexpr int kFloatBytesPerSample = 4;
+    const double ms = (bytes * 1000.0) / (sampleRate * kStereoChannels * kFloatBytesPerSample);
+    return QString("%1 bytes (%2 ms)").arg(bytes).arg(ms, 0, 'f', 1);
+}
+
+static QString formatMsValue(int value)
+{
+    return value < 1 ? "< 1 ms" : QString("%1 ms").arg(value);
 }
 
 void NetworkDiagnosticsDialog::refresh()
@@ -234,6 +329,29 @@ void NetworkDiagnosticsDialog::refresh()
                 .arg(dropped).arg(total).arg(pct, 0, 'f', 2));
     } else {
         m_droppedLabel->setText("No packets received yet");
+    }
+
+    if (m_audio) {
+        const int sampleRate = m_audio->rxBufferSampleRate();
+        const quint64 underruns = m_audio->rxBufferUnderrunCount();
+        m_audioBufferLabel->setText(formatAudioBuffer(m_audio->rxBufferBytes(), sampleRate));
+        m_audioBufferPeakLabel->setText(formatAudioBuffer(m_audio->rxBufferPeakBytes(), sampleRate));
+        m_audioUnderrunLabel->setText(QString::number(underruns));
+        m_audioUnderrunRateLabel->setText(QString::number(underruns - m_lastAudioUnderrunCount));
+        m_lastAudioUnderrunCount = underruns;
+
+        auto* panStream = m_model->panStream();
+        m_audioPacketGapLabel->setText(formatMsValue(panStream->audioPacketGapMs()));
+        m_audioPacketGapMaxLabel->setText(formatMsValue(panStream->audioPacketGapMaxMs()));
+        m_audioJitterLabel->setText(formatMsValue(panStream->audioPacketJitterMs()));
+    } else {
+        m_audioBufferLabel->setText("Unavailable");
+        m_audioBufferPeakLabel->setText("Unavailable");
+        m_audioUnderrunLabel->setText("Unavailable");
+        m_audioUnderrunRateLabel->setText("Unavailable");
+        m_audioPacketGapLabel->setText("Unavailable");
+        m_audioPacketGapMaxLabel->setText("Unavailable");
+        m_audioJitterLabel->setText("Unavailable");
     }
 
     // Color the status label

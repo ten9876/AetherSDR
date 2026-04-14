@@ -119,6 +119,7 @@
 #else
 #include <sys/resource.h>
 #endif
+#include <QLocale>
 
 namespace AetherSDR {
 
@@ -136,6 +137,60 @@ static bool macDaxDriverInstalled()
 #else
     return true;
 #endif
+}
+
+static QString formatNetworkMs(int ms)
+{
+    return ms < 1 ? "< 1 ms" : QString("%1 ms").arg(ms);
+}
+
+static QString formatNetworkSeqErrors(int errors, int packets)
+{
+    if (packets == 0) {
+        return "0 / 0 packets";
+    }
+
+    const double pct = (errors * 100.0) / packets;
+    return QString("%1 / %2 packets (%3%)")
+        .arg(errors)
+        .arg(packets)
+        .arg(pct, 0, 'f', 2);
+}
+
+static QString formatNetworkSeqErrors(const PanadapterStream::CategoryStats& stats)
+{
+    return formatNetworkSeqErrors(stats.errors, stats.packets);
+}
+
+static QString buildNetworkTooltip(const RadioModel& model)
+{
+    const PanadapterStream::CategoryStats audioStats =
+        model.categoryStats(PanadapterStream::CatAudio);
+    const PanadapterStream::CategoryStats fftStats =
+        model.categoryStats(PanadapterStream::CatFFT);
+    const PanadapterStream::CategoryStats waterfallStats =
+        model.categoryStats(PanadapterStream::CatWaterfall);
+    const PanadapterStream::CategoryStats meterStats =
+        model.categoryStats(PanadapterStream::CatMeter);
+    const PanadapterStream::CategoryStats daxStats =
+        model.categoryStats(PanadapterStream::CatDAX);
+
+    QStringList lines;
+    lines
+        << QString("Network: %1").arg(model.networkQuality())
+        << QString("Latency (RTT): %1").arg(formatNetworkMs(model.lastPingRtt()))
+        << QString("Max RTT (session): %1").arg(formatNetworkMs(model.maxPingRtt()))
+        << QString("Total sequence gaps: %1")
+               .arg(formatNetworkSeqErrors(model.packetDropCount(), model.packetTotalCount()))
+        << QString("Audio: %1").arg(formatNetworkSeqErrors(audioStats))
+        << QString("FFT: %1").arg(formatNetworkSeqErrors(fftStats))
+        << QString("Waterfall: %1").arg(formatNetworkSeqErrors(waterfallStats))
+        << QString("Meters: %1").arg(formatNetworkSeqErrors(meterStats))
+        << QString("DAX: %1").arg(formatNetworkSeqErrors(daxStats))
+        << QString("UDP RX bytes: %1").arg(QLocale().formattedDataSize(model.rxBytes()))
+        << QString("UDP TX bytes: %1").arg(QLocale().formattedDataSize(model.txBytes()))
+        << "Double-click for full diagnostics";
+    return lines.join('\n');
 }
 
 // ─── Shortcut guard (file-scope for use as std::function<bool()>) ───────────
@@ -1810,8 +1865,8 @@ MainWindow::MainWindow(QWidget* parent)
         else if (quality == "Good") color = "#00b4d8";
         m_networkLabel->setText(QString("[<span style='color:%1'>%2</span>]")
             .arg(color, quality));
-        m_networkLabel->setToolTip(QString("Network: %1\nLatency (RTT): %2")
-            .arg(quality, pingMs < 1 ? "< 1 ms" : QString("%1 ms").arg(pingMs)));
+        Q_UNUSED(pingMs);
+        m_networkLabel->setToolTip(buildNetworkTooltip(m_radioModel));
     });
 
     connect(&m_radioModel.meterModel(), &MeterModel::hwTelemetryChanged,
@@ -2073,6 +2128,21 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event)
     QMainWindow::keyReleaseEvent(event);
 }
 
+void MainWindow::showNetworkDiagnosticsDialog()
+{
+    if (!m_networkDiagnosticsDialog) {
+        auto* dlg = new NetworkDiagnosticsDialog(&m_radioModel, m_audio, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setModal(false);
+        dlg->setWindowModality(Qt::NonModal);
+        m_networkDiagnosticsDialog = dlg;
+    }
+
+    m_networkDiagnosticsDialog->show();
+    m_networkDiagnosticsDialog->raise();
+    m_networkDiagnosticsDialog->activateWindow();
+}
+
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 {
     // Space PTT: intercept at application level so it works regardless of
@@ -2100,8 +2170,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         return true;
     }
     if (obj == m_networkLabel && event->type() == QEvent::MouseButtonDblClick) {
-        NetworkDiagnosticsDialog dlg(&m_radioModel, this);
-        dlg.exec();
+        showNetworkDiagnosticsDialog();
         return true;
     }
     if (obj == m_stationNickLabel && event->type() == QEvent::MouseButtonDblClick) {
@@ -2432,8 +2501,7 @@ void MainWindow::buildMenuBar()
 #endif
     auto* networkAction = settingsMenu->addAction("Network...");
     connect(networkAction, &QAction::triggered, this, [this] {
-        NetworkDiagnosticsDialog dlg(&m_radioModel, this);
-        dlg.exec();
+        showNetworkDiagnosticsDialog();
     });
     auto* memoryAction = settingsMenu->addAction("Memory...");
     connect(memoryAction, &QAction::triggered, this, [this] {
@@ -3872,6 +3940,7 @@ void MainWindow::buildUI()
     m_networkLabel->setStyleSheet("QLabel { color: #607080; font-size: 12px; }");
     m_networkLabel->setTextFormat(Qt::RichText);
     m_networkLabel->setAlignment(Qt::AlignCenter);
+    m_networkLabel->setToolTip(buildNetworkTooltip(m_radioModel));
     m_networkLabel->installEventFilter(this);
     netVbox->addWidget(m_networkLabel);
     hbox->addWidget(netStack);

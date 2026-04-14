@@ -1241,6 +1241,7 @@ void RadioModel::startNetworkMonitor()
     m_stateCountdown = 0;
     m_lastErrorCount = 0;
     m_lastPingRtt = 0;
+    m_maxPingRtt = 0;
     m_pingMissCount = 0;
 
     // RTT is read from kernel TCP_INFO (smoothed RTT from TCP ACK timing),

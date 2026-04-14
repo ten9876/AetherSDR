@@ -10,6 +10,7 @@
 #include <QElapsedTimer>
 #include <QMutex>
 #include <QMutexLocker>
+#include <atomic>
 
 namespace AetherSDR {
 
@@ -206,10 +207,20 @@ public:
     int packetTotalCount() const;
     qint64 totalRxBytes() const { return m_totalRxBytes; }
     qint64 totalTxBytes() const { return m_totalTxBytes; }
+    int audioPacketGapMs() const { return m_audioPacketGapMs.load(); }
+    int audioPacketGapMaxMs() const { return m_audioPacketGapMaxMs.load(); }
+    int audioPacketJitterMs() const { return m_audioPacketJitterMs.load(); }
 
 private:
     qint64 m_totalRxBytes{0};
     qint64 m_totalTxBytes{0};
+    std::atomic<int> m_audioPacketGapMs{0};
+    std::atomic<int> m_audioPacketGapMaxMs{0};
+    std::atomic<int> m_audioPacketJitterMs{0};
+    QElapsedTimer m_audioPacketTimer;
+    bool m_audioPacketTimerStarted{false};
+    int m_previousAudioPacketGapMs{0};
+    double m_audioPacketJitterEstimateMs{0.0};
 
     // Opus audio decoder (lazy-initialized on first Opus packet)
     OpusCodec* m_opusCodec{nullptr};

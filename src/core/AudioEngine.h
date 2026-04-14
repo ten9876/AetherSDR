@@ -156,6 +156,10 @@ public:
     void setInputDevice(const QAudioDevice& dev);
     QAudioDevice outputDevice() const { return m_outputDevice; }
     QAudioDevice inputDevice()  const { return m_inputDevice; }
+    qsizetype rxBufferBytes() const { return m_rxBufferBytes.load(); }
+    qsizetype rxBufferPeakBytes() const { return m_rxBufferPeakBytes.load(); }
+    quint64 rxBufferUnderrunCount() const { return m_rxBufferUnderrunCount.load(); }
+    int rxBufferSampleRate() const { return m_rxBufferSampleRate.load(); }
 
 public slots:
     // Receives stripped PCM from PanadapterStream::audioDataReady().
@@ -186,6 +190,7 @@ private:
     void sendVoiceTxPacket(const QByteArray& pcmData, quint32 streamId);
     QByteArray resampleStereo(const QByteArray& pcm);
     void processNr2(const QByteArray& stereoPcm);
+    void updateRxBufferStats();
 
     // RX
     QAudioSink*   m_audioSink{nullptr};
@@ -278,6 +283,10 @@ private:
     // RX audio buffer handling
     QTimer*       m_rxTimer{nullptr};
     QByteArray    m_rxBuffer;
+    std::atomic<qsizetype> m_rxBufferBytes{0};
+    std::atomic<qsizetype> m_rxBufferPeakBytes{0};
+    std::atomic<quint64>   m_rxBufferUnderrunCount{0};
+    std::atomic<int>       m_rxBufferSampleRate{DEFAULT_SAMPLE_RATE};
 
     // VITA-49 TX constants
     static constexpr int    TX_SAMPLES_PER_PACKET = 128;  // audio frames per packet
