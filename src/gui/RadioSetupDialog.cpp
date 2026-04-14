@@ -1120,7 +1120,7 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         auto* decodeLbl = new QLabel("Decode:");
         decodeLbl->setStyleSheet(kLabelStyle);
         grid->addWidget(decodeLbl, 2, 4);
-        bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
+        bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "False").toString() == "True";
         auto* decodeBtn = mkTogBtn("On", decodeOn);
         connect(decodeBtn, &QPushButton::toggled, this, [](bool on) {
             auto& s = AppSettings::instance();

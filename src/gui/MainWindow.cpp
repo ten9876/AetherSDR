@@ -2380,7 +2380,7 @@ void MainWindow::buildMenuBar()
             });
 #endif
             // Re-evaluate CW decode overlay visibility
-            bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
+            bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "False").toString() == "True";
             auto* s = activeSlice();
             if (s) {
                 bool isCw = (s->mode() == "CW" || s->mode() == "CWL");
@@ -3521,7 +3521,7 @@ void MainWindow::buildUI()
         for (auto* sl : m_radioModel.slices()) {
             if (sl->panId() == panId) {
                 bool isCw = (sl->mode() == "CW" || sl->mode() == "CWL");
-                bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
+                bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "False").toString() == "True";
                 if (auto* applet = m_panStack->panadapter(panId))
                     applet->setCwPanelVisible(isCw && decodeOn);
                 if (isCw && !m_cwDecoder.isRunning())
@@ -4376,7 +4376,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
             auto* sl = activeSlice();
             if (sl) {
                 bool isCw = (sl->mode() == "CW" || sl->mode() == "CWL");
-                bool decodeOn = settings.value("CwDecodeOverlay", "True").toString() == "True";
+                bool decodeOn = settings.value("CwDecodeOverlay", "False").toString() == "True";
                 if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
                 if (isCw && !m_cwDecoder.isRunning())
                     m_cwDecoder.start();
@@ -4525,7 +4525,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
         // Show/hide CW decode panel and start/stop decoder
         if (s->sliceId() == m_activeSliceId) {
             bool isCw = (mode == "CW" || mode == "CWL");
-            bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
+            bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "False").toString() == "True";
             if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
             if (isCw && !m_cwDecoder.isRunning())
                 m_cwDecoder.start();
@@ -4808,7 +4808,7 @@ void MainWindow::setActiveSlice(int sliceId)
 
     // Show/hide CW decode panel for the active slice's current mode
     bool isCw = (s->mode() == "CW" || s->mode() == "CWL");
-    bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
+    bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "False").toString() == "True";
     if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
     if (isCw && !m_cwDecoder.isRunning())
         m_cwDecoder.start();
