@@ -235,8 +235,6 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
         " padding: 1px 6px; }"
         "QPushButton:hover { color: #ff6060; background: #2a3a4a; }");
     connect(closeBtn, &QPushButton::clicked, this, [this]() {
-        AppSettings::instance().setValue("CwDecodeOverlay", "False");
-        AppSettings::instance().save();
         m_cwPanel->hide();
         emit cwPanelCloseRequested();
     });
