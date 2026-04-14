@@ -21,6 +21,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          clean: false  # skip post-run cleanup — Intel Qt source build creates huge tree
 
       - name: Install dependencies via Homebrew
         run: |
