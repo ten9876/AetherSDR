@@ -293,6 +293,13 @@ private:
     int m_rxZombieTickCount{0};
     static constexpr int kZombieTickThreshold = 200;  // 200 × 10ms = 2s
 
+    // Audio liveness watchdog: detects when audio data stops arriving while
+    // the RX stream is still active (e.g. CoreAudio silently discarding
+    // data after extended idle, or radio stops sending VITA-49 packets).
+    // Restarts the RX stream after ~15 seconds of silence. (#1411)
+    QElapsedTimer m_lastAudioFeedTime;
+    static constexpr qint64 kAudioLivenessTimeoutMs = 15000;  // 15s
+
     // RX audio buffer handling
     QTimer*       m_rxTimer{nullptr};
     QByteArray    m_rxBuffer;

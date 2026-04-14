@@ -55,7 +55,7 @@ AudioEngine::AudioEngine(QObject* parent)
     // Windows/macOS only: PipeWire on Linux crashes in pw_stream_connect when
     // audioOutputsChanged fires during device enumeration. The zombie sink
     // watchdog and stateChanged handlers cover Linux recovery instead.
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_MAC)
     m_mediaDevices = new QMediaDevices(this);
     connect(m_mediaDevices, &QMediaDevices::audioOutputsChanged, this, [this]() {
         if (!m_audioSink) return;
@@ -125,6 +125,25 @@ AudioEngine::AudioEngine(QObject* parent)
             m_rxZombieTickCount = 0;
         }
 
+        // Audio liveness watchdog: if no audio data has arrived via
+        // feedAudioData() for ~15 seconds while the sink is still running,
+        // the audio backend may be silently discarding data (CoreAudio after
+        // extended idle) or the radio stopped sending VITA-49 packets.
+        // Restart the sink to re-acquire a fresh handle. (#1411)
+        if (m_lastAudioFeedTime.isValid()
+            && m_lastAudioFeedTime.elapsed() > kAudioLivenessTimeoutMs
+            && m_rxBuffer.isEmpty()) {
+            qCWarning(lcAudio) << "AudioEngine: no audio data received for"
+                               << m_lastAudioFeedTime.elapsed() << "ms, restarting RX (#1411)";
+            m_lastAudioFeedTime.start();  // prevent repeated rapid restarts
+            QMetaObject::invokeMethod(this, [this]() {
+                if (!m_audioSink) return;
+                stopRxStream();
+                startRxStream();
+            }, Qt::QueuedConnection);
+            return;
+        }
+
         qsizetype len = freeBytes;
         len = std::min(len, m_rxBuffer.size());
         if (len > 0)
@@ -165,6 +184,7 @@ bool AudioEngine::startRxStream()
     m_rxBufferUnderrunCount.store(0);
     m_rxBufferSampleRate.store(DEFAULT_SAMPLE_RATE);
     m_rxZombieTickCount = 0;
+    m_lastAudioFeedTime.start();  // initialize liveness watchdog (#1411)
 
     QAudioFormat fmt = makeFormat();
     const QAudioDevice dev = m_outputDevice.isNull()
@@ -202,8 +222,8 @@ bool AudioEngine::startRxStream()
     // screensaver/idle, which the original #1303 handler missed. (#1361)
     connect(m_audioSink, &QAudioSink::stateChanged, this,
             [this](QAudio::State state) {
-#ifdef Q_OS_WIN
-        // IdleState with pending data = stale WASAPI session (#1361).
+#if defined(Q_OS_WIN) || defined(Q_OS_MAC)
+        // IdleState with pending data = stale WASAPI/CoreAudio session (#1361, #1411).
         // PipeWire uses IdleState legitimately — skip on Linux.
         if (state == QAudio::IdleState && !m_rxBuffer.isEmpty()) {
             qCWarning(lcAudio) << "AudioEngine: QAudioSink went idle with pending data, restarting RX (#1361)";
@@ -259,10 +279,12 @@ bool AudioEngine::startRxStream()
     // Detect the silent stop and restart cleanly, mirroring the TX-side
     // fix for CoreAudio (#1149). (#1303)
     // Also handle IdleState — on some backends the sink transitions to Idle
-    // (not Stopped) when the session goes stale after idle. (#1361)
+    // (not Stopped) when the session goes stale after idle. (#1361, #1411)
     connect(m_audioSink, &QAudioSink::stateChanged, this,
             [this](QAudio::State state) {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_MAC)
+        // IdleState with pending data = stale WASAPI/CoreAudio session (#1361, #1411).
+        // PipeWire uses IdleState legitimately — skip on Linux.
         if (state == QAudio::IdleState && !m_rxBuffer.isEmpty()) {
             qCWarning(lcAudio) << "AudioEngine: QAudioSink went idle with pending data, restarting RX (#1361)";
             QMetaObject::invokeMethod(this, [this]() {
@@ -332,6 +354,7 @@ QByteArray AudioEngine::resampleStereo(const QByteArray& pcm)
 void AudioEngine::feedAudioData(const QByteArray& pcm)
 {
     if (!m_audioSink) return;  // PC audio disabled
+    m_lastAudioFeedTime.start();  // reset liveness watchdog (#1411)
     // Note: m_radeMode no longer blocks feedAudioData globally.
     // The RADE slice's raw OFDM noise is muted at the slice level (audio_mute=1)
     // so it doesn't reach the speaker. Other slices' audio plays normally.
