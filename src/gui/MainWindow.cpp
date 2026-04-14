@@ -196,17 +196,6 @@ static bool shortcutGuard() {
     return s_keyboardShortcutsEnabled && !isTextInputFocused();
 }
 
-static void syncWideIndicator(PanadapterModel* pan, SpectrumWidget* sw)
-{
-    if (!pan || !sw)
-        return;
-
-    QObject::connect(pan, &PanadapterModel::wideChanged,
-                     sw, &SpectrumWidget::setWideActive,
-                     Qt::UniqueConnection);
-    sw->setWideActive(pan->wideActive());
-}
-
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
@@ -921,10 +910,12 @@ MainWindow::MainWindow(QWidget* parent)
         if (m_panStack->panadapter(pan->panId())) {
             if (auto* sw = m_panStack->spectrum(pan->panId())) {
                 connect(pan, &PanadapterModel::infoChanged,
-                        sw, &SpectrumWidget::setFrequencyRange, Qt::UniqueConnection);
+                        sw, &SpectrumWidget::setFrequencyRange);
                 connect(pan, &PanadapterModel::levelChanged,
-                        sw, &SpectrumWidget::setDbmRange, Qt::UniqueConnection);
-                syncWideIndicator(pan, sw);
+                        sw, &SpectrumWidget::setDbmRange);
+                connect(pan, &PanadapterModel::wideChanged,
+                        sw, &SpectrumWidget::setWideActive);
+                sw->setWideActive(pan->wideActive());
             }
             return;
         }
@@ -957,7 +948,6 @@ MainWindow::MainWindow(QWidget* parent)
             applet->spectrumWidget()->setRfGain(gain);
             applet->spectrumWidget()->overlayMenu()->setRfGain(gain);
         });
-        syncWideIndicator(pan, applet->spectrumWidget());
 
         // Push display dimensions to the radio so it sends full-size FFT bins.
         // Without this, the radio uses xpixels=50 ypixels=20 (default) and
@@ -5006,8 +4996,11 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         }
     }
 
-    if (auto* pan = m_radioModel.panadapter(applet->panId()))
-        syncWideIndicator(pan, sw);
+    if (auto* pan = m_radioModel.panadapter(applet->panId())) {
+        connect(pan, &PanadapterModel::wideChanged,
+                sw, &SpectrumWidget::setWideActive);
+        sw->setWideActive(pan->wideActive());
+    }
 
     // ── Tuning step size → this pan's spectrum widget ─────────────────────
     // The global connection only covers AppSettings + radio command.
@@ -6765,7 +6758,6 @@ void MainWindow::createPansSequentially(const QString& layoutId, int total,
                     applet->spectrumWidget()->setDbmRange(pan->minDbm(), pan->maxDbm());
                     applet->spectrumWidget()->setFrequencyRange(
                         pan->centerMhz(), pan->bandwidthMhz());
-                    syncWideIndicator(pan, applet->spectrumWidget());
                 }
             }
 
