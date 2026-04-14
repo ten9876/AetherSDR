@@ -49,6 +49,20 @@ AudioEngine::AudioEngine(QObject* parent)
         }
     }
 
+    // Monitor audio output device list for changes — when a USB audio device
+    // (like Connect6) power-cycles or WASAPI sessions reset after idle/screensaver,
+    // restart the RX stream to re-acquire a fresh handle. (#1361)
+    m_mediaDevices = new QMediaDevices(this);
+    connect(m_mediaDevices, &QMediaDevices::audioOutputsChanged, this, [this]() {
+        if (!m_audioSink) return;  // not streaming
+        qCWarning(lcAudio) << "AudioEngine: audio output device list changed, restarting RX (#1361)";
+        QMetaObject::invokeMethod(this, [this]() {
+            if (!m_audioSink) return;
+            stopRxStream();
+            startRxStream();
+        }, Qt::QueuedConnection);
+    });
+
     // Opus TX pacing timer — sends one queued packet every 10ms for even
     // delivery timing. Without this, QAudioSource delivers bursts of samples
     // that get Opus-encoded and sent back-to-back, causing jitter-induced
@@ -85,6 +99,25 @@ AudioEngine::AudioEngine(QObject* parent)
         const qsizetype freeBytes = m_audioSink->bytesFree();
         if (freeBytes > 0 && m_rxBuffer.isEmpty()) {
             m_rxBufferUnderrunCount.fetch_add(1);
+        }
+
+        // Zombie sink watchdog: if we have data waiting but the sink reports
+        // zero bytes free for ~2 seconds, the WASAPI handle is likely stale
+        // (e.g. after screensaver/idle on Windows with USB audio). (#1361)
+        if (freeBytes == 0 && !m_rxBuffer.isEmpty()) {
+            if (++m_rxZombieTickCount >= kZombieTickThreshold) {
+                m_rxZombieTickCount = 0;
+                qCWarning(lcAudio) << "AudioEngine: sink appears zombie (bytesFree stuck at 0 for"
+                                   << kZombieTickThreshold * 10 << "ms), restarting RX (#1361)";
+                QMetaObject::invokeMethod(this, [this]() {
+                    if (!m_audioSink) return;
+                    stopRxStream();
+                    startRxStream();
+                }, Qt::QueuedConnection);
+                return;
+            }
+        } else {
+            m_rxZombieTickCount = 0;
         }
 
         qsizetype len = freeBytes;
@@ -126,6 +159,7 @@ bool AudioEngine::startRxStream()
     m_rxBufferPeakBytes.store(0);
     m_rxBufferUnderrunCount.store(0);
     m_rxBufferSampleRate.store(DEFAULT_SAMPLE_RATE);
+    m_rxZombieTickCount = 0;
 
     QAudioFormat fmt = makeFormat();
     const QAudioDevice dev = m_outputDevice.isNull()
@@ -158,8 +192,21 @@ bool AudioEngine::startRxStream()
     // Guard against WASAPI silently stopping the sink after idle/sleep.
     // Detect the silent stop and restart cleanly, mirroring the TX-side
     // fix for CoreAudio (#1149). (#1303)
+    // Also handle IdleState — on some WASAPI configurations the sink
+    // transitions to Idle (not Stopped) when the session goes stale after
+    // screensaver/idle, which the original #1303 handler missed. (#1361)
     connect(m_audioSink, &QAudioSink::stateChanged, this,
             [this](QAudio::State state) {
+        if (state == QAudio::IdleState && !m_rxBuffer.isEmpty()) {
+            // Sink went idle while we have data to play — likely stale session
+            qCWarning(lcAudio) << "AudioEngine: QAudioSink went idle with pending data, restarting RX (#1361)";
+            QMetaObject::invokeMethod(this, [this]() {
+                if (!m_audioSink) return;
+                stopRxStream();
+                startRxStream();
+            }, Qt::QueuedConnection);
+            return;
+        }
         if (state != QAudio::StoppedState) return;
         if (!m_audioSink) return;   // intentional stop (stopRxStream nulls this)
         QMetaObject::invokeMethod(this, [this]() {
@@ -202,8 +249,19 @@ bool AudioEngine::startRxStream()
     // Guard against the audio backend silently stopping the sink after idle/sleep.
     // Detect the silent stop and restart cleanly, mirroring the TX-side
     // fix for CoreAudio (#1149). (#1303)
+    // Also handle IdleState — on some backends the sink transitions to Idle
+    // (not Stopped) when the session goes stale after idle. (#1361)
     connect(m_audioSink, &QAudioSink::stateChanged, this,
             [this](QAudio::State state) {
+        if (state == QAudio::IdleState && !m_rxBuffer.isEmpty()) {
+            qCWarning(lcAudio) << "AudioEngine: QAudioSink went idle with pending data, restarting RX (#1361)";
+            QMetaObject::invokeMethod(this, [this]() {
+                if (!m_audioSink) return;
+                stopRxStream();
+                startRxStream();
+            }, Qt::QueuedConnection);
+            return;
+        }
         if (state != QAudio::StoppedState) return;
         if (!m_audioSink) return;   // intentional stop (stopRxStream nulls this)
         QMetaObject::invokeMethod(this, [this]() {

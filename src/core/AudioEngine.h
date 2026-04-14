@@ -14,6 +14,8 @@
 #include <QByteArray>
 #include <QElapsedTimer>
 
+class QMediaDevices;
+
 #include <functional>
 #include <memory>
 #include <vector>
@@ -279,6 +281,16 @@ private:
     std::vector<float> m_nr2Mono;
     std::vector<float> m_nr2Processed;
     QByteArray m_nr2Output;
+
+    // Audio device change detection — restarts RX when USB devices
+    // power-cycle or WASAPI sessions reset after idle (#1361)
+    QMediaDevices* m_mediaDevices{nullptr};
+
+    // Zombie sink watchdog: tracks consecutive RX timer ticks where we have
+    // data to write but bytesFree() == 0, indicating a stale WASAPI handle.
+    // After ~2 seconds (200 ticks × 10ms), force a restart. (#1361)
+    int m_rxZombieTickCount{0};
+    static constexpr int kZombieTickThreshold = 200;  // 200 × 10ms = 2s
 
     // RX audio buffer handling
     QTimer*       m_rxTimer{nullptr};
