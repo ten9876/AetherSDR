@@ -148,7 +148,8 @@ void RadioConnection::disconnectFromRadio()
     m_handle = 0;
 }
 
-void RadioConnection::gracefulDisconnect(quint32 handle, const QString& rxStreamId)
+void RadioConnection::gracefulDisconnect(quint32 handle, const QString& rxStreamId,
+                                         quint32 daxTxStreamId, quint32 netCwStreamId)
 {
     if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState) {
         disconnectFromRadio();
@@ -158,8 +159,18 @@ void RadioConnection::gracefulDisconnect(quint32 handle, const QString& rxStream
     // Send stream remove + client disconnect before closing TCP so the radio
     // tears down our session cleanly. Without this the Maestro can lock up
     // when reconnecting with the same GUIClientID. (#1359)
+    // Remove all streams we created, not just rxStreamId. Leaving orphaned
+    // dax_tx / netcw streams can conflict with SmartSDR DAX. (#1394)
     if (!rxStreamId.isEmpty()) {
         QString cmd = QString("C0|stream remove 0x%1\n").arg(rxStreamId);
+        m_socket->write(cmd.toUtf8());
+    }
+    if (daxTxStreamId != 0) {
+        QString cmd = QString("C0|stream remove 0x%1\n").arg(daxTxStreamId, 0, 16);
+        m_socket->write(cmd.toUtf8());
+    }
+    if (netCwStreamId != 0) {
+        QString cmd = QString("C0|stream remove 0x%1\n").arg(netCwStreamId, 0, 16);
         m_socket->write(cmd.toUtf8());
     }
     QString cmd = QString("C0|client disconnect handle=0x%1\n").arg(handle, 0, 16);

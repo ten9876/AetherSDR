@@ -405,6 +405,9 @@ private:
     UsbCableModel    m_usbCableModel;
     DaxIqModel       m_daxIqModel;
 
+    // DAX TX stream — used by VirtualAudioBridge / PipeWireAudioBridge / TCI
+    quint32  m_daxTxStreamId{0};
+
     // NetCW stream — VITA-49 UDP delivery for low-latency CW keying
     quint32  m_netCwStreamId{0};
     int      m_netCwIndex{1};           // sequential dedup index

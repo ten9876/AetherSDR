@@ -334,10 +334,13 @@ void RadioModel::disconnectFromRadio()
     } else if (m_connection->isConnected()) {
         // Graceful disconnect: send stream remove + client disconnect and
         // wait for TCP flush before closing. Prevents Maestro lockup. (#1359)
+        // Pass all stream IDs so the radio cleans up completely. (#1394)
         quint32 handle = clientHandle();
         QString streamId = m_rxAudioStreamId;
-        QMetaObject::invokeMethod(m_connection, [this, handle, streamId]() {
-            m_connection->gracefulDisconnect(handle, streamId);
+        quint32 daxTxId = m_daxTxStreamId;
+        quint32 netCwId = m_netCwStreamId;
+        QMetaObject::invokeMethod(m_connection, [this, handle, streamId, daxTxId, netCwId]() {
+            m_connection->gracefulDisconnect(handle, streamId, daxTxId, netCwId);
         });
     } else {
         QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
@@ -350,8 +353,10 @@ void RadioModel::forceDisconnect()
     // when the radio reappears in discovery or via the repeating reconnect timer.
     if (m_connection->isConnected()) {
         quint32 handle = clientHandle();
-        QMetaObject::invokeMethod(m_connection, [this, handle]() {
-            m_connection->gracefulDisconnect(handle, QString());
+        quint32 daxTxId = m_daxTxStreamId;
+        quint32 netCwId = m_netCwStreamId;
+        QMetaObject::invokeMethod(m_connection, [this, handle, daxTxId, netCwId]() {
+            m_connection->gracefulDisconnect(handle, QString(), daxTxId, netCwId);
         });
     } else {
         QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
@@ -990,11 +995,21 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                         }
 
         // Request DAX TX audio stream (PC mic → radio, DAX mode)
+                        // Only create dax_tx when we have a DAX audio bridge (macOS/PipeWire)
+                        // or TCI is active. On Windows without TCI, creating this stream
+                        // conflicts with SmartSDR DAX's own dax_tx stream. (#1394)
+#if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
+                        bool needDaxTx = true;
+#else
+                        bool needDaxTx = AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
+#endif
+                        if (needDaxTx) {
                         sendCmd(
                             "stream create type=dax_tx",
                             [this](int code, const QString& body) {
                                 if (code == 0) {
                                     quint32 id = body.trimmed().toUInt(nullptr, 16);
+                                    m_daxTxStreamId = id;
                                     qCDebug(lcProtocol) << "RadioModel: dax_tx stream created, id:"
                                              << Qt::hex << id;
                                     emit txAudioStreamReady(id);
@@ -1003,6 +1018,7 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                                                << Qt::hex << code << "body:" << body;
                                 }
                             });
+                        }
 
                         // Request remote audio TX stream (voice mode, VOX monitoring)
                         // This stream carries mic audio to the radio for voice TX and
@@ -1198,6 +1214,7 @@ void RadioModel::onDisconnected()
     m_callsign.clear();
     m_region.clear();
     m_rxAudioStreamId.clear();
+    m_daxTxStreamId = 0;
     m_netCwStreamId = 0;
     m_netCwIndex = 1;
     m_lineoutGain = 50;
@@ -2774,15 +2791,44 @@ void RadioModel::createAudioStream()
             });
     }
 
-    sendCmd(
-        "stream create type=dax_tx",
-        [this](int code, const QString& body) {
-            if (code == 0) {
-                quint32 id = body.trimmed().toUInt(nullptr, 16);
-                qCDebug(lcProtocol) << "RadioModel: dax_tx stream re-created, id:" << Qt::hex << id;
-                emit txAudioStreamReady(id);
-            }
-        });
+    // Only re-create dax_tx when we have a DAX audio bridge or TCI (#1394)
+#if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
+    bool needDaxTx = true;
+#else
+    bool needDaxTx = AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
+#endif
+    if (needDaxTx) {
+        // Remove old dax_tx stream before creating new one (#1394)
+        if (m_daxTxStreamId != 0) {
+            quint32 oldId = m_daxTxStreamId;
+            m_daxTxStreamId = 0;
+            sendCmd(
+                QString("stream remove 0x%1").arg(oldId, 0, 16),
+                [this](int, const QString&) {
+                    sendCmd(
+                        "stream create type=dax_tx",
+                        [this](int code, const QString& body) {
+                            if (code == 0) {
+                                quint32 id = body.trimmed().toUInt(nullptr, 16);
+                                m_daxTxStreamId = id;
+                                qCDebug(lcProtocol) << "RadioModel: dax_tx stream re-created, id:" << Qt::hex << id;
+                                emit txAudioStreamReady(id);
+                            }
+                        });
+                });
+        } else {
+            sendCmd(
+                "stream create type=dax_tx",
+                [this](int code, const QString& body) {
+                    if (code == 0) {
+                        quint32 id = body.trimmed().toUInt(nullptr, 16);
+                        m_daxTxStreamId = id;
+                        qCDebug(lcProtocol) << "RadioModel: dax_tx stream re-created, id:" << Qt::hex << id;
+                        emit txAudioStreamReady(id);
+                    }
+                });
+        }
+    }
 }
 
 QJsonObject RadioModel::troubleshootingSnapshot() const
