@@ -164,9 +164,6 @@ public:
 
 signals:
     void frequencyChanged(double mhz);
-    // Emitted only from setFrequency() — not applyStatus() — so RadioModel can
-    // trigger pan-follow-VFO without reacting to radio echo-backs. (#989)
-    void panFollowRequested(double freqMhz, const QString& panId);
     void panIdChanged(const QString& panId);
     void modeChanged(const QString& mode);
     void filterChanged(int low, int high);

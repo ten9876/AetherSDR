@@ -1554,6 +1554,15 @@ MainWindow::MainWindow(QWidget* parent)
         double target = m_flexTargetMhz;
         // Use slice tune (not slice m) — doesn't recenter pan, correct for encoder
         s->setFrequency(target);
+        // Pan-follow-VFO (#989): setFrequency uses autopan=0, re-center explicitly
+        if (PanadapterModel* pan = m_radioModel.panadapter(s->panId())) {
+            const double halfBw = pan->bandwidthMhz() / 2.0;
+            if (target < pan->centerMhz() - halfBw || target > pan->centerMhz() + halfBw) {
+                m_radioModel.sendCommand(
+                    QString("display pan set %1 center=%2")
+                        .arg(pan->panId()).arg(target, 0, 'f', 6));
+            }
+        }
     });
     // FlexControl signals (auto-queued from worker → main)
     connect(m_flexControl, &FlexControlManager::tuneSteps,
@@ -7082,6 +7091,17 @@ void MainWindow::onFrequencyChanged(double mhz)
     if (!m_updatingFromModel) {
         if (auto* s = activeSlice()) {
             s->setFrequency(mhz);
+
+            // Pan-follow-VFO (#989): setFrequency uses autopan=0, so re-center
+            // the pan explicitly when the new freq falls outside the visible window.
+            if (PanadapterModel* pan = m_radioModel.panadapter(s->panId())) {
+                const double halfBw = pan->bandwidthMhz() / 2.0;
+                if (mhz < pan->centerMhz() - halfBw || mhz > pan->centerMhz() + halfBw) {
+                    m_radioModel.sendCommand(
+                        QString("display pan set %1 center=%2")
+                            .arg(pan->panId()).arg(mhz, 0, 'f', 6));
+                }
+            }
 
             // Diversity: immediately mirror freq to child VFO (no radio round-trip)
             if (s->isDiversityParent()) {
