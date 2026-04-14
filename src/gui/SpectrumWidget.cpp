@@ -599,6 +599,15 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
 
     m_panCenterTarget = centerMhz;
 
+    // Scroll the waterfall history to align with the new center *before* the
+    // animation begins.  Without this, old rows (captured at the old center)
+    // and new rows (arriving from the radio for the new center) are at
+    // different horizontal positions, so signals appear to jump vertically.
+    // We do NOT reset m_wfWriteRow or clear bins — the shift is small, the
+    // old spectrum data is close enough to the new center data, and new rows
+    // will fill in naturally within 1–2 frames.
+    reprojectWaterfall(m_centerMhz, m_bandwidthMhz, centerMhz, m_bandwidthMhz);
+
     if (!m_panCenterAnim) {
         m_panCenterAnim = new QVariantAnimation(this);
         // InOutQuad: slow start → fast middle → slow end.
