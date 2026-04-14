@@ -444,6 +444,14 @@ void PanadapterStack::floatPanadapter(const QString& panId)
     PanadapterApplet* applet = m_pans.value(panId, nullptr);
     if (!applet || m_floatingWindows.contains(panId)) return;
 
+    // Hide the SpectrumWidget and release GPU resources *before* reparenting.
+    // On macOS, QRhiWidget with WA_NativeWindow has a native NSView; orphaning
+    // the widget to nullptr creates a transient top-level NSWindow whose
+    // destruction can corrupt the responder chain (#1344).
+    SpectrumWidget* sw = applet->spectrumWidget();
+    sw->hide();
+    sw->resetGpuResources();
+
     // Remove from splitter (keep in m_pans)
     applet->setParent(nullptr);
     applet->spectrumWidget()->setFloating(true);
@@ -458,8 +466,10 @@ void PanadapterStack::floatPanadapter(const QString& panId)
     connect(fw, &PanFloatingWindow::dockRequested,
             this, &PanadapterStack::dockPanadapter);
 
-    SpectrumWidget* sw = applet->spectrumWidget();
-    QTimer::singleShot(100, this, [this, sw]() {
+    // Re-show the SpectrumWidget now that it's in its final parent window,
+    // then reset GPU resources so Metal binds to the new NSView.
+    sw->show();
+    QTimer::singleShot(0, this, [this, sw]() {
         refreshAfterReparent(sw);
         equalizeSizes();
     });
@@ -471,7 +481,21 @@ void PanadapterStack::dockPanadapter(const QString& panId)
     if (!fw) return;
 
     fw->saveWindowGeometry();
-    PanadapterApplet* applet = fw->takeApplet();
+
+    // Hide the SpectrumWidget and release GPU resources *before* reparenting.
+    // On macOS with WA_NativeWindow, the native NSView must be torn down
+    // cleanly while still owned by a valid parent window. If we let
+    // takeApplet() orphan to nullptr first, the double NSView lifecycle
+    // (destroy → create top-level → destroy → embed) breaks the parent
+    // window's NSResponder chain on macOS Tahoe, freezing all input (#1344).
+    PanadapterApplet* applet = fw->applet();
+    SpectrumWidget* sw = applet ? applet->spectrumWidget() : nullptr;
+    if (sw) {
+        sw->hide();
+        sw->resetGpuResources();
+    }
+
+    applet = fw->takeApplet();
     fw->hide();
     fw->deleteLater();
 
@@ -484,8 +508,9 @@ void PanadapterStack::dockPanadapter(const QString& panId)
     for (auto* a : m_pans)
         a->setMultiPanMode(multi);
 
-    // Add back to splitter and immediately set sizes so both pans
-    // get equal space (prevents the existing pan from hogging 100%).
+    // Reparent directly into the splitter — addWidget() calls setParent()
+    // internally, so the widget goes straight from the floating window to
+    // the splitter without an intermediate top-level state.
     m_splitter->addWidget(applet);
     applet->show();
 
@@ -507,10 +532,14 @@ void PanadapterStack::dockPanadapter(const QString& panId)
             l->invalidate();
     }
 
-    SpectrumWidget* sw = applet->spectrumWidget();
-    QTimer::singleShot(100, this, [sw]() {
-        refreshAfterReparent(sw);
-    });
+    // Re-show and reinitialize GPU resources after reparenting is complete.
+    // Use QTimer::singleShot(0, ...) so Qt processes the reparent events first.
+    if (sw) {
+        sw->show();
+        QTimer::singleShot(0, this, [sw]() {
+            refreshAfterReparent(sw);
+        });
+    }
 }
 
 bool PanadapterStack::isFloating(const QString& panId) const
