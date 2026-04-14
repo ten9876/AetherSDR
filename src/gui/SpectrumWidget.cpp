@@ -561,8 +561,15 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
     // Nudges shift center by ~10% of halfBw; 25% threshold comfortably separates the two.
     const double halfBw = bandwidthMhz / 2.0;
     const bool bwChanged = (bandwidthMhz != m_bandwidthMhz);
+    // Compare incoming center against the animation's *destination* (m_panCenterTarget),
+    // not the mid-animation position (m_centerMhz).  During a 200 ms nudge the animated
+    // center is far from its start, so a subsequent nudge of similar magnitude would
+    // falsely exceed the 25 % threshold and trigger a large-shift clear+blank.
+    const double refForShiftCheck = (m_panCenterAnim &&
+        m_panCenterAnim->state() != QAbstractAnimation::Stopped)
+        ? m_panCenterTarget : m_centerMhz;
     const bool largeShift = bwChanged ||
-        (halfBw > 0.0 && std::abs(centerMhz - m_centerMhz) > halfBw * 0.25);
+        (halfBw > 0.0 && std::abs(centerMhz - refForShiftCheck) > halfBw * 0.25);
 
     if (bwChanged) {
         m_bandwidthMhz = bandwidthMhz;
@@ -2861,11 +2868,83 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
     }
 
     cb->endPass();
-    // VFO widget positioning is handled exclusively in paintEvent() below.
-    // Calling updatePosition() here too would race against the animation timer:
-    // m_centerMhz can advance between renderGpuFrame() and paintEvent() within
-    // the same event-loop turn, causing the VFO widget to move() to two
-    // slightly different positions per display frame and appear to jitter.
+
+    // Reposition VFO widgets. paintEvent() is compiled only in software mode
+    // (#else !AETHER_GPU_SPECTRUM), so in GPU mode this is the sole place VFOs
+    // are repositioned. Logic mirrors the paintEvent() block below exactly.
+    {
+        struct VfoPos { int sliceId; int x; VfoWidget* w; int splitPartner; };
+        QVector<VfoPos> vfos;
+        for (const auto& so : m_sliceOverlays) {
+            if (auto* vw = m_vfoWidgets.value(so.sliceId, nullptr)) {
+                int x = mhzToX(so.freqMhz);
+                if (so.mode == "RTTY" || so.mode == "DIGL") {
+                    double hiMhz = so.freqMhz + so.filterHighHz / 1.0e6;
+                    x = mhzToX(hiMhz) + 4;
+                }
+                vfos.append({so.sliceId, x, vw, so.splitPartnerId});
+            }
+        }
+        std::sort(vfos.begin(), vfos.end(), [](const VfoPos& a, const VfoPos& b) {
+            return a.x < b.x;
+        });
+
+        const int panelW = vfos.isEmpty() ? 0 : vfos[0].w->width();
+        const int specW  = specRect.width();
+
+        QMap<int, VfoWidget::FlagDir> dirMap;
+        for (int i = 0; i < vfos.size(); ++i) {
+            if (vfos[i].splitPartner < 0) continue;
+            if (dirMap.contains(vfos[i].sliceId)) continue;
+            int pi = -1;
+            for (int j = 0; j < vfos.size(); ++j) {
+                if (vfos[j].sliceId == vfos[i].splitPartner) { pi = j; break; }
+            }
+            if (pi < 0) continue;
+            int leftIdx  = (vfos[i].x <= vfos[pi].x) ? i : pi;
+            int rightIdx = (leftIdx == i) ? pi : i;
+            dirMap[vfos[leftIdx].sliceId]  = VfoWidget::ForceLeft;
+            dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceRight;
+            if (vfos[leftIdx].x < panelW)
+                dirMap[vfos[leftIdx].sliceId] = VfoWidget::ForceRight;
+            if (vfos[rightIdx].x + panelW > specW)
+                dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceLeft;
+        }
+
+        for (const auto& so : m_sliceOverlays) {
+            if (so.mode == "RTTY" || so.mode == "DIGL")
+                dirMap[so.sliceId] = VfoWidget::ForceRight;
+        }
+
+        if (vfos.size() == 1) {
+            VfoWidget::FlagDir dir = dirMap.value(vfos[0].sliceId, VfoWidget::Auto);
+            vfos[0].w->updatePosition(vfos[0].x, specRect.top(), dir);
+        } else {
+            for (int i = 0; i < vfos.size(); ++i) {
+                VfoWidget::FlagDir dir = VfoWidget::Auto;
+                if (dirMap.contains(vfos[i].sliceId)) {
+                    dir = dirMap[vfos[i].sliceId];
+                } else if (vfos.size() == 2) {
+                    dir = (i == 0) ? VfoWidget::ForceLeft : VfoWidget::ForceRight;
+                    if (i == 0 && vfos[i].x < panelW) dir = VfoWidget::ForceRight;
+                    if (i == 1 && vfos[i].x + panelW > specW) dir = VfoWidget::ForceLeft;
+                } else {
+                    if (i == 0) {
+                        dir = VfoWidget::ForceLeft;
+                        if (vfos[i].x < panelW) dir = VfoWidget::ForceRight;
+                    } else if (i == vfos.size() - 1) {
+                        dir = VfoWidget::ForceRight;
+                        if (vfos[i].x + panelW > specW) dir = VfoWidget::ForceLeft;
+                    } else {
+                        const int gapLeft  = vfos[i].x - vfos[i-1].x;
+                        const int gapRight = vfos[i+1].x - vfos[i].x;
+                        dir = (gapLeft >= gapRight) ? VfoWidget::ForceLeft : VfoWidget::ForceRight;
+                    }
+                }
+                vfos[i].w->updatePosition(vfos[i].x, specRect.top(), dir);
+            }
+        }
+    }
 }
 
 void SpectrumWidget::render(QRhiCommandBuffer* cb)
