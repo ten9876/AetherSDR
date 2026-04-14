@@ -87,6 +87,7 @@
 #include <QShortcut>
 #include <QScrollArea>
 #include <QFrame>
+#include <QFile>
 #include <QFileDialog>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -3136,7 +3137,110 @@ void MainWindow::buildMenuBar()
     });
     auto* profileImportExportAct = m_profilesMenu->addAction("Import/Export Profiles...");
     connect(profileImportExportAct, &QAction::triggered, this, [this] {
-        // TODO: open import/export dialog
+        QDialog dlg(this);
+        dlg.setWindowTitle("Import/Export Profiles");
+        dlg.setMinimumWidth(320);
+        auto* vbox = new QVBoxLayout(&dlg);
+
+        auto* desc = new QLabel(
+            "Export the current profile lists to a JSON file,\n"
+            "or import profiles from a previously exported file.");
+        vbox->addWidget(desc);
+
+        auto* btnRow = new QHBoxLayout;
+        auto* exportBtn = new QPushButton("Export...");
+        auto* importBtn = new QPushButton("Import...");
+        auto* closeBtn = new QPushButton("Close");
+        btnRow->addWidget(exportBtn);
+        btnRow->addWidget(importBtn);
+        btnRow->addStretch();
+        btnRow->addWidget(closeBtn);
+        vbox->addLayout(btnRow);
+
+        connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+        connect(exportBtn, &QPushButton::clicked, &dlg, [this, &dlg] {
+            const QString path = QFileDialog::getSaveFileName(
+                &dlg, "Export Profiles", QString(), "JSON Files (*.json)");
+            if (path.isEmpty()) return;
+
+            QJsonObject root;
+            root["global"]   = QJsonArray::fromStringList(m_radioModel.globalProfiles());
+            root["transmit"] = QJsonArray::fromStringList(m_radioModel.transmitModel().profileList());
+            root["mic"]      = QJsonArray::fromStringList(m_radioModel.transmitModel().micProfileList());
+
+            QJsonObject active;
+            active["global"]   = m_radioModel.activeGlobalProfile();
+            active["transmit"] = m_radioModel.transmitModel().activeProfile();
+            active["mic"]      = m_radioModel.transmitModel().activeMicProfile();
+            root["active"] = active;
+
+            QFile file(path);
+            if (!file.open(QIODevice::WriteOnly)) {
+                QMessageBox::warning(&dlg, "Export Failed",
+                    QString("Could not write to %1").arg(path));
+                return;
+            }
+            file.write(QJsonDocument(root).toJson());
+            file.close();
+            QMessageBox::information(&dlg, "Export Complete",
+                "Profile list exported successfully.");
+        });
+
+        connect(importBtn, &QPushButton::clicked, &dlg, [this, &dlg] {
+            const QString path = QFileDialog::getOpenFileName(
+                &dlg, "Import Profiles", QString(), "JSON Files (*.json)");
+            if (path.isEmpty()) return;
+
+            QFile file(path);
+            if (!file.open(QIODevice::ReadOnly)) {
+                QMessageBox::warning(&dlg, "Import Failed",
+                    QString("Could not read %1").arg(path));
+                return;
+            }
+
+            QJsonParseError err;
+            const auto doc = QJsonDocument::fromJson(file.readAll(), &err);
+            file.close();
+            if (doc.isNull()) {
+                QMessageBox::warning(&dlg, "Import Failed",
+                    QString("Invalid JSON: %1").arg(err.errorString()));
+                return;
+            }
+
+            const auto root = doc.object();
+            int count = 0;
+
+            auto importType = [&](const QString& type) {
+                const auto arr = root.value(type).toArray();
+                for (const auto& val : arr) {
+                    const QString name = val.toString().trimmed();
+                    if (name.isEmpty()) continue;
+                    m_radioModel.sendCommand(
+                        QString("profile %1 save \"%2\"").arg(type, name));
+                    ++count;
+                }
+            };
+            importType("global");
+            importType("transmit");
+            importType("mic");
+
+            // Restore active profile selections
+            const auto active = root.value("active").toObject();
+            if (active.contains("global"))
+                m_radioModel.loadGlobalProfile(active["global"].toString());
+            if (active.contains("transmit"))
+                m_radioModel.sendCommand(
+                    QString("profile transmit load \"%1\"").arg(active["transmit"].toString()));
+            if (active.contains("mic"))
+                m_radioModel.sendCommand(
+                    QString("profile mic load \"%1\"").arg(active["mic"].toString()));
+
+            QMessageBox::information(&dlg, "Import Complete",
+                QString("Sent %1 profile(s) to the radio.").arg(count));
+        });
+
+        dlg.exec();
     });
     m_profilesMenu->addSeparator();
 
