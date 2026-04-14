@@ -2375,6 +2375,30 @@ void RadioModel::handleSliceStatus(int id,
         connect(s, &SliceModel::commandReady, this, [this](const QString& cmd){
             sendCmd(cmd);
         });
+        // Pan-follow-VFO (#989, Option A): when the user tunes outside the visible
+        // pan window re-center the pan on the new frequency. Only fires from
+        // setFrequency() — not applyStatus() — so there is no echo-back loop.
+        connect(s, &SliceModel::panFollowRequested, this,
+                [this](double freqMhz, const QString& panId) {
+            // Try slice-specific pan first; fall back to active pan so that
+            // single-pan setups still work if the slice's panId key is stale.
+            PanadapterModel* pan = panadapter(panId);
+            if (!pan) {
+                qCWarning(lcProtocol) << "PanFollow: no pan for panId" << panId
+                                      << "— trying activePanadapter";
+                pan = activePanadapter();
+            }
+            if (!pan) return;
+
+            const double halfBw = pan->bandwidthMhz() / 2.0;
+            const double center  = pan->centerMhz();
+            if (freqMhz < (center - halfBw) || freqMhz > (center + halfBw)) {
+                qCDebug(lcProtocol) << "PanFollow: recentering pan" << pan->panId()
+                                    << "to" << freqMhz << "MHz";
+                sendCmd(QString("display pan set %1 center=%2")
+                    .arg(pan->panId()).arg(freqMhz, 0, 'f', 6));
+            }
+        });
         m_slices.append(s);
         s->applyStatus(kvs);  // populate frequency/mode before notifying UI
         emit sliceAdded(s);

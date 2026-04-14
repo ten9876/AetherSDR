@@ -25,6 +25,11 @@ void SliceModel::setFrequency(double mhz)
     // SmartSDR pcap confirms: scroll-wheel uses "slice tune <id> <freq> autopan=0".
     sendCommand(QString("slice tune %1 %2 autopan=0").arg(m_id).arg(mhz, 0, 'f', 6));
     emit frequencyChanged(mhz);
+    // Only emit when panId is known; RadioModel uses this to re-center the pan
+    // if the VFO has tuned outside the visible window. Not emitted from
+    // applyStatus() to avoid reacting to radio echo-backs. (#989)
+    if (!m_panId.isEmpty())
+        emit panFollowRequested(mhz, m_panId);
 }
 
 void SliceModel::tuneAndRecenter(double mhz)

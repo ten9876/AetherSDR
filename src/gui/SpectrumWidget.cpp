@@ -564,8 +564,26 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
              << QString::number(centerMhz, 'f', 6)
              << "bw=" << QString::number(bandwidthMhz, 'f', 6)
              << "bins=" << m_smoothed.size();
+    const bool centerChanged = (centerMhz != m_centerMhz);
     m_centerMhz    = centerMhz;
     m_bandwidthMhz = bandwidthMhz;
+
+    if (centerChanged) {
+        // Discard stale FFT data so old peaks don't persist at the wrong
+        // position after a center shift. The spectrum line is rendered by
+        // bin index (not frequency), so stale m_smoothed keeps painting at
+        // old positions until new packets blend it out. Clearing here drops
+        // the stale data immediately; the radio refills within 1-2 frames. (#989)
+        m_bins.clear();
+        m_smoothed.clear();
+
+        // Reset the waterfall ring-buffer write position so incoming tiles
+        // start filling from the top of the display immediately. Without this,
+        // new tiles write starting at the old m_wfWriteRow position; the
+        // reprojected (mostly-black) image dominates the visible waterfall until
+        // the entire ring-buffer depth scrolls through (~10s at 25fps). (#989)
+        m_wfWriteRow = 0;
+    }
     markOverlayDirty();
 }
 
