@@ -1742,9 +1742,15 @@ MainWindow::MainWindow(QWidget* parent)
         double newMhz = s->frequency() + m_hidPendingSteps * stepHz / 1e6;
         m_hidPendingSteps = 0;
         QString panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
-        if (!panId.isEmpty())
-            m_radioModel.sendCommand(
-                QString("slice m %1 pan=%2").arg(newMhz, 0, 'f', 6).arg(panId));
+        if (!panId.isEmpty()) {
+            if (spectrum() && !spectrum()->clickCentersPan()) {
+                // Tune without recentering (#1399)
+                s->setFrequency(newMhz);
+            } else {
+                m_radioModel.sendCommand(
+                    QString("slice m %1 pan=%2").arg(newMhz, 0, 'f', 6).arg(panId));
+            }
+        }
         if (spectrum()) spectrum()->setVfoFrequency(newMhz);
     });
 
@@ -5543,8 +5549,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     });
 
     // ── Click-to-tune ────────────────────────────────────────────────────
-    // Uses "slice m <freq> pan=<panId>" (matches SmartSDR protocol).
-    // The radio routes the tune to the correct slice for that pan.
+    // When "Click Centers Pan" is on (default), uses "slice m <freq> pan=<panId>"
+    // which recenters the pan. When off, uses "slice tune ... autopan=0" and
+    // reasserts the current center to keep the view stable (#1399).
     connect(sw, &SpectrumWidget::frequencyClicked,
             this, [this, sw](double mhz) {
         // Find the panId for this spectrum widget
@@ -5573,12 +5580,28 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 m_panStack->setActivePan(panId);
 
                 if (auto* s = activeSlice(); s && !s->isLocked()) {
-                    m_radioModel.sendCommand(
-                        QString("slice m %1 pan=%2").arg(mhz, 0, 'f', 6).arg(panId));
+                    if (sw->clickCentersPan()) {
+                        m_radioModel.sendCommand(
+                            QString("slice m %1 pan=%2").arg(mhz, 0, 'f', 6).arg(panId));
+                    } else {
+                        // Tune without recentering: use autopan=0 and reassert center (#1399)
+                        double savedCenter = sw->centerMhz();
+                        s->setFrequency(mhz);
+                        m_radioModel.sendCommand(
+                            QString("display pan set %1 center=%2").arg(panId).arg(savedCenter, 0, 'f', 6));
+                    }
                     sw->setVfoFrequency(mhz);
                 }
             } else {
-                onFrequencyChanged(mhz);
+                if (!sw->clickCentersPan()) {
+                    // Save center before tune — radio may auto-pan (#1399)
+                    double savedCenter = sw->centerMhz();
+                    onFrequencyChanged(mhz);
+                    m_radioModel.sendCommand(
+                        QString("display pan set %1 center=%2").arg(panId).arg(savedCenter, 0, 'f', 6));
+                } else {
+                    onFrequencyChanged(mhz);
+                }
             }
         } else {
             onFrequencyChanged(mhz);

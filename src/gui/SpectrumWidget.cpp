@@ -257,6 +257,7 @@ void SpectrumWidget::loadSettings()
                    0, static_cast<int>(WfColorScheme::Count) - 1));
     m_singleClickTune = s.value("SingleClickTune", "False").toString() == "True";
     m_showTuneGuides  = s.value("ShowTuneGuides", "False").toString() == "True";
+    m_clickCentersPan = s.value("ClickCentersPan", "True").toString() == "True";
 
     // Background image — default to bundled logo, "none" = explicitly cleared
     QString bgPath = s.value(settingsKey("BackgroundImage"), ":/bg-default.jpg").toString();
@@ -343,6 +344,13 @@ void SpectrumWidget::setShowGrid(bool on) {
     s.save();
     markOverlayDirty();
 }
+void SpectrumWidget::setClickCentersPan(bool on) {
+    m_clickCentersPan = on;
+    auto& s = AppSettings::instance();
+    s.setValue("ClickCentersPan", on ? "True" : "False");
+    s.save();
+}
+
 void SpectrumWidget::setShowTuneGuides(bool on) {
     m_showTuneGuides = on;
     if (!on) {
@@ -1219,6 +1227,11 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         tuneGuideAction->setCheckable(true);
         tuneGuideAction->setChecked(m_showTuneGuides);
         connect(tuneGuideAction, &QAction::toggled, this, &SpectrumWidget::setShowTuneGuides);
+
+        QAction* clickCentersAction = menu.addAction("Click Centers Pan");
+        clickCentersAction->setCheckable(true);
+        clickCentersAction->setChecked(m_clickCentersPan);
+        connect(clickCentersAction, &QAction::toggled, this, &SpectrumWidget::setClickCentersPan);
 
         menu.addSeparator();
         bool floating = m_isFloating;
