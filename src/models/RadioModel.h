@@ -151,18 +151,24 @@ public:
     }
 
     // Panadapter bandwidth limits by radio model (MHz).
-    // Dual-SCU radios (6700, 8400, 8600) support 14 MHz pan width.
+    // Values from SmartSDR TCP packet captures (#1385).
+    // Dual-SCU: 6700, 8600. Single-SCU: 6300, 6400, 6500, 6600, 8400.
     double maxPanBandwidthMhz() const {
         if (m_model.contains("6700") || m_model.contains("8600"))
-            return 14.0;
-        if (m_model.contains("8400"))
-            return 7.0;
+            return 14.745601;
         if (m_model.contains("6500"))
-            return 7.2;
-        // 6300, 6400, 6600, Aurora: single SCU
+            return 14.745601;
+        // 6300, 6400, 6600, 8400, Aurora: single SCU
         return 5.4;
     }
-    double minPanBandwidthMhz() const { return 0.010; }  // 10 kHz — all models
+    double minPanBandwidthMhz() const {
+        if (m_model.contains("6700") || m_model.contains("8600"))
+            return 0.001230;
+        if (m_model.contains("6500"))
+            return 0.004920;
+        // 6300, 6400, 6600, 8400, Aurora
+        return 0.004920;
+    }
 
     // Oscillator / RX settings
     QString oscState()     const { return m_oscState; }
