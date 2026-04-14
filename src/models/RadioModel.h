@@ -463,6 +463,7 @@ private:
     bool        m_remoteOnEnabled{false};
     bool        m_multiFlexEnabled{true};
     bool        m_txRequested{false}; // local MOX command intent (for edge sync)
+    bool        m_cwKeyActive{false}; // true while CW key/paddle is held (#1379)
     bool        m_txAudioGate{false}; // actual TX audio gate state
     QStringList m_antList;
 
