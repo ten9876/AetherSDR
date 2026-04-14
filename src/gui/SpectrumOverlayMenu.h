@@ -41,7 +41,8 @@ public:
                              float lineWidth = 2.0f);
     // Sync blanker/cursor/opacity controls not covered by syncDisplaySettings.
     void syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
-                                  int bgOpacity);
+                                  int bgOpacity,
+                                  int freqGridSpacingKhz = 0);
 
     // Set the panadapter ID this overlay belongs to (for +RX routing).
     void setPanId(const QString& id) { m_panId = id; }
@@ -92,6 +93,7 @@ signals:
     void fftFillColorChanged(const QColor& color);
     void fftHeatMapChanged(bool on);
     void showGridChanged(bool on);
+    void freqGridSpacingChanged(int khz);
     void fftLineWidthChanged(float width);
     void wfColorGainChanged(int gain);
     void wfBlackLevelChanged(int level);
@@ -206,6 +208,7 @@ private:
     QLabel*      m_floorLabel{nullptr};
     QPushButton* m_floorEnableBtn{nullptr};
 
+    QComboBox*   m_freqGridSpacingCmb{nullptr};
     QSlider*     m_bgOpacitySlider{nullptr};
     QLabel*      m_bgOpacityLabel{nullptr};
 

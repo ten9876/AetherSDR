@@ -5346,6 +5346,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             sw, &SpectrumWidget::setFftHeatMap);
     connect(menu, &SpectrumOverlayMenu::showGridChanged,
             sw, &SpectrumWidget::setShowGrid);
+    connect(menu, &SpectrumOverlayMenu::freqGridSpacingChanged,
+            sw, &SpectrumWidget::setFreqGridSpacing);
     connect(menu, &SpectrumOverlayMenu::fftLineWidthChanged,
             sw, &SpectrumWidget::setFftLineWidth);
     connect(menu, &SpectrumOverlayMenu::noiseFloorPositionChanged,
@@ -5497,6 +5499,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setBackgroundOpacity(80);
         sw->setNoiseFloorEnable(false);
         sw->setNoiseFloorPosition(75);
+        sw->setFreqGridSpacing(0);  // Auto (#1390)
 
         // Radio commands for radio-authoritative display settings
         m_radioModel.sendCommand(
@@ -5534,12 +5537,13 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         s.setValue(sw->settingsKey("CursorFreqLabel"),            "False");
         s.setValue(sw->settingsKey("BackgroundImage"),            ":/bg-default.jpg");
         s.setValue(sw->settingsKey("BackgroundOpacity"),          "80");
+        s.setValue(sw->settingsKey("DisplayFreqGridSpacing"),     "0");
         s.save();
 
         // Sync all Display panel UI controls
         menu->syncDisplaySettings(0, 25, 70, false, QColor(0x00, 0xe5, 0xff),
                                   50, 15, true, 100, 75, false, true, 0);
-        menu->syncExtraDisplaySettings(false, 1.15f, 80);
+        menu->syncExtraDisplaySettings(false, 1.15f, 80, 0);
     });
 
     // ── Click-to-tune ────────────────────────────────────────────────────

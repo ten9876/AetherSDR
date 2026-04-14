@@ -196,11 +196,13 @@ public:
     void setFftFillColor(const QColor& c);
     void setFftHeatMap(bool on);
     void setShowGrid(bool on);
+    void setFreqGridSpacing(int khz);
     void setFftLineWidth(float w);
     float fftFillAlpha() const         { return m_fftFillAlpha; }
     QColor fftFillColor() const        { return m_fftFillColor; }
     bool fftHeatMap() const            { return m_fftHeatMap; }
     bool showGrid() const              { return m_showGrid; }
+    int  freqGridSpacing() const       { return m_freqGridSpacingKhz; }
     float fftLineWidth() const         { return m_fftLineWidth; }
     int   fftAverage() const           { return m_fftAverage; }
     int   fftFps() const               { return m_fftFps; }
@@ -360,6 +362,7 @@ public:
     void showAddSpotDialog(double freqMhz);
 
 private:
+    double effectiveGridStepMhz(int widgetWidth) const;
     void drawGrid(QPainter& p, const QRect& r);
     void drawSpectrum(QPainter& p, const QRect& r);
     void drawSliceMarkers(QPainter& p, const QRect& specRect, const QRect& wfRect);
@@ -430,6 +433,7 @@ private:
     QColor m_fftFillColor{0x00, 0xe5, 0xff};  // client-side fill color (default cyan)
     bool m_fftHeatMap{true};        // true = intensity heat map, false = solid color
     bool m_showGrid{true};          // false = hide grid lines
+    int  m_freqGridSpacingKhz{0};   // 0=Auto, or 1/2/5/10/25/50/100 kHz (#1390)
     float m_fftLineWidth{2.0f};     // spectrum trace width in pixels
 
     // ── Waterfall display controls (radio-side via "display panafall set") ─
