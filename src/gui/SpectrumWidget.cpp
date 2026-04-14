@@ -251,6 +251,7 @@ void SpectrumWidget::loadSettings()
     }
     m_fftHeatMap     = s.value(settingsKey("DisplayFftHeatMap"), "True").toString() == "True";
     m_showGrid       = s.value(settingsKey("DisplayShowGrid"), "True").toString() == "True";
+    m_freqGridSpacingKhz = s.value(settingsKey("DisplayFreqGridSpacing"), "0").toInt();
     m_fftLineWidth   = s.value(settingsKey("DisplayFftLineWidth"), "2.0").toFloat();
     m_wfColorScheme  = static_cast<WfColorScheme>(
         std::clamp(s.value(settingsKey("DisplayWfColorScheme"), "0").toInt(),
@@ -265,12 +266,15 @@ void SpectrumWidget::loadSettings()
     m_bgOpacity = s.value(settingsKey("BackgroundOpacity"), "80").toInt();
 
     // Sync overlay menu sliders with restored settings
-    if (m_overlayMenu)
+    if (m_overlayMenu) {
         m_overlayMenu->syncDisplaySettings(m_fftAverage, m_fftFps,
             static_cast<int>(m_fftFillAlpha * 100), m_fftWeightedAvg, m_fftFillColor,
             m_wfColorGain, m_wfBlackLevel, m_wfAutoBlack, m_wfLineDuration,
             75, false, m_fftHeatMap, static_cast<int>(m_wfColorScheme), m_showGrid,
             m_fftLineWidth);
+        m_overlayMenu->syncExtraDisplaySettings(m_wfBlankerEnabled,
+            m_wfBlankerThreshold, m_bgOpacity, m_freqGridSpacingKhz);
+    }
 }
 
 VfoWidget* SpectrumWidget::addVfoWidget(int sliceId)
@@ -340,6 +344,13 @@ void SpectrumWidget::setShowGrid(bool on) {
     m_showGrid = on;
     auto& s = AppSettings::instance();
     s.setValue(settingsKey("DisplayShowGrid"), on ? "True" : "False");
+    s.save();
+    markOverlayDirty();
+}
+void SpectrumWidget::setFreqGridSpacing(int khz) {
+    m_freqGridSpacingKhz = khz;
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("DisplayFreqGridSpacing"), QString::number(khz));
     s.save();
     markOverlayDirty();
 }
@@ -3233,6 +3244,45 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
 
 // ─── Grid ─────────────────────────────────────────────────────────────────────
 
+// Compute the effective frequency grid step in MHz, honouring user override (#1390).
+// When m_freqGridSpacingKhz is 0 (Auto), uses the 1-2-5 sequence for ~5 grid lines.
+// When a manual value is set, clamps up to the next valid option if labels would overlap.
+double SpectrumWidget::effectiveGridStepMhz(int widgetWidth) const
+{
+    // 1-2-5 auto algorithm
+    auto autoStep = [&]() {
+        const double rawStep = m_bandwidthMhz / 5.0;
+        const double mag = std::pow(10.0, std::floor(std::log10(rawStep)));
+        const double norm = rawStep / mag;
+        if      (norm >= 5.0) return 5.0 * mag;
+        else if (norm >= 2.0) return 2.0 * mag;
+        else                  return 1.0 * mag;
+    };
+
+    if (m_freqGridSpacingKhz <= 0)
+        return autoStep();
+
+    // Manual spacing — check that labels won't overlap (~60px minimum per label)
+    static const int validKhz[] = { 1, 2, 5, 10, 25, 50, 100 };
+    const double minStepMhz = (widgetWidth > 0)
+        ? m_bandwidthMhz / (widgetWidth / 60.0)
+        : 0.0;
+
+    // Start from the user's chosen value; clamp up if too dense
+    double manualMhz = m_freqGridSpacingKhz * 0.001;
+    if (manualMhz >= minStepMhz)
+        return manualMhz;
+
+    // Find the smallest valid option that fits
+    for (int khz : validKhz) {
+        double mhz = khz * 0.001;
+        if (mhz >= minStepMhz && mhz > manualMhz)
+            return mhz;
+    }
+    // All manual options too dense — fall back to auto
+    return autoStep();
+}
+
 void SpectrumWidget::drawGrid(QPainter& p, const QRect& r)
 {
     if (!m_showGrid) return;
@@ -3256,16 +3306,10 @@ void SpectrumWidget::drawGrid(QPainter& p, const QRect& r)
         p.drawLine(0, y, w, y);
     }
 
-    // Vertical frequency grid lines — adaptive step matching the scale bar
+    // Vertical frequency grid lines (#1390: honour user spacing override)
     const double startMhz = m_centerMhz - m_bandwidthMhz / 2.0;
     const double endMhz   = m_centerMhz + m_bandwidthMhz / 2.0;
-    const double rawStep  = m_bandwidthMhz / 5.0;
-    const double gridMag  = std::pow(10.0, std::floor(std::log10(rawStep)));
-    const double gridNorm = rawStep / gridMag;
-    double gridStep;
-    if      (gridNorm >= 5.0) gridStep = 5.0 * gridMag;
-    else if (gridNorm >= 2.0) gridStep = 2.0 * gridMag;
-    else                      gridStep = 1.0 * gridMag;
+    const double gridStep = effectiveGridStepMhz(w);
     const double firstLine = std::ceil(startMhz / gridStep) * gridStep;
 
     p.setPen(QPen(QColor(0x20, 0x30, 0x40), 1, Qt::DotLine));
@@ -3876,15 +3920,8 @@ void SpectrumWidget::drawFreqScale(QPainter& p, const QRect& r)
     const double startMhz = m_centerMhz - m_bandwidthMhz / 2.0;
     const double endMhz   = m_centerMhz + m_bandwidthMhz / 2.0;
 
-    // Pick a step using 1-2-5 sequence to give ~5-10 labels at any zoom level.
-    double rawStep = m_bandwidthMhz / 5.0;
-    const double mag = std::pow(10.0, std::floor(std::log10(rawStep)));
-    const double norm = rawStep / mag;
-    double stepMhz;
-    if      (norm >= 5.0) stepMhz = 5.0 * mag;
-    else if (norm >= 2.0) stepMhz = 2.0 * mag;
-    else                  stepMhz = 1.0 * mag;
-
+    // Grid step — honours user spacing override (#1390)
+    const double stepMhz = effectiveGridStepMhz(width());
     const double firstLine = std::ceil(startMhz / stepMhz) * stepMhz;
 
     QFont f = p.font();

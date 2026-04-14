@@ -1161,6 +1161,25 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         });
     }
 
+    // ── Freq Grid Spacing dropdown (#1390) ──────────────────────────────
+    {
+        auto* lbl = new QLabel("Grid:");
+        lbl->setStyleSheet(labelStyle);
+        grid->addWidget(lbl, row, 0);
+        m_freqGridSpacingCmb = new QComboBox;
+        m_freqGridSpacingCmb->setFixedHeight(18);
+        m_freqGridSpacingCmb->setStyleSheet(comboStyleSheet());
+        m_freqGridSpacingCmb->addItem("Auto", 0);
+        for (int khz : {1, 2, 5, 10, 25, 50, 100})
+            m_freqGridSpacingCmb->addItem(QString("%1 kHz").arg(khz), khz);
+        grid->addWidget(m_freqGridSpacingCmb, row, 1, 1, 3);
+        connect(m_freqGridSpacingCmb, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int idx) {
+            emit freqGridSpacingChanged(m_freqGridSpacingCmb->itemData(idx).toInt());
+        });
+        ++row;
+    }
+
     // ── Scheme dropdown ───────────────────────────────────────────────────
     {
         auto* lbl = new QLabel("Scheme:");
@@ -1201,6 +1220,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
     if (m_autoBlackBtn) m_autoBlackBtn->setToolTip("Automatically adjusts the waterfall black level to match the current noise floor.");
     m_rateSlider->setToolTip("Waterfall line duration. Higher values scroll faster.");
     if (m_wfBlankerThreshSlider) m_wfBlankerThreshSlider->setToolTip("Waterfall noise blanking threshold. Higher values blank more aggressively.");
+    if (m_freqGridSpacingCmb) m_freqGridSpacingCmb->setToolTip("Frequency grid line spacing. Auto adapts to the current span.");
     if (m_colorSchemeCmb) m_colorSchemeCmb->setToolTip("Selects the waterfall color palette.");
     if (m_bgOpacitySlider) m_bgOpacitySlider->setToolTip("Opacity of the background image overlay.");
     if (m_floorEnableBtn) m_floorEnableBtn->setToolTip("Shows a noise floor reference line on the spectrum display.");
@@ -1272,8 +1292,15 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
 }
 
 void SpectrumOverlayMenu::syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
-                                                    int bgOpacity)
+                                                    int bgOpacity,
+                                                    int freqGridSpacingKhz)
 {
+    if (m_freqGridSpacingCmb) {
+        QSignalBlocker b(m_freqGridSpacingCmb);
+        int idx = m_freqGridSpacingCmb->findData(freqGridSpacingKhz);
+        if (idx >= 0) m_freqGridSpacingCmb->setCurrentIndex(idx);
+        else          m_freqGridSpacingCmb->setCurrentIndex(0);  // Auto
+    }
     if (m_wfBlankerBtn) {
         QSignalBlocker b(m_wfBlankerBtn);
         m_wfBlankerBtn->setChecked(blankerOn);
