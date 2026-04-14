@@ -2866,7 +2866,10 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
 
 void SpectrumWidget::render(QRhiCommandBuffer* cb)
 {
-    if (!m_rhiInitialized) return;
+    if (!m_rhiInitialized) {
+        initialize(cb);
+        if (!m_rhiInitialized) return;
+    }
     renderGpuFrame(cb);
 }
 
