@@ -1522,8 +1522,9 @@ QWidget* RadioSetupDialog::buildAudioTab()
     const auto inDevices = QMediaDevices::audioInputs();
     for (const auto& dev : inDevices)
         inCombo->addItem(dev.description(), dev.id());
-    const auto defaultIn = QMediaDevices::defaultAudioInput();
-    int inIdx = inCombo->findData(defaultIn.id());
+    const auto curIn = m_audio ? m_audio->inputDevice() : QAudioDevice();
+    const auto selIn = curIn.isNull() ? QMediaDevices::defaultAudioInput() : curIn;
+    int inIdx = inCombo->findData(selIn.id());
     if (inIdx >= 0) inCombo->setCurrentIndex(inIdx);
     inRow->addWidget(inLabel);
     inRow->addWidget(inCombo, 1);
