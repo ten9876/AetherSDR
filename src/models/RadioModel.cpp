@@ -745,6 +745,11 @@ void RadioModel::onConnected()
 {
     qCDebug(lcProtocol) << "RadioModel: connected";
     setActivePanResized(false);
+
+    // Inhibit system sleep while connected if the user has opted in (#1420)
+    if (AppSettings::instance().value("InhibitSleepWhileConnected", "False").toString() == "True")
+        m_sleepInhibitor.acquire("AetherSDR connected to radio");
+
     emit connectionStateChanged(true);
     // Delay network monitor until after client gui registration
     // (pings sent before registration cause "Malformed command" on WAN)
@@ -1169,6 +1174,9 @@ void RadioModel::restoreTuneInhibit()
 void RadioModel::onDisconnected()
 {
     qCDebug(lcProtocol) << "RadioModel: disconnected";
+
+    // Release sleep inhibition on disconnect (#1420)
+    m_sleepInhibitor.release();
 
     // Safety: restore TX outputs if we were inhibiting during tune
     if (m_tuneInhibitActive && m_tuneInhibitBandId >= 0)
