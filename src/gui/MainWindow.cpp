@@ -4598,6 +4598,20 @@ void MainWindow::onSliceAdded(SliceModel* s)
         // Feed frequency to Antenna Genius for band→antenna recall
         if (s->sliceId() == m_activeSliceId)
             m_antennaGenius.setRadioFrequency(mhz);
+
+        // Pan-follow-VFO: when the slice frequency leaves the visible
+        // panadapter range, re-center the panadapter on the new frequency
+        // so the VFO flag stays in view (#989).
+        if (auto* pan = m_radioModel.panadapter(s->panId())) {
+            const double halfBw = pan->bandwidthMhz() / 2.0;
+            const double low  = pan->centerMhz() - halfBw;
+            const double high = pan->centerMhz() + halfBw;
+            if (mhz < low || mhz > high) {
+                m_radioModel.sendCommand(
+                    QString("display pan set %1 center=%2")
+                        .arg(s->panId()).arg(mhz, 0, 'f', 6));
+            }
+        }
     });
 
     // Feed current frequency immediately (AG may connect later and reprocess).
