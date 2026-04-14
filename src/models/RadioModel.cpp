@@ -387,12 +387,14 @@ QString RadioModel::audioCompressionParam() const
 
 void RadioModel::sendCwKey(bool down)
 {
+    m_cwKeyActive = down;
     QString cmd = QString("cw key %1").arg(down ? 1 : 0);
     sendNetCwCommand(cmd);
 }
 
 void RadioModel::sendCwPaddle(bool dit, bool dah)
 {
+    m_cwKeyActive = dit || dah;
     QString cmd = QString("cw key %1 %2").arg(dit ? 1 : 0).arg(dah ? 1 : 0);
     sendNetCwCommand(cmd);
 }
@@ -1173,6 +1175,7 @@ void RadioModel::onDisconnected()
         restoreTuneInhibit();
 
     m_txRequested = false;
+    m_cwKeyActive = false;
     if (m_txAudioGate) {
         m_txAudioGate = false;
         emit txAudioGateChanged(false);
@@ -2130,7 +2133,7 @@ void RadioModel::onStatusReceived(const QString& object,
             const bool radioTx = (state == "TRANSMITTING");
             emit radioTransmittingChanged(radioTx);
 
-            if (!m_txOwnedByUs || (!m_txRequested && !m_transmitModel.isTuning())) {
+            if (!m_txOwnedByUs || (!m_txRequested && !m_cwKeyActive && !m_transmitModel.isTuning())) {
                 // Another client owns TX, or local unkey requested:
                 // force local TX/audio gate off through all interlock states.
                 m_transmitModel.setTransmitting(false);
