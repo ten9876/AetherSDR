@@ -1604,6 +1604,11 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(m_flexControl, &FlexControlManager::buttonPressed,
             this, [this](int button, int action) {
+        // Knob press while wheel function is active → return to frequency mode (#1354)
+        if (button == 4 && action == 0 && m_flexWheelMode != FlexWheelMode::Frequency) {
+            m_flexWheelMode = FlexWheelMode::Frequency;
+            return;
+        }
         QString key = QString("FlexControlBtn%1Action%2").arg(button).arg(action);
         auto& settings = AppSettings::instance();
         static const char* defaults[4][3] = {
