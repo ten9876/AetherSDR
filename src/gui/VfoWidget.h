@@ -180,7 +180,7 @@ private:
     bool         m_savedSquelchOn{false};
 public:
     void setDiversityAllowed(bool allowed);
-    void setSmartSdrPlus(bool has) { m_hasSmartSdrPlus = has; }
+    void setSmartSdrPlus(bool has);
 private:
     QSlider* m_sqlSlider{nullptr};
     QComboBox* m_agcCmb{nullptr};
