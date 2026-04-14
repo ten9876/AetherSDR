@@ -460,6 +460,7 @@ private:
     bool m_draggingBandwidth{false};
     int  m_bwDragStartX{0};
     double m_bwDragStartBw{0.0};
+    double m_bwDragAnchorMhz{0.0};
     // Waterfall pan drag state
     bool m_draggingPan{false};
     int  m_panDragStartX{0};
