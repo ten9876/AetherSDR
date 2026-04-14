@@ -1554,15 +1554,7 @@ MainWindow::MainWindow(QWidget* parent)
         double target = m_flexTargetMhz;
         // Use slice tune (not slice m) — doesn't recenter pan, correct for encoder
         s->setFrequency(target);
-        // Pan-follow-VFO (#989): setFrequency uses autopan=0, re-center explicitly
-        if (PanadapterModel* pan = m_radioModel.panadapter(s->panId())) {
-            const double halfBw = pan->bandwidthMhz() / 2.0;
-            if (target < pan->centerMhz() - halfBw || target > pan->centerMhz() + halfBw) {
-                m_radioModel.sendCommand(
-                    QString("display pan set %1 center=%2")
-                        .arg(pan->panId()).arg(target, 0, 'f', 6));
-            }
-        }
+        panFollowVfo(s, target);  // re-center pan if VFO stepped outside visible window (#989)
     });
     // FlexControl signals (auto-queued from worker → main)
     connect(m_flexControl, &FlexControlManager::tuneSteps,
@@ -1710,6 +1702,7 @@ MainWindow::MainWindow(QWidget* parent)
             long long snapped = ((curHz + stepHz / 2) / stepHz) * stepHz;
             double newMhz = (snapped + steps * stepHz) / 1e6;
             s->setFrequency(newMhz);
+            panFollowVfo(s, newMhz);  // re-center pan if VFO stepped outside visible window (#989)
         }
     });
 
@@ -5827,6 +5820,21 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             this, [this](const QPoint& pos) { showDfnrParamPopup(pos); });
 }
 
+void MainWindow::panFollowVfo(SliceModel* s, double mhz)
+{
+    PanadapterModel* pan = m_radioModel.panadapter(s->panId());
+    if (!pan) return;
+    const double halfBw = pan->bandwidthMhz() / 2.0;
+    if (mhz < pan->centerMhz() - halfBw || mhz > pan->centerMhz() + halfBw) {
+        // Optimistic local update: apply new center immediately so SpectrumWidget
+        // repaints without waiting for the radio echo-back round-trip. (#989)
+        pan->applyPanStatus({{"center", QString::number(mhz, 'f', 6)}});
+        m_radioModel.sendCommand(
+            QString("display pan set %1 center=%2")
+                .arg(pan->panId()).arg(mhz, 0, 'f', 6));
+    }
+}
+
 void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
 {
     const int sliceId = s->sliceId();
@@ -5837,6 +5845,12 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     connect(w, &VfoWidget::closeSliceRequested, this, [this, sliceId]() {
         if (m_radioModel.slices().size() <= 1) return;
         m_radioModel.sendCommand(QString("slice remove %1").arg(sliceId));
+    });
+    // Pan-follow-VFO (#989): wheel uses setFrequency(autopan=0) so re-center
+    // the pan explicitly when the stepped frequency falls outside the window.
+    connect(w, &VfoWidget::stepTuned, this, [this, sliceId](double mhz) {
+        if (auto* sl = m_radioModel.slice(sliceId))
+            panFollowVfo(sl, mhz);
     });
     connect(w, &VfoWidget::lockToggled, this, [this, sliceId](bool locked) {
         if (auto* sl = m_radioModel.slice(sliceId))
@@ -7091,17 +7105,7 @@ void MainWindow::onFrequencyChanged(double mhz)
     if (!m_updatingFromModel) {
         if (auto* s = activeSlice()) {
             s->setFrequency(mhz);
-
-            // Pan-follow-VFO (#989): setFrequency uses autopan=0, so re-center
-            // the pan explicitly when the new freq falls outside the visible window.
-            if (PanadapterModel* pan = m_radioModel.panadapter(s->panId())) {
-                const double halfBw = pan->bandwidthMhz() / 2.0;
-                if (mhz < pan->centerMhz() - halfBw || mhz > pan->centerMhz() + halfBw) {
-                    m_radioModel.sendCommand(
-                        QString("display pan set %1 center=%2")
-                            .arg(pan->panId()).arg(mhz, 0, 'f', 6));
-                }
-            }
+            panFollowVfo(s, mhz);  // re-center pan if VFO stepped outside visible window (#989)
 
             // Diversity: immediately mirror freq to child VFO (no radio round-trip)
             if (s->isDiversityParent()) {

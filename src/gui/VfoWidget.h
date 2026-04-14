@@ -99,6 +99,9 @@ Q_SIGNALS:
     void zeroBeatRequested();                   // client-side CW zero-beat
     void addSpotRequested(double freqMhz);
     void sliceActivationRequested(int sliceId);
+    // Emitted when the wheel tunes by step (autopan=0 path) — MainWindow uses
+    // this to explicitly re-center the pan if the new freq is outside the window.
+    void stepTuned(double mhz);
 
 protected:
     void paintEvent(QPaintEvent* event) override;

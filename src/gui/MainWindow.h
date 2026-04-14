@@ -109,6 +109,9 @@ private:
     void audioStartTx(const QHostAddress& addr, quint16 port);
     void audioStopTx();
     SliceModel* activeSlice() const;
+    // Pan-follow-VFO (#989): if mhz is outside the visible pan window, apply
+    // the new center locally (immediate repaint) and send the radio command.
+    void panFollowVfo(SliceModel* s, double mhz);
     SpectrumWidget* spectrum() const;
     void setActiveSlice(int sliceId);
     void updateFilterLimitsForMode(const QString& mode);
