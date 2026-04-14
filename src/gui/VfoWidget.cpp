@@ -1875,6 +1875,13 @@ void VfoWidget::setDiversityAllowed(bool allowed)
     }
 }
 
+void VfoWidget::setSmartSdrPlus(bool has)
+{
+    if (m_hasSmartSdrPlus == has) return;
+    m_hasSmartSdrPlus = has;
+    if (m_slice) rebuildFilterButtons();
+}
+
 void VfoWidget::setEscLevel(float dbm)
 {
     m_escLevelDbm = dbm;

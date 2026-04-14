@@ -1179,6 +1179,18 @@ MainWindow::MainWindow(QWidget* parent)
         m_appletPanel->setMaxSlices(m_radioModel.maxSlices());
     });
 
+    // Propagate late-arriving SmartSDR+ subscription to all existing VFOs (#1356)
+    connect(&m_radioModel, &RadioModel::infoChanged, this, [this]() {
+        const bool hasPlus = m_radioModel.licenseSubscription().contains("SmartSDR+");
+        if (m_panStack) {
+            for (auto* applet : m_panStack->allApplets()) {
+                auto* sw = applet->spectrumWidget();
+                for (auto* vfo : sw->findChildren<VfoWidget*>())
+                    vfo->setSmartSdrPlus(hasPlus);
+            }
+        }
+    });
+
     // ── NR2/RN2 feedback: AudioEngine → all VFO + overlay buttons ──────
     // Iterate all panadapter spectrums to find VFO widgets and overlay menus,
     // since spectrum()/vfoWidget() lookups can return null depending on
@@ -4733,6 +4745,14 @@ void MainWindow::onSliceAdded(SliceModel* s)
     // Create a VfoWidget for this slice on the correct panadapter
     auto* vfo = spectrumForSlice(s)->addVfoWidget(s->sliceId());
 
+    // Set SmartSDR+ flag before wireVfoWidget so rebuildFilterButtons
+    // sees the correct value when setSlice() triggers the first build (#1356)
+    {
+        const QString& sub = m_radioModel.licenseSubscription();
+        bool hasPlus = sub.contains("SmartSDR+");
+        vfo->setSmartSdrPlus(hasPlus);
+    }
+
     wireVfoWidget(vfo, s);
 
     // NR2/RN2/RADE are now wired permanently in wireVfoWidget — no
@@ -4745,9 +4765,6 @@ void MainWindow::onSliceAdded(SliceModel* s)
                        || model.contains("6700") || model.contains("8600")
                        || model.contains("AU-520");
         vfo->setDiversityAllowed(divAllowed);
-        const QString& sub = m_radioModel.licenseSubscription();
-        bool hasPlus = sub.contains("SmartSDR+");
-        vfo->setSmartSdrPlus(hasPlus);
     }
 
     // Feed S-meter per-slice — only this VFO's slice level
