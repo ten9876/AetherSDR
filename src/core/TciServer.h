@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QList>
+#include <QElapsedTimer>
 #include <memory>
 
 class QWebSocketServer;
@@ -94,6 +95,7 @@ private:
     int               m_txChronoTrx{0};
     std::unique_ptr<Resampler> m_txResampler; // 48kHz→24kHz TX downsampler
     bool              m_lastTx{false};
+    QElapsedTimer     m_lastDaxAudio;   // suppress pan RX audio while DAX is active
     float             m_cachedSLevel[8]{-130,-130,-130,-130,-130,-130,-130,-130};
     float             m_cachedFwdPower{0};
     float             m_cachedSwr{1.0f};

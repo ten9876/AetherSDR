@@ -491,6 +491,12 @@ void TciServer::onBinaryMessage(const QByteArray& data)
 
 void TciServer::onRxAudioReady(const QByteArray& pcm)
 {
+    // Suppress pan RX audio while DAX audio is flowing — TCI clients should
+    // receive only the slice-filtered DAX audio for digital mode apps like
+    // WSJT-X. Fall back to pan audio if DAX has been silent for >500ms.
+    if (m_lastDaxAudio.isValid() && !m_lastDaxAudio.hasExpired(500))
+        return;
+
     // Check if any client has audio enabled
     bool anyAudio = false;
     for (const auto& cs : m_clients) {
@@ -582,6 +588,9 @@ void TciServer::onRxAudioReady(const QByteArray& pcm)
 
 void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
 {
+    // Mark DAX audio as active so pan RX audio is suppressed
+    m_lastDaxAudio.restart();
+
     // Check if any client has audio enabled
     bool anyAudio = false;
     for (const auto& cs : m_clients) {
