@@ -16,6 +16,13 @@ SMeterWidget::SMeterWidget(QWidget* parent)
     setMinimumSize(minimumSizeHint());
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 
+    m_needleFraction = dbmToFraction(m_levelDbm);
+    m_targetNeedleFraction = m_needleFraction;
+
+    m_needleAnimation.setTimerType(Qt::PreciseTimer);
+    m_needleAnimation.setInterval(kNeedleAnimationIntervalMs);
+    connect(&m_needleAnimation, &QTimer::timeout, this, &SMeterWidget::animateNeedle);
+
     // Peak hold decay: drops 0.5 dB every 50 ms after a new peak
     m_peakDecay.setInterval(50);
     connect(&m_peakDecay, &QTimer::timeout, this, [this]() {
@@ -24,6 +31,7 @@ SMeterWidget::SMeterWidget(QWidget* parent)
             m_peakDbm = m_levelDbm;
             m_peakDecay.stop();
         }
+        updateNeedleTarget();
         update();
     });
 
@@ -32,6 +40,7 @@ SMeterWidget::SMeterWidget(QWidget* parent)
     m_peakReset.start();
     connect(&m_peakReset, &QTimer::timeout, this, [this]() {
         m_peakDbm = m_levelDbm;
+        updateNeedleTarget();
         update();
     });
 }
@@ -40,8 +49,7 @@ SMeterWidget::SMeterWidget(QWidget* parent)
 
 void SMeterWidget::setLevel(float dbm)
 {
-    // Exponential smoothing for needle movement
-    m_levelDbm = m_levelDbm + SMOOTH_ALPHA * (dbm - m_levelDbm);
+    m_levelDbm = dbm;
 
     // Peak hold (existing needle/triangle behavior)
     if (dbm > m_peakDbm) {
@@ -65,44 +73,54 @@ void SMeterWidget::setLevel(float dbm)
         }
     }
 
-    if (!m_transmitting)
+    updateNeedleTarget();
+
+    if (!m_transmitting) {
         update();
+    }
 }
 
 void SMeterWidget::setTxMeters(float fwdPower, float swr)
 {
-    m_txPower = m_txPower + SMOOTH_ALPHA * (fwdPower - m_txPower);
-    m_txSwr   = m_txSwr   + SMOOTH_ALPHA * (swr - m_txSwr);
+    m_txPower = fwdPower;
+    m_txSwr = swr;
+
+    updateNeedleTarget();
 
     // Repaint whenever TX power data arrives — either because moxChanged set
     // m_transmitting, or because RF power is flowing regardless (e.g. VOX,
     // hardware-keyed CW, or interlock race where setTransmitting arrives late).
-    if (m_transmitting || m_txPower > 0.5f)
+    if (m_transmitting || m_txPower > 0.5f) {
         update();
+    }
 }
 
 void SMeterWidget::setMicMeters(float micLevel, float compLevel, float micPeak, float compPeak)
 {
     Q_UNUSED(micLevel);
     Q_UNUSED(compLevel);
-    m_micLevel  = m_micLevel  + SMOOTH_ALPHA * (micPeak - m_micLevel);
+    m_micLevel = micPeak;
     // compPeak is raw dBFS from COMPPEAK. Silence gate at -30.
-    float comp = (compPeak > -30.0f) ? qBound(-25.0f, compPeak, 0.0f) : 0.0f;
-    m_compLevel = m_compLevel + SMOOTH_ALPHA * (comp - m_compLevel);
+    const float comp = (compPeak > -30.0f) ? qBound(-25.0f, compPeak, 0.0f) : 0.0f;
+    m_compLevel = comp;
 
-    if (m_transmitting && (m_txMode == TxMode::Level || m_txMode == TxMode::Compression))
+    updateNeedleTarget();
+
+    if (m_transmitting && (m_txMode == TxMode::Level || m_txMode == TxMode::Compression)) {
         update();
+    }
 }
 
 void SMeterWidget::setTransmitting(bool tx)
 {
     m_transmitting = tx;
     if (!tx) {
-        // Clear TX values immediately on un-key so the needle snaps back to RX
-        // rather than decaying slowly through the smoothing filter.
+        // Clear TX values immediately on un-key so the RX reading becomes the
+        // animation target as soon as transmit ends.
         m_txPower = 0.0f;
         m_txSwr   = 1.0f;
     }
+    updateNeedleTarget();
     update();
 }
 
@@ -112,6 +130,7 @@ void SMeterWidget::setTxMode(const QString& mode)
     else if (mode == "SWR")         m_txMode = TxMode::SWR;
     else if (mode == "Level")       m_txMode = TxMode::Level;
     else if (mode == "Compression") m_txMode = TxMode::Compression;
+    updateNeedleTarget();
     update();
 }
 
@@ -124,6 +143,54 @@ void SMeterWidget::setRxMode(const QString& mode)
         m_rxMode = RxMode::SMeterPeak;
         m_source = "S-Meter Peak";
     }
+    updateNeedleTarget();
+    update();
+}
+
+void SMeterWidget::updateNeedleTarget()
+{
+    if (m_transmitting) {
+        m_targetNeedleFraction = txValueToFraction(currentTxValue());
+    } else if (m_rxMode == RxMode::SMeterPeak) {
+        m_targetNeedleFraction = dbmToFraction(m_peakDbm);
+    } else {
+        m_targetNeedleFraction = dbmToFraction(m_levelDbm);
+    }
+
+    if (qAbs(m_targetNeedleFraction - m_needleFraction) <= kNeedleSnapEpsilon) {
+        m_needleFraction = m_targetNeedleFraction;
+        if (m_needleAnimation.isActive()) {
+            m_needleAnimation.stop();
+        }
+        return;
+    }
+
+    if (!m_needleAnimation.isActive()) {
+        m_needleElapsed.restart();
+        m_needleAnimation.start();
+    }
+}
+
+void SMeterWidget::animateNeedle()
+{
+    const qint64 elapsedMs = m_needleElapsed.restart();
+    if (elapsedMs <= 0) {
+        return;
+    }
+
+    const float delta = m_targetNeedleFraction - m_needleFraction;
+    const float elapsedSeconds = static_cast<float>(elapsedMs) / 1000.0f;
+    const float timeConstant = (delta >= 0.0f) ? kNeedleAttackTimeSeconds
+                                                : kNeedleReleaseTimeSeconds;
+    const float alpha = 1.0f - std::exp(-elapsedSeconds / timeConstant);
+
+    if (qAbs(delta) <= kNeedleSnapEpsilon) {
+        m_needleFraction = m_targetNeedleFraction;
+        m_needleAnimation.stop();
+    } else {
+        m_needleFraction += delta * alpha;
+    }
+
     update();
 }
 
@@ -411,14 +478,7 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     // arc center, so the pivot is barely out of frame.
     // When transmitting, needle tracks the selected TX meter instead of RX.
     {
-        float frac;
-        if (m_transmitting)
-            frac = txValueToFraction(currentTxValue());
-        else if (m_rxMode == RxMode::SMeterPeak)
-            frac = dbmToFraction(m_peakDbm);
-        else
-            frac = dbmToFraction(m_levelDbm);
-        const float angle = fractionToAngle(frac);
+        const float angle = fractionToAngle(m_needleFraction);
 
         // Needle extends to the end of the outer (RX) ticks: radius + 14
         const float tipR = radius + 14;
@@ -550,6 +610,7 @@ void SMeterWidget::setPowerScale(int maxWatts, bool hasAmplifier)
         m_powerScaleMax = 120.0f;
         m_powerRedStart = 100.0f;
     }
+    updateNeedleTarget();
     update();
 }
 
@@ -588,6 +649,7 @@ void SMeterWidget::resetPeak()
 {
     m_peakHoldDbm = m_levelDbm;
     m_peakHoldTimerRunning = false;
+    updateNeedleTarget();
     update();
 }
 

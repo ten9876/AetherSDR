@@ -64,6 +64,9 @@ protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
+    void updateNeedleTarget();
+    void animateNeedle();
+
     // Map dBm to fraction (0.0 = left, 1.0 = right) for RX S-meter scale
     float dbmToFraction(float dbm) const;
 
@@ -74,7 +77,7 @@ private:
     float currentTxValue() const;
 
     // RX state
-    float   m_levelDbm{-127.0f};    // current smoothed RX reading
+    float   m_levelDbm{-127.0f};    // current RX reading
     float   m_peakDbm{-127.0f};     // RX peak hold
     QString m_source{"S-Meter Peak"};
 
@@ -89,8 +92,13 @@ private:
     RxMode  m_rxMode{RxMode::SMeter};
     bool    m_transmitting{false};
 
+    QTimer  m_needleAnimation;
+    QElapsedTimer m_needleElapsed;
     QTimer  m_peakDecay;
     QTimer  m_peakReset;    // hard reset peak hold every 10 seconds
+
+    float   m_needleFraction{0.0f};
+    float   m_targetNeedleFraction{0.0f};
 
     // Peak hold line state
     bool           m_peakHoldEnabled{false};
@@ -106,7 +114,10 @@ private:
     static constexpr float MAX_DBM = -13.0f;  // S9+60
     static constexpr float DB_PER_S = 6.0f;
 
-    static constexpr float SMOOTH_ALPHA = 0.3f;
+    static constexpr int kNeedleAnimationIntervalMs = 8;
+    static constexpr float kNeedleAttackTimeSeconds = 0.045f;
+    static constexpr float kNeedleReleaseTimeSeconds = 0.180f;
+    static constexpr float kNeedleSnapEpsilon = 0.001f;
 
     // TX Power gauge scale (dynamic)
     float m_powerScaleMax{120.0f};
