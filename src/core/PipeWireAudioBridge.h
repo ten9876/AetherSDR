@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <atomic>
 #include <array>
 
@@ -67,6 +68,12 @@ private:
 
     QTimer* m_txReadTimer{nullptr};
     void readTxPipe();
+
+    // Silence fill during TX — keeps pipe-source clock advancing so
+    // WSJT-X / VARA don't see a stalled audio source.
+    QTimer*       m_silenceTimer{nullptr};
+    QElapsedTimer m_silenceElapsed;
+    void feedSilenceToAllPipes();
 
     bool m_open{false};
     float m_gain{0.5f};

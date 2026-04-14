@@ -77,6 +77,13 @@ bool PipeWireAudioBridge::open()
 
 void PipeWireAudioBridge::close()
 {
+    if (m_silenceTimer) {
+        m_silenceTimer->stop();
+        delete m_silenceTimer;
+        m_silenceTimer = nullptr;
+    }
+    m_transmitting = false;
+
     if (m_txReadTimer) {
         m_txReadTimer->stop();
         delete m_txReadTimer;
@@ -258,7 +265,12 @@ void PipeWireAudioBridge::feedDaxAudio(int channel, const QByteArray& pcm)
 {
     if (!m_open) return;
     if (channel < 1 || channel > NUM_CHANNELS) return;
-    if (m_transmitting) return;
+
+    // Real DAX audio has arrived — stop the silence fill timer if running.
+    if (m_transmitting && m_silenceTimer && m_silenceTimer->isActive()) {
+        m_silenceTimer->stop();
+        m_transmitting = false;
+    }
 
     auto& rx = m_rx[channel - 1];
     if (rx.fd < 0) return;
@@ -291,6 +303,49 @@ void PipeWireAudioBridge::feedDaxAudio(int channel, const QByteArray& pcm)
 void PipeWireAudioBridge::setTransmitting(bool tx)
 {
     m_transmitting = tx;
+
+    if (tx) {
+        // Start a timer that feeds silence into all RX pipes so the
+        // module-pipe-source clock keeps advancing during TX.  Without this,
+        // the pipe underruns and WSJT-X sees a timing gap equal to the TX
+        // duration, causing cumulative DT drift.
+        if (!m_silenceTimer) {
+            m_silenceTimer = new QTimer(this);
+            m_silenceTimer->setInterval(20);
+            m_silenceTimer->setTimerType(Qt::PreciseTimer);
+            connect(m_silenceTimer, &QTimer::timeout,
+                    this, &PipeWireAudioBridge::feedSilenceToAllPipes);
+        }
+        m_silenceElapsed.start();
+        m_silenceTimer->start();
+    }
+    // NOTE: silence timer is stopped in feedDaxAudio() when real RX audio
+    // arrives, not here — the radio hasn't resumed DAX RX audio yet at
+    // this point (interlock is still transitioning).
+}
+
+void PipeWireAudioBridge::feedSilenceToAllPipes()
+{
+    if (!m_open) return;
+
+    // Compute the exact number of mono int16 silence samples based on
+    // elapsed wall-clock time.  This avoids cumulative drift from QTimer
+    // jitter (same approach as the macOS VirtualAudioBridge fix).
+    const qint64 elapsedNs = m_silenceElapsed.nsecsElapsed();
+    m_silenceElapsed.start();
+
+    // mono samples = elapsed_s * sampleRate
+    const int monoSamples = static_cast<int>(
+        elapsedNs * SAMPLE_RATE / 1000000000LL);
+    if (monoSamples <= 0) return;
+
+    // Write silence (zero int16 samples) to each active RX pipe.
+    QByteArray silence(monoSamples * static_cast<int>(sizeof(int16_t)), '\0');
+    for (int i = 0; i < NUM_CHANNELS; ++i) {
+        if (m_rx[i].fd >= 0) {
+            ::write(m_rx[i].fd, silence.constData(), silence.size());
+        }
+    }
 }
 
 void PipeWireAudioBridge::readTxPipe()

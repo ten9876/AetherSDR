@@ -183,6 +183,7 @@ void VirtualAudioBridge::setTransmitting(bool tx)
             connect(m_silenceTimer, &QTimer::timeout,
                     this, &VirtualAudioBridge::feedSilenceToAllChannels);
         }
+        m_silenceElapsed.start();
         m_silenceTimer->start();
     }
     // NOTE: we do NOT stop the silence timer on TX→RX here.
@@ -194,13 +195,24 @@ void VirtualAudioBridge::setTransmitting(bool tx)
 void VirtualAudioBridge::feedSilenceToAllChannels()
 {
     if (!m_open) return;
-    // 20ms of silence @ 24 kHz stereo = 480 frames = 960 float samples
-    static constexpr int SILENCE_SAMPLES = 960;
+
+    // Compute the exact number of stereo samples needed based on elapsed
+    // wall-clock time since the last tick.  This eliminates cumulative drift
+    // caused by QTimer jitter (the old code wrote a fixed 960 samples per
+    // 20 ms tick, but late ticks produced fewer samples than real-time).
+    const qint64 elapsedNs = m_silenceElapsed.nsecsElapsed();
+    m_silenceElapsed.start();
+
+    // stereo samples = elapsed_s * sampleRate * 2 channels
+    const int silenceSamples = static_cast<int>(
+        elapsedNs * 24000LL * 2 / 1000000000LL);
+    if (silenceSamples <= 0) return;
+
     for (int i = 0; i < NUM_CHANNELS; ++i) {
         auto* block = m_blocks[i];
         if (!block || !block->active) continue;
         uint32_t wp = block->writePos.load(std::memory_order_relaxed);
-        for (int s = 0; s < SILENCE_SAMPLES; ++s) {
+        for (int s = 0; s < silenceSamples; ++s) {
             block->ringBuffer[wp % DaxShmBlock::RING_SIZE] = 0.0f;
             ++wp;
         }

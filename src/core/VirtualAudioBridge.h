@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <atomic>
 #include <algorithm>
 #include <cstdint>
@@ -89,6 +90,7 @@ private:
 
     bool     m_transmitting{false};
     QTimer*  m_silenceTimer{nullptr};
+    QElapsedTimer m_silenceElapsed;   // tracks wall-clock time for accurate silence fill
 };
 
 } // namespace AetherSDR
