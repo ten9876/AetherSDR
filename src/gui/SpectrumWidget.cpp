@@ -1247,12 +1247,17 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         }
     }
 
-    // Check for click near an inactive slice marker or its badge — switch active
+    // Check for click on an inactive slice overlay — switch active so the next
+    // interaction targets the clicked slice's passband/marker.
     if (y < specH) {
         const int mx = static_cast<int>(ev->position().x());
         for (const auto& so : m_sliceOverlays) {
             if (so.isActive) continue;
-            int sliceX = mhzToX(so.freqMhz);
+            const int sliceX = mhzToX(so.freqMhz);
+            const int loX = mhzToX(so.freqMhz + so.filterLowHz / 1.0e6);
+            const int hiX = mhzToX(so.freqMhz + so.filterHighHz / 1.0e6);
+            const int left = std::min(loX, hiX);
+            const int right = std::max(loX, hiX);
             // Slice badge area in top 25px
             if (mx >= sliceX - 8 && mx <= sliceX + 35 && y <= 25) {
                 emit sliceClicked(so.sliceId);
@@ -1262,6 +1267,17 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
             // Center line anywhere vertically
             if (std::abs(mx - sliceX) <= 8) {
                 emit sliceClicked(so.sliceId);
+                ev->accept();
+                return;
+            }
+            // Filter passband body anywhere in the FFT area: activate and
+            // immediately enter VFO drag so the first click-drag retunes.
+            if (mx >= left && mx <= right) {
+                emit sliceClicked(so.sliceId);
+                m_draggingVfo = true;
+                m_vfoDragOffsetHz = static_cast<int>(
+                    std::round((xToMhz(mx) - so.freqMhz) * 1.0e6));
+                setCursor(Qt::SizeHorCursor);
                 ev->accept();
                 return;
             }
