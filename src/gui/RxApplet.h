@@ -116,6 +116,7 @@ private:
 
     // ── Header row ────────────────────────────────────────────────────────
     QLabel*      m_sliceBadge{nullptr};   // "A" / "B" / "C" / "D"
+    QHBoxLayout* m_headerRow{nullptr};
     QPushButton* m_lockBtn{nullptr};      // tune-lock toggle
     QPushButton* m_rxAntBtn{nullptr};     // RX antenna dropdown (blue)
     QPushButton* m_txAntBtn{nullptr};     // TX antenna dropdown (red)

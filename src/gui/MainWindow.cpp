@@ -1151,6 +1151,10 @@ MainWindow::MainWindow(QWidget* parent)
     // ── Slice tab toggle: click A/B/C/D → switch active slice (#1278) ──
     connect(m_appletPanel->rxApplet(), &RxApplet::sliceActivationRequested,
             this, &MainWindow::setActiveSlice);
+    // Initialize slice tab buttons once the radio reports its actual capacity
+    connect(&m_radioModel, &RadioModel::infoChanged, this, [this]() {
+        m_appletPanel->setMaxSlices(m_radioModel.maxSlices());
+    });
 
     // ── NR2/RN2 feedback: AudioEngine → all VFO + overlay buttons ──────
     // Iterate all panadapter spectrums to find VFO widgets and overlay menus,
@@ -4129,8 +4133,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_connStatusLabel->setText("Connected");
         m_connPanel->setStatusText("Connected");
 
-        // Initialize slice tab toggle in RxApplet (#1278)
-        m_appletPanel->setMaxSlices(m_radioModel.maxSlices());
+        // Slice tab toggle is initialized from infoChanged when radio
+        // reports its actual slice capacity (#1278).
 
         // Show DIV button on dual-SCU radios
         {

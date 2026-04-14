@@ -256,6 +256,7 @@ void RxApplet::buildUI()
     // ── Header: slice badge | lock | RX ant | TX ant | filter width | QSK ──
     {
         auto* row = new QHBoxLayout;
+        m_headerRow = row;
         row->setSpacing(3);
 
         // Slice letter badge (A/B/C/D)
@@ -1002,9 +1003,22 @@ void RxApplet::setMaxSlices(int maxSlices)
         return;
     }
 
-    auto* layout = qobject_cast<QHBoxLayout*>(m_sliceTabRow->layout());
-    // Insert buttons before the trailing stretch
-    const int stretchIdx = layout->count() - 1;
+    // For ≤4 slices: inline on the header row (replace the static badge).
+    // For >4 slices (6700): use the separate row above the header.
+    const bool useInline = (maxSlices <= 4);
+    QHBoxLayout* targetLayout = nullptr;
+    int insertIdx = 0;
+
+    if (useInline) {
+        m_sliceBadge->setVisible(false);
+        targetLayout = m_headerRow;
+        // Insert at position 0 (where the badge was)
+        insertIdx = 0;
+    } else {
+        auto* layout = qobject_cast<QHBoxLayout*>(m_sliceTabRow->layout());
+        targetLayout = layout;
+        insertIdx = layout->count() - 1;  // before trailing stretch
+    }
 
     for (int i = 0; i < maxSlices; ++i) {
         auto* btn = new QToolButton;
@@ -1022,15 +1036,13 @@ void RxApplet::setMaxSlices(int maxSlices)
                     "border-color: #333333; }").arg(color));
 
         m_sliceGroup->addButton(btn, i);
-        layout->insertWidget(stretchIdx + i, btn);
+        targetLayout->insertWidget(insertIdx + i, btn);
         m_sliceBtns.append(btn);
     }
 
     // Wire button clicks to emit sliceActivationRequested
     connect(m_sliceGroup, QOverload<int>::of(&QButtonGroup::idClicked),
             this, [this](int /*buttonId*/) {
-        // The button ID is the slot index (0=A, 1=B, ...); we need the actual
-        // slice ID. Store the mapping in each button's user data via property.
         auto* btn = qobject_cast<QToolButton*>(m_sliceGroup->checkedButton());
         if (btn) {
             bool ok = false;
@@ -1039,7 +1051,9 @@ void RxApplet::setMaxSlices(int maxSlices)
         }
     });
 
-    m_sliceTabRow->setVisible(true);
+    if (!useInline) {
+        m_sliceTabRow->setVisible(true);
+    }
 }
 
 void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSliceId)
