@@ -198,13 +198,28 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     auto emitZoom = [this](double factor) {
         const double newBw = m_bandwidthMhz * factor;
         if (newBw < m_minBwMhz || newBw > m_maxBwMhz) { return; }  // at limit
+        // Anchor zoom on the active VFO so it stays at the same relative
+        // screen position while the edges expand/contract around it. (#1306)
+        const auto* ao = activeOverlay();
+        const double anchorMhz = ao ? ao->freqMhz : m_centerMhz;
+        m_centerMhz = anchorMhz + (m_centerMhz - anchorMhz) * (newBw / m_bandwidthMhz);
         m_bandwidthMhz = newBw;
         markOverlayDirty();
         emit bandwidthChangeRequested(newBw);
-        emit centerChangeRequested(m_centerMhz);  // anchor the current center
+        emit centerChangeRequested(m_centerMhz);
     };
     connect(m_zoomOutBtn, &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.5); });
     connect(m_zoomInBtn,  &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.0 / 1.5); });
+
+    // Center VFO button: one-click re-center the panadapter on the active VFO (#1306)
+    m_centerVfoBtn = makeBtn("C");
+    connect(m_centerVfoBtn, &QPushButton::clicked, this, [this]() {
+        const auto* ao = activeOverlay();
+        if (!ao) return;
+        m_centerMhz = ao->freqMhz;
+        markOverlayDirty();
+        emit centerChangeRequested(m_centerMhz);
+    });
 }
 
 // ── Multi-VfoWidget management ────────────────────────────────────────────────
@@ -1852,12 +1867,14 @@ void SpectrumWidget::positionZoomButtons()
     constexpr int sz = 22;
     const int botY = height() - pad;
 
-    // Row 1 (bottom): − | + (bandwidth zoom)
+    // Row 2 (bottom): − | + (bandwidth zoom)
     m_zoomOutBtn->move(pad, botY - sz);
     m_zoomInBtn->move(pad + sz + 2, botY - sz);
-    // Row 0 (above): S | B (segment/band zoom)
+    // Row 1 (middle): S | B (segment/band zoom)
     m_zoomSegBtn->move(pad, botY - sz - sz - 2);
     m_zoomBandBtn->move(pad + sz + 2, botY - sz - sz - 2);
+    // Row 0 (top): C (center VFO) (#1306)
+    m_centerVfoBtn->move(pad, botY - sz - sz - 2 - sz - 2);
 }
 
 // ─── Colour map ───────────────────────────────────────────────────────────────
