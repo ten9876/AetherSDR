@@ -106,7 +106,7 @@ void MqttClient::connectToBroker(const QString& host, quint16 port,
 
     int rc = mosquitto_connect_async(m_mosq,
         host.toUtf8().constData(), port, 60);
-    if (rc != MOSQ_ERR_SUCCESS) {
+    if (rc != MOSQ_ERR_SUCCESS && rc != MOSQ_ERR_CONN_PENDING) {
         qCWarning(lcMqtt) << "MqttClient: connect failed:" << mosquitto_strerror(rc);
         emit connectionError(QString("Connect failed: %1").arg(mosquitto_strerror(rc)));
         int delay = qMin(kInitialReconnectMs * (1 << m_reconnectAttempts), kMaxReconnectMs);

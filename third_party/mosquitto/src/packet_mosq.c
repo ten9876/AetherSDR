@@ -311,6 +311,8 @@ int packet__write(struct mosquitto *mosq)
 				if(errno == EAGAIN || errno == COMPAT_EWOULDBLOCK
 #ifdef WIN32
 						|| errno == WSAENOTCONN
+#else
+						|| errno == ENOTCONN
 #endif
 						){
 					return MOSQ_ERR_SUCCESS;
