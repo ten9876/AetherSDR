@@ -65,12 +65,15 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     });
     barLayout->addWidget(m_popOutBtn);
 
-    // Maximize button (□) — placeholder for future use
+    // Maximize button (□)
     m_maxBtn = new QPushButton("\u25a1");  // □
     m_maxBtn->setFixedSize(16, 14);
     m_maxBtn->setStyleSheet(btnStyle + "QPushButton { font-size: 11px; }");
     m_maxBtn->setToolTip("Maximize panadapter");
     m_maxBtn->hide();  // hidden in single-pan mode
+    connect(m_maxBtn, &QPushButton::clicked, this, [this]() {
+        emit maximizeRequested(m_panId);
+    });
     barLayout->addWidget(m_maxBtn);
 
     // Close button (×)
@@ -315,6 +318,11 @@ void PanadapterApplet::setSliceId(int id)
 void PanadapterApplet::clearSliceTitle()
 {
     m_titleLabel->clear();
+}
+
+QString PanadapterApplet::sliceTitle() const
+{
+    return m_titleLabel->text();
 }
 
 void PanadapterApplet::setCwPanelVisible(bool visible)

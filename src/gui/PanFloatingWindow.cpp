@@ -12,7 +12,11 @@ PanFloatingWindow::PanFloatingWindow(PanadapterApplet* applet, QWidget* parent)
     : QWidget(parent, Qt::Window)
     , m_applet(applet)
 {
-    setWindowTitle(QString("AetherSDR — Pan %1").arg(applet->panId()));
+    // Use the user-facing slice title (e.g. "Slice A") instead of raw hex pan ID
+    QString title = applet->sliceTitle();
+    if (title.isEmpty())
+        title = QString("Pan %1").arg(applet->panId());
+    setWindowTitle(QString("AetherSDR — %1").arg(title));
     setMinimumSize(400, 300);
 
     m_layout = new QVBoxLayout(this);
