@@ -6,6 +6,7 @@
 class ScrollableLabel;
 namespace AetherSDR { class FilterPassbandWidget; }
 
+class QButtonGroup;
 class QHBoxLayout;
 class QGridLayout;
 class QPushButton;
@@ -15,6 +16,7 @@ class QLineEdit;
 class QStackedWidget;
 class QComboBox;
 class QDoubleSpinBox;
+class QToolButton;
 
 namespace AetherSDR {
 
@@ -51,7 +53,17 @@ public:
     // Set the available antenna list (from ant_list in panadapter status).
     void setAntennaList(const QStringList& ants);
 
+    // Slice tab toggle — create N buttons (A..H) capped at hardware max.
+    // If maxSlices <= 1, the row is hidden.
+    void setMaxSlices(int maxSlices);
+
+    // Enable/disable buttons based on which slices are open, and check the
+    // button for the currently active slice.
+    void updateSliceButtons(const QList<SliceModel*>& slices, int activeSliceId);
+
 signals:
+    // Emitted when the user clicks a slice tab button.
+    void sliceActivationRequested(int sliceId);
     // Emitted when the user adjusts the AF gain slider (0–100).
     void afGainChanged(int value);
     // Emitted when the user changes the tuning step size (Hz).
@@ -96,6 +108,11 @@ private:
     QPushButton* m_stepDown{nullptr};   // "<" button
     ScrollableLabel* m_stepLabel{nullptr};  // current step value display
     QPushButton* m_stepUp{nullptr};     // ">" button
+
+    // ── Slice tab toggle row ─────────────────────────────────────────────
+    QWidget*                m_sliceTabRow{nullptr};
+    QButtonGroup*           m_sliceGroup{nullptr};
+    QVector<QToolButton*>   m_sliceBtns;
 
     // ── Header row ────────────────────────────────────────────────────────
     QLabel*      m_sliceBadge{nullptr};   // "A" / "B" / "C" / "D"
