@@ -197,24 +197,11 @@ bool AudioEngine::startRxStream()
     // Guard against WASAPI silently stopping the sink after idle/sleep.
     // Detect the silent stop and restart cleanly, mirroring the TX-side
     // fix for CoreAudio (#1149). (#1303)
-    // Also handle IdleState — on some WASAPI configurations the sink
-    // transitions to Idle (not Stopped) when the session goes stale after
-    // screensaver/idle, which the original #1303 handler missed. (#1361)
+    // Note: IdleState restart logic removed — it caused a restart loop on
+    // Windows that prevented audio playback (#1405). The zombie sink
+    // watchdog already handles stale WASAPI sessions after idle/sleep.
     connect(m_audioSink, &QAudioSink::stateChanged, this,
             [this](QAudio::State state) {
-#ifdef Q_OS_WIN
-        // IdleState with pending data = stale WASAPI session (#1361).
-        // PipeWire uses IdleState legitimately — skip on Linux.
-        if (state == QAudio::IdleState && !m_rxBuffer.isEmpty()) {
-            qCWarning(lcAudio) << "AudioEngine: QAudioSink went idle with pending data, restarting RX (#1361)";
-            QMetaObject::invokeMethod(this, [this]() {
-                if (!m_audioSink) return;
-                stopRxStream();
-                startRxStream();
-            }, Qt::QueuedConnection);
-            return;
-        }
-#endif
         if (state != QAudio::StoppedState) return;
         if (!m_audioSink) return;   // intentional stop (stopRxStream nulls this)
         QMetaObject::invokeMethod(this, [this]() {
@@ -258,21 +245,11 @@ bool AudioEngine::startRxStream()
     // Guard against the audio backend silently stopping the sink after idle/sleep.
     // Detect the silent stop and restart cleanly, mirroring the TX-side
     // fix for CoreAudio (#1149). (#1303)
-    // Also handle IdleState — on some backends the sink transitions to Idle
-    // (not Stopped) when the session goes stale after idle. (#1361)
+    // Note: IdleState restart logic removed — it caused a restart loop on
+    // Windows that prevented audio playback (#1405). The zombie sink
+    // watchdog already handles stale WASAPI sessions after idle/sleep.
     connect(m_audioSink, &QAudioSink::stateChanged, this,
             [this](QAudio::State state) {
-#ifdef Q_OS_WIN
-        if (state == QAudio::IdleState && !m_rxBuffer.isEmpty()) {
-            qCWarning(lcAudio) << "AudioEngine: QAudioSink went idle with pending data, restarting RX (#1361)";
-            QMetaObject::invokeMethod(this, [this]() {
-                if (!m_audioSink) return;
-                stopRxStream();
-                startRxStream();
-            }, Qt::QueuedConnection);
-            return;
-        }
-#endif
         if (state != QAudio::StoppedState) return;
         if (!m_audioSink) return;   // intentional stop (stopRxStream nulls this)
         QMetaObject::invokeMethod(this, [this]() {
