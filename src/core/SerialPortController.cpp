@@ -53,6 +53,7 @@ bool SerialPortController::open(const QString& portName, int baudRate,
     // Reset input state
     m_lastCtsActive = false;
     m_lastDsrActive = false;
+    m_pollLogged = false;
     m_debounceTimer.start();
 
     // Start polling if any input function is configured
@@ -145,6 +146,19 @@ void SerialPortController::pollInputPins()
     if (!m_port.isOpen()) return;
 
     auto pinState = m_port.pinoutSignals();
+
+    if (m_port.error() != QSerialPort::NoError) {
+        qCWarning(lcCat) << "SerialPortController: pinoutSignals() error:"
+                         << m_port.errorString();
+        return;
+    }
+
+    if (!m_pollLogged) {
+        m_pollLogged = true;
+        qCDebug(lcCat) << "SerialPortController: first poll – raw pinoutSignals ="
+                       << Qt::hex << static_cast<int>(pinState);
+    }
+
     bool cts = pinState.testFlag(QSerialPort::ClearToSendSignal);
     bool dsr = pinState.testFlag(QSerialPort::DataSetReadySignal);
 
@@ -223,8 +237,8 @@ void SerialPortController::loadSettings()
 
     m_ctsFn = strToInputFn(s.value("SerialCtsFunction", "None").toString());
     m_dsrFn = strToInputFn(s.value("SerialDsrFunction", "None").toString());
-    m_ctsActiveHigh = s.value("SerialCtsPolarity", "ActiveLow").toString() == "ActiveHigh";
-    m_dsrActiveHigh = s.value("SerialDsrPolarity", "ActiveLow").toString() == "ActiveHigh";
+    m_ctsActiveHigh = s.value("SerialCtsPolarity", "ActiveHigh").toString() == "ActiveHigh";
+    m_dsrActiveHigh = s.value("SerialDsrPolarity", "ActiveHigh").toString() == "ActiveHigh";
     m_paddleSwap = s.value("SerialPaddleSwap", "False").toString() == "True";
 
     if (!port.isEmpty() && s.value("SerialAutoOpen", "False").toString() == "True") {
