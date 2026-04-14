@@ -136,6 +136,20 @@ bool AudioEngine::startRxStream()
             return false;
         }
     }
+    // Guard against WASAPI silently stopping the sink after idle/sleep.
+    // Detect the silent stop and restart cleanly, mirroring the TX-side
+    // fix for CoreAudio (#1149). (#1303)
+    connect(m_audioSink, &QAudioSink::stateChanged, this,
+            [this](QAudio::State state) {
+        if (state != QAudio::StoppedState) return;
+        if (!m_audioSink) return;   // intentional stop (stopRxStream nulls this)
+        QMetaObject::invokeMethod(this, [this]() {
+            if (!m_audioSink) return;
+            qCWarning(lcAudio) << "AudioEngine: QAudioSink stopped unexpectedly, restarting RX (#1303)";
+            stopRxStream();
+            startRxStream();
+        }, Qt::QueuedConnection);
+    });
     qCWarning(lcAudio) << "AudioEngine: RX stream started at" << fmt.sampleRate() << "Hz"
                        << "device:" << dev.description();
     emit rxStarted();
@@ -166,6 +180,20 @@ bool AudioEngine::startRxStream()
         return false;
     }
 
+    // Guard against the audio backend silently stopping the sink after idle/sleep.
+    // Detect the silent stop and restart cleanly, mirroring the TX-side
+    // fix for CoreAudio (#1149). (#1303)
+    connect(m_audioSink, &QAudioSink::stateChanged, this,
+            [this](QAudio::State state) {
+        if (state != QAudio::StoppedState) return;
+        if (!m_audioSink) return;   // intentional stop (stopRxStream nulls this)
+        QMetaObject::invokeMethod(this, [this]() {
+            if (!m_audioSink) return;
+            qCWarning(lcAudio) << "AudioEngine: QAudioSink stopped unexpectedly, restarting RX (#1303)";
+            stopRxStream();
+            startRxStream();
+        }, Qt::QueuedConnection);
+    });
     qCDebug(lcAudio) << "AudioEngine: RX stream started";
     emit rxStarted();
     return true;
