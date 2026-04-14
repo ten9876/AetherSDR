@@ -643,7 +643,7 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
 
     // Noise floor auto-adjust: every 10 frames, measure noise floor and
     // adjust min_dbm so it sits at the user's chosen position.
-    if (m_noiseFloorEnable && !m_smoothed.isEmpty()) {
+    if (m_noiseFloorEnable && !m_transmitting && !m_smoothed.isEmpty()) {
         if (++m_noiseFloorFrameCount >= 10) {
             m_noiseFloorFrameCount = 0;
 
