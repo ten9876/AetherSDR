@@ -4653,6 +4653,13 @@ void MainWindow::onSliceAdded(SliceModel* s)
             s->mode(), s->rttyMark(), s->rttyShift(),
             s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq());
         updateSplitState();
+
+        // Active follows TX slice (#1351) — switch the displayed/active slice
+        // when an external program (e.g. WSJT-X) moves the TX flag
+        if (tx && s->sliceId() != m_activeSliceId
+            && AppSettings::instance().value("ActiveFollowsTxSlice", "False").toString() == "True") {
+            setActiveSlice(s->sliceId());
+        }
     });
 
     // When the radio notifies us that this slice became active, switch to it

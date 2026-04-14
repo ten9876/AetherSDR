@@ -971,6 +971,29 @@ QWidget* RadioSetupDialog::buildTxTab()
         });
         grid->addWidget(tfBtn, 3, 1);
 
+        // Active Follows TX Slice (#1351)
+        auto* afLbl = new QLabel("Active Follows TX Slice:");
+        afLbl->setStyleSheet(kLabelStyle);
+        grid->addWidget(afLbl, 4, 0);
+        bool activeFollows = AppSettings::instance().value("ActiveFollowsTxSlice", "False").toString() == "True";
+        auto* afBtn = new QPushButton(activeFollows ? "Enabled" : "Disabled");
+        afBtn->setCheckable(true);
+        afBtn->setChecked(activeFollows);
+        afBtn->setToolTip("Switch the active/displayed slice when the TX slice\nchanges externally (e.g. via WSJT-X or CAT command).");
+        afBtn->setStyleSheet(
+            "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
+            "border-radius: 3px; color: #c8d8e8; font-size: 11px; font-weight: bold; "
+            "padding: 3px 10px; }"
+            "QPushButton:checked { background: #1a5030; color: #00e060; "
+            "border: 1px solid #20a040; }");
+        connect(afBtn, &QPushButton::toggled, this, [afBtn](bool on) {
+            afBtn->setText(on ? "Enabled" : "Disabled");
+            auto& s = AppSettings::instance();
+            s.setValue("ActiveFollowsTxSlice", on ? "True" : "False");
+            s.save();
+        });
+        grid->addWidget(afBtn, 4, 1);
+
         vbox->addLayout(grid);
     }
 
