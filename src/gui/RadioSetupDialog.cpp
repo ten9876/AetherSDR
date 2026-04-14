@@ -1507,6 +1507,23 @@ QWidget* RadioSetupDialog::buildAudioTab()
         vbox->addWidget(compGroup);
     }
 
+    // ── Prevent Sleep ───────────────────────────────────────────────────
+    {
+        auto* sleepCheck = new QCheckBox("Prevent system sleep while connected");
+        sleepCheck->setStyleSheet("QCheckBox { color: #c8d8e8; font-size: 11px; }");
+        sleepCheck->setToolTip("Hold a system power assertion to prevent idle sleep\n"
+                               "while connected to a radio. Keeps TCP/UDP/audio\n"
+                               "streams alive during long sessions.");
+        sleepCheck->setChecked(
+            AppSettings::instance().value("InhibitSleepWhileConnected", "False").toString() == "True");
+        connect(sleepCheck, &QCheckBox::toggled, this, [](bool on) {
+            auto& s = AppSettings::instance();
+            s.setValue("InhibitSleepWhileConnected", on ? "True" : "False");
+            s.save();
+        });
+        vbox->addWidget(sleepCheck);
+    }
+
     // ── PC Audio Devices ────────────────────────────────────────────────
     auto* pcGroup = new QGroupBox("PC Audio Devices");
     pcGroup->setStyleSheet(kGroupStyle);

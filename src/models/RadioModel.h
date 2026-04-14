@@ -3,6 +3,7 @@
 #include "core/RadioConnection.h"
 #include "core/WanConnection.h"
 #include "core/PanadapterStream.h"
+#include "core/SleepInhibitor.h"
 #include <QThread>
 #include "SliceModel.h"
 #include "MeterModel.h"
@@ -576,6 +577,7 @@ private:
     QMap<quint32, ClientInfo> m_clientInfoMap; // handle → full client info
     QMap<quint32, QString> m_clientStations;   // handle → station name (legacy, kept in sync)
 
+    SleepInhibitor m_sleepInhibitor;     // prevents OS idle sleep while connected
     RadioInfo m_lastInfo;               // stored for auto-reconnect
     bool      m_intentionalDisconnect{false};
     QTimer    m_reconnectTimer;

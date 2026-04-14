@@ -55,6 +55,14 @@ if(Qt6WebSockets_FOUND)
 else()
     message(STATUS "Qt6::WebSockets not found — FreeDV Reporter spot source disabled")
 endif()
+if(UNIX AND NOT APPLE)
+    find_package(Qt6 QUIET COMPONENTS DBus)
+    if(Qt6DBus_FOUND)
+        message(STATUS "Qt6::DBus found — sleep inhibition via D-Bus enabled")
+    else()
+        message(STATUS "Qt6::DBus not found — sleep inhibition disabled on Linux")
+    endif()
+endif()
 find_package(Qt6Keychain QUIET)
 if(Qt6Keychain_FOUND)
     message(STATUS "Qt6Keychain found — SmartLink credential persistence enabled")
@@ -430,6 +438,7 @@ set(CORE_SOURCES
     src/core/AdifParser.cpp
     src/core/DxccWorkedStatus.cpp
     src/core/DxccColorProvider.cpp
+    src/core/SleepInhibitor.cpp
 )
 
 if(APPLE)
@@ -657,6 +666,11 @@ if(Qt6Keychain_FOUND)
     target_link_libraries(AetherSDR PRIVATE Qt6Keychain::Qt6Keychain)
 endif()
 
+if(Qt6DBus_FOUND)
+    target_compile_definitions(AetherSDR PRIVATE HAVE_DBUS)
+    target_link_libraries(AetherSDR PRIVATE Qt6::DBus)
+endif()
+
 if(AETHER_GPU_SPECTRUM)
     target_compile_definitions(AetherSDR PRIVATE AETHER_GPU_SPECTRUM)
 
@@ -696,7 +710,7 @@ target_sources(AetherSDR PRIVATE
 target_include_directories(AetherSDR PRIVATE third_party/rtmidi)
 if(APPLE)
     target_compile_definitions(AetherSDR PRIVATE __MACOSX_CORE__)
-    target_link_libraries(AetherSDR PRIVATE "-framework CoreMIDI" "-framework CoreAudio" "-framework CoreFoundation")
+    target_link_libraries(AetherSDR PRIVATE "-framework CoreMIDI" "-framework CoreAudio" "-framework CoreFoundation" "-framework IOKit")
 elseif(WIN32)
     target_compile_definitions(AetherSDR PRIVATE __WINDOWS_MM__)
     target_link_libraries(AetherSDR PRIVATE winmm)
