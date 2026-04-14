@@ -99,6 +99,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY_TARGET" \
             -DCMAKE_PREFIX_PATH="$QT_PREFIX;$(brew --prefix)" \
+            -DMQTT_TLS=OFF \
             $GPU_FLAG
 
       - name: Build

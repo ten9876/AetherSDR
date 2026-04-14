@@ -44,7 +44,7 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DENABLE_RADE=OFF
+          cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DENABLE_RADE=OFF -DMQTT_TLS=OFF
 
       - name: Build
         run: cmake --build build -j $env:NUMBER_OF_PROCESSORS
@@ -69,19 +69,10 @@ jobs:
           if (Test-Path "third_party\deepfilter\models\DeepFilterNet3_onnx.tar.gz") {
             copy third_party\deepfilter\models\DeepFilterNet3_onnx.tar.gz deploy\
           }
-          # Bundle OpenSSL runtime DLLs for MQTT TLS support (#1341, #1362)
-          $sslPaths = @(
-            "C:\Program Files\OpenSSL\bin",
-            "C:\Program Files\OpenSSL-Win64\bin",
-            "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
-          )
-          foreach ($dir in $sslPaths) {
-            if (Test-Path "$dir\libssl-3-x64.dll") {
-              copy "$dir\libssl-3-x64.dll" deploy\
-              copy "$dir\libcrypto-3-x64.dll" deploy\
-              Write-Host "Bundled OpenSSL from $dir"
-              break
-            }
+          # NOTE: MQTT TLS is disabled (-DMQTT_TLS=OFF) so no OpenSSL DLLs
+          # are needed. This avoids the "libssl-3-x64.dll not found" crash
+          # on systems without OpenSSL installed (#1341, #1362).
+          if ($false) {
           }
 
       - name: Create portable ZIP

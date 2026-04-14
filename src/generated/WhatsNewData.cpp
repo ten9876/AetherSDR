@@ -6,6 +6,19 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.8.12.2"), QStringLiteral("2026-04-14"), QStringLiteral("Enhancements"), {
+            {ChangeCategory::BugFix, QStringLiteral("Fix two-slice band-change crash"), QStringLiteral("Null-guard all spectrumForSlice() dereferences during pan creation/destruction")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix CW key/paddle not triggering TX"), QStringLiteral("Track CW key/paddle state in interlock handler so break-in keying isn't killed")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix popout panadapter frozen after reparent"), QStringLiteral("GPU render pipeline self-heals: re-initializes lazily on next render frame")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix WSJT-X DT drift on DAX RX audio after TX cycles"), QStringLiteral("PipeWireAudioBridge: silence fill during TX keeps pipe clock advancing VirtualAudioBridge: wall-clock-accurate silence fill (eliminates QTimer jitter)")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix CW auto-tune buttons not shown for SSDR+ users"), QStringLiteral("Set license flag before VFO widget builds filter buttons")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix FlexControl knob press not returning to frequency mode"), QStringLiteral("Knob press while in Volume/Power wheel mode returns to Frequency")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix audio stopping after idle/screensaver with USB devices"), QStringLiteral("Zombie sink watchdog, IdleState handler, device list monitor (Windows only) PipeWire-safe: WASAPI-specific recovery gated behind Q_OS_WIN")},
+            {ChangeCategory::BugFix, QStringLiteral("Send graceful client disconnect before closing TCP"), QStringLiteral("Prevents Maestro lockup on reconnect with same GUIClientID")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix panadapter bandwidth limits"), QStringLiteral("Per-model pcap-verified values; 8400 correctly grouped as single-SCU")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix waterfall tooltip descriptions"), QStringLiteral("Black level and rate tooltips corrected")},
+            {ChangeCategory::BugFix, QStringLiteral("Fix AppImage crash on Arch/Fedora"), QStringLiteral("Removed bundled OpenSSL from AppImage (ABI conflicts with host PipeWire)")},
+        }},
         {QStringLiteral("0.8.12.1"), QStringLiteral("2026-04-14"), QStringLiteral(""), {
             {ChangeCategory::BugFix, QStringLiteral("Fix startup crash on Windows"), QStringLiteral("Bundle `libssl-3-x64.dll` and `libcrypto-3-x64.dll` in Windows installer and portable ZIP Bundle `libssl.so.3` and `libcrypto.so.3` in AppImage MQTT TLS support added in v0.8.12 linked OpenSSL dyna...")},
         }},

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AetherSDR VERSION 0.8.12.1 LANGUAGES C CXX)
+project(AetherSDR VERSION 0.8.12.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -356,8 +356,11 @@ endif()
 
 # MQTT client support — bundled libmosquitto (#699)
 option(ENABLE_MQTT "Enable MQTT client support" ON)
+option(MQTT_TLS "Enable MQTT TLS via OpenSSL (disable for AppImage)" ON)
 if(ENABLE_MQTT)
-    find_package(OpenSSL)
+    if(MQTT_TLS)
+        find_package(OpenSSL)
+    endif()
     set(MOSQUITTO_DIR ${CMAKE_SOURCE_DIR}/third_party/mosquitto)
     file(GLOB MOSQUITTO_SOURCES ${MOSQUITTO_DIR}/src/*.c)
     # Remove broker-only and optional files we don't need

@@ -73,6 +73,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DREQUIRE_SERIALPORT=ON \
+            -DMQTT_TLS=OFF \
             $CMAKE_EXTRA
 
       - name: Build Opus (RADE dependency)
@@ -94,14 +95,11 @@ jobs:
               AppDir/usr/bin/
           fi
 
-          # Bundle OpenSSL for MQTT TLS support (#1341, #1362)
+          # NOTE: Do NOT bundle OpenSSL in the AppImage. Linux distros ship
+          # libssl.so.3 / libcrypto.so.3 as system libraries. Bundling the
+          # Ubuntu 22.04 version causes ABI conflicts with the host's PipeWire,
+          # GStreamer, and PulseAudio, crashing the app on launch (#1362).
           mkdir -p AppDir/usr/lib
-          for lib in libssl.so.3 libcrypto.so.3; do
-            src=$(find /usr/lib -name "$lib" -print -quit 2>/dev/null)
-            if [ -n "$src" ]; then
-              cp -v "$src" AppDir/usr/lib/
-            fi
-          done
 
           # Bundle Qt6 multimedia backend plugin
           if [ "${{ matrix.use_aqt }}" = "true" ]; then
@@ -137,6 +135,10 @@ jobs:
           else
             export QMAKE=$(which qmake6 2>/dev/null || which qmake)
           fi
+          # Exclude OpenSSL from the AppImage — bundled Ubuntu 22.04 versions
+          # conflict with host PipeWire/GStreamer on newer distros (#1362, #1389).
+          # linuxdeploy pulls them as transitive deps of libgssapi/libsystemd.
+          export LINUXDEPLOY_EXCLUDE_LIBS="libssl.so.3:libcrypto.so.3"
           ./linuxdeploy-${{ matrix.arch }}.AppImage \
             --appdir AppDir \
             --plugin qt \

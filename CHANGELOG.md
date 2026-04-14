@@ -3,6 +3,63 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.12.2] — 2026-04-14
+
+### Bug Fixes, Meter Smoothing, Maestro Disconnect Fix
+
+### Bug Fixes
+
+**Fix two-slice band-change crash (#1372)**
+- Null-guard all spectrumForSlice() dereferences during pan creation/destruction
+
+**Fix CW key/paddle not triggering TX (#1379)**
+- Track CW key/paddle state in interlock handler so break-in keying isn't killed
+
+**Fix popout panadapter frozen after reparent (#1381)**
+- GPU render pipeline self-heals: re-initializes lazily on next render frame
+
+**Fix WSJT-X DT drift on DAX RX audio after TX cycles (#537)**
+- PipeWireAudioBridge: silence fill during TX keeps pipe clock advancing
+- VirtualAudioBridge: wall-clock-accurate silence fill (eliminates QTimer jitter)
+
+**Fix CW auto-tune buttons not shown for SSDR+ users (#1356)**
+- Set license flag before VFO widget builds filter buttons
+
+**Fix FlexControl knob press not returning to frequency mode (#1354)**
+- Knob press while in Volume/Power wheel mode returns to Frequency
+
+**Fix audio stopping after idle/screensaver with USB devices (#1361)**
+- Zombie sink watchdog, IdleState handler, device list monitor (Windows only)
+- PipeWire-safe: WASAPI-specific recovery gated behind Q_OS_WIN
+
+**Send graceful client disconnect before closing TCP (#1359)**
+- Prevents Maestro lockup on reconnect with same GUIClientID
+
+**Fix panadapter bandwidth limits (#1385)**
+- Per-model pcap-verified values; 8400 correctly grouped as single-SCU
+
+**Fix waterfall tooltip descriptions (#1365)**
+- Black level and rate tooltips corrected
+
+**Fix AppImage crash on Arch/Fedora (#1362)**
+- Removed bundled OpenSSL from AppImage (ABI conflicts with host PipeWire)
+
+### Enhancements
+
+**Asymmetric attack/release smoothing on all HGauge meters**
+- 30ms attack, 180ms release on all 13 gauge instances (Level, Compression,
+  ALC, Fwd Pwr, SWR, Temp, etc.)
+
+**Smooth slice flag S-meter bar** (community: @rfoust)
+- Same attack/release timing applied to VFO slice flag meter
+
+### CI/CD
+
+**Fix macOS Intel CI hang**
+- Skip post-run checkout cleanup on ephemeral runners
+
+---
+
 ## [v0.8.12.1] — 2026-04-14
 
 ### Hotfix: Bundle OpenSSL for Windows and AppImage
