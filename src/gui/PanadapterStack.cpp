@@ -41,25 +41,7 @@ PanadapterStack::PanadapterStack(QWidget* parent)
 
 void PanadapterStack::setBandStackVisible(bool visible)
 {
-    // Lock the splitter's current width so Qt doesn't redistribute
-    // pixels when the band stack panel appears/disappears.
-    int splitterW = m_splitter->width();
-    m_splitter->setFixedWidth(splitterW);
-
     m_bandStackPanel->setVisible(visible);
-
-    // Grow/shrink the main window to accommodate the panel
-    if (QWidget* win = window()) {
-        int delta = 80;  // band stack panel width
-        QSize sz = win->size();
-        win->resize(sz.width() + (visible ? delta : -delta), sz.height());
-    }
-
-    // Release the width lock after the resize settles
-    QTimer::singleShot(0, this, [this]() {
-        m_splitter->setMinimumWidth(0);
-        m_splitter->setMaximumWidth(QWIDGETSIZE_MAX);
-    });
 }
 
 PanadapterApplet* PanadapterStack::addPanadapter(const QString& panId)
