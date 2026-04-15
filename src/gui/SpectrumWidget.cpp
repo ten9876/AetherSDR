@@ -3010,26 +3010,12 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             const float fb = m_fftFillColor.blueF();
             const float fa = m_fftFillAlpha;
 
-            // Solid fill: slider sweeps from translucent gradient to solid.
-            // At low slider: soft glow under curve (bright top, dark faint base)
-            // At high slider: converges to uniform solid fill color
-            const QColor dk = m_fftFillColor.darker(300);
-            const float topAlpha = fa;
-            const float botAlpha = fa * fa;
-            // Blend bottom color from darker(300) toward fill color as slider increases
-            const float colorBlend = fa;  // 0=full dark, 1=same as top
-            const float dr = fr + (1.0f - colorBlend) * (dk.redF() - fr);
-            const float dg = fg + (1.0f - colorBlend) * (dk.greenF() - fg);
-            const float db = fb + (1.0f - colorBlend) * (dk.blueF() - fb);
-            const float gradRange = yTop - yBot;
-
-            auto yColor = [&](float vy, float* out) {
-                const float gt = (gradRange > 0)
-                    ? qBound(0.0f, (yTop - vy) / gradRange, 1.0f) : 0.0f;
-                out[0] = fr + gt * (dr - fr);
-                out[1] = fg + gt * (dg - fg);
-                out[2] = fb + gt * (db - fb);
-                out[3] = topAlpha + gt * (botAlpha - topAlpha);
+            // Uniform fill: alpha controlled solely by the fill slider
+            auto yColor = [&](float /*vy*/, float* out) {
+                out[0] = fr;
+                out[1] = fg;
+                out[2] = fb;
+                out[3] = fa;
             };
 
             // Line vertices: 2N × (x, y, r, g, b, a) — triangle strip expansion
@@ -3750,17 +3736,10 @@ void SpectrumWidget::drawSpectrum(QPainter& p, const QRect& r)
         fillPath.lineTo(r.left(),  r.bottom());
         fillPath.closeSubpath();
 
-        const int alphaTop = static_cast<int>(200 * m_fftFillAlpha);
-        const int alphaBot = static_cast<int>(60 * m_fftFillAlpha);
-        QColor topColor(m_fftFillColor);
-        topColor.setAlpha(alphaTop);
-        QColor botColor = m_fftFillColor.darker(300);
-        botColor.setAlpha(alphaBot);
-        QLinearGradient grad(0, r.top(), 0, r.bottom());
-        grad.setColorAt(0.0, topColor);
-        grad.setColorAt(1.0, botColor);
+        QColor fillColor(m_fftFillColor);
+        fillColor.setAlpha(static_cast<int>(255 * m_fftFillAlpha));
 
-        p.fillPath(fillPath, grad);
+        p.fillPath(fillPath, fillColor);
         p.setPen(QPen(m_fftFillColor, 1.5));
         p.drawPath(linePath);
     }
