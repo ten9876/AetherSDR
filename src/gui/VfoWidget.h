@@ -116,6 +116,9 @@ private:
     void updateSignalMeterTarget();
     void animateSignalMeter();
     static float signalDbmToMeterFraction(float dbm);
+    void showContextMenu(const QPoint& globalPos);
+    void setSideButtonsVisible(bool visible);
+    void applySideButtonVisibility();
 
     void buildUI();
     void buildTabContent();
@@ -143,6 +146,7 @@ private:
     float          m_targetSignalMeterFraction{0.0f};
     bool           m_collapsed{false};
     bool           m_collapseToggled{false};  // guard: absorb release after toggle
+    bool           m_sideButtonsVisible{true}; // per-flag toggle for side buttons
     QPointer<QLabel> m_collapsedFreqLabel;
     QSet<QWidget*> m_hiddenBeforeCollapse;    // widgets already hidden before collapse
 

@@ -240,6 +240,13 @@ void VfoWidget::wheelEvent(QWheelEvent* ev)
 void VfoWidget::mousePressEvent(QMouseEvent* ev)
 {
     ev->accept();
+
+    // Right-click → context menu (works in both collapsed and expanded states)
+    if (ev->button() == Qt::RightButton) {
+        showContextMenu(ev->globalPosition().toPoint());
+        return;
+    }
+
     if (m_collapsed) {
         // Match the painted geometry in paintEvent
         const int badgeSize = 20;
@@ -271,6 +278,100 @@ void VfoWidget::mousePressEvent(QMouseEvent* ev)
 void VfoWidget::mouseReleaseEvent(QMouseEvent* ev)
 {
     ev->accept();
+}
+
+void VfoWidget::showContextMenu(const QPoint& globalPos)
+{
+    QMenu menu(this);
+    menu.setStyleSheet(
+        "QMenu { background: #1a1a2e; color: #c8d8e8; border: 1px solid #304060; }"
+        "QMenu::item:selected { background: #00b4d8; color: #0f0f1a; }");
+
+    // Close Slice
+    menu.addAction("Close Slice", this, [this] {
+        emit closeSliceRequested();
+    });
+
+    menu.addSeparator();
+
+    // Lock / Unlock (checkable)
+    auto* lockAct = menu.addAction("Lock");
+    lockAct->setCheckable(true);
+    if (m_lockVfoBtn) lockAct->setChecked(m_lockVfoBtn->isChecked());
+    connect(lockAct, &QAction::toggled, this, [this](bool checked) {
+        if (m_lockVfoBtn) {
+            m_lockVfoBtn->setChecked(checked);
+        }
+    });
+
+    // Record (checkable)
+    auto* recAct = menu.addAction("Record");
+    recAct->setCheckable(true);
+    if (m_recordBtn) recAct->setChecked(m_recordBtn->isChecked());
+    connect(recAct, &QAction::toggled, this, [this](bool checked) {
+        if (m_recordBtn) {
+            m_recordBtn->setChecked(checked);
+            emit recordToggled(checked);
+        }
+    });
+
+    // Play (checkable, disabled when play not enabled)
+    auto* playAct = menu.addAction("Play");
+    playAct->setCheckable(true);
+    if (m_playBtn) {
+        playAct->setChecked(m_playBtn->isChecked());
+        playAct->setEnabled(m_playBtn->isEnabled());
+    }
+    connect(playAct, &QAction::toggled, this, [this](bool checked) {
+        if (m_playBtn) {
+            m_playBtn->setChecked(checked);
+            emit playToggled(checked);
+        }
+    });
+
+    menu.addSeparator();
+
+    // Show/Hide Side Buttons toggle
+    auto* sideBtnAct = menu.addAction("Show Side Buttons");
+    sideBtnAct->setCheckable(true);
+    sideBtnAct->setChecked(m_sideButtonsVisible);
+    connect(sideBtnAct, &QAction::toggled, this, [this](bool checked) {
+        setSideButtonsVisible(checked);
+    });
+
+    menu.exec(globalPos);
+}
+
+void VfoWidget::setSideButtonsVisible(bool visible)
+{
+    if (m_sideButtonsVisible == visible) return;
+    m_sideButtonsVisible = visible;
+
+    // Persist per-slice preference
+    if (m_slice) {
+        auto& s = AppSettings::instance();
+        s.setValue(QString("SliceSideButtons_%1").arg(m_slice->sliceId()),
+                   visible ? "True" : "False");
+    }
+
+    applySideButtonVisibility();
+}
+
+void VfoWidget::applySideButtonVisibility()
+{
+    if (m_collapsed) return;  // collapsed state manages its own visibility
+
+    if (m_sideButtonsVisible) {
+        if (m_closeSliceBtn) m_closeSliceBtn->show();
+        if (m_lockVfoBtn)    m_lockVfoBtn->show();
+        if (m_recordBtn)     m_recordBtn->show();
+        if (m_playBtn)       m_playBtn->show();
+    } else {
+        if (m_closeSliceBtn) m_closeSliceBtn->hide();
+        if (m_lockVfoBtn)    m_lockVfoBtn->hide();
+        if (m_recordBtn)     m_recordBtn->hide();
+        if (m_playBtn)       m_playBtn->hide();
+    }
 }
 
 VfoWidget::~VfoWidget()
@@ -460,6 +561,7 @@ void VfoWidget::buildUI()
         " border-radius: 3px; color: #c8d8e8; font-size: 14px; font-weight: bold;"
         " padding: 1px 4px; }");
     m_collapsedFreqLabel->setAlignment(Qt::AlignCenter);
+    m_collapsedFreqLabel->installEventFilter(this);
     m_collapsedFreqLabel->hide();
 
     // ── Frequency row (right-aligned, double-click to edit) ────────────────
@@ -1826,7 +1928,9 @@ void VfoWidget::setCollapsed(bool collapsed)
             }
         }
         // Restore external buttons to pre-collapse state and reposition them
-        // based on the new expanded width (they were positioned for COLLAPSED_W)
+        // based on the new expanded width (they were positioned for COLLAPSED_W).
+        // Only show them if side buttons are enabled — otherwise the context menu
+        // is the only way to access these functions.
         {
             const int btnSize = 20;
             const int gap = 2;
@@ -1838,22 +1942,22 @@ void VfoWidget::setCollapsed(bool collapsed)
 
             int btnY = pos().y();
             if (m_closeSliceBtn && !m_hiddenBeforeCollapse.contains(m_closeSliceBtn)) {
-                m_closeSliceBtn->show();
+                m_closeSliceBtn->setVisible(m_sideButtonsVisible);
                 m_closeSliceBtn->move(btnX, btnY);
                 btnY += btnSize + gap;
             }
             if (m_lockVfoBtn && !m_hiddenBeforeCollapse.contains(m_lockVfoBtn)) {
-                m_lockVfoBtn->show();
+                m_lockVfoBtn->setVisible(m_sideButtonsVisible);
                 m_lockVfoBtn->move(btnX, btnY);
                 btnY += btnSize + gap;
             }
             if (m_recordBtn && !m_hiddenBeforeCollapse.contains(m_recordBtn)) {
-                m_recordBtn->show();
+                m_recordBtn->setVisible(m_sideButtonsVisible);
                 m_recordBtn->move(btnX, btnY);
                 btnY += btnSize + gap;
             }
             if (m_playBtn && !m_hiddenBeforeCollapse.contains(m_playBtn)) {
-                m_playBtn->show();
+                m_playBtn->setVisible(m_sideButtonsVisible);
                 m_playBtn->move(btnX, btnY);
             }
         }
@@ -1970,7 +2074,7 @@ void VfoWidget::updatePosition(int vfoX, int specTop, FlagDir dir)
             btnX = x + w + gap;        // right of VFO widget
 
         int btnY = specTop;
-        if (!m_collapsed) {
+        if (!m_collapsed && m_sideButtonsVisible) {
             m_closeSliceBtn->move(btnX, btnY);
             btnY += btnSize + gap;
 
@@ -2557,7 +2661,7 @@ void VfoWidget::setSlice(SliceModel* slice)
         m_lockVfoBtn->setText(locked ? "\xF0\x9F\x94\x92" : "\xF0\x9F\x94\x93");
     });
 
-    // Restore collapsed state from AppSettings
+    // Restore collapsed state and side button visibility from AppSettings
     {
         auto& s = AppSettings::instance();
         bool savedCollapsed = s.value(
@@ -2565,6 +2669,10 @@ void VfoWidget::setSlice(SliceModel* slice)
         if (savedCollapsed != m_collapsed) {
             setCollapsed(savedCollapsed);
         }
+
+        m_sideButtonsVisible = s.value(
+            QString("SliceSideButtons_%1").arg(m_slice->sliceId()), "True").toString() == "True";
+        applySideButtonVisibility();
     }
 
     syncFromSlice();
@@ -3253,6 +3361,15 @@ bool VfoWidget::eventFilter(QObject* obj, QEvent* event)
                 emit addSpotRequested(m_slice->frequency());
             });
             menu.exec(me->globalPosition().toPoint());
+            return true;
+        }
+    }
+
+    // Right-click on collapsed frequency label → context menu
+    if (obj == m_collapsedFreqLabel && event->type() == QEvent::MouseButtonPress) {
+        auto* me = static_cast<QMouseEvent*>(event);
+        if (me->button() == Qt::RightButton) {
+            showContextMenu(me->globalPosition().toPoint());
             return true;
         }
     }
