@@ -1389,21 +1389,15 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         if (mx >= stripX) {
             // Arrow row (side by side: left = up, right = down)
             if (y < DBM_ARROW_H) {
-                const float bottom = m_refLevel - m_dynamicRange;
+                const float step = 10.0f;
                 if (mx < stripX + DBM_STRIP_W / 2) {
-                    // Up arrow: raise ref level by 10 dB, keep bottom fixed
-                    m_refLevel += 10.0f;
+                    m_refLevel += step;       // Up: shift entire range up
                 } else {
-                    // Down arrow: lower ref level by 10 dB, keep bottom fixed
-                    m_refLevel -= 10.0f;
+                    m_refLevel -= step;       // Down: shift entire range down
                 }
-                m_dynamicRange = m_refLevel - bottom;
-                if (m_dynamicRange < 10.0f) {
-                    m_dynamicRange = 10.0f;
-                    m_refLevel = bottom + m_dynamicRange;
-                }
+                // m_dynamicRange stays unchanged — pure translation
                 markOverlayDirty();
-                emit dbmRangeChangeRequested(bottom, m_refLevel);
+                emit dbmRangeChangeRequested(m_refLevel - m_dynamicRange, m_refLevel);
                 ev->accept();
                 return;
             }
