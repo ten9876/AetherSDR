@@ -203,6 +203,11 @@ private:
     // Modified Bessel functions of the first kind
     static double bessI0(double x);
     static double bessI1(double x);
+
+    // Exponentially-scaled Bessel functions: bessI0e(x) = exp(-|x|) * I0(x)
+    // Numerically stable for all x — avoids overflow in Ephraim-Malah gain.
+    static double bessI0e(double x);
+    static double bessI1e(double x);
 };
 
 } // namespace AetherSDR
