@@ -5190,6 +5190,16 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     auto* sw = applet->spectrumWidget();
     auto* menu = sw->overlayMenu();
 
+    // Guard: wirePanadapter() is called once at startup (for m_panApplet) and
+    // again from panadapterAdded for the same widget.  Without these disconnects
+    // every sw/menu/applet → this signal would be connected twice, causing each
+    // user gesture to fire two identical radio commands (e.g. duplicate
+    // "display pan set … min_dbm= max_dbm=").  Clearing prior connections here
+    // replaces the scattered per-signal disconnect guards below.
+    sw->disconnect(this);
+    menu->disconnect(this);
+    applet->disconnect(this);
+
     // Wire band plan manager to this spectrum widget
     sw->setBandPlanManager(m_bandPlanMgr);
 
@@ -5484,10 +5494,6 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             sw, &SpectrumWidget::setWfBlankerEnabled);
     connect(menu, &SpectrumOverlayMenu::wfBlankerThresholdChanged,
             sw, &SpectrumWidget::setWfBlankerThreshold);
-    disconnect(menu, &SpectrumOverlayMenu::backgroundImageRequested, this, nullptr);
-    disconnect(menu, &SpectrumOverlayMenu::backgroundImageCleared, this, nullptr);
-    disconnect(menu, &SpectrumOverlayMenu::backgroundOpacityChanged, this, nullptr);
-    disconnect(menu, &SpectrumOverlayMenu::displaySettingsReset, this, nullptr);
     connect(menu, &SpectrumOverlayMenu::backgroundImageRequested,
             this, [this, sw] {
         QString path = QFileDialog::getOpenFileName(sw, "Choose Background Image",
@@ -5711,10 +5717,6 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     });
 
     // ── Manual spot add/remove (#36)
-    // Note: wirePanadapter() can be called multiple times for the same widget
-    // (layout changes, reconnect), so disconnect first to avoid duplicate sends.
-    disconnect(sw, &SpectrumWidget::spotAddRequested, this, nullptr);
-    disconnect(sw, &SpectrumWidget::spotRemoveRequested, this, nullptr);
     connect(sw, &SpectrumWidget::spotAddRequested, this,
             [this](double freqMhz, const QString& callsign, const QString& comment,
                    int lifetimeSec, bool forwardToCluster) {
@@ -5762,8 +5764,6 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                     .arg(m_radioModel.model()).arg(limit), 4000);
         }
     });
-    // Disconnect first to avoid duplicate sends on re-wire (#381)
-    disconnect(menu, &SpectrumOverlayMenu::addTnfClicked, this, nullptr);
     connect(menu, &SpectrumOverlayMenu::addTnfClicked,
             this, [this]() {
         auto* s = activeSlice();
@@ -5807,7 +5807,6 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     });
 
     // XVTR button → open Radio Setup XVTR tab (#571)
-    disconnect(menu, &SpectrumOverlayMenu::xvtrSetupRequested, this, nullptr);
     connect(menu, &SpectrumOverlayMenu::xvtrSetupRequested,
             this, [this]() {
         auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, this);
