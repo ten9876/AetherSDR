@@ -269,6 +269,8 @@ private:
     QString m_bnrAddress{"localhost:8001"};
     QByteArray m_bnrOutBuf;  // jitter buffer: denoised 24kHz stereo int16
     bool m_bnrPrimed{false}; // true after enough denoised data accumulated
+    float m_bnrGainL{1.0f};  // pan-preserving L gain for BNR mono→stereo (#1460)
+    float m_bnrGainR{1.0f};  // pan-preserving R gain for BNR mono→stereo (#1460)
     void processBnr(const QByteArray& stereoPcm);
 
     // Client-side DFNR (DeepFilterNet3)

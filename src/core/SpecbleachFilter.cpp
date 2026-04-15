@@ -2,6 +2,7 @@
 
 #include "SpecbleachFilter.h"
 #include <specbleach_denoiser.h>
+#include <cmath>
 #include <cstring>
 #include <algorithm>
 #include <QDebug>
@@ -77,8 +78,21 @@ QByteArray SpecbleachFilter::process(const QByteArray& pcm24kStereo)
         m_monoOut.resize(monoSamples);
     }
 
-    // Stereo float32 → mono float (average L+R)
+    // Compute block-level L/R energy ratio to preserve pan after mono NR (#1460)
     const auto* in = reinterpret_cast<const float*>(pcm24kStereo.constData());
+    float energyL = 0.0f, energyR = 0.0f;
+    for (int i = 0; i < monoSamples; ++i) {
+        energyL += in[i * 2]     * in[i * 2];
+        energyR += in[i * 2 + 1] * in[i * 2 + 1];
+    }
+    float energySum = energyL + energyR;
+    float gainL = 1.0f, gainR = 1.0f;
+    if (energySum > 1e-12f) {
+        gainL = std::sqrt(2.0f * energyL / energySum);
+        gainR = std::sqrt(2.0f * energyR / energySum);
+    }
+
+    // Stereo float32 → mono float (average L+R)
     for (int i = 0; i < monoSamples; ++i)
         m_monoIn[i] = (in[i * 2] + in[i * 2 + 1]) * 0.5f;
 
@@ -93,12 +107,12 @@ QByteArray SpecbleachFilter::process(const QByteArray& pcm24kStereo)
         return pcm24kStereo;
     }
 
-    // Mono float → stereo float32 (duplicate to L+R)
+    // Mono float → stereo float32 (re-apply original pan balance) (#1460)
     QByteArray result(totalFloats * static_cast<int>(sizeof(float)), Qt::Uninitialized);
     auto* out = reinterpret_cast<float*>(result.data());
     for (int i = 0; i < monoSamples; ++i) {
-        out[i * 2]     = m_monoOut[i];
-        out[i * 2 + 1] = m_monoOut[i];
+        out[i * 2]     = m_monoOut[i] * gainL;
+        out[i * 2 + 1] = m_monoOut[i] * gainR;
     }
 
     return result;

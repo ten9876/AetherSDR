@@ -637,6 +637,20 @@ void AudioEngine::processBnr(const QByteArray& stereoPcm)
     const auto* src = reinterpret_cast<const float*>(stereoPcm.constData());
     const int stereoFrames = stereoPcm.size() / (2 * static_cast<int>(sizeof(float)));
 
+    // Compute block-level L/R energy ratio to preserve pan after mono NR (#1460)
+    float energyL = 0.0f, energyR = 0.0f;
+    for (int i = 0; i < stereoFrames; ++i) {
+        energyL += src[2 * i]     * src[2 * i];
+        energyR += src[2 * i + 1] * src[2 * i + 1];
+    }
+    float energySum = energyL + energyR;
+    m_bnrGainL = 1.0f;
+    m_bnrGainR = 1.0f;
+    if (energySum > 1e-12f) {
+        m_bnrGainL = std::sqrt(2.0f * energyL / energySum);
+        m_bnrGainR = std::sqrt(2.0f * energyR / energySum);
+    }
+
     if (static_cast<int>(m_nr2Mono.size()) < stereoFrames)
         m_nr2Mono.resize(stereoFrames);
     for (int i = 0; i < stereoFrames; ++i)
@@ -661,14 +675,14 @@ void AudioEngine::processBnr(const QByteArray& stereoPcm)
 
         QByteArray mono24k = m_bnrDown->process(df, dn);
 
-        // 6. Mono float32 → stereo float32 (duplicate L=R)
+        // 6. Mono float32 → stereo float32 (re-apply original pan balance) (#1460)
         const auto* m24 = reinterpret_cast<const float*>(mono24k.constData());
         const int n24 = mono24k.size() / static_cast<int>(sizeof(float));
         QByteArray stereo(n24 * 2 * static_cast<int>(sizeof(float)), Qt::Uninitialized);
         auto* ds = reinterpret_cast<float*>(stereo.data());
         for (int i = 0; i < n24; ++i) {
-            ds[2 * i]     = m24[i];
-            ds[2 * i + 1] = m24[i];
+            ds[2 * i]     = m24[i] * m_bnrGainL;
+            ds[2 * i + 1] = m24[i] * m_bnrGainR;
         }
 
         m_bnrOutBuf.append(stereo);
@@ -778,6 +792,21 @@ void AudioEngine::processNr2(const QByteArray& stereoPcm)
         m_nr2Processed.resize(stereoFrames);
     }
 
+    // Compute block-level L/R energy ratio to preserve pan after mono NR (#1460)
+    float energyL = 0.0f, energyR = 0.0f;
+    for (int i = 0; i < stereoFrames; ++i) {
+        energyL += src[2 * i]     * src[2 * i];
+        energyR += src[2 * i + 1] * src[2 * i + 1];
+    }
+    float energySum = energyL + energyR;
+    float gainL = 1.0f, gainR = 1.0f;
+    if (energySum > 1e-12f) {
+        // Convert energy ratio to amplitude ratio (sqrt) and scale by 2
+        // so that center-panned signals maintain unity gain
+        gainL = std::sqrt(2.0f * energyL / energySum);
+        gainR = std::sqrt(2.0f * energyR / energySum);
+    }
+
     // Stereo float32 → mono float32 (average L+R)
     for (int i = 0; i < stereoFrames; ++i)
         m_nr2Mono[i] = (src[2 * i] + src[2 * i + 1]) * 0.5f;
@@ -785,13 +814,13 @@ void AudioEngine::processNr2(const QByteArray& stereoPcm)
     // Process through SpectralNR (float32 I/O)
     m_nr2->process(m_nr2Mono.data(), m_nr2Processed.data(), stereoFrames);
 
-    // Mono float32 → stereo float32 (duplicate)
+    // Mono float32 → stereo float32 (re-apply original pan balance)
     const int outBytes = stereoFrames * 2 * static_cast<int>(sizeof(float));
     m_nr2Output.resize(outBytes);
     auto* dst = reinterpret_cast<float*>(m_nr2Output.data());
     for (int i = 0; i < stereoFrames; ++i) {
-        dst[2 * i]     = m_nr2Processed[i];
-        dst[2 * i + 1] = m_nr2Processed[i];
+        dst[2 * i]     = m_nr2Processed[i] * gainL;
+        dst[2 * i + 1] = m_nr2Processed[i] * gainR;
     }
 }
 
