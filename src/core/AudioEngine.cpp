@@ -92,10 +92,10 @@ AudioEngine::AudioEngine(QObject* parent)
         if (!m_audioSink || !m_audioDevice || !m_audioDevice->isOpen() || m_audioSink->state() == QAudio::StoppedState) return;
 
         // Cap buffer at ~200ms of audio to bound latency.
-        // At 24kHz stereo int16 = 96000 bytes/sec → 200ms = 19200 bytes.
-        // At 48kHz stereo int16 = 192000 bytes/sec → 200ms = 38400 bytes.
+        // At 24kHz stereo float32 = 192000 bytes/sec → 200ms = 38400 bytes.
+        // At 48kHz stereo float32 = 384000 bytes/sec → 200ms = 76800 bytes.
         const int sampleRate = m_resampleTo48k ? 48000 : DEFAULT_SAMPLE_RATE;
-        const qsizetype maxBufBytes = sampleRate * 2 * 2 / 5; // 200ms worth
+        const qsizetype maxBufBytes = sampleRate * 2 * static_cast<qsizetype>(sizeof(float)) / 5; // 200ms worth
         if (m_rxBuffer.size() > maxBufBytes) {
             // Drop oldest samples to keep latency bounded
             m_rxBuffer.remove(0, m_rxBuffer.size() - maxBufBytes);
@@ -293,12 +293,19 @@ void AudioEngine::stopRxStream()
     m_rxBufferSampleRate.store(DEFAULT_SAMPLE_RATE);
 
     if (m_audioSink) {
-        // Guard: same stale-device-handle crash can occur on the RX side (#1059).
-        if (m_audioSink->state() != QAudio::StoppedState)
-            m_audioSink->stop();
-        delete m_audioSink;
+        // Null out m_audioSink BEFORE stopping so that the stateChanged
+        // handler's "if (!m_audioSink) return" guard prevents a cascading
+        // restart loop.  Without this, stop() emits stateChanged(StoppedState)
+        // synchronously while m_audioSink is still non-null, causing the
+        // handler to queue another stopRx+startRx — which repeats
+        // indefinitely and prevents audio from ever playing. (#1441)
+        auto* sink = m_audioSink;
         m_audioSink   = nullptr;
         m_audioDevice = nullptr;
+        // Guard: same stale-device-handle crash can occur on the RX side (#1059).
+        if (sink->state() != QAudio::StoppedState)
+            sink->stop();
+        delete sink;
     }
     emit rxStopped();
 }
