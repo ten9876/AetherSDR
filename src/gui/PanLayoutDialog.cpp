@@ -19,11 +19,15 @@ static const QVector<PanLayout> kAllLayouts = {
     {"3v",  "A / B / C",   3, {{1}, {1}, {1}}},
     {"2x2", "A|B / C|D",   4, {{1, 1}, {1, 1}}},
     {"4v",  "A/B/C/D",     4, {{1}, {1}, {1}, {1}}},
+    {"3h2", "A|B|C / D|E", 5, {{1, 1, 1}, {1, 1}}},
+    {"2x3", "A|B / C|D / E|F", 6, {{1, 1}, {1, 1}, {1, 1}}},
+    {"4h3", "A|B|C|D / E|F|G", 7, {{1, 1, 1, 1}, {1, 1, 1}}},
+    {"2x4", "A|B / C|D / E|F / G|H", 8, {{1, 1}, {1, 1}, {1, 1}, {1, 1}}},
     {"1",   "Single",      1, {{1}}},
 };
 
 // Letters for each cell in order
-static const char kLetters[] = "ABCD";
+static const char kLetters[] = "ABCDEFGH";
 
 // ── Thumbnail widget ─────────────────────────────────────────────────────────
 
@@ -84,7 +88,7 @@ protected:
                 // Letter label
                 p.setPen(textColor);
                 p.setFont(QFont("sans-serif", 14, QFont::Bold));
-                if (letterIdx < 4)
+                if (letterIdx < 8)
                     p.drawText(cellRect, Qt::AlignCenter,
                                QString(QChar(kLetters[letterIdx++])));
             }
@@ -106,7 +110,7 @@ PanLayoutDialog::PanLayoutDialog(int maxPans, const QString& currentLayout,
     setWindowTitle("Panadapter Layout");
     setStyleSheet("QDialog { background: #0f0f1a; }"
                   "QLabel { color: #c8d8e8; }");
-    setFixedSize(560, 360);
+    setFixedSize(560, 520);
     buildUI(maxPans, currentLayout);
 }
 

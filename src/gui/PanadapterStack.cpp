@@ -265,6 +265,62 @@ void PanadapterStack::rearrangeLayout(const QString& layoutId)
         m_splitter->addWidget(applets[2]);
         m_splitter->addWidget(applets[3]);
     }
+    else if (layoutId == "3h2" && applets.size() >= 5) {
+        // A|B|C on top, D|E on bottom
+        auto* topSplit = new QSplitter(Qt::Horizontal);
+        topSplit->setHandleWidth(3);
+        topSplit->setChildrenCollapsible(false);
+        topSplit->addWidget(applets[0]);
+        topSplit->addWidget(applets[1]);
+        topSplit->addWidget(applets[2]);
+        m_splitter->addWidget(topSplit);
+        auto* botSplit = new QSplitter(Qt::Horizontal);
+        botSplit->setHandleWidth(3);
+        botSplit->setChildrenCollapsible(false);
+        botSplit->addWidget(applets[3]);
+        botSplit->addWidget(applets[4]);
+        m_splitter->addWidget(botSplit);
+    }
+    else if (layoutId == "2x3" && applets.size() >= 6) {
+        // A|B / C|D / E|F — three rows of two
+        for (int r = 0; r < 3; ++r) {
+            auto* rowSplit = new QSplitter(Qt::Horizontal);
+            rowSplit->setHandleWidth(3);
+            rowSplit->setChildrenCollapsible(false);
+            rowSplit->addWidget(applets[r * 2]);
+            rowSplit->addWidget(applets[r * 2 + 1]);
+            m_splitter->addWidget(rowSplit);
+        }
+    }
+    else if (layoutId == "4h3" && applets.size() >= 7) {
+        // A|B|C|D on top, E|F|G on bottom
+        auto* topSplit = new QSplitter(Qt::Horizontal);
+        topSplit->setHandleWidth(3);
+        topSplit->setChildrenCollapsible(false);
+        topSplit->addWidget(applets[0]);
+        topSplit->addWidget(applets[1]);
+        topSplit->addWidget(applets[2]);
+        topSplit->addWidget(applets[3]);
+        m_splitter->addWidget(topSplit);
+        auto* botSplit = new QSplitter(Qt::Horizontal);
+        botSplit->setHandleWidth(3);
+        botSplit->setChildrenCollapsible(false);
+        botSplit->addWidget(applets[4]);
+        botSplit->addWidget(applets[5]);
+        botSplit->addWidget(applets[6]);
+        m_splitter->addWidget(botSplit);
+    }
+    else if (layoutId == "2x4" && applets.size() >= 8) {
+        // A|B / C|D / E|F / G|H — four rows of two
+        for (int r = 0; r < 4; ++r) {
+            auto* rowSplit = new QSplitter(Qt::Horizontal);
+            rowSplit->setHandleWidth(3);
+            rowSplit->setChildrenCollapsible(false);
+            rowSplit->addWidget(applets[r * 2]);
+            rowSplit->addWidget(applets[r * 2 + 1]);
+            m_splitter->addWidget(rowSplit);
+        }
+    }
     else {
         // Default: vertical stack (2v, 1, or fallback)
         for (auto* a : applets)

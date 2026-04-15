@@ -6948,7 +6948,7 @@ void MainWindow::applyPanLayout(const QString& layoutId)
 
     static const QMap<QString, int> kPanCounts = {
         {"1", 1}, {"2v", 2}, {"2h", 2}, {"2h1", 3}, {"12h", 3}, {"3v", 3},
-        {"2x2", 4}, {"4v", 4}
+        {"2x2", 4}, {"4v", 4}, {"3h2", 5}, {"2x3", 6}, {"4h3", 7}, {"2x4", 8}
     };
     const int needed = kPanCounts.value(layoutId, 1);
     const int existing = m_panStack->count();
