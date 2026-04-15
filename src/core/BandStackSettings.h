@@ -22,6 +22,7 @@ struct BandStackEntry {
     int nrLevel{50};
     bool wnbOn{false};
     int wnbLevel{50};
+    qint64 createdAtMs{0};  // epoch ms; 0 = legacy entry (never auto-expires)
 };
 
 // Persistence for user frequency bookmarks, stored per-radio in
@@ -36,6 +37,17 @@ public:
     QVector<BandStackEntry> entries(const QString& radioSerial) const;
     void addEntry(const QString& radioSerial, const BandStackEntry& entry);
     void removeEntry(const QString& radioSerial, int index);
+    void clearAllEntries(const QString& radioSerial);
+    void clearBandEntries(const QString& radioSerial, double lowMhz, double highMhz);
+
+    // Remove entries older than maxAgeMs; returns number removed.
+    int removeExpiredEntries(const QString& radioSerial, qint64 maxAgeMs);
+
+    int autoExpiryMinutes() const { return m_autoExpiryMinutes; }
+    void setAutoExpiryMinutes(int minutes) { m_autoExpiryMinutes = minutes; }
+
+    bool groupByBand() const { return m_groupByBand; }
+    void setGroupByBand(bool grouped) { m_groupByBand = grouped; }
 
 private:
     BandStackSettings();
@@ -46,6 +58,8 @@ private:
 
     QMap<QString, QVector<BandStackEntry>> m_entries;
     QString m_filePath;
+    int m_autoExpiryMinutes{0};   // 0 = disabled
+    bool m_groupByBand{false};
 };
 
 } // namespace AetherSDR

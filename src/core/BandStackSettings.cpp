@@ -5,7 +5,10 @@
 #include <QFile>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
+#include <QDateTime>
 #include <QDebug>
+
+#include <algorithm>
 
 namespace AetherSDR {
 
@@ -50,6 +53,40 @@ void BandStackSettings::removeEntry(const QString& radioSerial, int index)
     }
 }
 
+void BandStackSettings::clearAllEntries(const QString& radioSerial)
+{
+    QString key = sanitizeSerial(radioSerial);
+    m_entries[key].clear();
+}
+
+void BandStackSettings::clearBandEntries(const QString& radioSerial,
+                                         double lowMhz, double highMhz)
+{
+    QString key = sanitizeSerial(radioSerial);
+    if (!m_entries.contains(key)) return;
+    auto& vec = m_entries[key];
+    vec.erase(std::remove_if(vec.begin(), vec.end(),
+        [lowMhz, highMhz](const BandStackEntry& e) {
+            return e.frequencyMhz >= lowMhz && e.frequencyMhz <= highMhz;
+        }), vec.end());
+}
+
+int BandStackSettings::removeExpiredEntries(const QString& radioSerial,
+                                            qint64 maxAgeMs)
+{
+    QString key = sanitizeSerial(radioSerial);
+    if (!m_entries.contains(key)) return 0;
+    auto& vec = m_entries[key];
+    qint64 now = QDateTime::currentMSecsSinceEpoch();
+    int before = vec.size();
+    vec.erase(std::remove_if(vec.begin(), vec.end(),
+        [now, maxAgeMs](const BandStackEntry& e) {
+            // Legacy entries (createdAtMs == 0) never expire
+            return e.createdAtMs > 0 && (now - e.createdAtMs) > maxAgeMs;
+        }), vec.end());
+    return before - vec.size();
+}
+
 void BandStackSettings::load()
 {
     m_entries.clear();
@@ -74,6 +111,10 @@ void BandStackSettings::load()
 
             if (name == "BandStack") {
                 continue;
+            } else if (name == "AutoExpiryMinutes") {
+                m_autoExpiryMinutes = xml.readElementText().toInt();
+            } else if (name == "GroupByBand") {
+                m_groupByBand = xml.readElementText() == "True";
             } else if (name.startsWith("Radio_")) {
                 currentRadio = name;
             } else if (name.startsWith("Entry_") && !currentRadio.isEmpty()) {
@@ -112,6 +153,8 @@ void BandStackSettings::load()
                     currentEntry.wnbOn = text == "True";
                 } else if (name == "WnbLevel") {
                     currentEntry.wnbLevel = text.toInt();
+                } else if (name == "CreatedAtMs") {
+                    currentEntry.createdAtMs = text.toLongLong();
                 }
             }
         } else if (xml.isEndElement()) {
@@ -147,6 +190,10 @@ void BandStackSettings::save()
     xml.writeStartDocument();
     xml.writeStartElement("BandStack");
 
+    // Global settings
+    xml.writeTextElement("AutoExpiryMinutes", QString::number(m_autoExpiryMinutes));
+    xml.writeTextElement("GroupByBand", m_groupByBand ? "True" : "False");
+
     QList<QString> radios = m_entries.keys();
     std::sort(radios.begin(), radios.end());
 
@@ -173,6 +220,9 @@ void BandStackSettings::save()
             xml.writeTextElement("NrLevel", QString::number(e.nrLevel));
             xml.writeTextElement("WnbOn", e.wnbOn ? "True" : "False");
             xml.writeTextElement("WnbLevel", QString::number(e.wnbLevel));
+            if (e.createdAtMs > 0) {
+                xml.writeTextElement("CreatedAtMs", QString::number(e.createdAtMs));
+            }
             xml.writeEndElement();  // Entry_N
         }
         xml.writeEndElement();  // Radio_XXXX
