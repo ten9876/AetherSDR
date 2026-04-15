@@ -1360,6 +1360,20 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
             return;
         }
 
+        // Alt+click in waterfall area → start VFO drag to retune active slice (#1474)
+        if (ev->modifiers() & Qt::AltModifier) {
+            const auto* ao = activeOverlay();
+            if (ao) {
+                m_draggingVfo = true;
+                const int mx = static_cast<int>(ev->position().x());
+                m_vfoDragOffsetHz = static_cast<int>(
+                    std::round((xToMhz(mx) - ao->freqMhz) * 1.0e6));
+                setCursor(Qt::SizeHorCursor);
+                ev->accept();
+                return;
+            }
+        }
+
         m_draggingPan = true;
         m_panDragStartX = static_cast<int>(ev->position().x());
         m_panDragStartCenter = m_centerMhz;
@@ -1649,6 +1663,20 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         if (mx > left + GRAB && mx < right - GRAB) {
             m_draggingVfo = true;
             m_vfoDragOffsetHz = static_cast<int>(std::round((xToMhz(mx) - ao->freqMhz) * 1.0e6));
+            setCursor(Qt::SizeHorCursor);
+            ev->accept();
+            return;
+        }
+    }
+
+    // Alt+click in FFT area → start VFO drag to retune active slice (#1474)
+    if (ev->modifiers() & Qt::AltModifier) {
+        const auto* ao = activeOverlay();
+        if (ao) {
+            m_draggingVfo = true;
+            const int mx = static_cast<int>(ev->position().x());
+            m_vfoDragOffsetHz = static_cast<int>(
+                std::round((xToMhz(mx) - ao->freqMhz) * 1.0e6));
             setCursor(Qt::SizeHorCursor);
             ev->accept();
             return;
