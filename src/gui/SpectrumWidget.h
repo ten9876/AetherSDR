@@ -242,6 +242,8 @@ public:
         int    ritFreq{0};          // Hz offset
         bool   xitOn{false};
         int    xitFreq{0};          // Hz offset
+        int    cwPitch{0};          // configured CW pitch (Hz), 0 = not set
+        float  cwDetectedPitch{0};  // detected signal pitch (Hz), 0 = no signal
     };
 
     // Add or update a slice overlay (called per-slice on any state change).
@@ -250,7 +252,10 @@ public:
                          bool tx, bool active, const QString& mode = {},
                          int rttyMark = 2125, int rttyShift = 170,
                          bool ritOn = false, int ritFreq = 0,
-                         bool xitOn = false, int xitFreq = 0);
+                         bool xitOn = false, int xitFreq = 0,
+                         int cwPitch = 0);
+    // Update detected CW signal pitch for spectrum overlay (Hz, 0 = no signal).
+    void setCwDetectedPitch(int sliceId, float pitchHz);
     // Update just the frequency on an existing overlay (for optimistic scroll-to-tune)
     void setSliceOverlayFreq(int sliceId, double freqMhz);
     // Remove a slice overlay.

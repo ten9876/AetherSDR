@@ -890,6 +890,27 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel.transmitModel(), &TransmitModel::stateChanged,
             this, syncShowTxWf);
 
+    // ── CW pitch change → refresh overlays so pitch marker updates (#1494) ──
+    connect(&m_radioModel.transmitModel(), &TransmitModel::phoneStateChanged,
+            this, [this]() {
+        for (auto* sl : m_radioModel.slices()) {
+            if (sl->mode() == "CW" || sl->mode() == "CWL") {
+                pushSliceOverlay(sl);
+            }
+        }
+    });
+
+    // ── CW decoder detected pitch → spectrum overlay (#1494) ────────────
+    connect(&m_cwDecoder, &CwDecoder::statsUpdated,
+            this, [this](float pitchHz, float /*speedWpm*/) {
+        auto* s = activeSlice();
+        if (!s) return;
+        if (s->mode() != "CW" && s->mode() != "CWL") return;
+        if (auto* sw = spectrumForSlice(s)) {
+            sw->setCwDetectedPitch(s->sliceId(), pitchHz);
+        }
+    });
+
     // ── Panadapter stream → spectrum widget ───────────────────────────────
     // Route FFT/waterfall data to the correct SpectrumWidget by stream ID
     connect(m_radioModel.panStream(), &PanadapterStream::spectrumReady,
@@ -4651,12 +4672,16 @@ void MainWindow::onSliceAdded(SliceModel* s)
     // Connect slice state changes → spectrum overlay updates
     connect(s, &SliceModel::frequencyChanged, this, [this, s](double mhz) {
         m_updatingFromModel = true;
-        if (auto* sw = spectrumForSlice(s))
+        if (auto* sw = spectrumForSlice(s)) {
+            const bool isCw = (s->mode() == "CW" || s->mode() == "CWL");
+            const int cwPitch = isCw ? m_radioModel.transmitModel().cwPitch() : 0;
             sw->setSliceOverlay(s->sliceId(), mhz,
                 s->filterLow(), s->filterHigh(), s->isTxSlice(),
                 s->sliceId() == m_activeSliceId,
                 s->mode(), s->rttyMark(), s->rttyShift(),
-                s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq());
+                s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq(),
+                cwPitch);
+        }
         m_updatingFromModel = false;
 
         // Feed frequency to Antenna Genius for band→antenna recall
@@ -4674,10 +4699,13 @@ void MainWindow::onSliceAdded(SliceModel* s)
         // Skip overlay update while user is dragging a filter edge — the radio's
         // status echo would overwrite the drag position, causing snap-to-zero (#764)
         if (sw->isDraggingFilter()) return;
+        const bool isCw = (s->mode() == "CW" || s->mode() == "CWL");
+        const int cwPitch = isCw ? m_radioModel.transmitModel().cwPitch() : 0;
         sw->setSliceOverlay(s->sliceId(), s->frequency(),
             lo, hi, s->isTxSlice(), s->sliceId() == m_activeSliceId,
             s->mode(), s->rttyMark(), s->rttyShift(),
-            s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq());
+            s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq(),
+            cwPitch);
     });
     connect(s, &SliceModel::txSliceChanged, this, [this, s](bool tx) {
         // Update hasTxSlice on all spectrums for waterfall freeze logic
@@ -4689,12 +4717,16 @@ void MainWindow::onSliceAdded(SliceModel* s)
             if (!m_panStack && m_panApplet)
                 m_panApplet->spectrumWidget()->setHasTxSlice(true);
         }
-        if (auto* sw = spectrumForSlice(s))
+        if (auto* sw = spectrumForSlice(s)) {
+            const bool isCw = (s->mode() == "CW" || s->mode() == "CWL");
+            const int cwp = isCw ? m_radioModel.transmitModel().cwPitch() : 0;
             sw->setSliceOverlay(s->sliceId(), s->frequency(),
                 s->filterLow(), s->filterHigh(), tx,
                 s->sliceId() == m_activeSliceId,
                 s->mode(), s->rttyMark(), s->rttyShift(),
-                s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq());
+                s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq(),
+                cwp);
+        }
         updateSplitState();
 
         // Active follows TX slice (#1351) — switch the displayed/active slice
@@ -4988,11 +5020,15 @@ void MainWindow::setActiveSlice(int sliceId)
     // Update all overlay isActive flags on each slice's correct spectrum
     for (auto* sl : m_radioModel.slices()) {
         const bool isActive = (sl->sliceId() == sliceId);
-        if (auto* sw = spectrumForSlice(sl))
+        if (auto* sw = spectrumForSlice(sl)) {
+            const bool isCw = (sl->mode() == "CW" || sl->mode() == "CWL");
+            const int cwp = isCw ? m_radioModel.transmitModel().cwPitch() : 0;
             sw->setSliceOverlay(sl->sliceId(), sl->frequency(),
                 sl->filterLow(), sl->filterHigh(), sl->isTxSlice(), isActive,
                 sl->mode(), sl->rttyMark(), sl->rttyShift(),
-                sl->ritOn(), sl->ritFreq(), sl->xitOn(), sl->xitFreq());
+                sl->ritOn(), sl->ritFreq(), sl->xitOn(), sl->xitFreq(),
+                cwp);
+        }
     }
 
     // QSO recorder: track active slice for frequency/mode metadata (#1297)
@@ -5086,11 +5122,14 @@ void MainWindow::pushSliceOverlay(SliceModel* s)
     if (m_applyingLayout) return;
     auto* sw = spectrumForSlice(s);
     if (!sw) return;
+    const bool isCw = (s->mode() == "CW" || s->mode() == "CWL");
+    const int cwPitch = isCw ? m_radioModel.transmitModel().cwPitch() : 0;
     sw->setSliceOverlay(s->sliceId(), s->frequency(),
         s->filterLow(), s->filterHigh(), s->isTxSlice(),
         s->sliceId() == m_activeSliceId,
         s->mode(), s->rttyMark(), s->rttyShift(),
-        s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq());
+        s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq(),
+        cwPitch);
 }
 
 void MainWindow::disableSplit()
@@ -7223,12 +7262,15 @@ void MainWindow::onFrequencyChanged(double mhz)
                         auto* cv = csw->vfoWidget(other->sliceId());
                         if (cv) cv->freqLabel()->setText(freqStr);
                         // Also update the overlay marker position
+                        const bool isCw = (other->mode() == "CW" || other->mode() == "CWL");
+                        const int cwp = isCw ? m_radioModel.transmitModel().cwPitch() : 0;
                         csw->setSliceOverlay(other->sliceId(), mhz,
                             other->filterLow(), other->filterHigh(),
                             other->isTxSlice(), false,
                             other->mode(), other->rttyMark(), other->rttyShift(),
                             other->ritOn(), other->ritFreq(),
-                            other->xitOn(), other->xitFreq());
+                            other->xitOn(), other->xitFreq(),
+                            cwp);
                     }
                 }
             }

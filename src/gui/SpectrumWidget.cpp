@@ -908,7 +908,8 @@ void SpectrumWidget::setSliceOverlay(int sliceId, double freq, int fLow, int fHi
                                      bool tx, bool active, const QString& mode,
                                      int rttyMark, int rttyShift,
                                      bool ritOn, int ritFreq,
-                                     bool xitOn, int xitFreq)
+                                     bool xitOn, int xitFreq,
+                                     int cwPitch)
 {
     int idx = overlayIndex(sliceId);
     if (idx < 0) {
@@ -919,6 +920,7 @@ void SpectrumWidget::setSliceOverlay(int sliceId, double freq, int fLow, int fHi
         o.mode = mode; o.rttyMark = rttyMark; o.rttyShift = rttyShift;
         o.ritOn = ritOn; o.ritFreq = ritFreq;
         o.xitOn = xitOn; o.xitFreq = xitFreq;
+        o.cwPitch = cwPitch;
         m_sliceOverlays.append(o);
         markOverlayDirty();
     } else {
@@ -927,15 +929,27 @@ void SpectrumWidget::setSliceOverlay(int sliceId, double freq, int fLow, int fHi
             o.isTxSlice == tx && o.isActive == active && o.mode == mode &&
             o.rttyMark == rttyMark && o.rttyShift == rttyShift &&
             o.ritOn == ritOn && o.ritFreq == ritFreq &&
-            o.xitOn == xitOn && o.xitFreq == xitFreq)
+            o.xitOn == xitOn && o.xitFreq == xitFreq &&
+            o.cwPitch == cwPitch)
             return;
         o.freqMhz = freq; o.filterLowHz = fLow; o.filterHighHz = fHigh;
         o.isTxSlice = tx; o.isActive = active;
         o.mode = mode; o.rttyMark = rttyMark; o.rttyShift = rttyShift;
         o.ritOn = ritOn; o.ritFreq = ritFreq;
         o.xitOn = xitOn; o.xitFreq = xitFreq;
+        o.cwPitch = cwPitch;
         markOverlayDirty();
     }
+}
+
+void SpectrumWidget::setCwDetectedPitch(int sliceId, float pitchHz)
+{
+    int idx = overlayIndex(sliceId);
+    if (idx < 0) return;
+    auto& o = m_sliceOverlays[idx];
+    if (qFuzzyCompare(1.0f + o.cwDetectedPitch, 1.0f + pitchHz)) return;
+    o.cwDetectedPitch = pitchHz;
+    markOverlayDirty();
 }
 
 void SpectrumWidget::setSliceOverlayFreq(int sliceId, double freqMhz)
@@ -4218,6 +4232,71 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
                 << QPoint(markerX + triHalf, specRect.top())
                 << QPoint(markerX, specRect.top() + triH);
             p.drawPolygon(tri);
+
+            // ── CW pitch centering indicator (K3-style) (#1494) ─────────
+            const bool isCwMode = (so.mode == "CW" || so.mode == "CWL");
+            if (isCwMode && so.cwPitch > 0) {
+                // In CW mode the VFO frequency is the carrier; the audio
+                // pitch sits at VFO + cwPitch (upper) or VFO - cwPitch (lower).
+                // CWL uses lower sideband → pitch offset is negative.
+                const int pitchSign = (so.mode == "CWL") ? -1 : 1;
+                const double pitchMhz = so.freqMhz + pitchSign * so.cwPitch / 1.0e6;
+                const int pitchX = mhzToX(pitchMhz);
+
+                // Dashed line at configured CW pitch position
+                p.setPen(QPen(QColor(0, 200, 255, 160), 1, Qt::DashLine));
+                p.drawLine(pitchX, specRect.top() + triH, pitchX, wfRect.bottom());
+
+                // Small diamond marker at top of spectrum for the pitch target
+                const int dHalf = 4;
+                const int dY = specRect.top() + triH + dHalf + 2;
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor(0, 200, 255, 200));
+                QPolygon diamond;
+                diamond << QPoint(pitchX, dY - dHalf)
+                        << QPoint(pitchX + dHalf, dY)
+                        << QPoint(pitchX, dY + dHalf)
+                        << QPoint(pitchX - dHalf, dY);
+                p.drawPolygon(diamond);
+
+                // Label
+                QFont f = p.font();
+                f.setPixelSize(10);
+                f.setBold(true);
+                p.setFont(f);
+                p.setPen(QColor(0, 200, 255, 220));
+                p.drawText(pitchX + dHalf + 2, dY + 3,
+                           QString::number(so.cwPitch));
+
+                // ── Detected signal pitch indicator ──────────────────────
+                if (so.cwDetectedPitch > 0.0f) {
+                    const double detectedMhz = so.freqMhz + pitchSign * so.cwDetectedPitch / 1.0e6;
+                    const int detX = mhzToX(detectedMhz);
+                    const float offsetHz = std::abs(so.cwDetectedPitch - so.cwPitch);
+
+                    // Green when centered (within 20 Hz), amber when offset
+                    QColor detColor;
+                    if (offsetHz <= 20.0f) {
+                        detColor = QColor(0, 220, 80, 220);   // green — centered
+                    } else if (offsetHz <= 50.0f) {
+                        detColor = QColor(220, 200, 0, 220);  // yellow — close
+                    } else {
+                        detColor = QColor(220, 140, 0, 200);  // amber — off
+                    }
+
+                    // Filled triangle pointing down at the detected pitch position
+                    const int tH = 8;
+                    const int tW = 5;
+                    const int tY = specRect.top() + triH + 2;
+                    p.setPen(Qt::NoPen);
+                    p.setBrush(detColor);
+                    QPolygon detTri;
+                    detTri << QPoint(detX - tW, tY)
+                           << QPoint(detX + tW, tY)
+                           << QPoint(detX, tY + tH);
+                    p.drawPolygon(detTri);
+                }
+            }
         }
 
         // ── RIT/XIT offset lines ──────────────────────────────────────
