@@ -309,8 +309,6 @@ private:
     QTimer* m_layoutRestoreTimer{nullptr}; // debounced layout rearrange after pans added on connect
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     bool m_keyboardShortcutsEnabled{false}; // global enable for keyboard shortcuts (View menu)
-    bool m_startupCenterPending{false};      // one-shot: center active slice on launch
-    double m_startupCenterMhz{0.0};          // persisted frequency to center on launch
     bool m_spacePttActive{false};          // true while Space is held for PTT
     bool m_minimalMode{false};             // true when spectrum is hidden (#208)
     QAction* m_minimalModeAction{nullptr};

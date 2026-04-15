@@ -2127,8 +2127,6 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Restore saved geometry from XML settings
     auto& s = AppSettings::instance();
-    m_startupCenterMhz = s.value("LastFrequency", "0").toDouble();
-    m_startupCenterPending = (m_startupCenterMhz > 0.0);
     const QString geomB64 = s.value("MainWindowGeometry").toString();
     if (!geomB64.isEmpty())
         restoreGeometry(QByteArray::fromBase64(geomB64.toLatin1()));
@@ -2216,7 +2214,10 @@ void MainWindow::closeEvent(QCloseEvent* event)
     s.setValue("MemoryDialogOpen",
         (m_memoryDialog && m_memoryDialog->isVisible()) ? "True" : "False");
 
-    // Save active slice frequency/mode for restore on next launch
+    // Save active slice frequency/mode so the next empty-radio reconnect can
+    // recreate a default slice at a sensible place (see RadioModel slice-list
+    // handling). NOT used for panadapter centering — the radio is
+    // authoritative for that (#1493).
     auto* sl = activeSlice();
     if (sl) {
         s.setValue("LastFrequency", QString::number(sl->frequency(), 'f', 6));
@@ -5027,14 +5028,6 @@ void MainWindow::onSliceAdded(SliceModel* s)
         updateSplitState();
         // Auto-focus the TX VFO so the user can immediately tune the TX offset
         setActiveSlice(s->sliceId());
-    }
-
-    if (firstSlice && m_startupCenterPending) {
-        m_startupCenterPending = false;
-        const double startupCenter = m_startupCenterMhz;
-        QTimer::singleShot(0, this, [this, startupCenter]() {
-            centerActiveSliceInPanadapter(true, startupCenter);
-        });
     }
 
     // Refresh slice tab buttons (#1278)
