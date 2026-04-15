@@ -4,6 +4,7 @@
 #include <QVector>
 #include <QStringList>
 #include <QPoint>
+#include <QPointer>
 #include <QWheelEvent>
 #include <QMouseEvent>
 
@@ -213,7 +214,7 @@ private:
     QLabel*      m_bgOpacityLabel{nullptr};
 
     QStringList  m_antList;
-    SliceModel*  m_slice{nullptr};
+    QPointer<SliceModel> m_slice;
     bool         m_updatingFromModel{false};
 };
 
