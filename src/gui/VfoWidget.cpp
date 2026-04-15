@@ -240,6 +240,97 @@ void VfoWidget::wheelEvent(QWheelEvent* ev)
 void VfoWidget::mousePressEvent(QMouseEvent* ev)
 {
     ev->accept();
+
+    // ── Right-click context menu (works in both collapsed and expanded) ──
+    if (ev->button() == Qt::RightButton) {
+        if (!m_slice) return;
+        QMenu menu(this);
+
+        // 1. Activate slice
+        menu.addAction(tr("Make Active Slice"), this, [this] {
+            emit sliceActivationRequested(m_slice->sliceId());
+        });
+
+        menu.addSeparator();
+
+        // 2. Mute audio toggle
+        auto* muteAct = menu.addAction(tr("Mute Audio"), this, [this] {
+            m_slice->setAudioMute(!m_slice->audioMute());
+        });
+        muteAct->setCheckable(true);
+        muteAct->setChecked(m_slice->audioMute());
+
+        menu.addSeparator();
+
+        // 3. Header controls — Rx Antenna submenu
+        if (!m_antList.isEmpty()) {
+            auto* rxAntMenu = menu.addMenu(tr("Rx Antenna"));
+            for (const QString& ant : m_antList) {
+                auto* act = rxAntMenu->addAction(ant);
+                act->setCheckable(true);
+                act->setChecked(ant == m_slice->rxAntenna());
+                connect(act, &QAction::triggered, this, [this, ant] {
+                    m_slice->setRxAntenna(ant);
+                });
+            }
+
+            // Tx Antenna submenu (skip RX-only ports)
+            auto* txAntMenu = menu.addMenu(tr("Tx Antenna"));
+            for (const QString& ant : m_antList) {
+                if (ant.startsWith("RX", Qt::CaseInsensitive))
+                    continue;
+                auto* act = txAntMenu->addAction(ant);
+                act->setCheckable(true);
+                act->setChecked(ant == m_slice->txAntenna());
+                connect(act, &QAction::triggered, this, [this, ant] {
+                    m_slice->setTxAntenna(ant);
+                });
+            }
+        }
+
+        // Filter width (display only)
+        int bw = m_slice->filterHigh() - m_slice->filterLow();
+        menu.addAction(tr("Filter BW: %1").arg(formatFilterLabel(bw)))->setEnabled(false);
+
+        // Split toggle
+        menu.addAction(tr("Split"), this, [this] {
+            emit splitToggled();
+        });
+
+        // TX assignment toggle
+        auto* txAct = menu.addAction(tr("TX"), this, [this] {
+            m_slice->setTxSlice(!m_slice->isTxSlice());
+        });
+        txAct->setCheckable(true);
+        txAct->setChecked(m_slice->isTxSlice());
+
+        menu.addSeparator();
+
+        // 4. Side button actions
+        menu.addAction(tr("Close Slice"), this, [this] {
+            emit closeSliceRequested();
+        });
+
+        auto* lockAct = menu.addAction(tr("Lock VFO"), this, [this] {
+            emit lockToggled(!m_slice->isLocked());
+        });
+        lockAct->setCheckable(true);
+        lockAct->setChecked(m_slice->isLocked());
+
+        menu.addAction(tr("Record"), this, [this] {
+            bool on = m_recordBtn ? !m_recordBtn->isChecked() : true;
+            emit recordToggled(on);
+        });
+
+        menu.addAction(tr("Play"), this, [this] {
+            bool on = m_playBtn ? !m_playBtn->isChecked() : true;
+            emit playToggled(on);
+        });
+
+        menu.exec(ev->globalPosition().toPoint());
+        return;
+    }
+
     if (m_collapsed) {
         // Match the painted geometry in paintEvent
         const int badgeSize = 20;
