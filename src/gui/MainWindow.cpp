@@ -3408,6 +3408,15 @@ void MainWindow::buildMenuBar()
         AppSettings::instance().save();
     });
 
+    auto* panFollowVfoAct = viewMenu->addAction("Pan Follows VFO");
+    panFollowVfoAct->setCheckable(true);
+    panFollowVfoAct->setChecked(
+        AppSettings::instance().value("PanFollowVfo", "True").toString() == "True");
+    connect(panFollowVfoAct, &QAction::toggled, this, [](bool on) {
+        AppSettings::instance().setValue("PanFollowVfo", on ? "True" : "False");
+        AppSettings::instance().save();
+    });
+
     // UI Scale submenu — sets QT_SCALE_FACTOR, applies on restart
     auto* scaleMenu = viewMenu->addMenu("UI Scale");
     int savedScale = AppSettings::instance().value("UiScalePercent", "100").toInt();
@@ -6209,6 +6218,12 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 
 void MainWindow::panFollowVfo(SliceModel* s, double mhz)
 {
+    // Pan-follow-VFO is toggleable via View menu (#1476). On by default —
+    // matches the historical behavior users expect, but can be disabled
+    // for operators who prefer a fixed panadapter window.
+    if (AppSettings::instance().value("PanFollowVfo", "True").toString() != "True")
+        return;
+
     // Note: centerActiveSliceInPanadapter() is intentionally not reused here.
     // That helper snaps to dead center and does extra work (pan stack activation,
     // VFO widget update) that is redundant or wrong for incremental step-tuning.
@@ -6217,24 +6232,25 @@ void MainWindow::panFollowVfo(SliceModel* s, double mhz)
     const double halfBw = pan->bandwidthMhz() / 2.0;
     if (halfBw <= 0.0) return;  // guard: bandwidth not yet received from radio
 
-    // Trigger when VFO enters the outer 20% of the visible window — matches the
-    // radio's built-in autopan threshold so all tuning paths (keyboard, wheel,
-    // FlexControl, MIDI) feel identical. (#989)
-    static constexpr double kTriggerFrac = 0.20;
-    const double triggerHalfBw = halfBw * (1.0 - kTriggerFrac);
-    if (mhz >= pan->centerMhz() - triggerHalfBw &&
-        mhz <= pan->centerMhz() + triggerHalfBw) return;
-
-    // Place VFO 30% from the nearer edge after the nudge.
-    // kMarginFrac must be > kTriggerFrac so the post-nudge position is inside
-    // the safe zone and doesn't immediately re-trigger. (#989)
-    static constexpr double kMarginFrac = 0.30;
-    const double margin = halfBw * kMarginFrac;
+    // "Fence" behavior (#1476): VFO slides freely inside the middle 90% of
+    // the pan window.  When it crosses the 5% boundary on either edge of
+    // the *full* window, the pan scrolls by exactly the overshoot so the
+    // VFO stays pinned to that boundary.  Continuous tuning past the fence
+    // feels like the pan scrolls by the step size — no sudden jumps, the
+    // VFO never visibly leaves the window.
+    //
+    // Express the boundary relative to halfBw: fence is 5% of the full
+    // window = 10% of halfBw.
+    static constexpr double kMarginFrac = 0.10;
+    const double deadZoneHalfBw = halfBw * (1.0 - kMarginFrac);
+    const double center = pan->centerMhz();
     double newCenter;
-    if (mhz < pan->centerMhz()) {
-        newCenter = mhz + halfBw - margin;   // VFO lands 30% from left edge
+    if (mhz > center + deadZoneHalfBw) {
+        newCenter = mhz - deadZoneHalfBw;   // VFO pinned to right fence
+    } else if (mhz < center - deadZoneHalfBw) {
+        newCenter = mhz + deadZoneHalfBw;   // VFO pinned to left fence
     } else {
-        newCenter = mhz - halfBw + margin;   // VFO lands 30% from right edge
+        return;  // VFO inside dead zone — pan stays put
     }
 
     // Optimistic local update: apply new center immediately so SpectrumWidget
