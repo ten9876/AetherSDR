@@ -1282,6 +1282,24 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
     if (ev->button() == Qt::LeftButton)
         m_clickPressPos = ev->position().toPoint();
 
+    // RIT/XIT wheel mode (#1467): left-click clears offset, right-click exits mode
+    if (m_wheelMode != SpectrumWheelMode::Tune) {
+        if (ev->button() == Qt::LeftButton) {
+            if (m_wheelMode == SpectrumWheelMode::RIT)
+                emit ritClearRequested();
+            else
+                emit xitClearRequested();
+            ev->accept();
+            return;
+        }
+        if (ev->button() == Qt::RightButton) {
+            m_wheelMode = SpectrumWheelMode::Tune;
+            markOverlayDirty();
+            ev->accept();
+            return;
+        }
+    }
+
     // Click on prop forecast overlay → open dashboard
     if (ev->button() == Qt::LeftButton && !m_propClickRect.isNull()) {
         const QPoint pos(static_cast<int>(ev->position().x()), y);
@@ -1549,6 +1567,52 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         tuneGuideAction->setCheckable(true);
         tuneGuideAction->setChecked(m_showTuneGuides);
         connect(tuneGuideAction, &QAction::toggled, this, &SpectrumWidget::setShowTuneGuides);
+
+        // RIT/XIT wheel mode controls (#1467)
+        menu.addSeparator();
+        {
+            const auto* ao = activeOverlay();
+            const bool ritOn = ao && ao->ritOn;
+            const bool xitOn = ao && ao->xitOn;
+
+            QAction* ritToggle = menu.addAction(ritOn ? "Disable RIT" : "Enable RIT");
+            connect(ritToggle, &QAction::triggered, this, [this, ritOn]() {
+                emit ritToggleRequested(!ritOn);
+            });
+
+            QAction* xitToggle = menu.addAction(xitOn ? "Disable XIT" : "Enable XIT");
+            connect(xitToggle, &QAction::triggered, this, [this, xitOn]() {
+                emit xitToggleRequested(!xitOn);
+            });
+
+            QAction* ritWheelAction = menu.addAction("RIT Wheel Mode");
+            ritWheelAction->setCheckable(true);
+            ritWheelAction->setChecked(m_wheelMode == SpectrumWheelMode::RIT);
+            connect(ritWheelAction, &QAction::triggered, this, [this]() {
+                m_wheelMode = (m_wheelMode == SpectrumWheelMode::RIT)
+                    ? SpectrumWheelMode::Tune : SpectrumWheelMode::RIT;
+                // Auto-enable RIT when entering wheel mode
+                if (m_wheelMode == SpectrumWheelMode::RIT) {
+                    const auto* a = activeOverlay();
+                    if (a && !a->ritOn) emit ritToggleRequested(true);
+                }
+                markOverlayDirty();
+            });
+
+            QAction* xitWheelAction = menu.addAction("XIT Wheel Mode");
+            xitWheelAction->setCheckable(true);
+            xitWheelAction->setChecked(m_wheelMode == SpectrumWheelMode::XIT);
+            connect(xitWheelAction, &QAction::triggered, this, [this]() {
+                m_wheelMode = (m_wheelMode == SpectrumWheelMode::XIT)
+                    ? SpectrumWheelMode::Tune : SpectrumWheelMode::XIT;
+                // Auto-enable XIT when entering wheel mode
+                if (m_wheelMode == SpectrumWheelMode::XIT) {
+                    const auto* a = activeOverlay();
+                    if (a && !a->xitOn) emit xitToggleRequested(true);
+                }
+                markOverlayDirty();
+            });
+        }
 
         menu.addSeparator();
         bool floating = m_isFloating;
@@ -2280,6 +2344,20 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
     }
     if (steps == 0) { ev->ignore(); return; }
 
+    // RIT/XIT wheel mode (#1467): adjust offset instead of tuning
+    if (m_wheelMode == SpectrumWheelMode::RIT) {
+        const int deltaHz = steps * m_stepHz;
+        emit ritAdjustRequested(deltaHz);
+        ev->accept();
+        return;
+    }
+    if (m_wheelMode == SpectrumWheelMode::XIT) {
+        const int deltaHz = steps * m_stepHz;
+        emit xitAdjustRequested(deltaHz);
+        ev->accept();
+        return;
+    }
+
     const auto* ao = activeOverlay();
     const double vfoMhz = ao ? ao->freqMhz : m_centerMhz;
     // Snap the base frequency to the step grid first, then add the delta.
@@ -2984,6 +3062,34 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 p.drawText(lx + 4, ly + fm.ascent() + 2, label);
             }
 
+            // RIT/XIT wheel mode indicator (#1467)
+            if (m_wheelMode != SpectrumWheelMode::Tune) {
+                const QString modeLabel = (m_wheelMode == SpectrumWheelMode::RIT)
+                    ? QStringLiteral("RIT MODE") : QStringLiteral("XIT MODE");
+                const auto* ao2 = activeOverlay();
+                const int offsetHz = ao2 ? (m_wheelMode == SpectrumWheelMode::RIT ? ao2->ritFreq : ao2->xitFreq) : 0;
+                const QString offsetStr = QString("%1%2 Hz")
+                    .arg(offsetHz >= 0 ? "+" : "").arg(offsetHz);
+                QFont mf(p.font().family(), 14, QFont::Bold);
+                p.setFont(mf);
+                const QFontMetrics mfm(mf);
+                const int mtw = qMax(mfm.horizontalAdvance(modeLabel), mfm.horizontalAdvance(offsetStr)) + 16;
+                const int mth = mfm.height() * 2 + 12;
+                const int mbx = (specRect.width() - mtw) / 2;
+                const int mby = specRect.top() + 4;
+                const QColor bgCol = (m_wheelMode == SpectrumWheelMode::RIT)
+                    ? QColor(0, 120, 255, 160) : QColor(220, 80, 80, 160);
+                p.fillRect(mbx, mby, mtw, mth, bgCol);
+                p.setPen(Qt::white);
+                p.drawText(mbx + (mtw - mfm.horizontalAdvance(modeLabel)) / 2,
+                           mby + mfm.ascent() + 4, modeLabel);
+                QFont mf2(p.font().family(), 11, QFont::Bold);
+                p.setFont(mf2);
+                const QFontMetrics mfm2(mf2);
+                p.drawText(mbx + (mtw - mfm2.horizontalAdvance(offsetStr)) / 2,
+                           mby + mfm.height() + mfm2.ascent() + 8, offsetStr);
+            }
+
             m_overlayStaticDirty = false;
             m_overlayNeedsUpload = true;
         }
@@ -3597,6 +3703,36 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
         p.fillRect(lx, ly, tw, th, QColor(0x0f, 0x0f, 0x1a, 200));
         p.setPen(QColor(0xc8, 0xd8, 0xe8));
         p.drawText(lx + 4, ly + fm.ascent() + 2, label);
+    }
+
+    // ── RIT/XIT wheel mode indicator (#1467) ───────────────────────────────
+    if (m_wheelMode != SpectrumWheelMode::Tune) {
+        const QString modeLabel = (m_wheelMode == SpectrumWheelMode::RIT)
+            ? QStringLiteral("RIT MODE") : QStringLiteral("XIT MODE");
+        const auto* ao = activeOverlay();
+        const int offsetHz = ao ? (m_wheelMode == SpectrumWheelMode::RIT ? ao->ritFreq : ao->xitFreq) : 0;
+        const QString offsetStr = QString("%1%2 Hz")
+            .arg(offsetHz >= 0 ? "+" : "").arg(offsetHz);
+        QFont mf = p.font();
+        mf.setPointSize(14);
+        mf.setBold(true);
+        p.setFont(mf);
+        const QFontMetrics fm(mf);
+        const int tw = qMax(fm.horizontalAdvance(modeLabel), fm.horizontalAdvance(offsetStr)) + 16;
+        const int th = fm.height() * 2 + 12;
+        const int bx = (specRect.width() - tw) / 2;
+        const int by = specRect.top() + 4;
+        const QColor bgCol = (m_wheelMode == SpectrumWheelMode::RIT)
+            ? QColor(0, 120, 255, 160) : QColor(220, 80, 80, 160);
+        p.fillRect(bx, by, tw, th, bgCol);
+        p.setPen(Qt::white);
+        p.drawText(bx + (tw - fm.horizontalAdvance(modeLabel)) / 2,
+                   by + fm.ascent() + 4, modeLabel);
+        mf.setPointSize(11);
+        p.setFont(mf);
+        const QFontMetrics fm2(mf);
+        p.drawText(bx + (tw - fm2.horizontalAdvance(offsetStr)) / 2,
+                   by + fm.height() + fm2.ascent() + 8, offsetStr);
     }
 
     qCDebug(lcPerf) << "paintEvent:" << static_cast<int>(frameTimer.elapsed()) << "ms";

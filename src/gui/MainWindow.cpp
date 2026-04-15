@@ -5759,6 +5759,32 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         m_radioModel.sendCommand(QString("spot remove %1").arg(spotIndex));
     });
 
+    // ── RIT/XIT spectrum wheel mode (#1467) ─────────────────────────────
+    connect(sw, &SpectrumWidget::ritToggleRequested, this, [this](bool on) {
+        auto* s = activeSlice();
+        if (s) s->setRit(on, s->ritFreq());
+    });
+    connect(sw, &SpectrumWidget::xitToggleRequested, this, [this](bool on) {
+        auto* s = activeSlice();
+        if (s) s->setXit(on, s->xitFreq());
+    });
+    connect(sw, &SpectrumWidget::ritAdjustRequested, this, [this](int deltaHz) {
+        auto* s = activeSlice();
+        if (s) s->setRit(true, s->ritFreq() + deltaHz);
+    });
+    connect(sw, &SpectrumWidget::xitAdjustRequested, this, [this](int deltaHz) {
+        auto* s = activeSlice();
+        if (s) s->setXit(true, s->xitFreq() + deltaHz);
+    });
+    connect(sw, &SpectrumWidget::ritClearRequested, this, [this]() {
+        auto* s = activeSlice();
+        if (s) s->setRit(s->ritOn(), 0);
+    });
+    connect(sw, &SpectrumWidget::xitClearRequested, this, [this]() {
+        auto* s = activeSlice();
+        if (s) s->setXit(s->xitOn(), 0);
+    });
+
     // ── +RX / +TNF buttons ───────────────────────────────────────────────
     connect(menu, &SpectrumOverlayMenu::addRxClicked,
             this, [this](const QString& panId) {
@@ -6677,6 +6703,28 @@ void MainWindow::registerShortcutActions()
         QKeySequence(), [this]() {
             auto* s = activeSlice();
             if (s) s->setXit(!s->xitOn(), s->xitFreq());
+        });
+    m_shortcutManager.registerAction("rit_wheel_mode", "RIT Wheel Mode", "RIT/XIT",
+        QKeySequence(), [this]() {
+            auto* sw = spectrum();
+            if (!sw) return;
+            sw->setWheelMode(sw->wheelMode() == SpectrumWheelMode::RIT
+                ? SpectrumWheelMode::Tune : SpectrumWheelMode::RIT);
+            if (sw->wheelMode() == SpectrumWheelMode::RIT) {
+                auto* s = activeSlice();
+                if (s && !s->ritOn()) s->setRit(true, s->ritFreq());
+            }
+        });
+    m_shortcutManager.registerAction("xit_wheel_mode", "XIT Wheel Mode", "RIT/XIT",
+        QKeySequence(), [this]() {
+            auto* sw = spectrum();
+            if (!sw) return;
+            sw->setWheelMode(sw->wheelMode() == SpectrumWheelMode::XIT
+                ? SpectrumWheelMode::Tune : SpectrumWheelMode::XIT);
+            if (sw->wheelMode() == SpectrumWheelMode::XIT) {
+                auto* s = activeSlice();
+                if (s && !s->xitOn()) s->setXit(true, s->xitFreq());
+            }
         });
 
     // ── Load user bindings and create QShortcuts ────────────────────────

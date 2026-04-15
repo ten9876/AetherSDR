@@ -43,6 +43,9 @@ const WfGradientStop* wfSchemeStops(WfColorScheme scheme, int& count);
 // Returns the display name for a color scheme.
 const char* wfSchemeName(WfColorScheme scheme);
 
+// Wheel mode: determines what the mouse wheel adjusts in the spectrum widget.
+enum class SpectrumWheelMode { Tune, RIT, XIT };
+
 // Panadapter / spectrum display widget.
 //
 // Layout (top to bottom):
@@ -177,6 +180,10 @@ public:
     void setBandPlanFontSize(int pt) { m_bandPlanFontSize = pt; update(); }
     void setBandPlanManager(class BandPlanManager* mgr);
     void setSingleClickTune(bool on) { m_singleClickTune = on; }
+
+    // RIT/XIT wheel mode (#1467)
+    SpectrumWheelMode wheelMode() const { return m_wheelMode; }
+    void setWheelMode(SpectrumWheelMode mode) { m_wheelMode = mode; markOverlayDirty(); }
     void setShowCursorFreq(bool on) { m_showCursorFreq = on; update(); }
     bool showCursorFreq() const { return m_showCursorFreq; }
     void setShowTuneGuides(bool on);
@@ -343,6 +350,13 @@ signals:
                           const QString& comment, int lifetimeSec,
                           bool forwardToCluster);
     void spotRemoveRequested(int spotIndex);
+    // RIT/XIT wheel-mode signals (#1467)
+    void ritToggleRequested(bool on);
+    void xitToggleRequested(bool on);
+    void ritAdjustRequested(int deltaHz);
+    void xitAdjustRequested(int deltaHz);
+    void ritClearRequested();
+    void xitClearRequested();
 
 protected:
 #ifdef AETHER_GPU_SPECTRUM
@@ -581,6 +595,7 @@ private:
     int  m_bandPlanFontSize{6};  // 0 = off
     BandPlanManager* m_bandPlanMgr{nullptr};
     bool m_singleClickTune{false};
+    SpectrumWheelMode m_wheelMode{SpectrumWheelMode::Tune};  // (#1467)
     QPoint m_clickPressPos;        // for single-click-to-tune drag threshold
     bool   m_spotClickConsumed{false}; // suppress release-to-tune after spot click (#530)
     bool m_showTxInWaterfall{false};  // default matches radio default (off)
