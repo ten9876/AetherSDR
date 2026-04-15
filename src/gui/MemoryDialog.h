@@ -24,6 +24,7 @@ private:
     void populateTable();
     void submitCellEdit(int row, int col);
     void onAdd();
+    void onExport();
     void onSelect();
     void onRemove();
     bool isSortableColumn(int column) const;

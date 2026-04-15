@@ -439,6 +439,7 @@ set(CORE_SOURCES
     src/core/DxccWorkedStatus.cpp
     src/core/DxccColorProvider.cpp
     src/core/SleepInhibitor.cpp
+    src/core/MemoryCsvCompat.cpp
 )
 
 if(APPLE)

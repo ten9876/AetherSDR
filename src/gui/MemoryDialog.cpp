@@ -1,10 +1,16 @@
 #include "MemoryDialog.h"
 #include "core/AppSettings.h"
+#include "core/MemoryCsvCompat.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
 #include "core/RadioConnection.h"
 
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -12,7 +18,9 @@
 #include <QLabel>
 #include <QHeaderView>
 #include <QDebug>
+#include <QMessageBox>
 #include <QPointer>
+#include <QSaveFile>
 #include <QTimer>
 #include <QCloseEvent>
 
@@ -132,6 +140,34 @@ bool buildMemoryFieldUpdate(int col, const QTableWidgetItem* item,
     }
 }
 
+QString defaultExportFilePath()
+{
+    const QString baseName = QString("AetherSDR_Memories_%1_v%2.csv")
+        .arg(QDateTime::currentDateTime().toString("MM-dd-yy_hh_mm"))
+        .arg(QCoreApplication::applicationVersion());
+    return QDir::home().filePath(QString("Documents/%1").arg(baseName));
+}
+
+QList<MemoryCsvRecord> currentExportRecords(const QMap<int, MemoryEntry>& memories,
+                                            const QString& filterProfile)
+{
+    QList<MemoryCsvRecord> records;
+    for (auto it = memories.cbegin(); it != memories.cend(); ++it) {
+        const MemoryEntry& memory = it.value();
+        if (!filterProfile.isEmpty() && memory.group != filterProfile)
+            continue;
+        records << MemoryCsvCompat::fromMemoryEntry(memory);
+    }
+
+    std::sort(records.begin(), records.end(),
+              [](const MemoryCsvRecord& lhs, const MemoryCsvRecord& rhs) {
+        if (!qFuzzyCompare(lhs.memory.freq + 1.0, rhs.memory.freq + 1.0))
+            return lhs.memory.freq < rhs.memory.freq;
+        return lhs.memory.index < rhs.memory.index;
+    });
+    return records;
+}
+
 } // namespace
 
 static const QStringList COLUMNS = {
@@ -195,15 +231,18 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
 
     // ── Buttons ───────────────────────────────────────────────────────────
     auto* btnRow = new QHBoxLayout;
+    auto* exportBtn = new QPushButton("Export...");
     auto* addBtn = new QPushButton("Add");
     auto* selectBtn = new QPushButton("Select");
     auto* removeBtn = new QPushButton("Remove");
     btnRow->addWidget(addBtn);
     btnRow->addWidget(selectBtn);
+    btnRow->addWidget(exportBtn);
     btnRow->addStretch();
     btnRow->addWidget(removeBtn);
     root->addLayout(btnRow);
 
+    connect(exportBtn, &QPushButton::clicked, this, &MemoryDialog::onExport);
     connect(addBtn, &QPushButton::clicked, this, &MemoryDialog::onAdd);
     connect(selectBtn, &QPushButton::clicked, this, &MemoryDialog::onSelect);
     connect(removeBtn, &QPushButton::clicked, this, &MemoryDialog::onRemove);
@@ -456,6 +495,65 @@ void MemoryDialog::onAdd()
         if (dialogGuard)
             dialogGuard->populateTable();
     });
+}
+
+void MemoryDialog::onExport()
+{
+    const QString filterProfile = m_filterCombo->currentData().toString();
+    const QList<MemoryCsvRecord> records =
+        currentExportRecords(m_model->memories(), filterProfile);
+
+    if (records.isEmpty()) {
+        QMessageBox::information(this, "Export Memories",
+                                 filterProfile.isEmpty()
+                                     ? "There are no memories to export."
+                                     : "There are no memories in the current filter to export.");
+        return;
+    }
+
+    const QString path = QFileDialog::getSaveFileName(
+        this,
+        "Export Memories",
+        defaultExportFilePath(),
+        "CSV Files (*.csv)");
+    if (path.isEmpty())
+        return;
+
+    const QByteArray csv = MemoryCsvCompat::serialize(records);
+    const MemoryCsvParseResult validation = MemoryCsvCompat::parse(csv);
+    if (!validation.ok()) {
+        QMessageBox::warning(this, "Export Memories",
+                             QString("The generated SmartSDR CSV failed validation:\n%1")
+                                 .arg(validation.errors.join('\n')));
+        return;
+    }
+
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        QMessageBox::warning(this, "Export Memories",
+                             QString("Couldn't open %1 for writing.")
+                                 .arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+
+    if (file.write(csv) != csv.size()) {
+        QMessageBox::warning(this, "Export Memories",
+                             QString("Couldn't write the SmartSDR CSV to %1.")
+                                 .arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+
+    if (!file.commit()) {
+        QMessageBox::warning(this, "Export Memories",
+                             QString("Couldn't save %1.")
+                                 .arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+
+    QMessageBox::information(this, "Export Memories",
+                             QString("Exported %1 memories to %2.")
+                                 .arg(records.size())
+                                 .arg(QDir::toNativeSeparators(QFileInfo(path).fileName())));
 }
 
 void MemoryDialog::onSelect()
