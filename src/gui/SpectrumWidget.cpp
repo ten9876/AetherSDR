@@ -259,6 +259,7 @@ void SpectrumWidget::loadSettings()
                    0, static_cast<int>(WfColorScheme::Count) - 1));
     m_singleClickTune = s.value("SingleClickTune", "False").toString() == "True";
     m_showTuneGuides  = s.value("ShowTuneGuides", "False").toString() == "True";
+    m_panFollowVfo    = s.value("PanFollowVfo", "True").toString() == "True";
 
     // Background image — default to bundled logo, "none" = explicitly cleared
     QString bgPath = s.value(settingsKey("BackgroundImage"), ":/bg-default.jpg").toString();
@@ -378,6 +379,21 @@ void SpectrumWidget::setShowTuneGuides(bool on) {
                 }
                 sw->markOverlayDirty();
             }
+        }
+    }
+}
+void SpectrumWidget::setPanFollowVfo(bool on) {
+    m_panFollowVfo = on;
+    auto& s = AppSettings::instance();
+    s.setValue("PanFollowVfo", on ? "True" : "False");
+    s.save();
+
+    // Propagate to all sibling SpectrumWidgets so the toggle is global
+    if (QWidget* top = window()) {
+        const auto siblings = top->findChildren<SpectrumWidget*>();
+        for (SpectrumWidget* sw : siblings) {
+            if (sw != this)
+                sw->m_panFollowVfo = on;
         }
     }
 }
@@ -1549,6 +1565,11 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         tuneGuideAction->setCheckable(true);
         tuneGuideAction->setChecked(m_showTuneGuides);
         connect(tuneGuideAction, &QAction::toggled, this, &SpectrumWidget::setShowTuneGuides);
+
+        QAction* panFollowAction = menu.addAction("Pan Follows VFO");
+        panFollowAction->setCheckable(true);
+        panFollowAction->setChecked(m_panFollowVfo);
+        connect(panFollowAction, &QAction::toggled, this, &SpectrumWidget::setPanFollowVfo);
 
         menu.addSeparator();
         bool floating = m_isFloating;

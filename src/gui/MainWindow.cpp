@@ -1569,7 +1569,8 @@ MainWindow::MainWindow(QWidget* parent)
         double target = m_flexTargetMhz;
         // Use slice tune (not slice m) — doesn't recenter pan, correct for encoder
         s->setFrequency(target);
-        panFollowVfo(s, target);  // re-center pan if VFO stepped outside visible window (#989)
+        if (AppSettings::instance().value("PanFollowVfo", "True").toString() == "True")
+            panFollowVfo(s, target);  // re-center pan if VFO stepped outside visible window (#989)
     });
     // FlexControl signals (auto-queued from worker → main)
     connect(m_flexControl, &FlexControlManager::tuneSteps,
@@ -1722,7 +1723,8 @@ MainWindow::MainWindow(QWidget* parent)
             long long snapped = ((curHz + stepHz / 2) / stepHz) * stepHz;
             double newMhz = (snapped + steps * stepHz) / 1e6;
             s->setFrequency(newMhz);
-            panFollowVfo(s, newMhz);  // re-center pan if VFO stepped outside visible window (#989)
+            if (AppSettings::instance().value("PanFollowVfo", "True").toString() == "True")
+                panFollowVfo(s, newMhz);  // re-center pan if VFO stepped outside visible window (#989)
         }
     });
 
@@ -5949,7 +5951,8 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     // the pan explicitly when the stepped frequency falls outside the window.
     connect(w, &VfoWidget::stepTuned, this, [this, sliceId](double mhz) {
         if (auto* sl = m_radioModel.slice(sliceId))
-            panFollowVfo(sl, mhz);
+            if (AppSettings::instance().value("PanFollowVfo", "True").toString() == "True")
+                panFollowVfo(sl, mhz);
     });
     connect(w, &VfoWidget::lockToggled, this, [this, sliceId](bool locked) {
         if (auto* sl = m_radioModel.slice(sliceId))
@@ -6385,7 +6388,8 @@ void MainWindow::registerShortcutActions()
         // Use setFrequency (autopan=0) + panFollowVfo so all step-tuning paths
         // (keyboard, wheel, FlexControl, MIDI) share the same pan-follow logic. (#989)
         s->setFrequency(newMhz);
-        panFollowVfo(s, newMhz);
+        if (AppSettings::instance().value("PanFollowVfo", "True").toString() == "True")
+            panFollowVfo(s, newMhz);
     };
 
     // Step cycle helper
@@ -7207,7 +7211,8 @@ void MainWindow::onFrequencyChanged(double mhz)
     if (!m_updatingFromModel) {
         if (auto* s = activeSlice()) {
             s->setFrequency(mhz);
-            panFollowVfo(s, mhz);  // re-center pan if VFO stepped outside visible window (#989)
+            if (AppSettings::instance().value("PanFollowVfo", "True").toString() == "True")
+                panFollowVfo(s, mhz);  // re-center pan if VFO stepped outside visible window (#989)
 
             // Diversity: immediately mirror freq to child VFO (no radio round-trip)
             if (s->isDiversityParent()) {
