@@ -2062,7 +2062,7 @@ void VfoWidget::paintEvent(QPaintEvent* event)
     // Bar rect: drawn in the S-meter row (75% left portion)
     const int barX = 6;
     const int barW = (width() - 12) * 3 / 4;  // 75% of widget width
-    const int barY = m_dbmLabel->geometry().center().y() - 3;
+    const int barY = m_dbmLabel->y() + (m_dbmLabel->height() - 6) / 2;
     const int barH = 6;
 
     // Background
@@ -2072,11 +2072,18 @@ void VfoWidget::paintEvent(QPaintEvent* event)
     // S0–S9 occupies left 60%, S9–S9+60 occupies right 40%
     const int s9X = barX + barW * 60 / 100;  // S9 boundary pixel
 
-    // Signal fill — blue up to S9, red beyond
+    // Signal fill — color gradient matching SmartSDR visual convention
     const int fillW = static_cast<int>(m_signalMeterFraction * barW);
 
     if (fillW > 0) {
-        p.fillRect(barX, barY, fillW, barH, QColor(0x00, 0xc0, 0x40));
+        QLinearGradient grad(barX, 0, barX + barW, 0);
+        grad.setColorAt(0.00, QColor(0x00, 0x90, 0x30));  // dark green  — S0
+        grad.setColorAt(0.40, QColor(0xd4, 0xc0, 0x00));  // yellow      — ~S6
+        grad.setColorAt(0.52, QColor(0xff, 0x58, 0x00));  // orange      — ~S7-8
+        grad.setColorAt(0.60, QColor(0xdd, 0x14, 0x00));  // red         — S9
+        grad.setColorAt(0.73, QColor(0xff, 0x00, 0x00));  // bright red  — S9+20
+        grad.setColorAt(1.00, QColor(0xff, 0x00, 0x00));  // bright red  — S9+60
+        p.fillRect(barX, barY, fillW, barH, grad);
     }
 
     // ── Scale bar with tick marks below the S-meter ────────────────────────
