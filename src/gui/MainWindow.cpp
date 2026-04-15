@@ -6230,10 +6230,12 @@ void MainWindow::toggleMinimalMode(bool on)
         s.setValue("MinimalModeSplitterSizes",
             QString::fromLatin1(m_splitter->saveState().toBase64()));
 
-        // Suspend spectrum rendering to save CPU
+        // Suspend spectrum rendering to save CPU (skip floating pans)
         if (m_panStack) {
-            for (auto* a : m_panStack->allApplets())
-                a->spectrumWidget()->setUpdatesEnabled(false);
+            for (auto* a : m_panStack->allApplets()) {
+                if (!m_panStack->isFloating(a->panId()))
+                    a->spectrumWidget()->setUpdatesEnabled(false);
+            }
         }
 
         // Hide the splitter (contains spectrum + applet panel) and reparent
@@ -6269,10 +6271,12 @@ void MainWindow::toggleMinimalMode(bool on)
             m_splitter->restoreState(splitterState);
         m_splitter->show();
 
-        // Resume spectrum rendering
+        // Resume spectrum rendering (skip floating pans — they never stopped)
         if (m_panStack) {
-            for (auto* a : m_panStack->allApplets())
-                a->spectrumWidget()->setUpdatesEnabled(true);
+            for (auto* a : m_panStack->allApplets()) {
+                if (!m_panStack->isFloating(a->panId()))
+                    a->spectrumWidget()->setUpdatesEnabled(true);
+            }
         }
 
         // Release fixed width and restore minimum size
