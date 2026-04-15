@@ -647,10 +647,59 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
             audioFrames = resampledBuf.size() / (2 * static_cast<int>(sizeof(float)));
         }
 
-        cs.socket->sendBinaryMessage(
-            buildAudioFrame(trx, 1 /*RX_AUDIO_STREAM*/,
-                            cs.audioSampleRate, 2,
-                            audioSrc, audioFrames));
+        int srcSamples = audioFrames * 2;  // stereo
+
+        if (cs.audioFormat == 3) {
+            // float32 output — pass through directly
+            if (cs.audioChannels == 2) {
+                cs.socket->sendBinaryMessage(
+                    buildAudioFrame(trx, 1, cs.audioSampleRate, 2,
+                                    audioSrc, audioFrames));
+            } else {
+                // Mono: average L+R
+                QVector<float> monoBuf(audioFrames);
+                for (int i = 0; i < audioFrames; ++i)
+                    monoBuf[i] = (audioSrc[i*2] + audioSrc[i*2+1]) * 0.5f;
+                cs.socket->sendBinaryMessage(
+                    buildAudioFrame(trx, 1, cs.audioSampleRate, 1,
+                                    monoBuf.constData(), audioFrames));
+            }
+        } else {
+            // int16 output — convert float32 → int16
+            if (cs.audioChannels == 2) {
+                int payloadBytes = srcSamples * static_cast<int>(sizeof(qint16));
+                QByteArray frame(sizeof(TciAudioHeader) + payloadBytes, Qt::Uninitialized);
+                TciAudioHeader hdr{};
+                hdr.receiver = static_cast<quint32>(trx);
+                hdr.sampleRate = static_cast<quint32>(cs.audioSampleRate);
+                hdr.format = 0;  // int16
+                hdr.length = static_cast<quint32>(audioFrames);
+                hdr.type = 1;    // RX_AUDIO
+                hdr.channels = 2;
+                std::memcpy(frame.data(), &hdr, sizeof(hdr));
+                auto* i16dst = reinterpret_cast<qint16*>(frame.data() + sizeof(hdr));
+                for (int i = 0; i < srcSamples; ++i)
+                    i16dst[i] = static_cast<qint16>(std::clamp(audioSrc[i] * 32768.0f, -32768.0f, 32767.0f));
+                cs.socket->sendBinaryMessage(frame);
+            } else {
+                // Mono int16
+                int payloadBytes = audioFrames * static_cast<int>(sizeof(qint16));
+                QByteArray frame(sizeof(TciAudioHeader) + payloadBytes, Qt::Uninitialized);
+                TciAudioHeader hdr{};
+                hdr.receiver = static_cast<quint32>(trx);
+                hdr.sampleRate = static_cast<quint32>(cs.audioSampleRate);
+                hdr.format = 0;
+                hdr.length = static_cast<quint32>(audioFrames);
+                hdr.type = 1;
+                hdr.channels = 1;
+                std::memcpy(frame.data(), &hdr, sizeof(hdr));
+                auto* i16dst = reinterpret_cast<qint16*>(frame.data() + sizeof(hdr));
+                for (int i = 0; i < audioFrames; ++i)
+                    i16dst[i] = static_cast<qint16>(std::clamp(
+                        (audioSrc[i*2] + audioSrc[i*2+1]) * 0.5f * 32768.0f, -32768.0f, 32767.0f));
+                cs.socket->sendBinaryMessage(frame);
+            }
+        }
     }
 }
 
