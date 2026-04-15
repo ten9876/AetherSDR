@@ -4303,7 +4303,16 @@ void SpectrumWidget::drawFreqScale(QPainter& p, const QRect& r)
         // Label only every Nth line to prevent overlap
         if (stepIdx % labelEvery != 0) continue;
 
-        const QString label = QString::number(freq, 'f', decimals);
+        QString label = QString::number(freq, 'f', decimals);
+        // Strip trailing zeros but keep at least 3 decimal places (e.g. 3.8250 → 3.825)
+        if (decimals > 3) {
+            int dot = label.indexOf('.');
+            if (dot >= 0) {
+                int minLen = dot + 1 + 3; // keep at least 3 decimals
+                while (label.size() > minLen && label.endsWith('0'))
+                    label.chop(1);
+            }
+        }
         const int tw = fm.horizontalAdvance(label);
         const int lx = qBound(0, x - tw / 2, width() - tw);
 
