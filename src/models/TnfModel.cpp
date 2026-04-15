@@ -47,11 +47,10 @@ void TnfModel::removeTnf(int id)
     }
 }
 
-void TnfModel::setGlobalEnabled(bool on)
+void TnfModel::applyGlobalEnabled(bool on)
 {
     if (m_globalEnabled == on) return;
     m_globalEnabled = on;
-    emit commandReady(QString("radio set tnf_enabled=%1").arg(on ? 1 : 0));
     emit globalEnabledChanged(on);
 }
 
@@ -99,6 +98,12 @@ void TnfModel::requestRemoveTnf(int id)
 void TnfModel::requestGlobalTnfEnabled(bool on)
 {
     emit commandReady(QString("radio set tnf_enabled=%1").arg(on ? 1 : 0));
+    // Optimistic update — radio echoes tnf_enabled in status, but update
+    // immediately so the UI reflects the change without waiting for the echo.
+    if (m_globalEnabled != on) {
+        m_globalEnabled = on;
+        emit globalEnabledChanged(on);
+    }
 }
 
 void TnfModel::clear()

@@ -2330,7 +2330,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         return true;
     }
     if (obj == m_tnfIndicator && event->type() == QEvent::MouseButtonPress) {
-        m_radioModel.tnfModel().setGlobalEnabled(!m_radioModel.tnfModel().globalEnabled());
+        m_radioModel.tnfModel().requestGlobalTnfEnabled(!m_radioModel.tnfModel().globalEnabled());
         return true;
     }
     if (obj == m_fdxIndicator && event->type() == QEvent::MouseButtonPress) {
