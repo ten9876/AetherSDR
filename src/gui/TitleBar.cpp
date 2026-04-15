@@ -185,13 +185,13 @@ TitleBar::TitleBar(QWidget* parent)
     m_hbox->addWidget(m_speakerBtn);
 
     m_masterSlider = new GuardedSlider(Qt::Horizontal);
-    m_masterSlider->setRange(0, 100);
+    m_masterSlider->setRange(0, 200);
     int savedVol = s.value("MasterVolume", "100").toInt();
     m_masterSlider->setValue(savedVol);
     m_masterSlider->setFixedWidth(80);
     m_masterSlider->setFixedHeight(16);
     m_masterSlider->setAccessibleName("Master volume");
-    m_masterSlider->setAccessibleDescription("Line out volume level, 0 to 100 percent");
+    m_masterSlider->setAccessibleDescription("Line out volume level, 0 to 200 percent");
     m_masterSlider->setStyleSheet(
         "QSlider::groove:horizontal { background: #1a2a3a; height: 4px; border-radius: 2px; }"
         "QSlider::handle:horizontal { background: #00b4d8; width: 10px; margin: -3px 0; border-radius: 5px; }"

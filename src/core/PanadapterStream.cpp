@@ -148,6 +148,9 @@ bool PanadapterStream::start(RadioConnection* conn)
         return false;
     }
 
+    // Request a 1 MB receive buffer to absorb VITA-49 packet bursts (#1445)
+    m_socket.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption, 1024 * 1024);
+
     m_localAddress = m_socket.localAddress();
     m_localPort = m_socket.localPort();
     qCDebug(lcVita49) << "PanadapterStream: local UDP endpoint"
@@ -202,6 +205,9 @@ bool PanadapterStream::startWan(const QHostAddress& radioAddr, quint16 radioUdpP
                    << m_socket.errorString();
         return false;
     }
+
+    // Request a 1 MB receive buffer to absorb VITA-49 packet bursts (#1445)
+    m_socket.setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption, 1024 * 1024);
 
     m_localPort = m_socket.localPort();
     m_localAddress = m_socket.localAddress();

@@ -92,10 +92,10 @@ AudioEngine::AudioEngine(QObject* parent)
         if (!m_audioSink || !m_audioDevice || !m_audioDevice->isOpen() || m_audioSink->state() == QAudio::StoppedState) return;
 
         // Cap buffer at ~200ms of audio to bound latency.
-        // At 24kHz stereo int16 = 96000 bytes/sec → 200ms = 19200 bytes.
-        // At 48kHz stereo int16 = 192000 bytes/sec → 200ms = 38400 bytes.
+        // At 24kHz stereo float32 = 192000 bytes/sec → 200ms = 38400 bytes.
+        // At 48kHz stereo float32 = 384000 bytes/sec → 200ms = 76800 bytes.
         const int sampleRate = m_resampleTo48k ? 48000 : DEFAULT_SAMPLE_RATE;
-        const qsizetype maxBufBytes = sampleRate * 2 * 2 / 5; // 200ms worth
+        const qsizetype maxBufBytes = sampleRate * 2 * sizeof(float) / 5; // 200ms worth
         if (m_rxBuffer.size() > maxBufBytes) {
             // Drop oldest samples to keep latency bounded
             m_rxBuffer.remove(0, m_rxBuffer.size() - maxBufBytes);
@@ -305,16 +305,17 @@ void AudioEngine::stopRxStream()
 
 void AudioEngine::setRxVolume(float v)
 {
-    m_rxVolume.store(qBound(0.0f, v, 1.0f));
+    m_rxVolume.store(qBound(0.0f, v, 2.0f));
+    const float sinkVol = qMin(m_rxVolume.load(), 1.0f);
     if (m_audioSink)
-        m_audioSink->setVolume(m_muted.load() ? 0.0f : m_rxVolume.load());
+        m_audioSink->setVolume(m_muted.load() ? 0.0f : sinkVol);
 }
 
 void AudioEngine::setMuted(bool muted)
 {
     m_muted.store(muted);
     if (m_audioSink)
-        m_audioSink->setVolume(muted ? 0.0f : m_rxVolume.load());
+        m_audioSink->setVolume(muted ? 0.0f : qMin(m_rxVolume.load(), 1.0f));
 }
 
 // Resample 24kHz stereo float32 → 48kHz stereo float32 via r8brain.
@@ -336,10 +337,20 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
 
     auto writeAudio = [this](const QByteArray& data) {
         if (!m_audioDevice || !m_audioDevice->isOpen()) return;
-        if (m_resampleTo48k)
-            m_rxBuffer.append(resampleStereo(data));
-        else
-            m_rxBuffer.append(data);
+        const QByteArray& resampled = m_resampleTo48k ? resampleStereo(data) : data;
+        const float boost = m_rxVolume.load();
+        if (boost > 1.0f) {
+            // Software gain for volume above 100% (slider 101–200)
+            QByteArray boosted(resampled.size(), Qt::Uninitialized);
+            const auto* src = reinterpret_cast<const float*>(resampled.constData());
+            auto* dst = reinterpret_cast<float*>(boosted.data());
+            const int nSamples = resampled.size() / static_cast<int>(sizeof(float));
+            for (int i = 0; i < nSamples; ++i)
+                dst[i] = qBound(-1.0f, src[i] * boost, 1.0f);
+            m_rxBuffer.append(boosted);
+        } else {
+            m_rxBuffer.append(resampled);
+        }
         updateRxBufferStats();
     };
 
@@ -795,21 +806,9 @@ void AudioEngine::processNr2(const QByteArray& stereoPcm)
     }
 }
 
-QByteArray AudioEngine::applyBoost(const QByteArray& pcm, float gain) const
-{
-    const int nSamples = pcm.size() / sizeof(int16_t);
-    const auto* src = reinterpret_cast<const int16_t*>(pcm.constData());
-    QByteArray out(pcm.size(), Qt::Uninitialized);
-    auto* dst = reinterpret_cast<int16_t*>(out.data());
-    for (int i = 0; i < nSamples; ++i) {
-        float s = src[i] * gain;
-        // Soft clamp to avoid harsh digital clipping
-        if (s > 32767.0f) s = 32767.0f;
-        else if (s < -32767.0f) s = -32767.0f;
-        dst[i] = static_cast<int16_t>(s);
-    }
-    return out;
-}
+// applyBoost is no longer used — software gain for volume > 100% is now
+// applied inline in writeAudio (float32 pipeline). Kept as a tombstone
+// so git blame shows the migration context. (#1445)
 
 float AudioEngine::computeRMS(const QByteArray& pcm) const
 {
