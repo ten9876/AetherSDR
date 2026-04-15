@@ -158,6 +158,17 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
         markOverlayDirty();
     });
 
+    // Debounce timer for waterfall history re-allocation during resize (#1478)
+    m_historyResizeTimer = new QTimer(this);
+    m_historyResizeTimer->setSingleShot(true);
+    m_historyResizeTimer->setInterval(250);
+    connect(m_historyResizeTimer, &QTimer::timeout, this, [this]() {
+        ensureWaterfallHistory();
+        if (m_wfHistoryRowCount > 0) {
+            rebuildWaterfallViewport();
+        }
+    });
+
     // Load display settings (panIndex 0 by default — loadSettings() can be
     // called again after setPanIndex() for multi-pan)
     loadSettings();
@@ -491,7 +502,8 @@ void SpectrumWidget::resetWfTimeScale() {
 int SpectrumWidget::waterfallHistoryCapacityRows() const
 {
     const int msPerRow = std::max(1, m_wfLineDuration);
-    return static_cast<int>((kWaterfallHistoryMs + msPerRow - 1) / msPerRow);
+    const int rows = static_cast<int>((kWaterfallHistoryMs + msPerRow - 1) / msPerRow);
+    return std::min(rows, kMaxWaterfallHistoryRows);
 }
 
 int SpectrumWidget::maxWaterfallHistoryOffsetRows() const
@@ -1698,10 +1710,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
             }
             m_waterfall = std::move(newWf);
             m_wfWriteRow = 0;
-            ensureWaterfallHistory();
-            if (m_wfHistoryRowCount > 0) {
-                rebuildWaterfallViewport();
-            }
+            m_historyResizeTimer->start();
         }
         markOverlayDirty();
         ev->accept();
@@ -2315,10 +2324,9 @@ void SpectrumWidget::resizeEvent(QResizeEvent* ev)
         }
         m_waterfall = std::move(newWf);
         m_wfWriteRow = 0;
-        ensureWaterfallHistory();
-        if (m_wfHistoryRowCount > 0) {
-            rebuildWaterfallViewport();
-        }
+        // Debounce history re-allocation — rapid resize events on Linux/X11
+        // would otherwise repeatedly allocate large buffers (#1478).
+        m_historyResizeTimer->start();
     }
 
     // Position GPU renderer to cover FFT + waterfall area

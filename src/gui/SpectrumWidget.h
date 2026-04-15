@@ -481,6 +481,7 @@ private:
     int    m_timeScaleDragStartY{0};
     int    m_timeScaleDragStartOffsetRows{0};
     static constexpr qint64 kWaterfallHistoryMs = 20LL * 60LL * 1000LL;
+    static constexpr int    kMaxWaterfallHistoryRows = 4096;
 
     // True once we receive native waterfall tile data (PCC 0x8004).
     // When set, updateSpectrum() skips pushing FFT rows to the waterfall
@@ -556,6 +557,7 @@ private:
     bool    m_isFloating{false};
     bool    m_tuneGuideVisible{false};
     QTimer* m_tuneGuideTimer{nullptr};
+    QTimer* m_historyResizeTimer{nullptr};
 
     // State change detector cache (per-instance, NOT static — multiple
     // panadapters have different values and static vars cause an infinite
