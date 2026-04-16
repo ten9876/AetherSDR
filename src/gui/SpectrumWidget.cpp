@@ -2280,6 +2280,25 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
     }
     if (steps == 0) { ev->ignore(); return; }
 
+    // Ctrl+wheel = zoom (scroll up zooms in / narrows bandwidth).
+    // Mirrors the pinch-to-zoom gesture handler above.
+    if (ev->modifiers() & Qt::ControlModifier) {
+        const double factor = (steps > 0) ? (1.0 / 1.5) : 1.5;
+        const double newBw = std::clamp(m_bandwidthMhz * factor, m_minBwMhz, m_maxBwMhz);
+        if (qFuzzyCompare(newBw, m_bandwidthMhz)) { ev->accept(); return; }
+        const double mouseXFrac = ev->position().x() / width() - 0.5;
+        const double anchorMhz = m_centerMhz + mouseXFrac * m_bandwidthMhz;
+        const double newCenter = anchorMhz - mouseXFrac * newBw;
+        reprojectWaterfall(m_centerMhz, m_bandwidthMhz, newCenter, newBw);
+        m_bandwidthMhz = newBw;
+        m_centerMhz = newCenter;
+        markOverlayDirty();
+        emit bandwidthChangeRequested(newBw);
+        emit centerChangeRequested(newCenter);
+        ev->accept();
+        return;
+    }
+
     const auto* ao = activeOverlay();
     const double vfoMhz = ao ? ao->freqMhz : m_centerMhz;
     // Snap the base frequency to the step grid first, then add the delta.
