@@ -2325,6 +2325,10 @@ void SpectrumWidget::resizeEvent(QResizeEvent* ev)
 
 
     positionZoomButtons();
+
+    // Notify MainWindow so it can re-push xpixels/ypixels to the radio (#1511)
+    if (width() >= 100 && height() >= 100)
+        emit dimensionsChanged(width(), height());
 }
 
 void SpectrumWidget::positionZoomButtons()

@@ -338,6 +338,8 @@ signals:
     void sliceTuneRequested(int sliceId, double freqMhz);
     void popOutRequested(bool popOut);  // true=float, false=dock
     void sliceTxRequested(int sliceId);
+    // Emitted on resize so MainWindow can re-push xpixels/ypixels to the radio (#1511)
+    void dimensionsChanged(int w, int h);
     // Spot signals
     void spotAddRequested(double freqMhz, const QString& callsign,
                           const QString& comment, int lifetimeSec,

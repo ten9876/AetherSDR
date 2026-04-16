@@ -1070,6 +1070,17 @@ MainWindow::MainWindow(QWidget* parent)
                 else if (panCount >= 4)
                     m_panStack->rearrangeLayout("2x2"); // default 4-pan
 
+                // Optimistically set local yPixels immediately so FFT frames
+                // arriving before the radio echoes back use correct scaling (#1511).
+                for (auto* a : m_panStack->allApplets()) {
+                    auto* s = a->spectrumWidget();
+                    auto* p = m_radioModel.panadapter(a->panId());
+                    if (!s || !p || !p->panStreamId()) continue;
+                    int y = s->height();
+                    if (y >= 100)
+                        m_radioModel.panStream()->setYPixels(p->panStreamId(), y);
+                }
+
                 // Defensive re-push xpixels for all pans after layout settles.
                 // Covers race where radio hadn't finished pan init when first push arrived.
                 QTimer::singleShot(500, this, [this]() {
@@ -5250,6 +5261,32 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         //      update pan A's dBm scale.
         connect(pan, &PanadapterModel::levelChanged,
                 sw, &SpectrumWidget::setDbmRange);
+    }
+
+    // ── Debounced resize → re-push xpixels/ypixels to the radio (#1511) ───
+    // When the layout changes (e.g. adding a second pan, splitting, resizing),
+    // the widget dimensions change but the radio keeps encoding FFT bins to the
+    // old yPixels scale.  This causes a ~5 dB noise-floor offset until restart.
+    // A 300ms debounce avoids flooding the radio during animated resizes.
+    {
+        auto* resizeTimer = new QTimer(sw);  // parented to sw → auto-deleted
+        resizeTimer->setSingleShot(true);
+        resizeTimer->setInterval(300);
+        connect(sw, &SpectrumWidget::dimensionsChanged,
+                resizeTimer, [resizeTimer](int, int) { resizeTimer->start(); });
+        connect(resizeTimer, &QTimer::timeout,
+                this, [this, applet, sw]() {
+            auto* pan = m_radioModel.panadapter(applet->panId());
+            if (!pan || !sw) return;
+            int xpix = sw->width();
+            int ypix = sw->height();
+            if (xpix < 100 || ypix < 100) return;
+            m_radioModel.sendCommand(
+                QString("display pan set %1 xpixels=%2 ypixels=%3")
+                    .arg(pan->panId()).arg(xpix).arg(ypix));
+            if (pan->panStreamId())
+                m_radioModel.panStream()->setYPixels(pan->panStreamId(), ypix);
+        });
     }
 
     // ── Tuning step size → this pan's spectrum widget ─────────────────────
