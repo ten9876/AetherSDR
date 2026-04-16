@@ -6388,20 +6388,6 @@ void MainWindow::registerShortcutActions()
         panFollowVfo(s, newMhz);
     };
 
-    // Step cycle helper
-    auto cycleStep = [this](int dir) {
-        auto* sw = spectrum();
-        if (!sw) return;
-        static const int steps[] = {10, 50, 100, 250, 500, 1000, 2500, 5000, 10000};
-        int cur = sw->stepSize();
-        if (dir > 0) {
-            for (int i = 0; i < static_cast<int>(std::size(steps)); ++i)
-                if (steps[i] > cur) { sw->setStepSize(steps[i]); return; }
-        } else {
-            for (int i = static_cast<int>(std::size(steps)) - 1; i >= 0; --i)
-                if (steps[i] < cur) { sw->setStepSize(steps[i]); return; }
-        }
-    };
 
     // ── Frequency ───────────────────────────────────────────────────────
     // autoRepeat=true so holding the key continuously tunes (accessibility).
@@ -6418,7 +6404,7 @@ void MainWindow::registerShortcutActions()
     m_shortcutManager.registerAction("tune_down_1mhz", "Tune Down 1 MHz", "Frequency",
         QKeySequence(), [nudgeFreq]() { nudgeFreq(-10000); });
     m_shortcutManager.registerAction("go_to_freq", "Go to Frequency", "Frequency",
-        QKeySequence(Qt::Key_G), [this]() {
+        QKeySequence(Qt::Key_J), [this]() {
             auto* s = activeSlice();
             auto* sw = s ? spectrumForSlice(s) : nullptr;
             auto* vfo = (s && sw) ? sw->vfoWidget(s->sliceId()) : nullptr;
@@ -6502,6 +6488,74 @@ void MainWindow::registerShortcutActions()
         });
 
     // ── Slice ───────────────────────────────────────────────────────────
+    // A–H: select slice by letter (only activates if that slice is open)
+    {
+        struct SliceKey { const char* id; const char* name; Qt::Key key; int sliceIdx; };
+        static const SliceKey sliceKeys[] = {
+            {"select_slice_a", "Select Slice A", Qt::Key_A, 0},
+            {"select_slice_b", "Select Slice B", Qt::Key_B, 1},
+            {"select_slice_c", "Select Slice C", Qt::Key_C, 2},
+            {"select_slice_d", "Select Slice D", Qt::Key_D, 3},
+            {"select_slice_e", "Select Slice E", Qt::Key_E, 4},
+            {"select_slice_f", "Select Slice F", Qt::Key_F, 5},
+            {"select_slice_g", "Select Slice G", Qt::Key_G, 6},
+            {"select_slice_h", "Select Slice H", Qt::Key_H, 7},
+        };
+        int maxSlices = m_radioModel.isConnected() ? m_radioModel.maxSlices() : 4;
+        for (int i = 0; i < std::min(maxSlices, static_cast<int>(std::size(sliceKeys))); ++i) {
+            const auto& sk = sliceKeys[i];
+            int idx = sk.sliceIdx;
+            m_shortcutManager.registerAction(sk.id, sk.name, "Slice",
+                QKeySequence(sk.key), [this, idx]() {
+                    if (!m_radioModel.isConnected()) return;
+                    if (auto* s = m_radioModel.slice(idx))
+                        setActiveSlice(idx);
+                });
+        }
+    }
+
+    // Shift+A–H: close slice by letter (non-toggle, only closes)
+    {
+        struct CloseKey { const char* id; const char* name; int key; int sliceIdx; };
+        static const CloseKey closeKeys[] = {
+            {"close_slice_a", "Close Slice A", Qt::SHIFT | Qt::Key_A, 0},
+            {"close_slice_b", "Close Slice B", Qt::SHIFT | Qt::Key_B, 1},
+            {"close_slice_c", "Close Slice C", Qt::SHIFT | Qt::Key_C, 2},
+            {"close_slice_d", "Close Slice D", Qt::SHIFT | Qt::Key_D, 3},
+            {"close_slice_e", "Close Slice E", Qt::SHIFT | Qt::Key_E, 4},
+            {"close_slice_f", "Close Slice F", Qt::SHIFT | Qt::Key_F, 5},
+            {"close_slice_g", "Close Slice G", Qt::SHIFT | Qt::Key_G, 6},
+            {"close_slice_h", "Close Slice H", Qt::SHIFT | Qt::Key_H, 7},
+        };
+        int maxSlices = m_radioModel.isConnected() ? m_radioModel.maxSlices() : 4;
+        for (int i = 0; i < std::min(maxSlices, static_cast<int>(std::size(closeKeys))); ++i) {
+            const auto& ck = closeKeys[i];
+            int idx = ck.sliceIdx;
+            m_shortcutManager.registerAction(ck.id, ck.name, "Slice",
+                QKeySequence(ck.key), [this, idx]() {
+                    if (!m_radioModel.isConnected()) return;
+                    if (m_radioModel.slices().size() <= 1) return;
+                    if (m_radioModel.slice(idx))
+                        m_radioModel.sendCommand(QString("slice remove %1").arg(idx));
+                });
+        }
+    }
+
+    // O: open a new slice (gated by radio model max slices)
+    m_shortcutManager.registerAction("open_slice", "Open Slice", "Slice",
+        QKeySequence(Qt::Key_O), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            int limit = m_radioModel.maxSlices();
+            if (m_radioModel.slices().size() >= limit) {
+                statusBar()->showMessage(
+                    QString("%1 supports a maximum of %2 slices")
+                        .arg(m_radioModel.model()).arg(limit), 4000);
+                return;
+            }
+            QString panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
+            m_radioModel.addSliceOnPan(panId);
+        });
+
     m_shortcutManager.registerAction("next_slice", "Next Slice", "Slice",
         QKeySequence(), [this]() {
             const auto& slices = m_radioModel.slices();
@@ -6556,9 +6610,13 @@ void MainWindow::registerShortcutActions()
 
     // ── Tuning ──────────────────────────────────────────────────────────
     m_shortcutManager.registerAction("step_up", "Step Size Up", "Tuning",
-        QKeySequence(Qt::Key_BracketRight), [cycleStep]() { cycleStep(1); });
+        QKeySequence(Qt::Key_BracketRight), [this]() {
+            if (auto* rx = m_appletPanel->rxApplet()) rx->cycleStepUp();
+        });
     m_shortcutManager.registerAction("step_down", "Step Size Down", "Tuning",
-        QKeySequence(Qt::Key_BracketLeft), [cycleStep]() { cycleStep(-1); });
+        QKeySequence(Qt::Key_BracketLeft), [this]() {
+            if (auto* rx = m_appletPanel->rxApplet()) rx->cycleStepDown();
+        });
     m_shortcutManager.registerAction("lock_toggle", "Tune Lock Toggle", "Tuning",
         QKeySequence(Qt::Key_L), [this]() {
             auto* s = activeSlice();
@@ -6666,6 +6724,14 @@ void MainWindow::registerShortcutActions()
         QKeySequence(Qt::Key_Minus), [zoomActivePanadapter]() { zoomActivePanadapter(kPanZoomFactor); });
     m_shortcutManager.registerAction("open_memories", "Open Memories Dialog", "Display",
         QKeySequence(Qt::Key_Slash), [this]() { showMemoryDialog(); });
+    m_shortcutManager.registerAction("shortcuts_toggle", "Toggle Keyboard Shortcuts", "Display",
+        QKeySequence(Qt::Key_K), [this]() {
+            m_keyboardShortcutsEnabled = !m_keyboardShortcutsEnabled;
+            s_keyboardShortcutsEnabled = m_keyboardShortcutsEnabled;
+            AppSettings::instance().setValue("KeyboardShortcutsEnabled",
+                m_keyboardShortcutsEnabled ? "True" : "False");
+            AppSettings::instance().save();
+        });
 
     // ── RIT/XIT ─────────────────────────────────────────────────────────
     m_shortcutManager.registerAction("rit_toggle", "RIT Toggle", "RIT/XIT",
