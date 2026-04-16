@@ -138,6 +138,12 @@ void ShortcutManager::rebuildShortcuts(QWidget* parent,
     }
 }
 
+void ShortcutManager::setShortcutsEnabled(bool enabled)
+{
+    for (auto* sc : m_shortcuts)
+        sc->setEnabled(enabled);
+}
+
 ShortcutManager::Action* ShortcutManager::action(const QString& id)
 {
     for (auto& a : m_actions) {

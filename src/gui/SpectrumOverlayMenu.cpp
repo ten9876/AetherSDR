@@ -303,8 +303,11 @@ void SpectrumOverlayMenu::buildAntPanel()
             m_rfGainSlider->setValue(snapped);
         }
         m_rfGainLabel->setText(QString("%1 dB").arg(snapped));
-        if (!m_updatingFromModel)
+        if (!m_updatingFromModel) {
             emit rfGainChanged(snapped);
+            if (m_slice)
+                m_slice->setRfGain(static_cast<float>(snapped));
+        }
     });
 
     // WNB row: toggle button + level slider
@@ -369,6 +372,14 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
     connect(m_slice, &SliceModel::rxAntennaChanged, this, [this](const QString& ant) {
         m_updatingFromModel = true;
         m_rxAntCmb->setCurrentText(ant);
+        m_updatingFromModel = false;
+    });
+
+    connect(m_slice, &SliceModel::rfGainChanged, this, [this](float gain) {
+        m_updatingFromModel = true;
+        QSignalBlocker sb(m_rfGainSlider);
+        m_rfGainSlider->setValue(static_cast<int>(gain));
+        m_rfGainLabel->setText(QString("%1 dB").arg(static_cast<int>(gain)));
         m_updatingFromModel = false;
     });
 
@@ -532,6 +543,11 @@ void SpectrumOverlayMenu::syncAntPanel()
     if (!m_slice) return;
     m_updatingFromModel = true;
     m_rxAntCmb->setCurrentText(m_slice->rxAntenna());
+    {
+        QSignalBlocker sb(m_rfGainSlider);
+        m_rfGainSlider->setValue(static_cast<int>(m_slice->rfGain()));
+    }
+    m_rfGainLabel->setText(QString("%1 dB").arg(static_cast<int>(m_slice->rfGain())));
     m_updatingFromModel = false;
 }
 

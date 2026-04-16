@@ -245,7 +245,7 @@ static bool isTextInputFocused()
     if (!w) return false;
     return qobject_cast<QLineEdit*>(w) || qobject_cast<QTextEdit*>(w)
         || qobject_cast<QPlainTextEdit*>(w) || qobject_cast<QSpinBox*>(w)
-        || qobject_cast<QComboBox*>(w);
+        || qobject_cast<QComboBox*>(w) || qobject_cast<QAbstractSlider*>(w);
 }
 
 static bool shortcutGuard() {
@@ -2262,6 +2262,24 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                 }
             }
             return true;  // always consume Space to prevent button activation
+        }
+
+        // Arrow keys on focused sliders: intercept here (before QShortcut processing)
+        // so the slider's singleStep/pageStep movement isn't stolen by frequency-tune
+        // shortcuts. The application event filter runs before Qt's shortcut map.
+        if (event->type() == QEvent::KeyPress) {
+            auto* slider = qobject_cast<QAbstractSlider*>(QApplication::focusWidget());
+            if (slider) {
+                int k = ke->key();
+                if (k == Qt::Key_Left || k == Qt::Key_Right
+                    || k == Qt::Key_Up || k == Qt::Key_Down) {
+                    bool increase = (k == Qt::Key_Right || k == Qt::Key_Up);
+                    int step = (ke->modifiers() & Qt::ControlModifier)
+                                   ? slider->pageStep() : slider->singleStep();
+                    slider->setValue(slider->value() + (increase ? step : -step));
+                    return true;
+                }
+            }
         }
     }
 
@@ -6683,6 +6701,16 @@ void MainWindow::registerShortcutActions()
     m_shortcutManager.loadBindings();
     s_keyboardShortcutsEnabled = m_keyboardShortcutsEnabled;
     m_shortcutManager.rebuildShortcuts(this, shortcutGuard);
+
+    // Disable all QShortcuts while a slider has keyboard focus so arrow keys
+    // (and other slider keys) reach the slider instead of being consumed by
+    // window-level shortcuts (e.g. frequency tune left/right). Qt processes
+    // shortcuts before dispatching key events to focused widgets.
+    connect(qApp, &QApplication::focusChanged, this,
+            [this](QWidget* /*old*/, QWidget* now) {
+        m_shortcutManager.setShortcutsEnabled(
+            !qobject_cast<QAbstractSlider*>(now));
+    });
 }
 
 void MainWindow::showNr2ParamPopup(const QPoint& globalPos)

@@ -414,7 +414,7 @@ void SliceModel::setAudioGain(float gain)
 void SliceModel::setRfGain(float gain)
 {
     m_rfGain = gain;
-    sendCommand(QString("slice set %1 rf_gain=%2").arg(m_id).arg(static_cast<int>(gain)));
+    sendCommand(QString("slice set %1 rfgain=%2").arg(m_id).arg(static_cast<int>(gain)));
 }
 
 void SliceModel::setAudioMute(bool mute)
@@ -547,8 +547,8 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
             emit txSliceChanged(tx);
         }
     }
-    if (kvs.contains("rf_gain")) {
-        float g = kvs["rf_gain"].toFloat();
+    if (kvs.contains("rfgain")) {
+        float g = kvs["rfgain"].toFloat();
         if (m_rfGain != g) { m_rfGain = g; emit rfGainChanged(g); }
     }
     if (kvs.contains("audio_level")) {
