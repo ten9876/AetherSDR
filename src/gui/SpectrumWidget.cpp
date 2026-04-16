@@ -259,6 +259,7 @@ void SpectrumWidget::loadSettings()
                    0, static_cast<int>(WfColorScheme::Count) - 1));
     m_singleClickTune = s.value("SingleClickTune", "False").toString() == "True";
     m_showTuneGuides  = s.value("ShowTuneGuides", "False").toString() == "True";
+    m_extendedFrequencyLine = s.value("ExtendedFrequencyLine", "False").toString() == "True";
 
     // Background image — default to bundled logo, "none" = explicitly cleared
     QString bgPath = s.value(settingsKey("BackgroundImage"), ":/bg-default.jpg").toString();
@@ -376,6 +377,24 @@ void SpectrumWidget::setShowTuneGuides(bool on) {
                     sw->m_tuneGuideVisible = false;
                     sw->m_tuneGuideTimer->stop();
                 }
+                sw->markOverlayDirty();
+            }
+        }
+    }
+}
+void SpectrumWidget::setExtendedFrequencyLine(bool on) {
+    m_extendedFrequencyLine = on;
+    auto& s = AppSettings::instance();
+    s.setValue("ExtendedFrequencyLine", on ? "True" : "False");
+    s.save();
+    markOverlayDirty();
+
+    // Propagate to all sibling SpectrumWidgets so the toggle is global.
+    if (QWidget* top = window()) {
+        const auto siblings = top->findChildren<SpectrumWidget*>();
+        for (SpectrumWidget* sw : siblings) {
+            if (sw != this && sw->m_extendedFrequencyLine != on) {
+                sw->m_extendedFrequencyLine = on;
                 sw->markOverlayDirty();
             }
         }
@@ -1549,6 +1568,11 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         tuneGuideAction->setCheckable(true);
         tuneGuideAction->setChecked(m_showTuneGuides);
         connect(tuneGuideAction, &QAction::toggled, this, &SpectrumWidget::setShowTuneGuides);
+
+        QAction* extendedLineAction = menu.addAction("Extended Frequency Line");
+        extendedLineAction->setCheckable(true);
+        extendedLineAction->setChecked(m_extendedFrequencyLine);
+        connect(extendedLineAction, &QAction::toggled, this, &SpectrumWidget::setExtendedFrequencyLine);
 
         menu.addSeparator();
         bool floating = m_isFloating;
@@ -4145,6 +4169,7 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
         if (so.freqMhz < startMhz || so.freqMhz > endMhz) return;
 
         const QColor col = sliceColor(so.sliceId, so.isActive);
+        const int freqLineBottom = m_extendedFrequencyLine ? wfRect.bottom() : specRect.bottom();
         const double fLoMhz = so.freqMhz + so.filterLowHz / 1.0e6;
         const double fHiMhz = so.freqMhz + so.filterHighHz / 1.0e6;
 
@@ -4184,11 +4209,11 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
 
             // Mark line — green, dashed
             p.setPen(QPen(QColor(0, 200, 80, 200), 1, Qt::DashLine));
-            p.drawLine(markX, specRect.top(), markX, wfRect.bottom());
+            p.drawLine(markX, specRect.top(), markX, freqLineBottom);
 
             // Space line — red, dashed
             p.setPen(QPen(QColor(220, 60, 60, 200), 1, Qt::DashLine));
-            p.drawLine(spaceX, specRect.top(), spaceX, wfRect.bottom());
+            p.drawLine(spaceX, specRect.top(), spaceX, freqLineBottom);
 
             // Labels at top
             QFont f = p.font();
@@ -4206,7 +4231,7 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
             // Reduce line width when a filter edge is very close (e.g. CW mode) (#764)
             const qreal vfoLineW = (std::abs(vfoX - fX1) <= 4 || std::abs(vfoX - fX2) <= 4) ? 1.0 : 2.0;
             p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 220), vfoLineW));
-            p.drawLine(markerX, specRect.top(), markerX, wfRect.bottom());
+            p.drawLine(markerX, specRect.top(), markerX, freqLineBottom);
 
             // ── Triangle marker at top ───────────────────────────────────
             const int triHalf = 6;
