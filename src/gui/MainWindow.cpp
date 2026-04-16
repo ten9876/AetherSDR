@@ -5809,8 +5809,26 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         // stack (frequency, mode, filters, pan center, bandwidth, antennas).
         // One command handles everything.
         m_bandSettings.setCurrentBand(bandName);
-        m_radioModel.sendCommand(
-            QString("display pan set %1 band=%2").arg(applet->panId()).arg(bandName));
+        m_radioModel.sendCmdPublic(
+            QString("display pan set %1 band=%2").arg(applet->panId()).arg(bandName),
+            [this, applet, freqMhz, mode](int code, const QString& /*body*/) {
+                if (code == 0)
+                    return;
+                // The radio rejected the band command (common for WWV, GEN,
+                // and XVTR bands on some firmware versions).  Fall back to
+                // setting the slice frequency and mode directly.  (#1540)
+                qDebug() << "Band change via display pan set failed (code"
+                         << Qt::hex << code << ") — falling back to slice tune";
+                SliceModel* s = nullptr;
+                for (auto* sl : m_radioModel.slices()) {
+                    if (sl->panId() == applet->panId()) { s = sl; break; }
+                }
+                if (!s) s = activeSlice();
+                if (s) {
+                    s->setFrequency(freqMhz);
+                    s->setMode(mode);
+                }
+            });
     });
 
     // XVTR button → open Radio Setup XVTR tab (#571)
