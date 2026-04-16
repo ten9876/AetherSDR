@@ -4160,10 +4160,13 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
         p.fillRect(QRect(fX1, wfRect.top(), fW, wfRect.height()),
                    QColor(col.red(), col.green(), col.blue(), 25));
 
-        // Filter edge lines
-        p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 130), 1));
-        p.drawLine(fX1, specRect.top(), fX1, specRect.bottom());
-        p.drawLine(fX2, specRect.top(), fX2, specRect.bottom());
+        // Skip filter edge lines when passband is very narrow (e.g. CW) — they
+        // merge with the VFO center line and make the marker look too thick (#1119/#1526)
+        if (fW > 8) {
+            p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 130), 1));
+            p.drawLine(fX1, specRect.top(), fX1, specRect.bottom());
+            p.drawLine(fX2, specRect.top(), fX2, specRect.bottom());
+        }
 
         // ── RTTY/DIGL: mark/space lines replace the VFO center line ────
         const bool isRttyMode = (so.mode == "RTTY" || so.mode == "DIGL");
