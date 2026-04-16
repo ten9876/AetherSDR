@@ -443,10 +443,36 @@ void TciServer::onTextMessage(const QString& msg)
             if (parts.size() >= 2) {
                 int trx = parts[0].trimmed().toInt();
                 bool txOn = (parts[1].trimmed() == "true");
+                // Parse optional third argument: audio source.
+                // - Empty or "dax": DAX TX pipeline (backward compat with
+                //   WSJT-X/JTDX which omit arg3).
+                // - Anything else (micpc, mic, bal, line, vac, ...): key the
+                //   radio directly and leave DAX alone. The radio transmits
+                //   using whatever mic_selection is currently configured.
+                // Unkey path runs stopTxChrono() + setTransmit(false)
+                // unconditionally so either flavor of TX cleans up, even if
+                // the client omits arg3 on the release message (#1534).
+                QString source;
+                if (parts.size() >= 3)
+                    source = parts[2].trimmed().toLower().remove(';');
+                const bool wantDax = source.isEmpty() || source == QStringLiteral("dax");
                 if (txOn) {
-                    startTxChrono(ws, trx);
+                    if (wantDax) {
+                        startTxChrono(ws, trx);
+                    } else {
+                        if (m_model) {
+                            QMetaObject::invokeMethod(m_model, [this]() {
+                                m_model->setTransmit(true);
+                            }, Qt::QueuedConnection);
+                        }
+                    }
                 } else {
                     stopTxChrono();
+                    if (m_model) {
+                        QMetaObject::invokeMethod(m_model, [this]() {
+                            m_model->setTransmit(false);
+                        }, Qt::QueuedConnection);
+                    }
                 }
             }
         }
