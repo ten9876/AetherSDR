@@ -38,6 +38,7 @@ private:
     void setInlineEditMode(bool enabled);
     void submitCellEdit(int row, int col);
     void onAdd();
+    void onImport();
     void onExport();
     void onEdit();
     void onSelect();

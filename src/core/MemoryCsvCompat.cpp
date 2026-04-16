@@ -63,6 +63,18 @@ QString csvEscape(const QString& value)
     return value;
 }
 
+QString describeCsvRow(const QStringList& fields, int lineNumber)
+{
+    const QString name = fields.size() > 4 ? fields.at(4).trimmed() : QString();
+    const QString freq = fields.size() > 3 ? fields.at(3).trimmed() : QString();
+
+    if (!name.isEmpty())
+        return QString("Line %1 (%2)").arg(lineNumber).arg(name);
+    if (!freq.isEmpty())
+        return QString("Line %1 (%2 MHz)").arg(lineNumber).arg(freq);
+    return QString("Line %1").arg(lineNumber);
+}
+
 QStringList parseCsvLine(const QString& line, bool* ok)
 {
     QStringList fields;
@@ -244,14 +256,19 @@ bool parseRecord(const QStringList& fields,
     }
 
     if (normalizedFields.size() != kExpectedColumnCount) {
-        error = QString("Line %1: expected %2 columns, got %3.")
-            .arg(lineNumber).arg(kExpectedColumnCount).arg(normalizedFields.size());
+        error = QString("%1: expected %2 columns, got %3.")
+            .arg(describeCsvRow(normalizedFields, lineNumber))
+            .arg(kExpectedColumnCount)
+            .arg(normalizedFields.size());
         return false;
     }
 
+    const QString rowLabel = describeCsvRow(normalizedFields, lineNumber);
+
     if (normalizedFields.at(0).trimmed().compare("MEMORY", Qt::CaseInsensitive) != 0) {
-        error = QString("Line %1: unsupported record type '%2'.")
-            .arg(lineNumber).arg(normalizedFields.at(0));
+        error = QString("%1: unsupported record type '%2'.")
+            .arg(rowLabel)
+            .arg(normalizedFields.at(0));
         return false;
     }
 
@@ -262,98 +279,98 @@ bool parseRecord(const QStringList& fields,
     memory.mode = normalizedFields.at(5).trimmed().toUpper();
 
     if (!parseDoubleField(normalizedFields.at(3), memory.freq) || !validateRange(memory.freq, 0.0, 10000.0)) {
-        error = QString("Line %1: invalid frequency '%2'.").arg(lineNumber).arg(normalizedFields.at(3));
+        error = QString("%1: invalid frequency '%2'.").arg(rowLabel).arg(normalizedFields.at(3));
         return false;
     }
 
     if (!parseIntField(normalizedFields.at(6), memory.step) || !validateRange(memory.step, 1, 1000000)) {
-        error = QString("Line %1: invalid step '%2'.").arg(lineNumber).arg(normalizedFields.at(6));
+        error = QString("%1: invalid step '%2'.").arg(rowLabel).arg(normalizedFields.at(6));
         return false;
     }
 
     memory.offsetDir = normalizeOffsetDirection(normalizedFields.at(7));
     if (memory.offsetDir.isEmpty()) {
-        error = QString("Line %1: invalid offset direction '%2'.").arg(lineNumber).arg(normalizedFields.at(7));
+        error = QString("%1: invalid offset direction '%2'.").arg(rowLabel).arg(normalizedFields.at(7));
         return false;
     }
 
     if (!parseDoubleField(normalizedFields.at(8), memory.repeaterOffset)
             || !validateRange(memory.repeaterOffset, -100.0, 100.0)) {
-        error = QString("Line %1: invalid repeater offset '%2'.").arg(lineNumber).arg(normalizedFields.at(8));
+        error = QString("%1: invalid repeater offset '%2'.").arg(rowLabel).arg(normalizedFields.at(8));
         return false;
     }
 
     memory.toneMode = normalizeToneMode(normalizedFields.at(9));
     if (memory.toneMode.isEmpty()) {
-        error = QString("Line %1: invalid tone mode '%2'.").arg(lineNumber).arg(normalizedFields.at(9));
+        error = QString("%1: invalid tone mode '%2'.").arg(rowLabel).arg(normalizedFields.at(9));
         return false;
     }
 
     if (!parseDoubleField(normalizedFields.at(10), memory.toneValue)
             || !validateRange(memory.toneValue, 0.0, 300.0)) {
-        error = QString("Line %1: invalid tone value '%2'.").arg(lineNumber).arg(normalizedFields.at(10));
+        error = QString("%1: invalid tone value '%2'.").arg(rowLabel).arg(normalizedFields.at(10));
         return false;
     }
 
     if (!parseIntField(normalizedFields.at(11), record.rfPower) || !validateRange(record.rfPower, 0, kMaxRfPower)) {
-        error = QString("Line %1: invalid RF power '%2'.").arg(lineNumber).arg(normalizedFields.at(11));
+        error = QString("%1: invalid RF power '%2'.").arg(rowLabel).arg(normalizedFields.at(11));
         return false;
     }
 
     if (!parseIntField(normalizedFields.at(12), memory.rxFilterLow)
             || !validateRange(memory.rxFilterLow, kMinFilterHz, kMaxFilterHz)) {
-        error = QString("Line %1: invalid RX filter low '%2'.").arg(lineNumber).arg(normalizedFields.at(12));
+        error = QString("%1: invalid RX filter low '%2'.").arg(rowLabel).arg(normalizedFields.at(12));
         return false;
     }
 
     if (!parseIntField(normalizedFields.at(13), memory.rxFilterHigh)
             || !validateRange(memory.rxFilterHigh, kMinFilterHz, kMaxFilterHz)) {
-        error = QString("Line %1: invalid RX filter high '%2'.").arg(lineNumber).arg(normalizedFields.at(13));
+        error = QString("%1: invalid RX filter high '%2'.").arg(rowLabel).arg(normalizedFields.at(13));
         return false;
     }
 
     if (!parseBool01Field(normalizedFields.at(14), record.highlight)) {
-        error = QString("Line %1: invalid highlight flag '%2'.").arg(lineNumber).arg(normalizedFields.at(14));
+        error = QString("%1: invalid highlight flag '%2'.").arg(rowLabel).arg(normalizedFields.at(14));
         return false;
     }
 
     if (!parseIntField(normalizedFields.at(15), record.highlightColor) || record.highlightColor < 0) {
-        error = QString("Line %1: invalid highlight color '%2'.").arg(lineNumber).arg(normalizedFields.at(15));
+        error = QString("%1: invalid highlight color '%2'.").arg(rowLabel).arg(normalizedFields.at(15));
         return false;
     }
 
     if (!parseBool01Field(normalizedFields.at(16), memory.squelch)) {
-        error = QString("Line %1: invalid squelch flag '%2'.").arg(lineNumber).arg(normalizedFields.at(16));
+        error = QString("%1: invalid squelch flag '%2'.").arg(rowLabel).arg(normalizedFields.at(16));
         return false;
     }
 
     if (!parseIntField(normalizedFields.at(17), memory.squelchLevel)
             || !validateRange(memory.squelchLevel, kMinSquelchLevel, kMaxSquelchLevel)) {
-        error = QString("Line %1: invalid squelch level '%2'.").arg(lineNumber).arg(normalizedFields.at(17));
+        error = QString("%1: invalid squelch level '%2'.").arg(rowLabel).arg(normalizedFields.at(17));
         return false;
     }
 
     if (!parseIntField(normalizedFields.at(18), memory.rttyMark)
             || !validateRange(memory.rttyMark, kMinRttyMarkHz, kMaxRttyMarkHz)) {
-        error = QString("Line %1: invalid RTTY mark '%2'.").arg(lineNumber).arg(normalizedFields.at(18));
+        error = QString("%1: invalid RTTY mark '%2'.").arg(rowLabel).arg(normalizedFields.at(18));
         return false;
     }
 
     if (!parseIntField(normalizedFields.at(19), memory.rttyShift)
             || !validateRange(memory.rttyShift, kMinRttyShiftHz, kMaxRttyShiftHz)) {
-        error = QString("Line %1: invalid RTTY shift '%2'.").arg(lineNumber).arg(normalizedFields.at(19));
+        error = QString("%1: invalid RTTY shift '%2'.").arg(rowLabel).arg(normalizedFields.at(19));
         return false;
     }
 
     if (!parseIntField(normalizedFields.at(20), memory.diglOffset)
             || !validateRange(memory.diglOffset, kMinDigitalOffsetHz, kMaxDigitalOffsetHz)) {
-        error = QString("Line %1: invalid DIGL offset '%2'.").arg(lineNumber).arg(normalizedFields.at(20));
+        error = QString("%1: invalid DIGL offset '%2'.").arg(rowLabel).arg(normalizedFields.at(20));
         return false;
     }
 
     if (!parseIntField(normalizedFields.at(21), memory.diguOffset)
             || !validateRange(memory.diguOffset, kMinDigitalOffsetHz, kMaxDigitalOffsetHz)) {
-        error = QString("Line %1: invalid DIGU offset '%2'.").arg(lineNumber).arg(normalizedFields.at(21));
+        error = QString("%1: invalid DIGU offset '%2'.").arg(rowLabel).arg(normalizedFields.at(21));
         return false;
     }
 

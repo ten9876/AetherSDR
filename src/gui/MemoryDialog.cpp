@@ -9,6 +9,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QVBoxLayout>
@@ -21,7 +22,8 @@
 #include <QItemSelectionModel>
 #include <QDebug>
 #include <QMessageBox>
-#include <QMouseEvent>
+#include <QProgressBar>
+#include <QProgressDialog>
 #include <QPointer>
 #include <QShortcut>
 #include <QSaveFile>
@@ -30,6 +32,8 @@
 #include <QCloseEvent>
 #include <QKeyEvent>
 #include <QtGlobal>
+
+#include <functional>
 
 namespace AetherSDR {
 
@@ -178,9 +182,9 @@ QList<MemoryCsvRecord> currentExportRecords(const QMap<int, MemoryEntry>& memori
 QString selectionHintText()
 {
 #if defined(Q_OS_MACOS)
-    return "Tip: Double-click tunes. Command-click adds or removes rows from the selection.";
+    return "Tip: Double-click tunes. Shift-click selects a range. Command-click adds or removes rows.";
 #else
-    return "Tip: Double-click tunes. Shift-click or Ctrl-click selects multiple rows.";
+    return "Tip: Double-click tunes. Shift-click selects a range. Ctrl-click adds or removes rows.";
 #endif
 }
 
@@ -190,6 +194,64 @@ QString describeMemory(const MemoryEntry& memory)
         ? QString("Memory %1").arg(memory.index)
         : memory.name.trimmed();
     return QString("%1 (%2 MHz)").arg(label, QString::number(memory.freq, 'f', 6));
+}
+
+QString describeImportedMemory(const MemoryEntry& memory)
+{
+    const QString label = memory.name.trimmed();
+    if (!label.isEmpty())
+        return QString("%1 (%2 MHz)").arg(label, QString::number(memory.freq, 'f', 6));
+    if (memory.freq > 0.0)
+        return QString("%1 MHz").arg(QString::number(memory.freq, 'f', 6));
+    return "Unnamed memory";
+}
+
+QString formatImportIssue(const QString& rowLabel,
+                          const QString& message,
+                          const QString& detail = QString())
+{
+    const QString normalizedDetail = detail.simplified();
+    return normalizedDetail.isEmpty()
+        ? QString("%1: %2").arg(rowLabel, message)
+        : QString("%1: %2 (%3)").arg(rowLabel, message, normalizedDetail);
+}
+
+struct MemoryUpdateData {
+    QString commandSuffix;
+    QMap<QString, QString> kvs;
+};
+
+MemoryUpdateData buildMemoryUpdateData(const MemoryEntry& memory)
+{
+    MemoryUpdateData update;
+
+    auto appendField = [&update](const QString& key, const QString& value) {
+        if (!update.commandSuffix.isEmpty())
+            update.commandSuffix += ' ';
+        update.commandSuffix += key + '=' + value;
+        update.kvs[key] = value;
+    };
+
+    appendField("group", encodeMemoryText(memory.group));
+    appendField("owner", encodeMemoryText(memory.owner));
+    appendField("freq", QString::number(memory.freq, 'f', 6));
+    appendField("name", encodeMemoryText(memory.name));
+    appendField("mode", memory.mode);
+    appendField("step", QString::number(memory.step));
+    appendField("repeater", memory.offsetDir);
+    appendField("repeater_offset", QString::number(memory.repeaterOffset, 'f', 6));
+    appendField("tone_mode", memory.toneMode);
+    appendField("tone_value", QString::number(memory.toneValue, 'f', 1));
+    appendField("squelch", memory.squelch ? "1" : "0");
+    appendField("squelch_level", QString::number(memory.squelchLevel));
+    appendField("rx_filter_low", QString::number(memory.rxFilterLow));
+    appendField("rx_filter_high", QString::number(memory.rxFilterHigh));
+    appendField("rtty_mark", QString::number(memory.rttyMark));
+    appendField("rtty_shift", QString::number(memory.rttyShift));
+    appendField("digl_offset", QString::number(memory.diglOffset));
+    appendField("digu_offset", QString::number(memory.diguOffset));
+
+    return update;
 }
 
 } // namespace
@@ -269,6 +331,7 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
 
     // ── Buttons ───────────────────────────────────────────────────────────
     auto* btnRow = new QHBoxLayout;
+    auto* importBtn = new QPushButton("Import...");
     auto* exportBtn = new QPushButton("Export...");
     auto* addBtn = new QPushButton("Add");
     m_selectionLabel = new QLabel("0 selected");
@@ -280,17 +343,19 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
     btnRow->addWidget(m_editBtn);
     btnRow->addWidget(m_selectBtn);
     btnRow->addWidget(m_selectAllBtn);
+    btnRow->addWidget(importBtn);
     btnRow->addWidget(exportBtn);
     btnRow->addStretch();
     btnRow->addWidget(m_selectionLabel);
     btnRow->addWidget(m_removeBtn);
     root->addLayout(btnRow);
 
-    for (QPushButton* button : {addBtn, m_editBtn, m_selectBtn, m_selectAllBtn, exportBtn, m_removeBtn}) {
+    for (QPushButton* button : {addBtn, m_editBtn, m_selectBtn, m_selectAllBtn, importBtn, exportBtn, m_removeBtn}) {
         button->setAutoDefault(false);
         button->setDefault(false);
     }
 
+    connect(importBtn, &QPushButton::clicked, this, &MemoryDialog::onImport);
     connect(exportBtn, &QPushButton::clicked, this, &MemoryDialog::onExport);
     connect(addBtn, &QPushButton::clicked, this, &MemoryDialog::onAdd);
     connect(m_editBtn, &QPushButton::clicked, this, &MemoryDialog::onEdit);
@@ -373,27 +438,6 @@ void MemoryDialog::keyPressEvent(QKeyEvent* event)
 
 bool MemoryDialog::eventFilter(QObject* watched, QEvent* event)
 {
-    if (m_table && watched == m_table->viewport() && event->type() == QEvent::MouseButtonPress) {
-#if !defined(Q_OS_MACOS)
-        auto* mouseEvent = static_cast<QMouseEvent*>(event);
-        if (mouseEvent->button() == Qt::LeftButton
-            && (mouseEvent->modifiers() & Qt::ShiftModifier)) {
-            const QModelIndex index = m_table->indexAt(mouseEvent->position().toPoint());
-            if (index.isValid()) {
-                auto* selectionModel = m_table->selectionModel();
-                const bool wasSelected = selectionModel->isRowSelected(index.row(), QModelIndex());
-                const QModelIndex firstColumn = m_table->model()->index(index.row(), 0);
-                selectionModel->select(firstColumn, (wasSelected
-                    ? QItemSelectionModel::Deselect
-                    : QItemSelectionModel::Select) | QItemSelectionModel::Rows);
-                m_table->setCurrentCell(index.row(), 0, QItemSelectionModel::NoUpdate);
-                updateSelectionActions();
-                return true;
-            }
-        }
-#endif
-    }
-
     if (event->type() == QEvent::KeyPress) {
         auto* keyEvent = static_cast<QKeyEvent*>(event);
         const int key = keyEvent->key();
@@ -876,6 +920,198 @@ void MemoryDialog::onExport()
                                  .arg(QDir::toNativeSeparators(QFileInfo(path).fileName())));
 }
 
+void MemoryDialog::onImport()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this,
+        "Import Memories",
+        QDir::home().filePath("Documents"),
+        "CSV Files (*.csv)");
+    if (path.isEmpty())
+        return;
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, "Import Memories",
+                             QString("Couldn't open %1 for reading.")
+                                 .arg(QDir::toNativeSeparators(path)));
+        return;
+    }
+
+    const MemoryCsvParseResult parsed = MemoryCsvCompat::parse(file.readAll());
+
+    struct ImportState {
+        QList<MemoryCsvRecord> records;
+        QStringList issues;
+        QString fileName;
+        int nextRecord{0};
+        int processedCount{0};
+        int importedCount{0};
+    };
+
+    const auto state = QSharedPointer<ImportState>::create();
+    state->records = parsed.records;
+    state->issues = parsed.errors;
+    state->fileName = QFileInfo(path).fileName();
+
+    const QPointer<MemoryDialog> dialogGuard(this);
+    auto showSummary = [dialogGuard, state]() {
+        if (!dialogGuard)
+            return;
+
+        dialogGuard->populateTable();
+
+        QMessageBox summary(dialogGuard);
+        summary.setWindowTitle("Import Memories");
+        summary.setIcon(state->issues.isEmpty() ? QMessageBox::Information : QMessageBox::Warning);
+        summary.setText(QString("Imported %1 %2 from %3.")
+                            .arg(state->importedCount)
+                            .arg(state->importedCount == 1 ? "record" : "records")
+                            .arg(state->fileName));
+        if (!state->issues.isEmpty()) {
+            summary.setInformativeText(
+                QString("%1 %2 skipped or couldn't be imported. See Details for the row names and messages.")
+                    .arg(state->issues.size())
+                    .arg(state->issues.size() == 1 ? "row was" : "rows were"));
+            summary.setDetailedText(state->issues.join('\n'));
+        }
+        summary.exec();
+        if (dialogGuard)
+            dialogGuard->focusTableOnCurrentRow();
+    };
+
+    if (state->records.isEmpty()) {
+        showSummary();
+        return;
+    }
+
+    auto* progressDialog = new QProgressDialog(
+        QString("Importing 0 of %1 memories...").arg(state->records.size()),
+        QString(), 0, state->records.size(), this);
+    auto* progressBar = new QProgressBar(progressDialog);
+    progressBar->setTextVisible(false);
+    progressDialog->setBar(progressBar);
+    progressDialog->setWindowTitle("Import Memories");
+    progressDialog->setWindowModality(Qt::WindowModal);
+    progressDialog->setMinimumDuration(0);
+    progressDialog->setAutoClose(false);
+    progressDialog->setAutoReset(false);
+    progressDialog->setCancelButton(nullptr);
+    progressDialog->setWindowFlag(Qt::WindowCloseButtonHint, false);
+    progressDialog->setMinimumWidth(420);
+    progressDialog->setValue(0);
+    progressDialog->show();
+
+    RadioModel* const model = m_model;
+    const QPointer<QProgressDialog> progressGuard(progressDialog);
+    auto advanceProgress = [state, progressGuard]() {
+        ++state->processedCount;
+        if (progressGuard)
+            progressGuard->setValue(state->processedCount);
+    };
+    const auto runNext = QSharedPointer<std::function<void()>>::create();
+    *runNext = [model, dialogGuard, state, runNext, showSummary, progressGuard, advanceProgress]() {
+        if (!dialogGuard)
+            return;
+
+        if (state->nextRecord >= state->records.size()) {
+            if (progressGuard) {
+                progressGuard->setValue(progressGuard->maximum());
+                progressGuard->close();
+            }
+            showSummary();
+            return;
+        }
+
+        const MemoryCsvRecord record = state->records.at(state->nextRecord++);
+        const QString rowLabel = describeImportedMemory(record.memory);
+        const MemoryUpdateData update = buildMemoryUpdateData(record.memory);
+        if (progressGuard) {
+            const int currentRecord = state->processedCount + 1;
+            const int percent = state->records.isEmpty()
+                ? 0
+                : qRound((double(currentRecord) * 100.0) / double(state->records.size()));
+            const QString percentText = QString::number(percent) + QLatin1Char('%');
+            progressGuard->setLabelText(
+                QString("Importing %1 of %2 memories (%3)...\n\n%4")
+                    .arg(currentRecord)
+                    .arg(state->records.size())
+                    .arg(percentText)
+                    .arg(rowLabel));
+        }
+
+        model->sendCmdPublic("memory create",
+            [model, dialogGuard, state, runNext, rowLabel, update, advanceProgress](int code, const QString& body) {
+            if (!dialogGuard)
+                return;
+
+            if (code != 0) {
+                state->issues << formatImportIssue(
+                    rowLabel,
+                    "couldn't create a new memory on the radio",
+                    body);
+                advanceProgress();
+                (*runNext)();
+                return;
+            }
+
+            bool ok = false;
+            const int idx = body.trimmed().toInt(&ok);
+            if (!ok) {
+                state->issues << formatImportIssue(
+                    rowLabel,
+                    "the radio returned an unrecognized memory id",
+                    body);
+                advanceProgress();
+                (*runNext)();
+                return;
+            }
+
+            model->sendCmdPublic(
+                QString("memory set %1 %2").arg(idx).arg(update.commandSuffix),
+                [model, dialogGuard, state, runNext, rowLabel, update, idx, advanceProgress](int setCode, const QString& setBody) {
+                if (!dialogGuard)
+                    return;
+
+                if (setCode == 0) {
+                    model->handleMemoryStatus(idx, update.kvs);
+                    ++state->importedCount;
+                    advanceProgress();
+                    (*runNext)();
+                    return;
+                }
+
+                state->issues << formatImportIssue(
+                    rowLabel,
+                    "the radio rejected one or more imported fields",
+                    setBody);
+
+                model->sendCmdPublic(QString("memory remove %1").arg(idx),
+                    [model, dialogGuard, state, runNext, rowLabel, idx, advanceProgress](int removeCode, const QString& removeBody) {
+                    if (!dialogGuard)
+                        return;
+
+                    if (removeCode == 0) {
+                        QMap<QString, QString> kvs;
+                        kvs["removed"] = QString{};
+                        model->handleMemoryStatus(idx, kvs);
+                    } else {
+                        state->issues << formatImportIssue(
+                            rowLabel,
+                            "the partially created memory couldn't be cleaned up automatically",
+                            removeBody);
+                    }
+
+                    advanceProgress();
+                    (*runNext)();
+                });
+            });
+        });
+    };
+
+    (*runNext)();
+}
+
 void MemoryDialog::onSelect()
 {
     if (selectedMemoryIndices().size() != 1)
@@ -947,18 +1183,88 @@ void MemoryDialog::onRemove()
     RadioModel* const model = m_model;
     const QPointer<MemoryDialog> dialogGuard(this);
     struct RemovalState {
-        int remaining{0};
+        QList<int> indices;
+        QStringList descriptions;
+        int nextIndex{0};
+        int processedCount{0};
         int failed{0};
         QStringList failedDescriptions;
     };
     const auto state = QSharedPointer<RemovalState>::create();
-    state->remaining = indices.size();
+    state->indices = indices;
+    state->descriptions = memoryDescriptions;
 
-    for (int i = 0; i < indices.size(); ++i) {
-        const int idx = indices.at(i);
-        const QString description = memoryDescriptions.value(i, QString("Memory %1").arg(idx));
-        m_model->sendCmdPublic(QString("memory remove %1").arg(idx),
-            [model, dialogGuard, idx, description, state](int code, const QString&) {
+    auto* progressDialog = new QProgressDialog(
+        QString("Deleting 0 of %1 memories...").arg(indices.size()),
+        QString(), 0, indices.size(), this);
+    auto* progressBar = new QProgressBar(progressDialog);
+    progressBar->setTextVisible(false);
+    progressDialog->setBar(progressBar);
+    progressDialog->setWindowTitle(indices.size() == 1 ? "Delete Memory" : "Delete Memories");
+    progressDialog->setWindowModality(Qt::WindowModal);
+    progressDialog->setMinimumDuration(0);
+    progressDialog->setAutoClose(false);
+    progressDialog->setAutoReset(false);
+    progressDialog->setCancelButton(nullptr);
+    progressDialog->setWindowFlag(Qt::WindowCloseButtonHint, false);
+    progressDialog->setMinimumWidth(420);
+    progressDialog->setValue(0);
+    progressDialog->show();
+
+    const QPointer<QProgressDialog> progressGuard(progressDialog);
+    auto advanceProgress = [state, progressGuard]() {
+        ++state->processedCount;
+        if (progressGuard)
+            progressGuard->setValue(state->processedCount);
+    };
+
+    const auto runNext = QSharedPointer<std::function<void()>>::create();
+    *runNext = [model, dialogGuard, state, runNext, progressGuard, advanceProgress]() {
+        if (!dialogGuard)
+            return;
+
+        if (state->nextIndex >= state->indices.size()) {
+            if (progressGuard) {
+                progressGuard->setValue(progressGuard->maximum());
+                progressGuard->close();
+            }
+            dialogGuard->populateTable();
+            if (state->failed > 0) {
+                QMessageBox failure(dialogGuard);
+                failure.setIcon(QMessageBox::Warning);
+                failure.setWindowTitle(state->failed == 1 ? "Delete Memory" : "Delete Memories");
+                failure.setText(state->failed == 1
+                    ? QString("Couldn't delete %1.").arg(state->failedDescriptions.value(0))
+                    : QString("Couldn't delete %1 memories.").arg(state->failed));
+                if (state->failedDescriptions.size() > 1)
+                    failure.setDetailedText(state->failedDescriptions.join('\n'));
+                failure.exec();
+            }
+            dialogGuard->focusTableOnCurrentRow();
+            return;
+        }
+
+        const int idx = state->indices.at(state->nextIndex);
+        const QString description = state->descriptions.value(
+            state->nextIndex, QString("Memory %1").arg(idx));
+        ++state->nextIndex;
+
+        if (progressGuard) {
+            const int currentRecord = state->processedCount + 1;
+            const int percent = state->indices.isEmpty()
+                ? 0
+                : qRound((double(currentRecord) * 100.0) / double(state->indices.size()));
+            const QString percentText = QString::number(percent) + QLatin1Char('%');
+            progressGuard->setLabelText(
+                QString("Deleting %1 of %2 memories (%3)...\n\n%4")
+                    .arg(currentRecord)
+                    .arg(state->indices.size())
+                    .arg(percentText)
+                    .arg(description));
+        }
+
+        model->sendCmdPublic(QString("memory remove %1").arg(idx),
+            [model, dialogGuard, idx, description, state, runNext, advanceProgress](int code, const QString&) {
             if (code == 0) {
                 QMap<QString, QString> kvs;
                 kvs["removed"] = QString{};
@@ -967,22 +1273,13 @@ void MemoryDialog::onRemove()
                 ++state->failed;
                 state->failedDescriptions << description;
             }
-
-            --state->remaining;
-            if (state->remaining == 0 && dialogGuard) {
-                dialogGuard->populateTable();
-                if (state->failed > 0) {
-                    QMessageBox::warning(
-                        dialogGuard,
-                        state->failed == 1 ? "Delete Memory" : "Delete Memories",
-                        state->failed == 1
-                            ? QString("Couldn't delete %1.").arg(state->failedDescriptions.value(0))
-                            : QString("Couldn't delete %1 memories.").arg(state->failed));
-                }
-                dialogGuard->focusTableOnCurrentRow();
-            }
+            advanceProgress();
+            if (dialogGuard)
+                (*runNext)();
         });
-    }
+    };
+
+    (*runNext)();
 }
 
 void MemoryDialog::rebuildFilterCombo()
