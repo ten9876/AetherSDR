@@ -154,11 +154,14 @@ void TciServer::stop()
     if (!m_server) return;
 
     for (auto& cs : m_clients) {
+        cs.socket->disconnect(this);   // prevent onClientDisconnected re-entry
         cs.socket->close();
+        cs.socket->deleteLater();
         delete cs.protocol;
         delete cs.resampler;
     }
     m_clients.clear();
+    releaseDaxForTci();
     emit clientCountChanged(0);
 
     m_server->close();
