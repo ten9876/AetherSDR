@@ -665,6 +665,8 @@ void RadioModel::setPanWnbLevel(int level)
 void RadioModel::setPanRfGain(int gain)
 {
     if (m_activePanId.isEmpty()) return;
+    if (auto* pan = activePanadapter())
+        pan->setRfGainOptimistic(gain);
     sendCmd(
         QString("display pan set %1 rfgain=%2").arg(m_activePanId).arg(gain));
 }

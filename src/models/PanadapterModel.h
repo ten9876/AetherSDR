@@ -44,6 +44,7 @@ public:
         if (m_preamp != pre) { m_preamp = pre; emit rfGainChanged(m_rfGain, m_preamp); }
     }
     int daxiqChannel() const { return m_daxiqChannel; }
+    void setRfGainOptimistic(int gain) { m_rfGain = gain; }
 
     // Configuration flags
     bool isResized() const { return m_resized; }
