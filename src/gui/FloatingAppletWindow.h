@@ -3,6 +3,7 @@
 #include <QWidget>
 
 class QLabel;
+class QPushButton;
 class QTimer;
 class QVBoxLayout;
 
@@ -37,6 +38,10 @@ public:
 
     const QString& appletId() const { return m_appletId; }
 
+    // Toggle or query "Always On Top" state for this window.
+    void setAlwaysOnTop(bool onTop);
+    bool isAlwaysOnTop() const { return m_alwaysOnTop; }
+
 signals:
     void dockRequested(const QString& appletId);
 
@@ -49,7 +54,9 @@ protected:
 private:
     QString      m_appletId;
     QVBoxLayout* m_contentLayout{nullptr};
+    QPushButton* m_pinBtn{nullptr};           // title-bar toggle for always-on-top
     QTimer*      m_saveTimer{nullptr};        // debounce geometry saves on resize/move
+    bool         m_alwaysOnTop{false};
     bool         m_restoringGeometry{false};  // suppresses debounce during restoreGeometry/showAndRestore
     bool         m_appShuttingDown{false};    // set on aboutToQuit — prevents dockRequested on close
 };

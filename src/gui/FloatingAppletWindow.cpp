@@ -57,6 +57,20 @@ FloatingAppletWindow::FloatingAppletWindow(const QString& appletId,
     tbLayout->addWidget(titleLabel);
     tbLayout->addStretch();
 
+    m_pinBtn = new QPushButton(QStringLiteral("\U0001F4CC"), titleBar);
+    m_pinBtn->setFixedSize(16, 16);
+    m_pinBtn->setToolTip("Always On Top");
+    m_pinBtn->setCheckable(true);
+    m_pinBtn->setStyleSheet(
+        "QPushButton { background: #1a2a3a; color: #556670; "
+        "border: 1px solid #304050; border-radius: 3px; "
+        "font-size: 10px; padding: 0; }"
+        "QPushButton:hover { background: #243848; color: #c8d8e8; }"
+        "QPushButton:checked { background: #2a3a2a; color: #d0a020; "
+        "border: 1px solid #506030; }");
+    connect(m_pinBtn, &QPushButton::toggled, this, &FloatingAppletWindow::setAlwaysOnTop);
+    tbLayout->addWidget(m_pinBtn);
+
     auto* dockBtn = new QPushButton("\u21a9 Dock", titleBar);
     dockBtn->setFixedHeight(16);
     dockBtn->setToolTip("Return applet to the panel");
@@ -104,6 +118,36 @@ static QString settingsPrefix(const QString& appletId)
     return QStringLiteral("FloatingApplet_%1").arg(QString(appletId).replace('/', '_'));
 }
 
+void FloatingAppletWindow::setAlwaysOnTop(bool onTop)
+{
+    if (m_alwaysOnTop == onTop) { return; }
+    m_alwaysOnTop = onTop;
+
+    // Update the button state without re-entering this slot.
+    if (m_pinBtn->isChecked() != onTop) {
+        QSignalBlocker blocker(m_pinBtn);
+        m_pinBtn->setChecked(onTop);
+    }
+
+    // setWindowFlags() recreates the native window, which hides the widget.
+    // Save and restore position to avoid drift.
+    const QPoint savedPos  = pos();
+    const QSize  savedSize = geometry().size();
+
+    Qt::WindowFlags flags = windowFlags();
+    if (onTop)
+        flags |= Qt::WindowStaysOnTopHint;
+    else
+        flags &= ~Qt::WindowStaysOnTopHint;
+    setWindowFlags(flags);
+
+    // Restore geometry and re-show (setWindowFlags hid us).
+    resize(savedSize);
+    move(savedPos);
+    show();
+    raise();
+}
+
 void FloatingAppletWindow::saveGeometry()
 {
     const QString prefix = settingsPrefix(m_appletId);
@@ -127,6 +171,7 @@ void FloatingAppletWindow::saveGeometry()
     s.setValue(prefix + "_Y",      QString::number(framePos.y() - screenGeo.y()));
     s.setValue(prefix + "_W",      QString::number(clientSz.width()));
     s.setValue(prefix + "_H",      QString::number(clientSz.height()));
+    s.setValue(prefix + "_OnTop",  m_alwaysOnTop ? "1" : "0");
     s.save();
 }
 
@@ -134,6 +179,10 @@ void FloatingAppletWindow::restoreGeometry()
 {
     const QString prefix = settingsPrefix(m_appletId);
     const auto& s = AppSettings::instance();
+
+    // Restore always-on-top state (do this even if no geometry was saved).
+    const bool onTop = s.value(prefix + "_OnTop", "0") == "1";
+    if (onTop != m_alwaysOnTop) { setAlwaysOnTop(onTop); }
 
     const int w = s.value(prefix + "_W", "0").toInt();
     const int h = s.value(prefix + "_H", "0").toInt();
