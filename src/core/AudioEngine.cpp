@@ -82,20 +82,23 @@ AudioEngine::AudioEngine(QObject* parent)
     m_opusTxPaceTimer->start();
 
     // RX pacing timer -- drains m_rxBuffer into QAudioSink at regular intervals.
-    // Includes latency management: caps buffer at ~200ms to prevent unbounded
+    // Includes latency management: caps buffer at ~500ms to prevent unbounded
     // growth when network packets arrive in bursts (common on Windows WASAPI
-    // with virtual audio routers like Voicemeeter).
+    // with virtual audio routers like Voicemeeter).  The cap was 200ms before
+    // #1505 but that was too tight for high-jitter connections (VPN, SmartLink),
+    // causing sample drops heard as choppy/crackling audio during live
+    // retransmission while the recorded file (no cap) remained clean.
     m_rxTimer = new QTimer(this);
     m_rxTimer->setTimerType(Qt::PreciseTimer);
     m_rxTimer->setInterval(10);
     connect(m_rxTimer, &QTimer::timeout, this, [this]() {
         if (!m_audioSink || !m_audioDevice || !m_audioDevice->isOpen() || m_audioSink->state() == QAudio::StoppedState) return;
 
-        // Cap buffer at ~200ms of audio to bound latency.
-        // At 24kHz stereo float32 = 192000 bytes/sec → 200ms = 38400 bytes.
-        // At 48kHz stereo float32 = 384000 bytes/sec → 200ms = 76800 bytes.
+        // Cap buffer at ~500ms of audio to bound latency.
+        // At 24kHz stereo float32 = 192000 bytes/sec → 500ms = 96000 bytes.
+        // At 48kHz stereo float32 = 384000 bytes/sec → 500ms = 192000 bytes.
         const int sampleRate = m_resampleTo48k ? 48000 : DEFAULT_SAMPLE_RATE;
-        const qsizetype maxBufBytes = sampleRate * 2 * static_cast<qsizetype>(sizeof(float)) / 5; // 200ms worth
+        const qsizetype maxBufBytes = sampleRate * 2 * static_cast<qsizetype>(sizeof(float)) / 2; // 500ms worth
         if (m_rxBuffer.size() > maxBufBytes) {
             // Drop oldest samples to keep latency bounded
             m_rxBuffer.remove(0, m_rxBuffer.size() - maxBufBytes);
@@ -350,13 +353,18 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
         updateRxBufferStats();
     };
 
-    // Bypass client-side DSP during TX (#367). NR2/RN2/BNR adapt their
-    // internal state (noise floor, RNN hidden state) to silence during TX,
-    // causing distorted audio for several seconds after returning to RX.
+    // Bypass client-side DSP during TX (#367, #1505). NR2/RN2/BNR adapt
+    // their internal state (noise floor, RNN hidden state) to silence
+    // during TX, causing distorted audio for several seconds after
+    // returning to RX.  Use m_radioTransmitting (raw interlock state)
+    // instead of m_transmitting (ownership-gated) so the bypass also
+    // kicks in when an external app (DVK, WSJT-X) triggers PTT — during
+    // live retransmission monitoring audio was being processed by DSP and
+    // distorted because AetherSDR didn't own TX.
     // DSP mutex: prevents use-after-free if enable/disable runs concurrently (#502)
     {
         std::lock_guard<std::recursive_mutex> dspLock(m_dspMutex);
-        if (m_transmitting) {
+        if (m_radioTransmitting) {
             writeAudio(pcm);
             emit levelChanged(computeRMS(pcm));
         } else if (m_rn2Enabled && m_rn2) {
