@@ -78,7 +78,9 @@ private:
 
     // Track tuning state for SWR result flash
     bool m_wasTuning{false};
+    bool m_postTuneCapture{false};  // true during post-tune settling window
     float m_tuneSwr{1.0f};   // last non-1.00 SWR seen while tuning
+    QTimer* m_postTuneTimer{nullptr};
 };
 
 } // namespace AetherSDR

@@ -21,6 +21,21 @@ TunerApplet::TunerApplet(QWidget* parent)
 {
     hide();   // hidden by default until toggled on
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+
+    // Post-tune capture timer: after tuning=0 arrives, keep capturing SWR
+    // for 400ms so the final settled value from the TGXL has time to arrive.
+    m_postTuneTimer = new QTimer(this);
+    m_postTuneTimer->setSingleShot(true);
+    m_postTuneTimer->setInterval(400);
+    connect(m_postTuneTimer, &QTimer::timeout, this, [this]() {
+        m_postTuneCapture = false;
+        float result = (m_tuneSwr < 900.0f) ? m_tuneSwr : m_swr;
+        m_tuneBtn->setText(QString("SWR %1").arg(result, 0, 'f', 2));
+        QTimer::singleShot(2500, this, [this]() {
+            m_tuneBtn->setText("TUNE");
+        });
+    });
+
     buildUI();
 }
 
@@ -212,7 +227,9 @@ void TunerApplet::setTunerModel(TunerModel* model)
     connect(m_model, &TunerModel::tuningChanged, this, [this](bool tuning) {
         if (tuning) {
             m_wasTuning = true;
-            m_tuneSwr = 999.0f;  // reset high so minimum tracking works
+            m_postTuneCapture = false;
+            m_postTuneTimer->stop();
+            m_tuneSwr = 999.0f;  // reset high so capture tracking works
             m_tuneBtn->setStyleSheet(
                 "QPushButton { background: #cc2222; border: 1px solid #ff4444; "
                 "border-radius: 3px; color: #ffffff; font-size: 10px; font-weight: bold; }");
@@ -224,14 +241,15 @@ void TunerApplet::setTunerModel(TunerModel* model)
                 "border-radius: 3px; color: #c8d8e8; font-size: 10px; font-weight: bold; }"
                 "QPushButton:hover { background: #204060; }");
 
-            // Show the minimum SWR captured during tuning
+            // Don't display result immediately — the final settled SWR from
+            // the TGXL often arrives after tuning=0 via TCP.  Start a short
+            // capture window so updateMeters() can grab the settled value.
             if (m_wasTuning) {
                 m_wasTuning = false;
-                float result = (m_tuneSwr < 900.0f) ? m_tuneSwr : m_swr;
-                m_tuneBtn->setText(QString("SWR %1").arg(result, 0, 'f', 2));
-                QTimer::singleShot(2500, this, [this]() {
-                    m_tuneBtn->setText("TUNE");
-                });
+                m_postTuneCapture = true;
+                m_tuneSwr = 999.0f;  // reset — we want the post-tune value, not the sweep
+                m_tuneBtn->setText("TUNING...");
+                m_postTuneTimer->start();
             } else {
                 m_tuneBtn->setText("TUNE");
             }
@@ -303,12 +321,11 @@ void TunerApplet::updateMeters(float fwdPower, float swr)
     static_cast<HGauge*>(m_fwdGauge)->setValue(fwdPower);
     static_cast<HGauge*>(m_swrGauge)->setValue(swr);
 
-    // While tuning, track the minimum non-idle SWR — the tuner is minimizing
-    // SWR, so the lowest value seen during the search is the result.
-    // Once TX stops, SWR drops to ~1.00 (no RF), so we ignore idle values.
-    if (m_wasTuning && swr > 1.01f) {
-        if (swr < m_tuneSwr)
-            m_tuneSwr = swr;
+    // During the post-tune capture window, record the last non-idle SWR.
+    // The TGXL reports the settled SWR shortly after tuning=0 arrives;
+    // we take the last value > 1.01 (idle/no-RF reads ~1.00).
+    if (m_postTuneCapture && swr > 1.01f) {
+        m_tuneSwr = swr;
         m_tuneBtn->setText(QString("SWR %1").arg(swr, 0, 'f', 2));
     }
 }
