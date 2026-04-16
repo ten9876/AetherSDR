@@ -44,7 +44,7 @@ bool FlexControlManager::open(const QString& portName)
     m_port.setStopBits(QSerialPort::OneStop);
     m_port.setFlowControl(QSerialPort::NoFlowControl);
 
-    if (!m_port.open(QIODevice::ReadOnly)) {
+    if (!m_port.open(QIODevice::ReadWrite)) {
         qCWarning(lcDevices) << "FlexControlManager: failed to open" << portName
                    << m_port.errorString();
         return false;
@@ -56,9 +56,22 @@ bool FlexControlManager::open(const QString& portName)
     return true;
 }
 
+void FlexControlManager::setLed(int button, bool on)
+{
+    if (!m_port.isOpen() || button < 1 || button > 3) return;
+    // FlexControl LED protocol: "L<button><0|1>;" — e.g. "L11;" turns on LED 1
+    QByteArray cmd = QByteArray("L") + QByteArray::number(button)
+                     + (on ? "1" : "0") + ";";
+    m_port.write(cmd);
+}
+
 void FlexControlManager::close()
 {
     if (!m_port.isOpen()) return;
+    // Turn off all LEDs before closing
+    for (int i = 1; i <= 3; ++i)
+        setLed(i, false);
+    m_port.flush();
     m_port.close();
     m_buffer.clear();
     qCDebug(lcDevices) << "FlexControlManager: closed";

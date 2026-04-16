@@ -1611,6 +1611,10 @@ MainWindow::MainWindow(QWidget* parent)
         // Knob press while wheel function is active → return to frequency mode (#1354)
         if (button == 4 && action == 0 && m_flexWheelMode != FlexWheelMode::Frequency) {
             m_flexWheelMode = FlexWheelMode::Frequency;
+            m_flexControl->setLed(1, false);
+            m_flexControl->setLed(2, false);
+            m_flexControl->setLed(3, false);
+            statusBar()->showMessage(tr("FlexControl: Frequency mode"), 2000);
             return;
         }
         QString key = QString("FlexControlBtn%1Action%2").arg(button).arg(action);
@@ -1678,10 +1682,22 @@ MainWindow::MainWindow(QWidget* parent)
             }
         } else if (actionName == "WheelFrequency") {
             m_flexWheelMode = FlexWheelMode::Frequency;
+            m_flexControl->setLed(1, false);
+            m_flexControl->setLed(2, false);
+            m_flexControl->setLed(3, false);
+            statusBar()->showMessage(tr("FlexControl: Frequency mode"), 2000);
         } else if (actionName == "WheelVolume") {
             m_flexWheelMode = FlexWheelMode::Volume;
+            m_flexControl->setLed(1, true);
+            m_flexControl->setLed(2, false);
+            m_flexControl->setLed(3, false);
+            statusBar()->showMessage(tr("FlexControl: Volume mode"), 2000);
         } else if (actionName == "WheelPower") {
             m_flexWheelMode = FlexWheelMode::Power;
+            m_flexControl->setLed(1, false);
+            m_flexControl->setLed(2, true);
+            m_flexControl->setLed(3, false);
+            statusBar()->showMessage(tr("FlexControl: Power mode"), 2000);
         }
     });
 #endif

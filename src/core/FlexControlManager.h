@@ -37,6 +37,9 @@ public:
 
     void setInvertDirection(bool invert) { m_invertDirection = invert; }
 
+    // Control the LED on a hardware button (1–3). The knob (4) has no LED.
+    void setLed(int button, bool on);
+
     static constexpr quint16 VendorId  = 0x2192;
     static constexpr quint16 ProductId = 0x0010;
 
