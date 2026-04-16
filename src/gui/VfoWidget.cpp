@@ -1,4 +1,5 @@
 #include "VfoWidget.h"
+#include "FrequencyEntryDialog.h"
 #include "PhaseKnob.h"
 #include "ComboStyle.h"
 #include "GuardedSlider.h"
@@ -3236,14 +3237,22 @@ bool VfoWidget::eventFilter(QObject* obj, QEvent* event)
         return true;
     }
 
-    // Double-click on frequency label → open inline edit
+    // Double-click on frequency label → open inline edit (desktop fallback)
     if (obj == m_freqLabel && event->type() == QEvent::MouseButtonDblClick) {
         beginDirectEntry();
         return true;
     }
-    // Right-click on frequency label → context menu
+    // Click on frequency label → VFO knob + keypad popup (#1516) or context menu
     if (obj == m_freqLabel && event->type() == QEvent::MouseButtonPress) {
         auto* me = static_cast<QMouseEvent*>(event);
+        if (me->button() == Qt::LeftButton && m_slice && !m_slice->isLocked()) {
+            int stepHz = m_slice->stepHz();
+            if (stepHz <= 0) stepHz = 100;
+            auto* dlg = new FrequencyEntryDialog(m_slice, stepHz, this);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            dlg->exec();
+            return true;
+        }
         if (me->button() == Qt::RightButton && m_slice) {
             QMenu menu(this);
             menu.setStyleSheet(

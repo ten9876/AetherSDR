@@ -1,5 +1,6 @@
 #include "RxApplet.h"
 #include "FilterPassbandWidget.h"
+#include "FrequencyEntryDialog.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "SliceColors.h"
@@ -1813,6 +1814,18 @@ void RxApplet::applyOffsetDir(const QString& dir)
 
 bool RxApplet::eventFilter(QObject* obj, QEvent* ev)
 {
+    // Single-click frequency label → VFO knob + keypad popup (#1516)
+    if (obj == m_freqLabel && ev->type() == QEvent::MouseButtonPress) {
+        auto* me = static_cast<QMouseEvent*>(ev);
+        if (me->button() == Qt::LeftButton && m_slice && !m_slice->isLocked()) {
+            int stepHz = m_stepSizes.isEmpty() ? 100 : m_stepSizes[m_stepIdx];
+            auto* dlg = new FrequencyEntryDialog(m_slice, stepHz, this);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            dlg->exec();
+            return true;
+        }
+    }
+
     // Double-click frequency label → inline edit
     if (obj == m_freqLabel && ev->type() == QEvent::MouseButtonDblClick) {
         if (m_slice) {

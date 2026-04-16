@@ -507,6 +507,7 @@ set(GUI_SOURCES
     src/gui/MqttApplet.cpp
     src/gui/MeterSlider.cpp
     src/gui/PhaseKnob.cpp
+    src/gui/FrequencyEntryDialog.cpp
     src/gui/AntennaGeniusApplet.cpp
     src/gui/TitleBar.cpp
     src/gui/SupportDialog.cpp
