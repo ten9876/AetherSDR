@@ -5,6 +5,7 @@
 #include <QStringList>
 #include <QPoint>
 #include <QPointer>
+#include <QElapsedTimer>
 #include <QWheelEvent>
 #include <QMouseEvent>
 
@@ -140,6 +141,7 @@ private:
     void hideAllSubPanels();
     void showBandPanelAt(const QPoint& pos);
     void syncAntPanel();
+    void handleBandClick(int gridIdx, QPushButton* btn);
 
     QPushButton* m_toggleBtn{nullptr};
     QVector<QPushButton*> m_menuBtns;
@@ -148,6 +150,11 @@ private:
     // Band sub-panel (shown to the right of the menu)
     QWidget* m_bandPanel{nullptr};
     bool m_bandPanelVisible{false};
+
+    // Band stacking: cycle through segments on repeated presses (#1519)
+    int m_lastBandGridIdx{-1};
+    int m_bandSegmentIdx{0};
+    QElapsedTimer m_bandClickTimer;
     QWidget* m_xvtrPanel{nullptr};
     bool m_xvtrPanelVisible{false};
     QVector<QPushButton*> m_xvtrBandBtns;

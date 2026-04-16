@@ -16,6 +16,7 @@
 #include <QSignalBlocker>
 #include <QEvent>
 #include <QFrame>
+#include <QTimer>
 #include <QColorDialog>
 
 namespace AetherSDR {
@@ -89,6 +90,90 @@ static constexpr BandGridEntry BAND_GRID[] = {
     {"XVTR", "",      0.0,    ""},      // 15
 };
 
+// Band stacking segments: SSB → CW → Digital for each HF band (#1519).
+// Pressing the same band button within 1.5 s cycles through segments.
+struct BandSegment {
+    double freqMhz;
+    const char* mode;
+    const char* segLabel;  // appended to button text briefly
+};
+
+// Per-band segment tables.  Bands with only one useful segment (WWV, GEN,
+// 2200, 630, 60m) are omitted — they keep the single BAND_GRID entry.
+static constexpr BandSegment kSegments_160m[] = {
+    {1.900,  "LSB",  "SSB"},
+    {1.820,  "CW",   "CW"},
+    {1.807,  "DIGU", "DIG"},
+};
+static constexpr BandSegment kSegments_80m[] = {
+    {3.800,  "LSB",  "SSB"},
+    {3.540,  "CW",   "CW"},
+    {3.573,  "DIGU", "DIG"},
+};
+static constexpr BandSegment kSegments_40m[] = {
+    {7.200,  "LSB",  "SSB"},
+    {7.030,  "CW",   "CW"},
+    {7.074,  "DIGU", "DIG"},
+};
+static constexpr BandSegment kSegments_30m[] = {
+    {10.125, "CW",   "CW"},
+    {10.136, "DIGU", "DIG"},
+};
+static constexpr BandSegment kSegments_20m[] = {
+    {14.225, "USB",  "SSB"},
+    {14.035, "CW",   "CW"},
+    {14.074, "DIGU", "DIG"},
+};
+static constexpr BandSegment kSegments_17m[] = {
+    {18.130, "USB",  "SSB"},
+    {18.080, "CW",   "CW"},
+    {18.100, "DIGU", "DIG"},
+};
+static constexpr BandSegment kSegments_15m[] = {
+    {21.300, "USB",  "SSB"},
+    {21.040, "CW",   "CW"},
+    {21.074, "DIGU", "DIG"},
+};
+static constexpr BandSegment kSegments_12m[] = {
+    {24.950, "USB",  "SSB"},
+    {24.900, "CW",   "CW"},
+    {24.915, "DIGU", "DIG"},
+};
+static constexpr BandSegment kSegments_10m[] = {
+    {28.400, "USB",  "SSB"},
+    {28.040, "CW",   "CW"},
+    {28.074, "DIGU", "DIG"},
+};
+static constexpr BandSegment kSegments_6m[] = {
+    {50.150, "USB",  "SSB"},
+    {50.060, "CW",   "CW"},
+    {50.313, "DIGU", "DIG"},
+};
+
+// Lookup: given a BAND_GRID index, return the segment array and count.
+// Returns nullptr / 0 for bands without stacking.
+static const BandSegment* bandSegments(int gridIdx, int& count)
+{
+    count = 0;
+    switch (gridIdx) {
+    case  0: count = 3; return kSegments_160m;
+    case  1: count = 3; return kSegments_80m;
+    case  3: count = 3; return kSegments_40m;
+    case  4: count = 2; return kSegments_30m;
+    case  5: count = 3; return kSegments_20m;
+    case  6: count = 3; return kSegments_17m;
+    case  7: count = 3; return kSegments_15m;
+    case  8: count = 3; return kSegments_12m;
+    case  9: count = 3; return kSegments_10m;
+    case 10: count = 3; return kSegments_6m;
+    default: return nullptr;
+    }
+}
+
+// Timeout for band stacking: pressing the same band within this window
+// advances to the next segment instead of repeating segment 0.
+static constexpr qint64 BAND_STACK_TIMEOUT_MS = 1500;
+
 SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
     : QWidget(parent)
 {
@@ -142,7 +227,7 @@ SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
     if (m_menuBtns.size() >= 7) {
         m_menuBtns[0]->setToolTip("Add a new receive slice on this panadapter.");
         m_menuBtns[1]->setToolTip("Add a tracking notch filter at the current frequency.");
-        m_menuBtns[2]->setToolTip("Open band selector.");
+        m_menuBtns[2]->setToolTip("Open band selector. Press the same band repeatedly to cycle SSB/CW/Digital.");
         m_menuBtns[3]->setToolTip("Open antenna and RF gain controls.");
         m_menuBtns[4]->setToolTip("Open DSP noise reduction and filter controls.");
         m_menuBtns[5]->setToolTip("Open panadapter and waterfall display settings.");
@@ -171,6 +256,59 @@ void SpectrumOverlayMenu::raiseAll()
     if (m_dspPanel)     m_dspPanel->raise();
     if (m_daxPanel)     m_daxPanel->raise();
     if (m_displayPanel) m_displayPanel->raise();
+}
+
+// ── Band stacking (#1519) ─────────────────────────────────────────────────────
+
+void SpectrumOverlayMenu::handleBandClick(int gridIdx, QPushButton* btn)
+{
+    int segCount = 0;
+    const BandSegment* segs = bandSegments(gridIdx, segCount);
+
+    if (!segs || segCount <= 1) {
+        // No stacking for this band — emit directly and close.
+        hideAllSubPanels();
+        emit bandSelected(QString::fromLatin1(BAND_GRID[gridIdx].bandName),
+                          BAND_GRID[gridIdx].freqMhz,
+                          QString::fromLatin1(BAND_GRID[gridIdx].mode));
+        return;
+    }
+
+    // Determine segment index: advance if same band pressed within timeout.
+    bool isRepeat = (gridIdx == m_lastBandGridIdx && m_bandClickTimer.isValid()
+                     && m_bandClickTimer.elapsed() < BAND_STACK_TIMEOUT_MS);
+    if (isRepeat) {
+        m_bandSegmentIdx = (m_bandSegmentIdx + 1) % segCount;
+    } else {
+        m_bandSegmentIdx = 0;
+    }
+    m_lastBandGridIdx = gridIdx;
+    m_bandClickTimer.start();
+
+    const auto& seg = segs[m_bandSegmentIdx];
+
+    // Show segment label on the button (e.g. "20 CW").
+    QString origText = QString::fromLatin1(BAND_GRID[gridIdx].label);
+    btn->setText(origText + " " + QString::fromLatin1(seg.segLabel));
+    QTimer::singleShot(1800, btn, [btn, origText]() {
+        if (btn) btn->setText(origText);
+    });
+
+    emit bandSelected(QString::fromLatin1(BAND_GRID[gridIdx].bandName),
+                      seg.freqMhz,
+                      QString::fromLatin1(seg.mode));
+
+    // On first press keep panel open so user can press again to cycle.
+    // Close after a short delay if no further press arrives.
+    if (!isRepeat) {
+        QTimer::singleShot(BAND_STACK_TIMEOUT_MS + 100, this, [this, gridIdx]() {
+            // Close only if no new press happened (timer still pointing at this band)
+            if (m_lastBandGridIdx == gridIdx && m_bandClickTimer.isValid()
+                && m_bandClickTimer.elapsed() >= BAND_STACK_TIMEOUT_MS) {
+                hideAllSubPanels();
+            }
+        });
+    }
 }
 
 // ── Band sub-panel ────────────────────────────────────────────────────────────
@@ -212,8 +350,6 @@ void SpectrumOverlayMenu::buildBandPanel()
             btn->setStyleSheet(bandBtnStyle);
 
             QString bandName = QString::fromLatin1(BAND_GRID[idx].bandName);
-            double freq = BAND_GRID[idx].freqMhz;
-            QString mode = QString::fromLatin1(BAND_GRID[idx].mode);
             if (idx == 15) {
                 // XVTR button → open Radio Setup XVTR tab (#571)
                 connect(btn, &QPushButton::clicked, this, [this]() {
@@ -223,9 +359,8 @@ void SpectrumOverlayMenu::buildBandPanel()
             } else if (bandName.isEmpty()) {
                 btn->setEnabled(false);
             } else {
-                connect(btn, &QPushButton::clicked, this, [this, bandName, freq, mode]() {
-                    hideAllSubPanels();
-                    emit bandSelected(bandName, freq, mode);
+                connect(btn, &QPushButton::clicked, this, [this, idx, btn]() {
+                    handleBandClick(idx, btn);
                 });
             }
 
@@ -1426,12 +1561,8 @@ void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
             auto* btn = new QPushButton(BAND_GRID[idx].label, m_bandPanel);
             btn->setFixedSize(BAND_BTN_W, BAND_BTN_H);
             btn->setStyleSheet(bandBtnStyle);
-            QString bandName = QString::fromLatin1(BAND_GRID[idx].bandName);
-            double freq = BAND_GRID[idx].freqMhz;
-            QString mode = QString::fromLatin1(BAND_GRID[idx].mode);
-            connect(btn, &QPushButton::clicked, this, [this, bandName, freq, mode]() {
-                hideAllSubPanels();
-                emit bandSelected(bandName, freq, mode);
+            connect(btn, &QPushButton::clicked, this, [this, idx, btn]() {
+                handleBandClick(idx, btn);
             });
             grid->addWidget(btn, row, col);
         }
@@ -1469,8 +1600,6 @@ void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
             btn->setFixedSize(BAND_BTN_W, BAND_BTN_H);
             btn->setStyleSheet(bandBtnStyle);
             QString bandName = QString::fromLatin1(BAND_GRID[idx].bandName);
-            double freq = BAND_GRID[idx].freqMhz;
-            QString mode = QString::fromLatin1(BAND_GRID[idx].mode);
             if (idx == 15) {
                 connect(btn, &QPushButton::clicked, this, [this]() {
                     hideAllSubPanels();
@@ -1479,9 +1608,8 @@ void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
             } else if (bandName.isEmpty()) {
                 btn->setEnabled(false);
             } else {
-                connect(btn, &QPushButton::clicked, this, [this, bandName, freq, mode]() {
-                    hideAllSubPanels();
-                    emit bandSelected(bandName, freq, mode);
+                connect(btn, &QPushButton::clicked, this, [this, idx, btn]() {
+                    handleBandClick(idx, btn);
                 });
             }
             grid->addWidget(btn, row, col);
