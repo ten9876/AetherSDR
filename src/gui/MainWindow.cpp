@@ -1867,7 +1867,40 @@ MainWindow::MainWindow(QWidget* parent)
     }
     m_appletPanel->phoneCwApplet()->setTransmitModel(&m_radioModel.transmitModel());
 
+    // ── CW sidetone: local PC tone generator for CW keying feedback (#1537) ─
+    // Initialize sidetone pitch and gain from the transmit model, then keep
+    // them in sync as the user adjusts controls.
+    {
+        auto& tx = m_radioModel.transmitModel();
+        m_audio->setCwSidetonePitch(tx.cwPitch());
+        m_audio->setCwSidetoneGain(tx.monGainCw());
 
+        // Track pitch/gain changes from the radio
+        connect(&tx, &TransmitModel::phoneStateChanged, this, [this]() {
+            auto& txm = m_radioModel.transmitModel();
+            m_audio->setCwSidetonePitch(txm.cwPitch());
+            m_audio->setCwSidetoneGain(txm.monGainCw());
+        });
+
+        // Key the sidetone when radio enters TX in CW mode with sidetone enabled.
+        // Use radioTransmittingChanged (raw interlock) so it fires for CWX,
+        // paddle keying, and external PTT — not just local MOX.
+        connect(&m_radioModel, &RadioModel::radioTransmittingChanged,
+                this, [this](bool tx) {
+            auto& txm = m_radioModel.transmitModel();
+            if (!txm.cwSidetone()) {
+                m_audio->setCwSidetoneKeyed(false);
+                return;
+            }
+            // Only produce sidetone when the active slice is in CW mode
+            if (auto* slice = activeSlice()) {
+                bool isCw = (slice->mode() == "CW");
+                m_audio->setCwSidetoneKeyed(tx && isCw);
+            } else {
+                m_audio->setCwSidetoneKeyed(false);
+            }
+        });
+    }
 
     // ── PHNE applet: VOX + CW controls ──────────────────────────────────────
     m_appletPanel->phoneApplet()->setTransmitModel(&m_radioModel.transmitModel());

@@ -1,5 +1,6 @@
 #include "AudioEngine.h"
 #include "AppSettings.h"
+#include "CwSidetoneGenerator.h"
 #include "LogManager.h"
 #include "OpusCodec.h"
 #include "SpectralNR.h"
@@ -343,10 +344,24 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
 
     auto writeAudio = [this](const QByteArray& data) {
         if (!m_audioDevice || !m_audioDevice->isOpen()) return;
-        if (m_resampleTo48k)
+
+        // Mix CW sidetone into the audio buffer if active (#1537).
+        // The generator produces float32 stereo at 24kHz matching our format.
+        if (m_cwSidetone) {
+            QByteArray mixed = data;  // deep copy so we can modify in-place
+            auto* samples = reinterpret_cast<float*>(mixed.data());
+            int numFrames = mixed.size() / (2 * static_cast<int>(sizeof(float)));
+            m_cwSidetone->mixInto(samples, numFrames);
+            if (m_resampleTo48k) {
+                m_rxBuffer.append(resampleStereo(mixed));
+            } else {
+                m_rxBuffer.append(mixed);
+            }
+        } else if (m_resampleTo48k) {
             m_rxBuffer.append(resampleStereo(data));
-        else
+        } else {
             m_rxBuffer.append(data);
+        }
         updateRxBufferStats();
     };
 
@@ -1530,6 +1545,32 @@ void AudioEngine::feedDecodedSpeech(const QByteArray& pcm)
     else
         m_rxBuffer.append(pcm);
     updateRxBufferStats();
+}
+
+// ─── CW sidetone (local PC tone generator) ──────────────────────────────────
+
+void AudioEngine::setCwSidetoneKeyed(bool on)
+{
+    if (!m_cwSidetone) {
+        m_cwSidetone = std::make_unique<CwSidetoneGenerator>();
+    }
+    m_cwSidetone->setKeyed(on);
+}
+
+void AudioEngine::setCwSidetonePitch(int hz)
+{
+    if (!m_cwSidetone) {
+        m_cwSidetone = std::make_unique<CwSidetoneGenerator>();
+    }
+    m_cwSidetone->setPitch(hz);
+}
+
+void AudioEngine::setCwSidetoneGain(int gain)
+{
+    if (!m_cwSidetone) {
+        m_cwSidetone = std::make_unique<CwSidetoneGenerator>();
+    }
+    m_cwSidetone->setGain(gain);
 }
 
 } // namespace AetherSDR

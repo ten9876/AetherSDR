@@ -424,6 +424,7 @@ set(CORE_SOURCES
     src/core/RNNoiseFilter.cpp
     src/core/SpecbleachFilter.cpp
     src/core/CwDecoder.cpp
+    src/core/CwSidetoneGenerator.cpp
     src/core/Resampler.cpp
     src/core/NvidiaBnrFilter.cpp
     src/core/DeepFilterFilter.cpp

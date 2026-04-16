@@ -29,6 +29,7 @@ class RNNoiseFilter;
 class NvidiaBnrFilter;
 class DeepFilterFilter;
 class Resampler;
+class CwSidetoneGenerator;
 
 // AudioEngine handles audio playback (RX) and capture (TX).
 //
@@ -98,6 +99,11 @@ public:
     bool daxTxUseRadioRoute() const { return m_daxTxUseRadioRoute.load(); }
     void setTransmitting(bool tx);
     void setRadioTransmitting(bool tx);  // raw interlock state (regardless of TX ownership)
+
+    // CW sidetone: local PC tone generator for CW keying feedback (#1537)
+    void setCwSidetoneKeyed(bool on);
+    void setCwSidetonePitch(int hz);
+    void setCwSidetoneGain(int gain);  // 0–100
     void clearTxAccumulators() { m_txAccumulator.clear(); m_txFloatAccumulator.clear(); m_daxPreTxBuffer.clear(); }
     Q_INVOKABLE void feedDaxTxAudio(const QByteArray& float32pcm);
 
@@ -276,6 +282,9 @@ private:
     std::unique_ptr<DeepFilterFilter> m_dfnr;
 #endif
     std::atomic<bool> m_dfnrEnabled{false};
+
+    // CW sidetone generator (#1537)
+    std::unique_ptr<CwSidetoneGenerator> m_cwSidetone;
 
     // Pre-allocated NR2 work buffers (avoid per-call heap allocation)
     std::vector<float> m_nr2Mono;
