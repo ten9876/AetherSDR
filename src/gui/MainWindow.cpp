@@ -2143,6 +2143,7 @@ void MainWindow::closeEvent(QCloseEvent* event)
     if (sl) {
         s.setValue("LastFrequency", QString::number(sl->frequency(), 'f', 6));
         s.setValue("LastMode", sl->mode());
+        s.setValue("LastAudioMute", sl->audioMute() ? "1" : "0");
     }
 
     // Save per-slice DAX channel assignments for restore on next launch.

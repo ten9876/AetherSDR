@@ -2669,7 +2669,7 @@ void RadioModel::createDefaultSlice(const QString& freqMhz,
                     .arg(panId, freqMhz, antenna, mode);
 
             sendCmd(sliceCmd,
-                [panId](int code2, const QString& body2) {
+                [this, panId](int code2, const QString& body2) {
                     if (code2 != 0) {
                         qCWarning(lcProtocol) << "RadioModel: slice create failed, code"
                                    << Qt::hex << code2 << "body:" << body2;
@@ -2677,6 +2677,13 @@ void RadioModel::createDefaultSlice(const QString& freqMhz,
                         qCDebug(lcProtocol) << "RadioModel: slice created, index =" << body2;
                         // Radio now emits S|slice N ... status messages;
                         // handleSliceStatus() picks them up automatically.
+
+                        // Restore saved audio mute state (#1560)
+                        bool lastMute = AppSettings::instance().value("LastAudioMute", "0").toString() == "1";
+                        if (lastMute) {
+                            const QString sliceIndex = body2.trimmed();
+                            sendCmd(QString("slice set %1 audio_mute=1").arg(sliceIndex));
+                        }
                     }
                 });
         });
