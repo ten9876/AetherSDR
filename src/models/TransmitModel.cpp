@@ -391,6 +391,7 @@ void TransmitModel::setMicSelection(const QString& input)
 void TransmitModel::setMicLevel(int level)
 {
     level = qBound(0, level, 100);
+    m_micLevel = level;
     emit commandReady(QString("transmit set miclevel=%1").arg(level));
 }
 
@@ -432,6 +433,7 @@ void TransmitModel::setSbMonitor(bool on)
 void TransmitModel::setMonGainSb(int gain)
 {
     gain = qBound(0, gain, 100);
+    m_monGainSb = gain;
     emit commandReady(QString("transmit set mon_gain_sb=%1").arg(gain));
 }
 
