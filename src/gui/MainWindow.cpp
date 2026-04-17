@@ -3698,6 +3698,15 @@ void MainWindow::buildUI()
 
     // CWX panel — left of spectrum, hidden by default
     m_cwxPanel = new CwxPanel(&m_radioModel.cwxModel(), splitter);
+    // Provide state probes so CWX can guard its F1-F12 / ESC app-wide
+    // shortcuts on mode + transmit state (#1552).
+    m_cwxPanel->setActiveModeProvider([this]() {
+        auto* s = activeSlice();
+        return s ? s->mode() : QString();
+    });
+    m_cwxPanel->setTransmittingProvider([this]() {
+        return m_radioModel.transmitModel().isTransmitting();
+    });
     splitter->addWidget(m_cwxPanel);
     m_cwxPanel->hide();
 

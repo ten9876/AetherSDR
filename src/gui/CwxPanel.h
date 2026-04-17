@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <functional>
 
 class QPushButton;
 class QTextEdit;
@@ -21,6 +22,18 @@ public:
     explicit CwxPanel(CwxModel* model, QWidget* parent = nullptr);
 
     void setModel(CwxModel* model);
+
+    // Optional providers used to guard the global F1-F12 / ESC shortcuts
+    // so they don't fire in modes/states where they'd be surprising (#1552).
+    //  - modeProvider returns the active slice's mode ("CW", "CWL", ...)
+    //  - transmittingProvider returns true when the radio is actively TXing
+    // When unset, the shortcuts fire unconditionally (legacy behavior).
+    void setActiveModeProvider(std::function<QString()> provider) {
+        m_activeModeProvider = std::move(provider);
+    }
+    void setTransmittingProvider(std::function<bool()> provider) {
+        m_transmittingProvider = std::move(provider);
+    }
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -60,6 +73,9 @@ private:
     QPushButton*    m_liveBtn{nullptr};
     QPushButton*    m_setupBtn{nullptr};
     QSpinBox*       m_speedSpin{nullptr};
+
+    std::function<QString()> m_activeModeProvider;
+    std::function<bool()>    m_transmittingProvider;
 };
 
 } // namespace AetherSDR
