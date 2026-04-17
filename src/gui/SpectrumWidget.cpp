@@ -210,11 +210,26 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     auto emitZoom = [this](double factor) {
         const double newBw = m_bandwidthMhz * factor;
         if (newBw < m_minBwMhz || newBw > m_maxBwMhz) { return; }  // at limit
-        reprojectWaterfall(m_centerMhz, m_bandwidthMhz, m_centerMhz, newBw);
+
+        // When zooming in, shift center toward the active VFO so it stays visible
+        double newCenter = m_centerMhz;
+        if (factor < 1.0) {  // zooming in
+            const auto* ao = activeOverlay();
+            if (ao) {
+                const double halfBw = newBw / 2.0;
+                if (ao->freqMhz > newCenter + halfBw)
+                    newCenter = ao->freqMhz - halfBw * 0.8;
+                else if (ao->freqMhz < newCenter - halfBw)
+                    newCenter = ao->freqMhz + halfBw * 0.8;
+            }
+        }
+
+        reprojectWaterfall(m_centerMhz, m_bandwidthMhz, newCenter, newBw);
+        m_centerMhz = newCenter;
         m_bandwidthMhz = newBw;
         markOverlayDirty();
         emit bandwidthChangeRequested(newBw);
-        emit centerChangeRequested(m_centerMhz);  // anchor the current center
+        emit centerChangeRequested(newCenter);
     };
     connect(m_zoomOutBtn, &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.5); });
     connect(m_zoomInBtn,  &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.0 / 1.5); });

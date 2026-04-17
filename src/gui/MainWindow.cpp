@@ -6969,12 +6969,24 @@ void MainWindow::registerShortcutActions()
             return;
         }
 
-        const double currentCenter = sw->centerMhz();
-        sw->setFrequencyRange(currentCenter, newBw);
+        double newCenter = sw->centerMhz();
+
+        // When zooming in, shift center toward the active slice frequency
+        // so it stays visible (mirrors Flex SDR behavior)
+        if (factor < 1.0) {
+            const double vfoMhz = s->frequency();
+            const double halfBw = newBw / 2.0;
+            if (vfoMhz > newCenter + halfBw)
+                newCenter = vfoMhz - halfBw * 0.8;
+            else if (vfoMhz < newCenter - halfBw)
+                newCenter = vfoMhz + halfBw * 0.8;
+        }
+
+        sw->setFrequencyRange(newCenter, newBw);
         m_radioModel.sendCommand(
             QString("display pan set %1 bandwidth=%2").arg(s->panId()).arg(newBw, 0, 'f', 6));
         m_radioModel.sendCommand(
-            QString("display pan set %1 center=%2").arg(s->panId()).arg(currentCenter, 0, 'f', 6));
+            QString("display pan set %1 center=%2").arg(s->panId()).arg(newCenter, 0, 'f', 6));
     };
 
     // ── DSP ─────────────────────────────────────────────────────────────
