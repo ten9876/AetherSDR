@@ -614,6 +614,14 @@ void TciServer::onRxAudioReady(const QByteArray& pcm)
     }
 }
 
+// ── Per-channel RX gain ──────────────────────────────────────────────────
+
+void TciServer::setChannelGain(int channel, float gain)
+{
+    if (channel >= 1 && channel <= 4)
+        m_rxGain[channel - 1] = std::clamp(gain, 0.0f, 1.0f);
+}
+
 // ── RX audio from DAX pipeline → TCI binary frames ─────────────────────
 
 void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
@@ -632,6 +640,18 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
     // Map DAX channel to TRX: channel 1 → TRX 0, channel 2 → TRX 1, etc.
     int trx = channel - 1;
     if (trx < 0) trx = 0;
+
+    // Apply per-channel RX gain
+    float gain = (trx >= 0 && trx < 4) ? m_rxGain[trx] : 0.5f;
+    QByteArray gainBuf;
+    if (gain < 0.999f) {
+        int totalSamples = stereoFrames * 2;
+        gainBuf.resize(totalSamples * static_cast<int>(sizeof(float)));
+        auto* dst = reinterpret_cast<float*>(gainBuf.data());
+        for (int i = 0; i < totalSamples; ++i)
+            dst[i] = src[i] * gain;
+        src = dst;
+    }
 
     // Per-client resampling (float32 I/O)
     for (auto& cs : m_clients) {

@@ -47,6 +47,8 @@ public slots:
     void onRxAudioReady(const QByteArray& pcm);
     // RX audio from DAX pipeline (float32 stereo, 24 kHz)
     void onDaxAudioReady(int channel, const QByteArray& pcm);
+    // Set per-channel RX gain (channel 1–4, gain 0.0–1.0)
+    void setChannelGain(int channel, float gain);
     // IQ data from DAX IQ stream (big-endian float32 I/Q pairs)
     void onIqDataReady(int channel, const QByteArray& rawPayload, int sampleRate);
 
@@ -100,6 +102,7 @@ private:
     QWebSocket*       m_txChronoClient{nullptr};
     int               m_txChronoTrx{0};
     std::unique_ptr<Resampler> m_txResampler; // 48kHz→24kHz TX downsampler
+    float             m_rxGain[4]{0.5f, 0.5f, 0.5f, 0.5f}; // per-channel RX gain (0.0–1.0)
     bool              m_lastTx{false};
     float             m_cachedSLevel[8]{-130,-130,-130,-130,-130,-130,-130,-130};
     float             m_cachedFwdPower{0};
