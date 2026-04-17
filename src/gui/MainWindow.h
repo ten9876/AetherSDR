@@ -281,8 +281,8 @@ private:
     QLabel* m_tgxlIndicator{nullptr};
     QLabel* m_pgxlIndicator{nullptr};
     QLabel* m_txIndicator{nullptr};
-    QLabel* m_gpsDateLabel{nullptr};
     QLabel* m_gpsTimeLabel{nullptr};
+    bool m_hasGridSquare{false};
 
     // Active slice tracking for multi-slice support
     int m_activeSliceId{-1};

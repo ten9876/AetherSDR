@@ -1994,8 +1994,10 @@ MainWindow::MainWindow(QWidget* parent)
             m_gpsStatusLabel->setText(QString("[%1]").arg(status));
         }
 
-        if (!grid.isEmpty())
+        if (!grid.isEmpty()) {
             m_gridLabel->setText(grid);
+            m_hasGridSquare = true;
+        }
 
         // Use GPS UTC time only when GPSDO is installed and locked.
         // GPS with no antenna/lock sends stale "00:00:00Z" — fall back to system clock.
@@ -2013,7 +2015,8 @@ MainWindow::MainWindow(QWidget* parent)
     auto* clockTimer = new QTimer(this);
     connect(clockTimer, &QTimer::timeout, this, [this] {
         auto utc = QDateTime::currentDateTimeUtc();
-        m_gpsDateLabel->setText(utc.toString("yyyy-MM-dd"));
+        if (!m_hasGridSquare)
+            m_gridLabel->setText(utc.toString("yyyy-MM-dd"));
         if (m_useSystemClock)
             m_gpsTimeLabel->setText(utc.toString("HH:mm:ssZ"));
     });
@@ -4086,7 +4089,8 @@ void MainWindow::buildUI()
 
     addSep();
 
-    // Grid square (top) + UTC time (bottom) stacked, right-aligned
+    // Date (top) + UTC time (bottom) stacked, right-aligned — two-row layout
+    // matching the other telemetry stacks. Grid square shown on top when available.
     auto* timeStack = new QWidget;
     timeStack->setMinimumWidth(kTelemetryStackMinWidth);
     auto* timeVbox = new QVBoxLayout(timeStack);
@@ -4096,16 +4100,11 @@ void MainWindow::buildUI()
     m_gridLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 12px; }");
     m_gridLabel->setAlignment(Qt::AlignCenter);
     m_gridLabel->setMinimumWidth(kTelemetryStackMinWidth);
-    m_gpsDateLabel = new QLabel("");
-    m_gpsDateLabel->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
-    m_gpsDateLabel->setAlignment(Qt::AlignCenter);
-    m_gpsDateLabel->setMinimumWidth(kTelemetryStackMinWidth);
     m_gpsTimeLabel = new QLabel("");
     m_gpsTimeLabel->setStyleSheet("QLabel { color: #607080; font-size: 12px; }");
     m_gpsTimeLabel->setAlignment(Qt::AlignCenter);
     m_gpsTimeLabel->setMinimumWidth(kTelemetryStackMinWidth);
     timeVbox->addWidget(m_gridLabel);
-    timeVbox->addWidget(m_gpsDateLabel);
     timeVbox->addWidget(m_gpsTimeLabel);
     hbox->addWidget(timeStack);
 
