@@ -284,7 +284,7 @@ bool AudioEngine::startRxStream()
 #ifdef Q_OS_WIN
     m_resampleTo48k = false;
     m_audioSink = new QAudioSink(dev, fmt, this);
-    m_audioSink->setVolume(m_rxVolume.load());
+    m_audioSink->setVolume(m_muted.load() ? 0.0f : m_rxVolume.load());
     m_audioDevice = m_audioSink->start();
     if (!m_audioDevice) {
         qCWarning(lcAudio) << "AudioEngine: 24kHz sink failed to open, trying 48kHz";
@@ -292,7 +292,7 @@ bool AudioEngine::startRxStream()
         fmt.setSampleRate(48000);
         m_resampleTo48k = true;
         m_audioSink = new QAudioSink(dev, fmt, this);
-        m_audioSink->setVolume(m_rxVolume.load());
+        m_audioSink->setVolume(m_muted.load() ? 0.0f : m_rxVolume.load());
         m_audioDevice = m_audioSink->start();
         if (!m_audioDevice) {
             qCWarning(lcAudio) << "AudioEngine: 48kHz sink also failed";
@@ -381,7 +381,7 @@ bool AudioEngine::startRxStream()
 #endif
 
     m_audioSink   = new QAudioSink(dev, fmt, this);
-    m_audioSink->setVolume(m_rxVolume.load());
+    m_audioSink->setVolume(m_muted.load() ? 0.0f : m_rxVolume.load());
     m_audioDevice = m_audioSink->start();   // push-mode
 
     if (!m_audioDevice) {

@@ -307,6 +307,13 @@ void TitleBar::setPcAudioEnabled(bool on)
           "QPushButton:hover { background: #243848; }");
 }
 
+void TitleBar::setLineoutMuted(bool muted)
+{
+    QSignalBlocker b(m_speakerBtn);
+    m_speakerBtn->setChecked(muted);
+    m_speakerBtn->setText(muted ? "\xF0\x9F\x94\x87" : "\xF0\x9F\x94\x8A");  // 🔇 / 🔊
+}
+
 void TitleBar::setMasterVolume(int pct)
 {
     QSignalBlocker b(m_masterSlider);

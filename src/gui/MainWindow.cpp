@@ -1409,6 +1409,9 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_titleBar, &TitleBar::lineoutMuteChanged, this, [this](bool muted) {
         m_audio->setMuted(muted);
         m_radioModel.sendCommand(QString("mixer lineout mute %1").arg(muted ? 1 : 0));
+        auto& s = AppSettings::instance();
+        s.setValue("PcAudioMuted", muted ? "True" : "False");
+        s.save();
     });
     connect(m_titleBar, &TitleBar::headphoneMuteChanged, this, [this](bool muted) {
         m_radioModel.sendCommand(QString("mixer headphone mute %1").arg(muted ? 1 : 0));
@@ -1428,6 +1431,13 @@ MainWindow::MainWindow(QWidget* parent)
     // Apply saved master volume
     int savedMasterVol = AppSettings::instance().value("MasterVolume", "100").toInt();
     m_audio->setRxVolume(savedMasterVol / 100.0f);
+
+    // Restore saved mute state (#1571)
+    bool savedMute = AppSettings::instance().value("PcAudioMuted", "False").toString() == "True";
+    if (savedMute) {
+        m_audio->setMuted(true);
+        m_titleBar->setLineoutMuted(true);
+    }
 
     // ── S-Meter: MeterModel → SMeterWidget (active slice only) ─────────────
     connect(&m_radioModel.meterModel(), &MeterModel::sLevelChanged,
