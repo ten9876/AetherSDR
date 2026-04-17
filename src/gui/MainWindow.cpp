@@ -472,6 +472,8 @@ MainWindow::MainWindow(QWidget* parent)
     m_wsjtxClient = new WsjtxClient;
     m_spotCollectorClient = new SpotCollectorClient;
     m_potaClient = new PotaClient;
+    m_sotaClient = new SotaClient;
+    m_wwffClient = new WwffClient;
 #ifdef HAVE_WEBSOCKETS
     m_freedvClient = new FreeDvClient;
 #endif
@@ -514,6 +516,8 @@ MainWindow::MainWindow(QWidget* parent)
     m_wsjtxClient->moveToThread(m_spotThread);
     m_spotCollectorClient->moveToThread(m_spotThread);
     m_potaClient->moveToThread(m_spotThread);
+    m_sotaClient->moveToThread(m_spotThread);
+    m_wwffClient->moveToThread(m_spotThread);
 #ifdef HAVE_WEBSOCKETS
     m_freedvClient->moveToThread(m_spotThread);
 #endif
@@ -702,6 +706,16 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_potaClient, &PotaClient::spotReceived,
             this, [queueSpotCmd](const DxSpot& spot) {
         queueSpotCmd(spot, "POTA");
+    });
+
+    connect(m_sotaClient, &SotaClient::spotReceived,
+            this, [queueSpotCmd](const DxSpot& spot) {
+        queueSpotCmd(spot, "SOTA");
+    });
+
+    connect(m_wwffClient, &WwffClient::spotReceived,
+            this, [queueSpotCmd](const DxSpot& spot) {
+        queueSpotCmd(spot, "WWFF");
     });
 
 #ifdef HAVE_WEBSOCKETS
@@ -2195,6 +2209,8 @@ void MainWindow::closeEvent(QCloseEvent* event)
         delete m_wsjtxClient; m_wsjtxClient = nullptr;
         delete m_spotCollectorClient; m_spotCollectorClient = nullptr;
         delete m_potaClient;  m_potaClient = nullptr;
+        delete m_sotaClient;  m_sotaClient = nullptr;
+        delete m_wwffClient;  m_wwffClient = nullptr;
 #ifdef HAVE_WEBSOCKETS
         delete m_freedvClient; m_freedvClient = nullptr;
 #endif
@@ -2650,6 +2666,7 @@ void MainWindow::buildMenuBar()
         }
         auto* dlg = new DxClusterDialog(m_dxCluster, m_rbnClient, m_wsjtxClient,
                             m_spotCollectorClient, m_potaClient,
+                            m_sotaClient, m_wwffClient,
 #ifdef HAVE_WEBSOCKETS
                             m_freedvClient,
 #endif
@@ -2715,6 +2732,18 @@ void MainWindow::buildMenuBar()
         });
         connect(dlg, &DxClusterDialog::potaStopRequested,
                 this, [this] { QMetaObject::invokeMethod(m_potaClient, [=] { m_potaClient->stopPolling(); }); });
+        connect(dlg, &DxClusterDialog::sotaStartRequested,
+                this, [this](int interval) {
+            QMetaObject::invokeMethod(m_sotaClient, [=] { m_sotaClient->startPolling(interval); });
+        });
+        connect(dlg, &DxClusterDialog::sotaStopRequested,
+                this, [this] { QMetaObject::invokeMethod(m_sotaClient, [=] { m_sotaClient->stopPolling(); }); });
+        connect(dlg, &DxClusterDialog::wwffStartRequested,
+                this, [this](int interval) {
+            QMetaObject::invokeMethod(m_wwffClient, [=] { m_wwffClient->startPolling(interval); });
+        });
+        connect(dlg, &DxClusterDialog::wwffStopRequested,
+                this, [this] { QMetaObject::invokeMethod(m_wwffClient, [=] { m_wwffClient->stopPolling(); }); });
 #ifdef HAVE_WEBSOCKETS
         connect(dlg, &DxClusterDialog::freedvStartRequested,
                 this, [this] { QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->startConnection(); }); });
@@ -4334,6 +4363,18 @@ void MainWindow::onConnectionStateChanged(bool connected)
                 if (!m_potaClient->isPolling())
                     QMetaObject::invokeMethod(m_potaClient, [=] { m_potaClient->startPolling(pInterval); });
             }
+            // Auto-start SOTA polling if enabled
+            if (cs.value("SotaAutoStart", "False").toString() == "True") {
+                int sInterval = cs.value("SotaPollInterval", 30).toInt();
+                if (!m_sotaClient->isPolling())
+                    QMetaObject::invokeMethod(m_sotaClient, [=] { m_sotaClient->startPolling(sInterval); });
+            }
+            // Auto-start WWFF polling if enabled
+            if (cs.value("WwffAutoStart", "False").toString() == "True") {
+                int wInterval = cs.value("WwffPollInterval", 30).toInt();
+                if (!m_wwffClient->isPolling())
+                    QMetaObject::invokeMethod(m_wwffClient, [=] { m_wwffClient->startPolling(wInterval); });
+            }
 #ifdef HAVE_WEBSOCKETS
             // Auto-start FreeDV Reporter if enabled
             if (cs.value("FreeDvAutoStart", "False").toString() == "True") {
@@ -4364,6 +4405,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
         QMetaObject::invokeMethod(m_wsjtxClient, [=] { m_wsjtxClient->stopListening(); });
         QMetaObject::invokeMethod(m_spotCollectorClient, [=] { m_spotCollectorClient->stopListening(); });
         QMetaObject::invokeMethod(m_potaClient, [=] { m_potaClient->stopPolling(); });
+        QMetaObject::invokeMethod(m_sotaClient, [=] { m_sotaClient->stopPolling(); });
+        QMetaObject::invokeMethod(m_wwffClient, [=] { m_wwffClient->stopPolling(); });
 #ifdef HAVE_WEBSOCKETS
         QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->stopConnection(); });
 #endif

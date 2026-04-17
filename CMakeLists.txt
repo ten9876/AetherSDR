@@ -411,6 +411,8 @@ set(CORE_SOURCES
     src/core/WsjtxClient.cpp
     src/core/SpotCollectorClient.cpp
     src/core/PotaClient.cpp
+    src/core/SotaClient.cpp
+    src/core/WwffClient.cpp
     src/core/PropForecastClient.cpp
     src/core/RigctlServer.cpp
     src/core/TciServer.cpp

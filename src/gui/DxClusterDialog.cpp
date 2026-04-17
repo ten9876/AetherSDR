@@ -230,6 +230,8 @@ bool BandFilterProxy::filterAcceptsRow(int sourceRow, const QModelIndex& sourceP
 DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient* rbnClient,
                                    WsjtxClient* wsjtxClient, SpotCollectorClient* spotCollectorClient,
                                    PotaClient* potaClient,
+                                   SotaClient* sotaClient,
+                                   WwffClient* wwffClient,
 #ifdef HAVE_WEBSOCKETS
                                    FreeDvClient* freedvClient,
 #endif
@@ -239,6 +241,8 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
     : QDialog(parent), m_client(clusterClient), m_rbnClient(rbnClient),
       m_wsjtxClient(wsjtxClient), m_spotCollectorClient(spotCollectorClient),
       m_potaClient(potaClient),
+      m_sotaClient(sotaClient),
+      m_wwffClient(wwffClient),
 #ifdef HAVE_WEBSOCKETS
       m_freedvClient(freedvClient),
 #endif
@@ -264,6 +268,8 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
     buildWsjtxTab(tabs);
     buildSpotCollectorTab(tabs);
     buildPotaTab(tabs);
+    buildSotaTab(tabs);
+    buildWwffTab(tabs);
 #ifdef HAVE_WEBSOCKETS
     buildFreeDvTab(tabs);
 #endif
@@ -326,13 +332,17 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
     auto rbnLogPath = rbnClient->logFilePath();
     auto wsjtxLogPath = wsjtxClient->logFilePath();
     auto potaLogPath = potaClient->logFilePath();
+    auto sotaLogPath = sotaClient->logFilePath();
+    auto wwffLogPath = wwffClient->logFilePath();
     QString freedvLogPath;
 #ifdef HAVE_WEBSOCKETS
     freedvLogPath = freedvClient->logFilePath();
 #endif
     QTimer::singleShot(0, this, [this, clusterLogPath, rbnLogPath,
-                                  wsjtxLogPath, potaLogPath, freedvLogPath]() {
-        loadLogFiles(clusterLogPath, rbnLogPath, wsjtxLogPath, potaLogPath, freedvLogPath);
+                                  wsjtxLogPath, potaLogPath, sotaLogPath,
+                                  wwffLogPath, freedvLogPath]() {
+        loadLogFiles(clusterLogPath, rbnLogPath, wsjtxLogPath, potaLogPath,
+                     sotaLogPath, wwffLogPath, freedvLogPath);
     });
 
     // ── Live updates from RBN client ──────────────────────────────────
@@ -511,6 +521,78 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
 
     // POTA log loaded in deferred loadLogFiles() (#748)
 
+    // ── Live updates from SOTA client ─────────────────────────────────
+    connect(sotaClient, &SotaClient::rawLineReceived, this, [this, isAtBottom](const QString& line) {
+        bool follow = isAtBottom(m_sotaConsole);
+        m_sotaConsole->appendPlainText(line);
+        if (follow) {
+            auto* sb = m_sotaConsole->verticalScrollBar();
+            sb->setValue(sb->maximum());
+        }
+    });
+
+    connect(sotaClient, &SotaClient::spotReceived, this, [this](DxSpot spot) {
+        spot.source = "SOTA";
+        m_spotBatch.append(spot);
+    });
+
+    connect(sotaClient, &SotaClient::started, this, [this] {
+        m_sotaStatusLabel->setText("Polling...");
+        m_sotaStatusLabel->setStyleSheet("QLabel { color: #00b4d8; font-size: 11px; }");
+        m_sotaStartBtn->setText("Stop");
+        m_sotaConsole->appendPlainText("--- Polling started ---");
+    });
+    connect(sotaClient, &SotaClient::stopped, this, [this] {
+        m_sotaStatusLabel->setText("Stopped");
+        m_sotaStatusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+        m_sotaStartBtn->setText("Start");
+        m_sotaConsole->appendPlainText("--- Stopped ---");
+    });
+    connect(sotaClient, &SotaClient::pollError, this, [this](const QString& err) {
+        m_sotaConsole->appendPlainText("--- Error: " + err + " ---");
+    });
+    connect(sotaClient, &SotaClient::pollComplete, this, [this](int total, int newCount) {
+        m_sotaStatusLabel->setText(QString("Polling... (%1 active, %2 new)").arg(total).arg(newCount));
+    });
+
+    // SOTA log loaded in deferred loadLogFiles() (#748)
+
+    // ── Live updates from WWFF client ─────────────────────────────────
+    connect(wwffClient, &WwffClient::rawLineReceived, this, [this, isAtBottom](const QString& line) {
+        bool follow = isAtBottom(m_wwffConsole);
+        m_wwffConsole->appendPlainText(line);
+        if (follow) {
+            auto* sb = m_wwffConsole->verticalScrollBar();
+            sb->setValue(sb->maximum());
+        }
+    });
+
+    connect(wwffClient, &WwffClient::spotReceived, this, [this](DxSpot spot) {
+        spot.source = "WWFF";
+        m_spotBatch.append(spot);
+    });
+
+    connect(wwffClient, &WwffClient::started, this, [this] {
+        m_wwffStatusLabel->setText("Polling...");
+        m_wwffStatusLabel->setStyleSheet("QLabel { color: #00b4d8; font-size: 11px; }");
+        m_wwffStartBtn->setText("Stop");
+        m_wwffConsole->appendPlainText("--- Polling started ---");
+    });
+    connect(wwffClient, &WwffClient::stopped, this, [this] {
+        m_wwffStatusLabel->setText("Stopped");
+        m_wwffStatusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+        m_wwffStartBtn->setText("Start");
+        m_wwffConsole->appendPlainText("--- Stopped ---");
+    });
+    connect(wwffClient, &WwffClient::pollError, this, [this](const QString& err) {
+        m_wwffConsole->appendPlainText("--- Error: " + err + " ---");
+    });
+    connect(wwffClient, &WwffClient::pollComplete, this, [this](int total, int newCount) {
+        m_wwffStatusLabel->setText(QString("Polling... (%1 active, %2 new)").arg(total).arg(newCount));
+    });
+
+    // WWFF log loaded in deferred loadLogFiles() (#748)
+
 #ifdef HAVE_WEBSOCKETS
     // ── Live updates from FreeDV client ───────────────────────────────
     connect(freedvClient, &FreeDvClient::rawLineReceived, this, [this, isAtBottom](const QString& line) {
@@ -565,6 +647,7 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
 
 void DxClusterDialog::loadLogFiles(const QString& clusterLog, const QString& rbnLog,
                                     const QString& wsjtxLog, const QString& potaLog,
+                                    const QString& sotaLog, const QString& wwffLog,
                                     const QString& freedvLog)
 {
     static const QRegularExpression rx(
@@ -614,6 +697,14 @@ void DxClusterDialog::loadLogFiles(const QString& clusterLog, const QString& rbn
 
     // POTA log — display only
     loadConsole(m_potaConsole, tailFile(potaLog));
+
+    // SOTA log — display only
+    if (!sotaLog.isEmpty())
+        loadConsole(m_sotaConsole, tailFile(sotaLog));
+
+    // WWFF log — display only
+    if (!wwffLog.isEmpty())
+        loadConsole(m_wwffConsole, tailFile(wwffLog));
 
     // FreeDV log — display only
 #ifdef HAVE_WEBSOCKETS
@@ -1476,6 +1567,274 @@ void DxClusterDialog::buildPotaTab(QTabWidget* tabs)
     layout->addWidget(m_potaConsole, 1);
 
     tabs->addTab(page, "POTA");
+}
+
+void DxClusterDialog::buildSotaTab(QTabWidget* tabs)
+{
+    auto* page = new QWidget;
+    auto* layout = new QVBoxLayout(page);
+    layout->setSpacing(8);
+
+    auto& s = AppSettings::instance();
+
+    // ── Settings ────────────────────────────────────────────────────────
+    auto* connGroup = new QGroupBox("SOTA Spot Feed");
+    auto* connLayout = new QVBoxLayout(connGroup);
+    connLayout->setSpacing(4);
+
+    auto* grid = new QGridLayout;
+    grid->setColumnStretch(1, 1);
+    int row = 0;
+
+    grid->addWidget(new QLabel("Server:"), row, 0);
+    auto* serverLabel = new QLabel("api2.sota.org.uk (HTTP polling)");
+    serverLabel->setStyleSheet("QLabel { color: #808890; }");
+    grid->addWidget(serverLabel, row, 1);
+    row++;
+
+    grid->addWidget(new QLabel("Poll Interval:"), row, 0);
+    m_sotaIntervalSpin = new QSpinBox;
+    m_sotaIntervalSpin->setRange(15, 300);
+    m_sotaIntervalSpin->setValue(s.value("SotaPollInterval", 30).toInt());
+    m_sotaIntervalSpin->setSuffix(" sec");
+    m_sotaIntervalSpin->setStyleSheet("QSpinBox { background: #1a1a2e; color: #c8d8e8; border: 1px solid #203040; padding: 3px; }");
+    connect(m_sotaIntervalSpin, &QSpinBox::valueChanged, this, [](int v) {
+        auto& s = AppSettings::instance();
+        s.setValue("SotaPollInterval", v);
+        s.save();
+    });
+    grid->addWidget(m_sotaIntervalSpin, row, 1);
+    row++;
+
+    connLayout->addLayout(grid);
+
+    // Button row
+    auto* btnRow = new QHBoxLayout;
+    m_sotaAutoStartBtn = new QPushButton(
+        s.value("SotaAutoStart", "False").toString() == "True" ? "Auto-Start: ON" : "Auto-Start: OFF");
+    m_sotaAutoStartBtn->setCheckable(true);
+    m_sotaAutoStartBtn->setChecked(s.value("SotaAutoStart", "False").toString() == "True");
+    m_sotaAutoStartBtn->setStyleSheet(
+        "QPushButton { background: #206030; color: white; border: 1px solid #305040; padding: 4px 10px; }"
+        "QPushButton:!checked { background: #603020; }");
+    connect(m_sotaAutoStartBtn, &QPushButton::toggled, this, [this](bool on) {
+        m_sotaAutoStartBtn->setText(on ? "Auto-Start: ON" : "Auto-Start: OFF");
+        auto& s = AppSettings::instance();
+        s.setValue("SotaAutoStart", on ? "True" : "False");
+        s.save();
+    });
+    btnRow->addWidget(m_sotaAutoStartBtn);
+    btnRow->addStretch();
+
+    m_sotaStatusLabel = new QLabel("Stopped");
+    m_sotaStatusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+    btnRow->addWidget(m_sotaStatusLabel);
+    btnRow->addStretch();
+
+    m_sotaStartBtn = new QPushButton(m_sotaClient->isPolling() ? "Stop" : "Start");
+    m_sotaStartBtn->setFixedWidth(100);
+    m_sotaStartBtn->setStyleSheet(
+        "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+        "border: 1px solid #008ba8; padding: 4px; border-radius: 3px; }"
+        "QPushButton:hover { background: #00c8f0; }"
+        "QPushButton:disabled { background: #404060; color: #808080; }");
+    connect(m_sotaStartBtn, &QPushButton::clicked, this, [this] {
+        if (m_sotaClient->isPolling()) {
+            emit sotaStopRequested();
+            return;
+        }
+        int interval = m_sotaIntervalSpin->value();
+        auto& s = AppSettings::instance();
+        s.setValue("SotaPollInterval", interval);
+        s.save();
+        emit sotaStartRequested(interval);
+    });
+    btnRow->addWidget(m_sotaStartBtn);
+    connLayout->addLayout(btnRow);
+
+    layout->addWidget(connGroup);
+
+    // ── Console output ──────────────────────────────────────────────────
+    auto* consoleRow = new QHBoxLayout;
+    auto* consoleLabel = new QLabel("SOTA Activations");
+    consoleLabel->setStyleSheet("QLabel { color: #00b4d8; font-weight: bold; }");
+    consoleRow->addWidget(consoleLabel);
+    consoleRow->addStretch();
+
+    auto* spotColorLabel = new QLabel("Spot Color:");
+    spotColorLabel->setStyleSheet("QLabel { color: #808080; font-size: 12px; }");
+    consoleRow->addWidget(spotColorLabel);
+
+    QColor sotaColor(s.value("SotaSpotColor", "#FF8C00").toString());
+    auto* sotaColorBtn = new QPushButton;
+    sotaColorBtn->setFixedSize(18, 18);
+    sotaColorBtn->setStyleSheet(QString(
+        "QPushButton { background: %1; border: 2px solid #405060; border-radius: 3px; }"
+        "QPushButton:hover { border-color: #c8d8e8; }").arg(sotaColor.name()));
+    connect(sotaColorBtn, &QPushButton::clicked, this, [this, sotaColorBtn] {
+        QColor c = QColorDialog::getColor(
+            QColor(AppSettings::instance().value("SotaSpotColor", "#FF8C00").toString()),
+            this, "SOTA Spot Color");
+        if (c.isValid()) {
+            sotaColorBtn->setStyleSheet(QString(
+                "QPushButton { background: %1; border: 2px solid #405060; border-radius: 3px; }"
+                "QPushButton:hover { border-color: #c8d8e8; }").arg(c.name()));
+            AppSettings::instance().setValue("SotaSpotColor", c.name());
+            AppSettings::instance().save();
+        }
+    });
+    consoleRow->addWidget(sotaColorBtn);
+    layout->addLayout(consoleRow);
+
+    m_sotaConsole = new QPlainTextEdit;
+    m_sotaConsole->setReadOnly(true);
+    m_sotaConsole->setMaximumBlockCount(2000);
+    m_sotaConsole->setStyleSheet(
+        "QPlainTextEdit {"
+        "  background: #0a0a14;"
+        "  color: #a0b0c0;"
+        "  font-family: monospace;"
+        "  font-size: 11px;"
+        "  border: 1px solid #203040;"
+        "  padding: 4px;"
+        "}");
+    layout->addWidget(m_sotaConsole, 1);
+
+    tabs->addTab(page, "SOTA");
+}
+
+void DxClusterDialog::buildWwffTab(QTabWidget* tabs)
+{
+    auto* page = new QWidget;
+    auto* layout = new QVBoxLayout(page);
+    layout->setSpacing(8);
+
+    auto& s = AppSettings::instance();
+
+    // ── Settings ────────────────────────────────────────────────────────
+    auto* connGroup = new QGroupBox("WWFF Spot Feed");
+    auto* connLayout = new QVBoxLayout(connGroup);
+    connLayout->setSpacing(4);
+
+    auto* grid = new QGridLayout;
+    grid->setColumnStretch(1, 1);
+    int row = 0;
+
+    grid->addWidget(new QLabel("Server:"), row, 0);
+    auto* serverLabel = new QLabel("cqgma.org (HTTP polling)");
+    serverLabel->setStyleSheet("QLabel { color: #808890; }");
+    grid->addWidget(serverLabel, row, 1);
+    row++;
+
+    grid->addWidget(new QLabel("Poll Interval:"), row, 0);
+    m_wwffIntervalSpin = new QSpinBox;
+    m_wwffIntervalSpin->setRange(15, 300);
+    m_wwffIntervalSpin->setValue(s.value("WwffPollInterval", 30).toInt());
+    m_wwffIntervalSpin->setSuffix(" sec");
+    m_wwffIntervalSpin->setStyleSheet("QSpinBox { background: #1a1a2e; color: #c8d8e8; border: 1px solid #203040; padding: 3px; }");
+    connect(m_wwffIntervalSpin, &QSpinBox::valueChanged, this, [](int v) {
+        auto& s = AppSettings::instance();
+        s.setValue("WwffPollInterval", v);
+        s.save();
+    });
+    grid->addWidget(m_wwffIntervalSpin, row, 1);
+    row++;
+
+    connLayout->addLayout(grid);
+
+    // Button row
+    auto* btnRow = new QHBoxLayout;
+    m_wwffAutoStartBtn = new QPushButton(
+        s.value("WwffAutoStart", "False").toString() == "True" ? "Auto-Start: ON" : "Auto-Start: OFF");
+    m_wwffAutoStartBtn->setCheckable(true);
+    m_wwffAutoStartBtn->setChecked(s.value("WwffAutoStart", "False").toString() == "True");
+    m_wwffAutoStartBtn->setStyleSheet(
+        "QPushButton { background: #206030; color: white; border: 1px solid #305040; padding: 4px 10px; }"
+        "QPushButton:!checked { background: #603020; }");
+    connect(m_wwffAutoStartBtn, &QPushButton::toggled, this, [this](bool on) {
+        m_wwffAutoStartBtn->setText(on ? "Auto-Start: ON" : "Auto-Start: OFF");
+        auto& s = AppSettings::instance();
+        s.setValue("WwffAutoStart", on ? "True" : "False");
+        s.save();
+    });
+    btnRow->addWidget(m_wwffAutoStartBtn);
+    btnRow->addStretch();
+
+    m_wwffStatusLabel = new QLabel("Stopped");
+    m_wwffStatusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+    btnRow->addWidget(m_wwffStatusLabel);
+    btnRow->addStretch();
+
+    m_wwffStartBtn = new QPushButton(m_wwffClient->isPolling() ? "Stop" : "Start");
+    m_wwffStartBtn->setFixedWidth(100);
+    m_wwffStartBtn->setStyleSheet(
+        "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+        "border: 1px solid #008ba8; padding: 4px; border-radius: 3px; }"
+        "QPushButton:hover { background: #00c8f0; }"
+        "QPushButton:disabled { background: #404060; color: #808080; }");
+    connect(m_wwffStartBtn, &QPushButton::clicked, this, [this] {
+        if (m_wwffClient->isPolling()) {
+            emit wwffStopRequested();
+            return;
+        }
+        int interval = m_wwffIntervalSpin->value();
+        auto& s = AppSettings::instance();
+        s.setValue("WwffPollInterval", interval);
+        s.save();
+        emit wwffStartRequested(interval);
+    });
+    btnRow->addWidget(m_wwffStartBtn);
+    connLayout->addLayout(btnRow);
+
+    layout->addWidget(connGroup);
+
+    // ── Console output ──────────────────────────────────────────────────
+    auto* consoleRow = new QHBoxLayout;
+    auto* consoleLabel = new QLabel("WWFF Activations");
+    consoleLabel->setStyleSheet("QLabel { color: #00b4d8; font-weight: bold; }");
+    consoleRow->addWidget(consoleLabel);
+    consoleRow->addStretch();
+
+    auto* spotColorLabel = new QLabel("Spot Color:");
+    spotColorLabel->setStyleSheet("QLabel { color: #808080; font-size: 12px; }");
+    consoleRow->addWidget(spotColorLabel);
+
+    QColor wwffColor(s.value("WwffSpotColor", "#00FF7F").toString());
+    auto* wwffColorBtn = new QPushButton;
+    wwffColorBtn->setFixedSize(18, 18);
+    wwffColorBtn->setStyleSheet(QString(
+        "QPushButton { background: %1; border: 2px solid #405060; border-radius: 3px; }"
+        "QPushButton:hover { border-color: #c8d8e8; }").arg(wwffColor.name()));
+    connect(wwffColorBtn, &QPushButton::clicked, this, [this, wwffColorBtn] {
+        QColor c = QColorDialog::getColor(
+            QColor(AppSettings::instance().value("WwffSpotColor", "#00FF7F").toString()),
+            this, "WWFF Spot Color");
+        if (c.isValid()) {
+            wwffColorBtn->setStyleSheet(QString(
+                "QPushButton { background: %1; border: 2px solid #405060; border-radius: 3px; }"
+                "QPushButton:hover { border-color: #c8d8e8; }").arg(c.name()));
+            AppSettings::instance().setValue("WwffSpotColor", c.name());
+            AppSettings::instance().save();
+        }
+    });
+    consoleRow->addWidget(wwffColorBtn);
+    layout->addLayout(consoleRow);
+
+    m_wwffConsole = new QPlainTextEdit;
+    m_wwffConsole->setReadOnly(true);
+    m_wwffConsole->setMaximumBlockCount(2000);
+    m_wwffConsole->setStyleSheet(
+        "QPlainTextEdit {"
+        "  background: #0a0a14;"
+        "  color: #a0b0c0;"
+        "  font-family: monospace;"
+        "  font-size: 11px;"
+        "  border: 1px solid #203040;"
+        "  padding: 4px;"
+        "}");
+    layout->addWidget(m_wwffConsole, 1);
+
+    tabs->addTab(page, "WWFF");
 }
 
 #ifdef HAVE_WEBSOCKETS

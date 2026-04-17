@@ -10,6 +10,8 @@
 #include "core/WsjtxClient.h"
 #include "core/SpotCollectorClient.h"
 #include "core/PotaClient.h"
+#include "core/SotaClient.h"
+#include "core/WwffClient.h"
 #ifdef HAVE_WEBSOCKETS
 #include "core/FreeDvClient.h"
 #endif
@@ -83,6 +85,8 @@ public:
     explicit DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient* rbnClient,
                              WsjtxClient* wsjtxClient, SpotCollectorClient* spotCollectorClient,
                              PotaClient* potaClient,
+                             SotaClient* sotaClient,
+                             WwffClient* wwffClient,
 #ifdef HAVE_WEBSOCKETS
                              FreeDvClient* freedvClient,
 #endif
@@ -104,6 +108,10 @@ signals:
     void spotCollectorStopRequested();
     void potaStartRequested(int intervalSec);
     void potaStopRequested();
+    void sotaStartRequested(int intervalSec);
+    void sotaStopRequested();
+    void wwffStartRequested(int intervalSec);
+    void wwffStopRequested();
 #ifdef HAVE_WEBSOCKETS
     void freedvStartRequested();
     void freedvStopRequested();
@@ -119,6 +127,8 @@ private:
     void buildWsjtxTab(QTabWidget* tabs);
     void buildSpotCollectorTab(QTabWidget* tabs);
     void buildPotaTab(QTabWidget* tabs);
+    void buildSotaTab(QTabWidget* tabs);
+    void buildWwffTab(QTabWidget* tabs);
 #ifdef HAVE_WEBSOCKETS
     void buildFreeDvTab(QTabWidget* tabs);
 #endif
@@ -126,6 +136,7 @@ private:
     void buildDisplayTab(QTabWidget* tabs);
     void loadLogFiles(const QString& clusterLog, const QString& rbnLog,
                       const QString& wsjtxLog, const QString& potaLog,
+                      const QString& sotaLog = {}, const QString& wwffLog = {},
                       const QString& freedvLog = {});
 
     DxClusterClient*      m_client;
@@ -133,6 +144,8 @@ private:
     WsjtxClient*          m_wsjtxClient;
     SpotCollectorClient*  m_spotCollectorClient;
     PotaClient*           m_potaClient;
+    SotaClient*           m_sotaClient;
+    WwffClient*           m_wwffClient;
 #ifdef HAVE_WEBSOCKETS
     FreeDvClient*    m_freedvClient;
 #endif
@@ -184,6 +197,20 @@ private:
     QPushButton*    m_potaAutoStartBtn;
     QLabel*         m_potaStatusLabel;
     QPlainTextEdit* m_potaConsole;
+
+    // SOTA tab
+    QSpinBox*       m_sotaIntervalSpin;
+    QPushButton*    m_sotaStartBtn;
+    QPushButton*    m_sotaAutoStartBtn;
+    QLabel*         m_sotaStatusLabel;
+    QPlainTextEdit* m_sotaConsole;
+
+    // WWFF tab
+    QSpinBox*       m_wwffIntervalSpin;
+    QPushButton*    m_wwffStartBtn;
+    QPushButton*    m_wwffAutoStartBtn;
+    QLabel*         m_wwffStatusLabel;
+    QPlainTextEdit* m_wwffConsole;
 
 #ifdef HAVE_WEBSOCKETS
     // FreeDV tab
