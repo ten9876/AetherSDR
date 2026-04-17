@@ -407,17 +407,17 @@ void VfoWidget::buildUI()
 
     // Record button
     static const QString sliceBtnStyle =
-        "QPushButton { background: rgba(255,255,255,15); border: none; "
+        "QPushButton { background: rgba(255,255,255,30); border: none; "
         "border-radius: 10px; font-size: 11px; padding: 0; }"
-        "QPushButton:hover { background: rgba(255,255,255,40); }";
+        "QPushButton:hover { background: rgba(255,255,255,60); }";
 
     m_recordBtn = new QPushButton(QString::fromUtf8("\xe2\x8f\xba"), btnParent);  // ⏺
     m_recordBtn->setFixedSize(20, 20);
     m_recordBtn->setCheckable(true);
     m_recordBtn->setToolTip("Record slice audio");
     m_recordBtn->setStyleSheet(sliceBtnStyle +
-        "QPushButton { color: #804040; }"
-        "QPushButton:checked { color: #ff2020; background: rgba(255,50,50,60); }");
+        "QPushButton { color: #c06060; }"
+        "QPushButton:checked { color: #ff2020; background: rgba(255,50,50,110); }");
     m_recordBtn->show();
     connect(m_recordBtn, &QPushButton::clicked, this, [this](bool checked) {
         emit recordToggled(checked);
@@ -431,11 +431,11 @@ void VfoWidget::buildUI()
         static bool dim = false;
         dim = !dim;
         m_recordBtn->setStyleSheet(
-            "QPushButton { background: rgba(255,255,255,15); border: none; "
+            "QPushButton { background: rgba(255,255,255,30); border: none; "
             "border-radius: 10px; font-size: 11px; padding: 0; "
-            "color: " + QString(dim ? "#601010" : "#ff2020") + "; "
-            "background: rgba(255,50,50," + QString(dim ? "20" : "60") + "); }"
-            "QPushButton:hover { background: rgba(255,255,255,40); }");
+            "color: " + QString(dim ? "#a03030" : "#ff3030") + "; "
+            "background: rgba(255,50,50," + QString(dim ? "50" : "120") + "); }"
+            "QPushButton:hover { background: rgba(255,255,255,60); }");
     });
 
     // Play button
@@ -445,9 +445,9 @@ void VfoWidget::buildUI()
     m_playBtn->setEnabled(false);
     m_playBtn->setToolTip("Play recorded audio");
     m_playBtn->setStyleSheet(sliceBtnStyle +
-        "QPushButton { color: #406040; }"
-        "QPushButton:checked { color: #30d050; background: rgba(50,200,80,60); }"
-        "QPushButton:disabled { color: #303030; background: rgba(255,255,255,5); }");
+        "QPushButton { color: #60a070; }"
+        "QPushButton:checked { color: #30d050; background: rgba(50,200,80,110); }"
+        "QPushButton:disabled { color: #484848; background: rgba(255,255,255,15); }");
     m_playBtn->show();
     connect(m_playBtn, &QPushButton::clicked, this, [this](bool checked) {
         emit playToggled(checked);
@@ -2628,10 +2628,10 @@ void VfoWidget::setRecordOn(bool on)
         // Restore normal checked style
         if (m_recordBtn)
             m_recordBtn->setStyleSheet(
-                "QPushButton { background: rgba(255,255,255,15); border: none; "
-                "border-radius: 10px; font-size: 11px; padding: 0; color: #804040; }"
-                "QPushButton:checked { color: #ff2020; background: rgba(255,50,50,60); }"
-                "QPushButton:hover { background: rgba(255,255,255,40); }");
+                "QPushButton { background: rgba(255,255,255,30); border: none; "
+                "border-radius: 10px; font-size: 11px; padding: 0; color: #c06060; }"
+                "QPushButton:checked { color: #ff2020; background: rgba(255,50,50,110); }"
+                "QPushButton:hover { background: rgba(255,255,255,60); }");
     }
 }
 
