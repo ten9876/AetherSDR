@@ -438,6 +438,7 @@ set(CORE_SOURCES
     src/core/AdifParser.cpp
     src/core/DxccWorkedStatus.cpp
     src/core/DxccColorProvider.cpp
+    src/core/GraylineCalculator.cpp
     src/core/SleepInhibitor.cpp
     src/core/MemoryCsvCompat.cpp
 )

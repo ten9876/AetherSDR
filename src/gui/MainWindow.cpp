@@ -963,6 +963,11 @@ MainWindow::MainWindow(QWidget* parent)
                 sw->setBackgroundImage(bgPath);
             int bgOpacity = s.value(sw->settingsKey("BackgroundOpacity"), "80").toInt();
             sw->setBackgroundOpacity(bgOpacity);
+            // World map background + grayline (#1566)
+            int mapStyleVal = std::clamp(s.value(sw->settingsKey("MapStyle"), "0").toInt(), 0, 2);
+            sw->setMapStyle(mapStyleVal);
+            bool graylineOn = s.value(sw->settingsKey("GraylineOverlay"), "False").toString() == "True";
+            sw->setGraylineEnabled(graylineOn);
             // Nudge rate to force waterfall tile re-sync
             QTimer::singleShot(500, this, [this, rate]() {
                 m_radioModel.setWaterfallLineDuration(rate + 1);
@@ -5525,6 +5530,21 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         s.setValue(sw->settingsKey("BackgroundOpacity"), QString::number(pct));
         s.save();
     });
+    // World map background + grayline (#1566)
+    connect(menu, &SpectrumOverlayMenu::mapStyleChanged,
+            this, [sw](int style) {
+        sw->setMapStyle(style);
+        auto& s = AppSettings::instance();
+        s.setValue(sw->settingsKey("MapStyle"), QString::number(style));
+        s.save();
+    });
+    connect(menu, &SpectrumOverlayMenu::graylineEnabledChanged,
+            this, [sw](bool on) {
+        sw->setGraylineEnabled(on);
+        auto& s = AppSettings::instance();
+        s.setValue(sw->settingsKey("GraylineOverlay"), on ? "True" : "False");
+        s.save();
+    });
     connect(menu, &SpectrumOverlayMenu::displaySettingsReset,
             this, [this, applet, sw, menu] {
         // Apply all SpectrumWidget defaults
@@ -5545,6 +5565,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setShowCursorFreq(false);
         sw->setBackgroundImage(":/bg-default.jpg");
         sw->setBackgroundOpacity(80);
+        sw->setMapStyle(0);          // None (#1566)
+        sw->setGraylineEnabled(false);  // (#1566)
         sw->setNoiseFloorEnable(false);
         sw->setNoiseFloorPosition(75);
         sw->setFreqGridSpacing(0);  // Auto (#1390)
@@ -5585,13 +5607,15 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         s.setValue(sw->settingsKey("CursorFreqLabel"),            "False");
         s.setValue(sw->settingsKey("BackgroundImage"),            ":/bg-default.jpg");
         s.setValue(sw->settingsKey("BackgroundOpacity"),          "80");
+        s.setValue(sw->settingsKey("MapStyle"),                   "0");
+        s.setValue(sw->settingsKey("GraylineOverlay"),            "False");
         s.setValue(sw->settingsKey("DisplayFreqGridSpacing"),     "0");
         s.save();
 
         // Sync all Display panel UI controls
         menu->syncDisplaySettings(0, 25, 70, false, QColor(0x00, 0xe5, 0xff),
                                   50, 15, true, 100, 75, false, true, 0);
-        menu->syncExtraDisplaySettings(false, 1.15f, 80, 0);
+        menu->syncExtraDisplaySettings(false, 1.15f, 80, 0, 0, false);
     });
 
     // ── Click-to-tune ────────────────────────────────────────────────────

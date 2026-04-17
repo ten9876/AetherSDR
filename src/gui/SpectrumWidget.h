@@ -9,6 +9,8 @@
 #include <QDateTime>
 #include <QTimer>
 
+#include "core/GraylineCalculator.h"
+
 class QVariantAnimation;
 
 #ifdef AETHER_GPU_SPECTRUM
@@ -186,6 +188,12 @@ public:
     QString backgroundImagePath() const { return m_bgImagePath; }
     void setBackgroundOpacity(int pct) { m_bgOpacity = qBound(0, pct, 100); markOverlayDirty(); }
     int backgroundOpacity() const { return m_bgOpacity; }
+
+    // World map background style and grayline overlay (#1566)
+    void setMapStyle(int style);
+    int mapStyle() const { return static_cast<int>(m_mapStyle); }
+    void setGraylineEnabled(bool on);
+    bool graylineEnabled() const { return m_graylineEnabled; }
     bool showBandPlan() const { return m_bandPlanFontSize > 0; }
     int  bandPlanFontSize() const { return m_bandPlanFontSize; }
 
@@ -546,6 +554,14 @@ private:
     QString m_bgImagePath;
     QSize   m_bgScaledSize;
     int     m_bgOpacity{80};  // 0=full image, 100=solid dark (default 80%)
+
+    // World map background + grayline overlay (#1566)
+    GraylineCalculator::MapStyle m_mapStyle{GraylineCalculator::MapStyle::None};
+    bool    m_graylineEnabled{false};
+    QImage  m_mapImage;         // cached rendered map at current specRect size
+    QImage  m_graylineImage;    // cached grayline overlay at current specRect size
+    QSize   m_mapCachedSize;    // size the map was rendered at
+    QTimer* m_graylineTimer{nullptr};  // 60-second auto-refresh
 
     // Cursor frequency label
     bool   m_showCursorFreq{false};

@@ -1127,6 +1127,39 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         ++row;
     }
 
+    // ── World map background style + grayline (#1566) ─────────────────────
+    {
+        auto* lbl = new QLabel("Map:");
+        lbl->setStyleSheet(labelStyle);
+        grid->addWidget(lbl, row, 0);
+        m_mapStyleCmb = new QComboBox;
+        m_mapStyleCmb->setFixedHeight(18);
+        m_mapStyleCmb->setStyleSheet(comboStyleSheet());
+        m_mapStyleCmb->addItem("None", 0);
+        m_mapStyleCmb->addItem("Light", 1);
+        m_mapStyleCmb->addItem("Dark", 2);
+        m_mapStyleCmb->setToolTip("World map background style.\n"
+                                   "Replaces the custom background image when set.");
+        grid->addWidget(m_mapStyleCmb, row, 1, 1, 2);
+
+        m_graylineBtn = new QPushButton("Grayline");
+        m_graylineBtn->setCheckable(true);
+        m_graylineBtn->setFixedHeight(18);
+        m_graylineBtn->setStyleSheet(btnStyle);
+        m_graylineBtn->setToolTip("Show day/night grayline overlay.\n"
+                                   "Auto-refreshes every 60 seconds based on UTC time.");
+        grid->addWidget(m_graylineBtn, row, 3);
+        ++row;
+
+        connect(m_mapStyleCmb, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int idx) {
+            emit mapStyleChanged(m_mapStyleCmb->itemData(idx).toInt());
+        });
+        connect(m_graylineBtn, &QPushButton::toggled, this, [this](bool on) {
+            emit graylineEnabledChanged(on);
+        });
+    }
+
     // ── Toggle button row ─────────────────────────────────────────────────
     {
         auto* toggleRow = new QWidget;
@@ -1293,7 +1326,8 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
 
 void SpectrumOverlayMenu::syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
                                                     int bgOpacity,
-                                                    int freqGridSpacingKhz)
+                                                    int freqGridSpacingKhz,
+                                                    int mapStyle, bool graylineOn)
 {
     if (m_freqGridSpacingCmb) {
         QSignalBlocker b(m_freqGridSpacingCmb);
@@ -1318,6 +1352,15 @@ void SpectrumOverlayMenu::syncExtraDisplaySettings(bool blankerOn, float blanker
         m_bgOpacitySlider->setValue(bgOpacity);
         if (m_bgOpacityLabel)
             m_bgOpacityLabel->setText(QString::number(bgOpacity));
+    }
+    if (m_mapStyleCmb) {
+        QSignalBlocker b(m_mapStyleCmb);
+        int idx = m_mapStyleCmb->findData(mapStyle);
+        if (idx >= 0) m_mapStyleCmb->setCurrentIndex(idx);
+    }
+    if (m_graylineBtn) {
+        QSignalBlocker b(m_graylineBtn);
+        m_graylineBtn->setChecked(graylineOn);
     }
 }
 

@@ -266,6 +266,12 @@ void SpectrumWidget::loadSettings()
         setBackgroundImage(bgPath);
     m_bgOpacity = s.value(settingsKey("BackgroundOpacity"), "80").toInt();
 
+    // World map background + grayline (#1566)
+    int mapStyleVal = std::clamp(s.value(settingsKey("MapStyle"), "0").toInt(), 0, 2);
+    setMapStyle(mapStyleVal);
+    bool graylineOn = s.value(settingsKey("GraylineOverlay"), "False").toString() == "True";
+    setGraylineEnabled(graylineOn);
+
     // Sync overlay menu sliders with restored settings
     if (m_overlayMenu) {
         m_overlayMenu->syncDisplaySettings(m_fftAverage, m_fftFps,
@@ -274,7 +280,8 @@ void SpectrumWidget::loadSettings()
             75, false, m_fftHeatMap, static_cast<int>(m_wfColorScheme), m_showGrid,
             m_fftLineWidth);
         m_overlayMenu->syncExtraDisplaySettings(m_wfBlankerEnabled,
-            m_wfBlankerThreshold, m_bgOpacity, m_freqGridSpacingKhz);
+            m_wfBlankerThreshold, m_bgOpacity, m_freqGridSpacingKhz,
+            mapStyleVal, graylineOn);
     }
 }
 
@@ -2186,6 +2193,40 @@ void SpectrumWidget::setBackgroundImage(const QString& path)
     markOverlayDirty();
 }
 
+void SpectrumWidget::setMapStyle(int style)
+{
+    auto s = static_cast<GraylineCalculator::MapStyle>(
+        std::clamp(style, 0, 2));
+    if (m_mapStyle == s) return;
+    m_mapStyle = s;
+    m_mapImage = {};        // invalidate cached map
+    m_mapCachedSize = {};
+    m_graylineImage = {};   // grayline overlay also needs re-render at new size
+    markOverlayDirty();
+}
+
+void SpectrumWidget::setGraylineEnabled(bool on)
+{
+    if (m_graylineEnabled == on) return;
+    m_graylineEnabled = on;
+    m_graylineImage = {};
+
+    if (on && !m_graylineTimer) {
+        m_graylineTimer = new QTimer(this);
+        m_graylineTimer->setInterval(60000);  // 60 seconds
+        connect(m_graylineTimer, &QTimer::timeout, this, [this]() {
+            m_graylineImage = {};  // invalidate to re-render on next paint
+            markOverlayDirty();
+        });
+    }
+    if (on && m_graylineTimer) {
+        m_graylineTimer->start();
+    } else if (!on && m_graylineTimer) {
+        m_graylineTimer->stop();
+    }
+    markOverlayDirty();
+}
+
 bool SpectrumWidget::event(QEvent* ev)
 {
     // Re-assert mouse tracking after native window changes (reparenting into
@@ -2834,8 +2875,27 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             QPainter p(&m_overlayStatic);
             p.setRenderHint(QPainter::Antialiasing, false);
 
-            // Background image
-            if (!m_bgImage.isNull()) {
+            // Background image (custom or map)
+            if (m_mapStyle != GraylineCalculator::MapStyle::None) {
+                // World map background (#1566)
+                if (m_mapCachedSize != specRect.size()) {
+                    m_mapImage = GraylineCalculator::renderMapBackground(m_mapStyle, specRect.size());
+                    m_mapCachedSize = specRect.size();
+                    m_graylineImage = {};  // invalidate grayline at new size
+                }
+                if (!m_mapImage.isNull()) {
+                    p.setOpacity(1.0 - m_bgOpacity / 100.0);
+                    p.drawImage(specRect.topLeft(), m_mapImage);
+                    // Grayline overlay
+                    if (m_graylineEnabled) {
+                        if (m_graylineImage.isNull()) {
+                            m_graylineImage = GraylineCalculator::renderGraylineOverlay(specRect.size());
+                        }
+                        p.drawImage(specRect.topLeft(), m_graylineImage);
+                    }
+                    p.setOpacity(1.0);
+                }
+            } else if (!m_bgImage.isNull()) {
                 if (m_bgScaledSize != specRect.size()) {
                     // Scale to cover (keep aspect ratio, expand to fill) then center crop
                     QImage expanded = m_bgImage.scaled(specRect.size(),
@@ -3354,7 +3414,27 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
 
     {
         // Software fallback: full QPainter rendering
-        if (m_bgImage.isNull()) {
+        if (m_mapStyle != GraylineCalculator::MapStyle::None) {
+            // World map background (#1566)
+            if (m_mapCachedSize != specRect.size()) {
+                m_mapImage = GraylineCalculator::renderMapBackground(m_mapStyle, specRect.size());
+                m_mapCachedSize = specRect.size();
+                m_graylineImage = {};
+            }
+            if (!m_mapImage.isNull()) {
+                p.drawImage(specRect.topLeft(), m_mapImage);
+                if (m_graylineEnabled) {
+                    if (m_graylineImage.isNull()) {
+                        m_graylineImage = GraylineCalculator::renderGraylineOverlay(specRect.size());
+                    }
+                    p.drawImage(specRect.topLeft(), m_graylineImage);
+                }
+                int alpha = m_bgOpacity * 255 / 100;
+                p.fillRect(specRect, QColor(0x0a, 0x0a, 0x14, alpha));
+            } else {
+                p.fillRect(specRect, QColor(0x0a, 0x0a, 0x14));
+            }
+        } else if (m_bgImage.isNull()) {
             p.fillRect(specRect, QColor(0x0a, 0x0a, 0x14));
         } else {
             // Cache scaled image to avoid per-frame scaling

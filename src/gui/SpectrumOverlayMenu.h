@@ -43,7 +43,8 @@ public:
     // Sync blanker/cursor/opacity controls not covered by syncDisplaySettings.
     void syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
                                   int bgOpacity,
-                                  int freqGridSpacingKhz = 0);
+                                  int freqGridSpacingKhz = 0,
+                                  int mapStyle = 0, bool graylineOn = false);
 
     // Set the panadapter ID this overlay belongs to (for +RX routing).
     void setPanId(const QString& id) { m_panId = id; }
@@ -119,6 +120,9 @@ signals:
     void backgroundImageRequested();
     void backgroundImageCleared();
     void backgroundOpacityChanged(int pct);
+    // World map background + grayline (#1566)
+    void mapStyleChanged(int style);
+    void graylineEnabledChanged(bool on);
     void displaySettingsReset();
 
 private:
@@ -212,6 +216,8 @@ private:
     QComboBox*   m_freqGridSpacingCmb{nullptr};
     QSlider*     m_bgOpacitySlider{nullptr};
     QLabel*      m_bgOpacityLabel{nullptr};
+    QComboBox*   m_mapStyleCmb{nullptr};       // (#1566)
+    QPushButton* m_graylineBtn{nullptr};       // (#1566)
 
     QStringList  m_antList;
     QPointer<SliceModel> m_slice;
