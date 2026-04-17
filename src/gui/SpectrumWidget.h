@@ -24,6 +24,14 @@ namespace AetherSDR {
 class SpectrumOverlayMenu;
 class VfoWidget;
 
+// Corner position for the K/SFI/WNB indicator overlay (#1562).
+enum class IndicatorCorner : int {
+    TopRight = 0,
+    TopLeft,
+    BottomRight,
+    BottomLeft
+};
+
 // Waterfall color scheme presets.
 enum class WfColorScheme : int {
     Default = 0,   // black → dark blue → blue → cyan → green → yellow → red
@@ -199,6 +207,7 @@ public:
     void setFftHeatMap(bool on);
     void setShowGrid(bool on);
     void setFreqGridSpacing(int khz);
+    void setIndicatorCorner(IndicatorCorner corner);
     void setFftLineWidth(float w);
     float fftFillAlpha() const         { return m_fftFillAlpha; }
     QColor fftFillColor() const        { return m_fftFillColor; }
@@ -529,6 +538,8 @@ private:
     bool m_wnbActive{false};
     int  m_rfGainValue{0};
     bool m_wideActive{false};
+    IndicatorCorner m_indicatorCorner{IndicatorCorner::TopRight};  // (#1562)
+    QRect m_indicatorRect;  // bounding rect for right-click menu (#1562)
 
     // HF propagation forecast overlay
     bool m_propForecastVisible{false};

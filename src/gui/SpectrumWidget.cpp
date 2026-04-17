@@ -259,6 +259,8 @@ void SpectrumWidget::loadSettings()
                    0, static_cast<int>(WfColorScheme::Count) - 1));
     m_singleClickTune = s.value("SingleClickTune", "False").toString() == "True";
     m_showTuneGuides  = s.value("ShowTuneGuides", "False").toString() == "True";
+    m_indicatorCorner = static_cast<IndicatorCorner>(
+        std::clamp(s.value(settingsKey("IndicatorCorner"), "0").toInt(), 0, 3));
 
     // Background image — default to bundled logo, "none" = explicitly cleared
     QString bgPath = s.value(settingsKey("BackgroundImage"), ":/bg-default.jpg").toString();
@@ -346,6 +348,14 @@ void SpectrumWidget::setShowGrid(bool on) {
     auto& s = AppSettings::instance();
     s.setValue(settingsKey("DisplayShowGrid"), on ? "True" : "False");
     s.save();
+    markOverlayDirty();
+}
+void SpectrumWidget::setIndicatorCorner(IndicatorCorner corner) {
+    m_indicatorCorner = corner;
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("IndicatorCorner"), QString::number(static_cast<int>(corner)));
+    s.save();
+    m_indicatorRect = QRect();  // reset — will be recomputed on next paint
     markOverlayDirty();
 }
 void SpectrumWidget::setFreqGridSpacing(int khz) {
@@ -1421,6 +1431,31 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
     if (ev->button() == Qt::RightButton) {
         m_draggingTnfId = -1;
         const int mx = static_cast<int>(ev->position().x());
+
+        // Right-click on indicator overlay → move to corner (#1562)
+        if (!m_indicatorRect.isNull()
+            && m_indicatorRect.contains(QPoint(mx, y))) {
+            QMenu menu(this);
+            menu.addAction("Top Left", this, [this]{
+                setIndicatorCorner(IndicatorCorner::TopLeft); });
+            menu.addAction("Top Right", this, [this]{
+                setIndicatorCorner(IndicatorCorner::TopRight); });
+            menu.addAction("Bottom Left", this, [this]{
+                setIndicatorCorner(IndicatorCorner::BottomLeft); });
+            menu.addAction("Bottom Right", this, [this]{
+                setIndicatorCorner(IndicatorCorner::BottomRight); });
+            // Check current position
+            for (QAction* a : menu.actions()) {
+                if ((a->text() == "Top Left" && m_indicatorCorner == IndicatorCorner::TopLeft)
+                    || (a->text() == "Top Right" && m_indicatorCorner == IndicatorCorner::TopRight)
+                    || (a->text() == "Bottom Left" && m_indicatorCorner == IndicatorCorner::BottomLeft)
+                    || (a->text() == "Bottom Right" && m_indicatorCorner == IndicatorCorner::BottomRight))
+                    a->setCheckable(true), a->setChecked(true);
+            }
+            menu.exec(ev->globalPosition().toPoint());
+            ev->accept();
+            return;
+        }
 
         // Right-click on off-screen slice indicator → slice context menu
         for (int oi = 0; oi < m_offScreenRects.size(); ++oi) {
@@ -2866,7 +2901,7 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             drawSliceMarkers(p, specRect, wfRect);
             drawOffScreenSlices(p, specRect);
 
-            // WNB / RF gain / Prop forecast indicators (top-right of spectrum)
+            // WNB / RF gain / Prop forecast indicators (#1562: configurable corner)
             {
                 const bool showProp = m_propForecastVisible
                     && m_propKIndex >= 0
@@ -2877,8 +2912,7 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                     p.setFont(indFont);
                     p.setPen(QColor(0xc8, 0xd8, 0xe8, 180));
                     const QFontMetrics fm(indFont);
-                    int y = specRect.top() + fm.ascent() + 4;
-                    // Build combined label (left to right: prop, WNB, RF gain, WIDE), right-align
+                    // Build combined label (left to right: prop, WNB, RF gain, WIDE)
                     QString label;
                     if (showProp) {
                         label += QString("K%1  A%2  SFI %3")
@@ -2899,8 +2933,19 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                         if (!label.isEmpty()) { label += QStringLiteral("   "); }
                         label += QStringLiteral("WIDE");
                     }
-                    int x = specRect.right() - DBM_STRIP_W - 8 - fm.horizontalAdvance(label);
+                    const int labelW = fm.horizontalAdvance(label);
+                    const bool onRight = (m_indicatorCorner == IndicatorCorner::TopRight
+                                       || m_indicatorCorner == IndicatorCorner::BottomRight);
+                    const bool onBottom = (m_indicatorCorner == IndicatorCorner::BottomRight
+                                        || m_indicatorCorner == IndicatorCorner::BottomLeft);
+                    int x = onRight
+                        ? specRect.right() - DBM_STRIP_W - 8 - labelW
+                        : specRect.left() + 8;
+                    int y = onBottom
+                        ? specRect.bottom() - 4
+                        : specRect.top() + fm.ascent() + 4;
                     p.drawText(x, y, label);
+                    m_indicatorRect = QRect(x, y - fm.ascent(), labelW, fm.height());
 
                     // Store click rect for the prop portion only
                     if (showProp) {
@@ -2913,6 +2958,9 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                     } else {
                         m_propClickRect = QRect();
                     }
+                } else {
+                    m_indicatorRect = QRect();
+                    m_propClickRect = QRect();
                 }
 
                 // MQTT device status overlay (#699)
@@ -3485,7 +3533,7 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
         m_overlayMenu->raiseAll();
     }
 
-    // ── WNB / RF Gain / Prop Forecast indicators (top-right of FFT area) ────
+    // ── WNB / RF Gain / Prop Forecast indicators (#1562: configurable corner) ──
     {
         const bool showProp = m_propForecastVisible
             && m_propKIndex >= 0
@@ -3499,51 +3547,63 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
             p.setPen(QColor(255, 255, 255, 84));
 
             const QFontMetrics fm(indFont);
-            const int rightEdge = specRect.right() - DBM_STRIP_W - 6;
-            const int topY = specRect.top() + fm.ascent() + 2;
+            const bool onRight = (m_indicatorCorner == IndicatorCorner::TopRight
+                               || m_indicatorCorner == IndicatorCorner::BottomRight);
+            const bool onBottom = (m_indicatorCorner == IndicatorCorner::BottomRight
+                                || m_indicatorCorner == IndicatorCorner::BottomLeft);
+            const int baseY = onBottom
+                ? specRect.bottom() - 4
+                : specRect.top() + fm.ascent() + 2;
 
-            int x = rightEdge;
-
-            // WIDE (rightmost)
-            if (m_wideActive) {
-                int ww = fm.horizontalAdvance("WIDE");
-                x -= ww;
-                p.drawText(x, topY, "WIDE");
-                x -= 10;
-            }
-
-            // RF Gain (to the left of WIDE)
-            if (m_rfGainValue != 0) {
-                QString gainStr = (m_rfGainValue > 0)
+            // Build the full label to measure total width for left-align mode
+            QStringList parts;
+            if (showProp)
+                parts << QString("K%1  A%2  SFI %3")
+                    .arg(m_propKIndex, 0, 'f', 2).arg(m_propAIndex).arg(m_propSfi);
+            if (m_wnbActive) parts << "WNB";
+            if (m_rfGainValue != 0)
+                parts << ((m_rfGainValue > 0)
                     ? QString("+%1dB").arg(m_rfGainValue)
-                    : QString("%1dB").arg(m_rfGainValue);
-                int gw = fm.horizontalAdvance(gainStr);
-                x -= gw;
-                p.drawText(x, topY, gainStr);
-                x -= 10;  // gap between labels
-            }
+                    : QString("%1dB").arg(m_rfGainValue));
+            if (m_wideActive) parts << "WIDE";
 
-            // WNB (to the left of RF Gain)
-            if (m_wnbActive) {
-                int ww = fm.horizontalAdvance("WNB");
-                x -= ww;
-                p.drawText(x, topY, "WNB");
-                x -= 10;
-            }
-
-            // Prop forecast (leftmost: "K3  A12  SFI 110")
-            if (showProp) {
-                QString propStr = QString("K%1  A%2  SFI %3")
-                    .arg(m_propKIndex, 0, 'f', 2)
-                    .arg(m_propAIndex)
-                    .arg(m_propSfi);
-                int pw = fm.horizontalAdvance(propStr);
-                x -= pw;
-                p.drawText(x, topY, propStr);
-                m_propClickRect = QRect(x, topY - fm.ascent(), pw, fm.height());
+            // Draw right-to-left when right-aligned, left-to-right when left-aligned
+            if (onRight) {
+                int x = specRect.right() - DBM_STRIP_W - 6;
+                // Draw in reverse order (WIDE rightmost)
+                for (int i = parts.size() - 1; i >= 0; --i) {
+                    int tw = fm.horizontalAdvance(parts[i]);
+                    x -= tw;
+                    p.drawText(x, baseY, parts[i]);
+                    if (i > 0) x -= 10;
+                }
+                // Full indicator rect
+                int totalW = (specRect.right() - DBM_STRIP_W - 6) - x;
+                m_indicatorRect = QRect(x, baseY - fm.ascent(), totalW, fm.height());
+                // Prop click rect (first part when right-aligned is leftmost)
+                if (showProp) {
+                    int pw = fm.horizontalAdvance(parts[0]);
+                    m_propClickRect = QRect(x, baseY - fm.ascent(), pw, fm.height());
+                } else {
+                    m_propClickRect = QRect();
+                }
             } else {
-                m_propClickRect = QRect();
+                int x = specRect.left() + 8;
+                int startX = x;
+                for (int i = 0; i < parts.size(); ++i) {
+                    int tw = fm.horizontalAdvance(parts[i]);
+                    p.drawText(x, baseY, parts[i]);
+                    if (i == 0 && showProp)
+                        m_propClickRect = QRect(x, baseY - fm.ascent(), tw, fm.height());
+                    x += tw;
+                    if (i < parts.size() - 1) x += 10;
+                }
+                m_indicatorRect = QRect(startX, baseY - fm.ascent(), x - startX, fm.height());
+                if (!showProp) m_propClickRect = QRect();
             }
+        } else {
+            m_indicatorRect = QRect();
+            m_propClickRect = QRect();
         }
     }
 
