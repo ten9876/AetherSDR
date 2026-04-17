@@ -2022,7 +2022,9 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
             QPoint delta = ev->position().toPoint() - m_clickPressPos;
             if (delta.manhattanLength() <= 4) {
                 const int mx = static_cast<int>(ev->position().x());
-                if (mx < width() - DBM_STRIP_W) {
+                const QPoint clickPos = ev->position().toPoint();
+                if (mx < width() - DBM_STRIP_W
+                    && !m_indicatorStripRect.contains(clickPos)) {
                     double rawMhz = xToMhz(mx);
                     emit frequencyClicked(snapToStep(rawMhz, m_stepHz));
                 }
@@ -2038,7 +2040,9 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
         QPoint delta = ev->position().toPoint() - m_clickPressPos;
         if (delta.manhattanLength() <= 4) {
             const int mx = static_cast<int>(ev->position().x());
-            if (mx < width() - DBM_STRIP_W) {
+            const QPoint clickPos = ev->position().toPoint();
+            if (mx < width() - DBM_STRIP_W
+                && !m_indicatorStripRect.contains(clickPos)) {
                 double rawMhz = xToMhz(mx);
                 emit frequencyClicked(snapToStep(rawMhz, m_stepHz));
                 ev->accept();
@@ -2902,6 +2906,10 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                     int x = specRect.right() - DBM_STRIP_W - 8 - fm.horizontalAdvance(label);
                     p.drawText(x, y, label);
 
+                    // Store click rect for the entire indicator strip
+                    int stripW = fm.horizontalAdvance(label);
+                    m_indicatorStripRect = QRect(x, y - fm.ascent(), stripW, fm.height());
+
                     // Store click rect for the prop portion only
                     if (showProp) {
                         QString propText = QString("K%1  A%2  SFI %3")
@@ -2913,6 +2921,8 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                     } else {
                         m_propClickRect = QRect();
                     }
+                } else {
+                    m_indicatorStripRect = QRect();
                 }
 
                 // MQTT device status overlay (#699)
@@ -3544,6 +3554,11 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
             } else {
                 m_propClickRect = QRect();
             }
+
+            // Store click rect for the entire indicator strip
+            m_indicatorStripRect = QRect(x, topY - fm.ascent(), rightEdge - x, fm.height());
+        } else {
+            m_indicatorStripRect = QRect();
         }
     }
 

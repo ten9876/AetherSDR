@@ -534,6 +534,7 @@ private:
     bool m_propForecastVisible{false};
     double m_propKIndex{-1.0};
     QRect  m_propClickRect;  // bounding rect of rendered prop text for click detection
+    QRect  m_indicatorStripRect;  // bounding rect of entire K/SFI/WNB/WIDE strip
     int  m_propAIndex{-1};
     int  m_propSfi{-1};
 
