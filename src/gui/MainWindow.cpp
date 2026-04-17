@@ -3161,14 +3161,22 @@ void MainWindow::buildMenuBar()
         }
     });
 
+#ifdef _WIN32
+    // CAT virtual serial ports require macOS or Linux. Force the setting
+    // off so a saved True (e.g. from a Linux settings import) can't
+    // activate anything, and omit the menu entry entirely (#1556).
+    {
+        auto& s = AppSettings::instance();
+        if (s.value("AutoStartCAT", "False").toString() != "False") {
+            s.setValue("AutoStartCAT", "False");
+            s.save();
+        }
+    }
+#else
     auto* autoCatAction = settingsMenu->addAction("Autostart CAT with AetherSDR");
     autoCatAction->setCheckable(true);
     autoCatAction->setChecked(
         AppSettings::instance().value("AutoStartCAT", "False").toString() == "True");
-#ifdef _WIN32
-    autoCatAction->setEnabled(false);
-    autoCatAction->setToolTip("CAT virtual serial ports require macOS or Linux");
-#endif
     connect(autoCatAction, &QAction::toggled, this, [this](bool on) {
         auto& s = AppSettings::instance();
         s.setValue("AutoStartCAT", on ? "True" : "False");
@@ -3184,6 +3192,7 @@ void MainWindow::buildMenuBar()
                 m_appletPanel->catApplet()->setPtyEnabled(on);
         }
     });
+#endif
 
     auto* autoTciAction = settingsMenu->addAction("Autostart TCI with AetherSDR");
     autoTciAction->setCheckable(true);
@@ -3207,19 +3216,25 @@ void MainWindow::buildMenuBar()
 #endif
     });
 
+#if !defined(Q_OS_MAC) && !defined(HAVE_PIPEWIRE)
+    // DAX audio bridge requires macOS CoreAudio or Linux with PipeWire.
+    // Force off and omit the menu entry on platforms without a bridge (#1556).
+    {
+        auto& s = AppSettings::instance();
+        if (s.value("AutoStartDAX", "False").toString() != "False") {
+            s.setValue("AutoStartDAX", "False");
+            s.save();
+        }
+    }
+#else
     auto* autoDaxAction = settingsMenu->addAction("Autostart DAX with AetherSDR");
     autoDaxAction->setCheckable(true);
     autoDaxAction->setChecked(
         AppSettings::instance().value("AutoStartDAX", "False").toString() == "True");
-#if !defined(Q_OS_MAC) && !defined(HAVE_PIPEWIRE)
-    autoDaxAction->setEnabled(false);
-    autoDaxAction->setToolTip("DAX audio bridge requires macOS or Linux with PipeWire");
-#endif
     connect(autoDaxAction, &QAction::toggled, this, [this](bool on) {
         auto& s = AppSettings::instance();
         s.setValue("AutoStartDAX", on ? "True" : "False");
         s.save();
-#if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
         if (m_radioModel.isConnected()) {
             if (on) {
                 if (startDax() && m_appletPanel && m_appletPanel->catApplet())
@@ -3230,8 +3245,8 @@ void MainWindow::buildMenuBar()
                     m_appletPanel->catApplet()->setDaxEnabled(false);
             }
         }
-#endif
     });
+#endif
 
     auto* lowLatencyDaxTxAction =
         settingsMenu->addAction("Low-Latency DAX (FreeDV)");
