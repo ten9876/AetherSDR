@@ -224,9 +224,17 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             constexpr float kEqAlpha = 0.3f;
             m_afterEq = (m_afterEq < -140.0f) ? v : kEqAlpha * v + (1.0f - kEqAlpha) * m_afterEq;
         } else if (idx == m_compPeakIdx) {
-            // COMPPEAK: raw dBFS from radio. Just smooth and pass through.
+            // COMPPEAK: raw dBFS from radio. Smooth, then compute gain reduction.
             constexpr float kAlpha = 0.3f;
-            m_compPeak = (m_compPeak < -140.0f) ? v : kAlpha * v + (1.0f - kAlpha) * m_compPeak;
+            m_compPeakRaw = (m_compPeakRaw < -140.0f) ? v : kAlpha * v + (1.0f - kAlpha) * m_compPeakRaw;
+            // Gain reduction = input level (AFTEREQ) - output level (COMPPEAK)
+            // Positive when compressing; negate for 0..-25 display range
+            if (m_afterEq > -140.0f && m_compPeakRaw > -140.0f) {
+                float reduction = m_afterEq - m_compPeakRaw;
+                m_compPeak = qBound(-25.0f, -qMax(0.0f, reduction), 0.0f);
+            } else {
+                m_compPeak = 0.0f;
+            }
             micChanged = true;
         } else if (idx == m_micLevelIdx) {
             m_micLevel = v;

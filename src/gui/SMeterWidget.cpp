@@ -100,9 +100,8 @@ void SMeterWidget::setMicMeters(float micLevel, float compLevel, float micPeak, 
     Q_UNUSED(micLevel);
     Q_UNUSED(compLevel);
     m_micLevel = micPeak;
-    // compPeak is raw dBFS from COMPPEAK. Silence gate at -30.
-    const float comp = (compPeak > -30.0f) ? qBound(-25.0f, compPeak, 0.0f) : 0.0f;
-    m_compLevel = comp;
+    // compPeak is already 0..-25 dB gain reduction from MeterModel
+    m_compLevel = compPeak;
 
     updateNeedleTarget();
 
