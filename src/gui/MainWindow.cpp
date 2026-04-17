@@ -5178,6 +5178,16 @@ void MainWindow::setActiveSlice(int sliceId)
     m_appletPanel->updateSliceButtons(m_radioModel.slices(), sliceId);
     auto* sw = spectrum();
     if (sw) {
+        // Recenter panadapter if the newly active slice is off-screen (#1554)
+        double sliceFreq = s->frequency();
+        double halfBw = sw->bandwidthMhz() / 2.0;
+        double lo = sw->centerMhz() - halfBw;
+        double hi = sw->centerMhz() + halfBw;
+        if (sliceFreq < lo || sliceFreq > hi) {
+            sw->setFrequencyRange(sliceFreq, sw->bandwidthMhz());
+            emit sw->centerChangeRequested(sliceFreq);
+        }
+
         sw->overlayMenu()->setSlice(s);
 
         // Sync step size from the new active slice
