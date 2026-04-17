@@ -1383,6 +1383,12 @@ MainWindow::MainWindow(QWidget* parent)
     // Keep the stream alive when TCI clients need it (#1014).
     connect(m_titleBar, &TitleBar::pcAudioToggled, this, [this](bool on) {
         if (on) {
+            // Restart the local audio sink to recover from stale WASAPI sessions
+            // (e.g. after Teams/Zoom reconfigures the audio endpoint). (#1569)
+            QMetaObject::invokeMethod(m_audio, [this]() {
+                m_audio->stopRxStream();
+                m_audio->startRxStream();
+            });
             m_radioModel.createRxAudioStream();
         } else {
             m_radioModel.removeRxAudioStream();

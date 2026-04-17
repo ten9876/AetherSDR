@@ -315,6 +315,14 @@ private:
     QElapsedTimer m_lastAudioFeedTime;
     static constexpr qint64 kAudioLivenessTimeoutMs = 15000;
 
+    // Stale session watchdog: detects when audio data is being written but
+    // processedUSecs() hasn't advanced, indicating the WASAPI session is
+    // silently discarding audio (e.g. after Teams/Zoom reconfigures the
+    // audio endpoint). Restarts after ~3 seconds of stale output. (#1569)
+    qint64 m_lastProcessedUSecs{0};
+    int    m_rxStaleTickCount{0};
+    static constexpr int kStaleTickThreshold = 300;  // 300 × 10ms = 3s
+
     // RX audio buffer handling
     QTimer*       m_rxTimer{nullptr};
     QByteArray    m_rxBuffer;

@@ -172,6 +172,28 @@ AudioEngine::AudioEngine(QObject* parent)
         {
             len = m_audioDevice->write(m_rxBuffer.left(len));
             m_rxBuffer.remove(0, len);
+
+            // Stale session watchdog: if we're writing data but processedUSecs()
+            // hasn't advanced, the WASAPI session is silently discarding audio
+            // (e.g. after Teams/Zoom reconfigures the audio endpoint). (#1569)
+            qint64 processed = m_audioSink->processedUSecs();
+            if (processed == m_lastProcessedUSecs) {
+                if (++m_rxStaleTickCount >= kStaleTickThreshold) {
+                    m_rxStaleTickCount = 0;
+                    qCWarning(lcAudio) << "AudioEngine: sink appears stale (processedUSecs stuck at"
+                                       << processed << "for" << kStaleTickThreshold * 10
+                                       << "ms), restarting RX (#1569)";
+                    QMetaObject::invokeMethod(this, [this]() {
+                        if (!m_audioSink) return;
+                        stopRxStream();
+                        startRxStream();
+                    }, Qt::QueuedConnection);
+                    return;
+                }
+            } else {
+                m_rxStaleTickCount = 0;
+                m_lastProcessedUSecs = processed;
+            }
         }
 
         m_rxBufferBytes.store(m_rxBuffer.size());
@@ -206,6 +228,8 @@ bool AudioEngine::startRxStream()
     m_rxBufferUnderrunCount.store(0);
     m_rxBufferSampleRate.store(DEFAULT_SAMPLE_RATE);
     m_rxZombieTickCount = 0;
+    m_rxStaleTickCount = 0;
+    m_lastProcessedUSecs = 0;
     m_lastAudioFeedTime.start();  // initialize liveness watchdog (#1411)
 
     QAudioFormat fmt = makeFormat();
