@@ -1194,6 +1194,19 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
 
+    // Propagate licensed feature flags to DSP buttons in VFOs and overlay menus (#1585)
+    connect(&m_radioModel, &RadioModel::licensedFeaturesChanged, this, [this]() {
+        const auto& features = m_radioModel.licensedFeatures();
+        if (m_panStack) {
+            for (auto* applet : m_panStack->allApplets()) {
+                auto* sw = applet->spectrumWidget();
+                for (auto* vfo : sw->findChildren<VfoWidget*>())
+                    vfo->setLicensedFeatures(features);
+                sw->overlayMenu()->setLicensedFeatures(features);
+            }
+        }
+    });
+
     // ── NR2/RN2 feedback: AudioEngine → all VFO + overlay buttons ──────
     // Iterate all panadapter spectrums to find VFO widgets and overlay menus,
     // since spectrum()/vfoWidget() lookups can return null depending on
@@ -4794,6 +4807,8 @@ void MainWindow::onSliceAdded(SliceModel* s)
         bool hasPlus = sub.contains("SmartSDR+");
         vfo->setSmartSdrPlus(hasPlus);
     }
+    // Apply licensed feature flags to disable unlicensed DSP buttons (#1585)
+    vfo->setLicensedFeatures(m_radioModel.licensedFeatures());
 
     wireVfoWidget(vfo, s);
 
@@ -5010,6 +5025,7 @@ void MainWindow::setActiveSlice(int sliceId)
     auto* sw = spectrum();
     if (sw) {
         sw->overlayMenu()->setSlice(s);
+        sw->overlayMenu()->setLicensedFeatures(m_radioModel.licensedFeatures());
 
         // Sync step size from the new active slice
         if (s->stepHz() > 0) {

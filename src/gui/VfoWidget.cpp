@@ -159,7 +159,8 @@ static const QString kDspToggle =
     "QPushButton { background: #1a2a3a; border: 1px solid #304050; border-radius: 2px; "
     "color: #c8d8e8; font-size: 13px; font-weight: bold; padding: 2px 4px; }"
     "QPushButton:checked { background: #1a6030; color: #ffffff; border: 1px solid #20a040; }"
-    "QPushButton:hover { border: 1px solid #0090e0; }";
+    "QPushButton:hover { border: 1px solid #0090e0; }"
+    "QPushButton:disabled { background: #1a1a2a; color: #556070; border: 1px solid #2a3040; }";
 
 static const QString kModeBtn =
     "QPushButton { background: #1a2a3a; border: 1px solid #304050; border-radius: 2px; "
@@ -1889,6 +1890,28 @@ void VfoWidget::setSmartSdrPlus(bool has)
     if (m_hasSmartSdrPlus == has) return;
     m_hasSmartSdrPlus = has;
     if (m_slice) rebuildFilterButtons();
+}
+
+void VfoWidget::setLicensedFeatures(const QMap<QString, bool>& features)
+{
+    // Disable radio-side DSP buttons whose feature is not licensed (#1585).
+    // Client-side features (NR2, RNN, RN2, BNR, NR4, DFNR) are always enabled.
+    struct { QPushButton* btn; const char* featureName; } radioSideDsp[] = {
+        { m_nrBtn,   "nr"   },
+        { m_nbBtn,   "nb"   },
+        { m_anfBtn,  "anf"  },
+        { m_nrlBtn,  "nrl"  },
+        { m_nrsBtn,  "nrs"  },
+        { m_nrfBtn,  "nrf"  },
+        { m_anflBtn, "anfl" },
+        { m_anftBtn, "anft" },
+    };
+    for (auto& entry : radioSideDsp) {
+        if (!entry.btn) continue;
+        auto it = features.find(QLatin1String(entry.featureName));
+        bool enabled = (it == features.end()) ? true : it.value();
+        entry.btn->setEnabled(enabled);
+    }
 }
 
 void VfoWidget::setEscLevel(float dbm)

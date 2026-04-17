@@ -117,6 +117,14 @@ public:
     QString licenseMaxVersion()     const { return m_licenseMaxVersion; }
     QString licenseSubscription()   const { return m_licenseSubscription; }
 
+    // Licensed feature flags (populated from "license feature" status messages).
+    // Feature names are lowercased (e.g. "nb", "nr", "anf").
+    bool isFeatureLicensed(const QString& name) const {
+        auto it = m_licensedFeatures.find(name.toLower());
+        return it == m_licensedFeatures.end() ? true : it.value();  // default true if unknown
+    }
+    const QMap<QString, bool>& licensedFeatures() const { return m_licensedFeatures; }
+
     QString ip()          const { return m_ip; }
     QString netmask()     const { return m_netmask; }
     QString gateway()     const { return m_gateway; }
@@ -288,6 +296,7 @@ public:
 
 signals:
     void infoChanged();
+    void licensedFeaturesChanged();
     void connectionStateChanged(bool connected);
     void sliceAdded(SliceModel* slice);
     void sliceRemoved(int sliceId);
@@ -434,6 +443,7 @@ private:
     QString     m_licenseExpirationDate;
     QString     m_licenseMaxVersion;
     QString     m_licenseSubscription;   // e.g. "SmartSDR+", "SmartSDR", "Unknown"
+    QMap<QString, bool> m_licensedFeatures;  // feature name (lowercase) → enabled
     QString     m_ip;
     QString     m_netmask;
     QString     m_gateway;

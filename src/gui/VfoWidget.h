@@ -6,6 +6,7 @@
 #include <QMouseEvent>
 #include <QVector>
 #include <QStringList>
+#include <QMap>
 #include <QSet>
 #include <QTimer>
 #include <QElapsedTimer>
@@ -199,6 +200,7 @@ private:
 public:
     void setDiversityAllowed(bool allowed);
     void setSmartSdrPlus(bool has);
+    void setLicensedFeatures(const QMap<QString, bool>& features);
 private:
     QSlider* m_sqlSlider{nullptr};
     QComboBox* m_agcCmb{nullptr};

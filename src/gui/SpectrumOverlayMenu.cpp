@@ -553,7 +553,9 @@ void SpectrumOverlayMenu::buildDspPanel()
         "padding: 1px 2px; }"
         "QPushButton:checked { background: #1a6030; color: #ffffff; "
         "border: 1px solid #20a040; }"
-        "QPushButton:hover { border: 1px solid #0090e0; }";
+        "QPushButton:hover { border: 1px solid #0090e0; }"
+        "QPushButton:disabled { background: #1a1a2a; color: #556070; "
+        "border: 1px solid #2a3040; }";
 
     // DSP feature definitions
     struct DspDef {
@@ -695,6 +697,32 @@ void SpectrumOverlayMenu::syncDspPanel()
     syncSlider(m_dspRows[9], m_slice->anflLevel());
 
     m_updatingFromModel = false;
+}
+
+void SpectrumOverlayMenu::setLicensedFeatures(const QMap<QString, bool>& features)
+{
+    // Disable radio-side DSP buttons whose feature is not licensed (#1585).
+    // Indices: 0=NB, 1=NR, 3=ANF, 4=NRL, 5=NRS, 6=RNN, 8=NRF, 9=ANFL, 10=ANFT
+    // Client-side (2=NR2, 7=RN2, 11=BNR, 12=NR4, 13=DFNR) are always enabled.
+    struct { int index; const char* featureName; } radioSideDsp[] = {
+        { 0,  "nb"   },
+        { 1,  "nr"   },
+        { 3,  "anf"  },
+        { 4,  "nrl"  },
+        { 5,  "nrs"  },
+        { 6,  "rnn"  },
+        { 8,  "nrf"  },
+        { 9,  "anfl" },
+        { 10, "anft" },
+    };
+    for (auto& entry : radioSideDsp) {
+        if (entry.index >= m_dspRows.size()) continue;
+        auto it = features.find(QLatin1String(entry.featureName));
+        bool enabled = (it == features.end()) ? true : it.value();
+        m_dspRows[entry.index].btn->setEnabled(enabled);
+        if (m_dspRows[entry.index].slider)
+            m_dspRows[entry.index].slider->setEnabled(enabled);
+    }
 }
 
 void SpectrumOverlayMenu::toggleDspPanel()

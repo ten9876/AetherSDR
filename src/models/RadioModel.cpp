@@ -1210,6 +1210,7 @@ void RadioModel::onDisconnected()
     m_netCwIndex = 1;
     m_lineoutGain = 50;
     m_headphoneGain = 50;
+    m_licensedFeatures.clear();
 
     stopNetworkMonitor();
     // stop() must run on the network thread (socket lives there). (#561)
@@ -1747,7 +1748,14 @@ void RadioModel::onStatusReceived(const QString& object,
         return;
     }
     if (object == "license feature") {
-        // Feature-level parsing — not needed for display, but log for debugging
+        // Parse feature name and enabled flag so the UI can gray-out
+        // unlicensed DSP options (#1585).
+        QString fname = kvs.value("name").toLower();
+        bool enabled = kvs.value("enabled", "1") == "1";
+        if (!fname.isEmpty()) {
+            m_licensedFeatures[fname] = enabled;
+            emit licensedFeaturesChanged();
+        }
         emit infoChanged();
         return;
     }

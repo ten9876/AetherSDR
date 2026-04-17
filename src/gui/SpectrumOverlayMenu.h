@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QMap>
 #include <QVector>
 #include <QStringList>
 #include <QPoint>
@@ -51,6 +52,7 @@ public:
 
     // Connect/disconnect the ANT panel to a slice model.
     void setSlice(SliceModel* slice);
+    void setLicensedFeatures(const QMap<QString, bool>& features);
     void setWnbState(bool on, int level);
     void setRfGain(int gain);
     void setRfGainRange(int low, int high, int step);
