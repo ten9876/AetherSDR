@@ -5996,23 +5996,54 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         // One command handles everything.
         m_bandSettings.setCurrentBand(bandName);
 
-        // Translate XVTR display names ("2m", "70cm", "23cm") to their band-stack
-        // key ("X0", "X1", "X2"). SmartSDR pcap shows this is what the radio's
-        // band stack expects — sending band=<xvtr_name> clears the slice because
-        // the name isn't a valid stack key, whereas band=X<idx> restores the
-        // saved XVTR slice correctly (#1540/#1211).
-        QString stackKey = bandName;
-        for (auto it = m_radioModel.xvtrList().constBegin();
-             it != m_radioModel.xvtrList().constEnd(); ++it) {
-            if (it.value().isValid && it.value().name == bandName) {
-                stackKey = QString("X%1").arg(it.key());
-                qDebug() << "  ↳ XVTR match:" << bandName << "->" << stackKey;
-                break;
+        // Translate the UI band label to the radio's band-stack key. Mapping
+        // determined from SmartSDR pcap captures (#1540/#1211):
+        //   - Standard HF names (160, 80, ..., 6, 2200, 630): pass through
+        //   - XVTR display names ("2m"): send band=X<idx> (xvtr index)
+        //   - WWV / GEN: send numeric band-stack slot 33 / 34 (per pcap)
+        //   - Anything else: fall back to tuning the slice directly
+        static const QSet<QString> kPassThroughBands = {
+            "160", "80", "60", "40", "30", "20", "17", "15", "12", "10", "6",
+            "2200", "630"
+        };
+        static const QMap<QString, int> kNumericBandSlots = {
+            { QStringLiteral("WWV"), 33 },
+            { QStringLiteral("GEN"), 34 },
+        };
+
+        QString stackKey;
+        if (kPassThroughBands.contains(bandName)) {
+            stackKey = bandName;
+        } else if (kNumericBandSlots.contains(bandName)) {
+            stackKey = QString::number(kNumericBandSlots.value(bandName));
+            qDebug() << "  ↳ numeric band slot:" << bandName << "->" << stackKey;
+        } else {
+            for (auto it = m_radioModel.xvtrList().constBegin();
+                 it != m_radioModel.xvtrList().constEnd(); ++it) {
+                if (it.value().isValid && it.value().name == bandName) {
+                    stackKey = QString("X%1").arg(it.key());
+                    qDebug() << "  ↳ XVTR match:" << bandName << "->" << stackKey;
+                    break;
+                }
             }
         }
 
-        m_radioModel.sendCommand(
-            QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
+        if (stackKey.isEmpty()) {
+            // Unrecognized band — tune slice directly as a safety net.
+            qDebug() << "  ↳ unrecognized band" << bandName << "— tuning slice directly";
+            SliceModel* s = nullptr;
+            for (auto* sl : m_radioModel.slices()) {
+                if (sl->panId() == applet->panId()) { s = sl; break; }
+            }
+            if (!s) s = activeSlice();
+            if (s) {
+                if (!mode.isEmpty() && s->mode() != mode) s->setMode(mode);
+                s->tuneAndRecenter(freqMhz);
+            }
+        } else {
+            m_radioModel.sendCommand(
+                QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
+        }
     });
 
     // XVTR button → open Radio Setup XVTR tab (#571)
