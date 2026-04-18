@@ -269,7 +269,10 @@ private:
     QGridLayout* m_filterGrid{nullptr};
     QVector<QPushButton*> m_filterBtns;
     QVector<int> m_filterWidths;
-    // CW autotune buttons (only visible in CW mode)
+    // CW autotune row (only visible in CW mode). The container holds the
+    // "Autotune:" label + buttons; deleting it on rebuild also removes the
+    // label, which is not tracked as its own member.
+    class QWidget* m_autotuneContainer{nullptr};
     QPushButton* m_autotuneOnceBtn{nullptr};
     QPushButton* m_autotuneLoopBtn{nullptr};
     QPushButton* m_zeroBeatBtn{nullptr};

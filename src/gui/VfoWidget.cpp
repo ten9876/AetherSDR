@@ -3052,10 +3052,15 @@ void VfoWidget::rebuildFilterButtons()
 {
     for (auto* btn : m_filterBtns) delete btn;
     m_filterBtns.clear();
-    // Remove autotune buttons if they exist (they'll be re-added for CW)
-    if (m_autotuneOnceBtn) { delete m_autotuneOnceBtn; m_autotuneOnceBtn = nullptr; }
-    if (m_autotuneLoopBtn) { delete m_autotuneLoopBtn; m_autotuneLoopBtn = nullptr; }
-    if (m_zeroBeatBtn) { delete m_zeroBeatBtn; m_zeroBeatBtn = nullptr; }
+    // Remove autotune row if it exists (re-added for CW). Delete the
+    // container — its children ("Autotune:" label, buttons) go with it.
+    if (m_autotuneContainer) {
+        delete m_autotuneContainer;
+        m_autotuneContainer = nullptr;
+        m_autotuneOnceBtn = nullptr;
+        m_autotuneLoopBtn = nullptr;
+        m_zeroBeatBtn = nullptr;
+    }
     // Remove marker-style buttons if they exist (re-added for CW only, #1526)
     if (m_markerThinBtn)  { delete m_markerThinBtn;  m_markerThinBtn = nullptr; }
     if (m_markerThickBtn) { delete m_markerThickBtn; m_markerThickBtn = nullptr; }
@@ -3103,11 +3108,13 @@ void VfoWidget::rebuildFilterButtons()
         m_filterGrid->addWidget(btn, i / 4, i % 4);
     }
 
-    // Per-slice VFO marker style row: Thin/Thick line + Edges/Hide filter edges (#1526)
-    // CW/CWL only — the original issue was specifically about CW, and other
-    // modes typically have wide enough filters that the 3-line cluster is not
-    // visually problematic.
-    if (m_slice && (m_slice->mode() == "CW" || m_slice->mode() == "CWL")) {
+    // Per-slice VFO marker style row: Thin/Thick line + Edges/Hide filter
+    // edges (#1526). Shown in every mode — narrow filters aren't CW-exclusive
+    // (narrow DIGL, RTTY, CWL, etc. all benefit from hiding the overlapping
+    // edge lines), and users who want a thicker center marker on any mode
+    // can set it. Cleanup in the rebuildFilterButtons header ensures we
+    // don't accumulate duplicate rows on mode change.
+    {
         int row = (m_filterWidths.size() + 3) / 4;
 
         m_markerThinBtn = new QPushButton("Thin");
@@ -3151,7 +3158,8 @@ void VfoWidget::rebuildFilterButtons()
     if (m_slice && (m_slice->mode() == "CW" || m_slice->mode() == "CWL")) {
         int row = (m_filterWidths.size() + 3) / 4 + 1;
 
-        auto* container = new QWidget;
+        m_autotuneContainer = new QWidget;
+        auto* container = m_autotuneContainer;
         auto* hbox = new QHBoxLayout(container);
         hbox->setContentsMargins(0, 0, 0, 0);
         hbox->setSpacing(4);
