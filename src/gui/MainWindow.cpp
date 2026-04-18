@@ -5419,6 +5419,13 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         m_panStack->floatPanadapter(applet->panId());
     });
 
+    // Refresh all frequency displays when dim-digit setting changes
+    connect(sw, &SpectrumWidget::dimFixedFreqDigitsChanged, this, [this, sw](bool) {
+        for (auto* vfo : sw->findChildren<VfoWidget*>())
+            vfo->refreshFreqDisplay();
+        m_appletPanel->rxApplet()->refreshFreqDisplay();
+    });
+
     // ── DAX IQ pan routing from overlay menu ───────────────────────────
     // The overlay controls which pan feeds which IQ channel (routing only).
     // Stream create/destroy and rate are managed by the DIGI applet.

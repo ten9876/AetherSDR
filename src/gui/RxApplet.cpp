@@ -1,5 +1,6 @@
 #include "RxApplet.h"
 #include "FilterPassbandWidget.h"
+#include "FreqFormatUtil.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "SliceColors.h"
@@ -1222,20 +1223,24 @@ void RxApplet::connectSlice(SliceModel* s)
     // Initialize filter/step arrays for the current mode
     updateModeSettings(s->mode());
 
-    // Frequency display (XX.XXX.XXX format)
-    auto fmtFreq = [](double mhz) -> QString {
-        long long hz = static_cast<long long>(std::round(mhz * 1e6));
-        int mhzPart  = static_cast<int>(hz / 1000000);
-        int khzPart  = static_cast<int>((hz / 1000) % 1000);
-        int hzPart   = static_cast<int>(hz % 1000);
-        return QString("%1.%2.%3")
-            .arg(mhzPart)
-            .arg(khzPart, 3, 10, QChar('0'))
-            .arg(hzPart, 3, 10, QChar('0'));
+    // Frequency display (XX.XXX.XXX format) with optional step-based dimming
+    auto updateFreq = [this](double mhz) {
+        m_freqPlainText = formatFreqGrouped(mhz);
+        const int stepHz = m_slice ? m_slice->stepHz() : 0;
+        const bool dimEnabled = AppSettings::instance()
+            .value("DimFixedFreqDigits", true).toBool();
+        if (dimEnabled && fixedDigitCount(stepHz) > 0) {
+            m_freqLabel->setTextFormat(Qt::RichText);
+            m_freqLabel->setText(formatFreqGroupedHtml(mhz, stepHz));
+        } else {
+            m_freqLabel->setTextFormat(Qt::PlainText);
+            m_freqLabel->setText(m_freqPlainText);
+        }
     };
-    m_freqLabel->setText(fmtFreq(s->frequency()));
-    connect(s, &SliceModel::frequencyChanged, this, [this, fmtFreq](double mhz) {
-        m_freqLabel->setText(fmtFreq(mhz));
+    updateFreq(s->frequency());
+    connect(s, &SliceModel::frequencyChanged, this, updateFreq);
+    connect(s, &SliceModel::stepChanged, this, [this, updateFreq](int, const QVector<int>&) {
+        if (m_slice) updateFreq(m_slice->frequency());
     });
 
     // ── Filter ─────────────────────────────────────────────────────────────
@@ -1769,6 +1774,23 @@ void RxApplet::syncStepFromSlice(int stepHz, const QVector<int>& stepList)
     emit stepSizeChanged(m_stepSizes[m_stepIdx]);
 }
 
+void RxApplet::refreshFreqDisplay()
+{
+    if (!m_slice) return;
+    const double mhz = m_slice->frequency();
+    m_freqPlainText = formatFreqGrouped(mhz);
+    const int stepHz = m_slice->stepHz();
+    const bool dimEnabled = AppSettings::instance()
+        .value("DimFixedFreqDigits", true).toBool();
+    if (dimEnabled && fixedDigitCount(stepHz) > 0) {
+        m_freqLabel->setTextFormat(Qt::RichText);
+        m_freqLabel->setText(formatFreqGroupedHtml(mhz, stepHz));
+    } else {
+        m_freqLabel->setTextFormat(Qt::PlainText);
+        m_freqLabel->setText(m_freqPlainText);
+    }
+}
+
 void RxApplet::updateAgcCombo()
 {
     const QString cur = m_slice ? m_slice->agcMode() : "";
@@ -1835,7 +1857,7 @@ bool RxApplet::eventFilter(QObject* obj, QEvent* ev)
         // Format is "N.NNN.NNN" where the MHz part varies in width (1-3 digits).
         // We count digits right-to-left from the end so place values are stable
         // regardless of how many MHz digits are shown.
-        const QString text = m_freqLabel->text();
+        const QString text = m_freqPlainText;
         const QFontMetrics fm(m_freqLabel->font());
         const int textWidth = fm.horizontalAdvance(text);
         const int rightPad = 1; // matches stylesheet padding

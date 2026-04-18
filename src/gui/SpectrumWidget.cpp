@@ -29,6 +29,7 @@
 #include <QClipboard>
 #include <QDesktopServices>
 #include <QUrl>
+#include "FreqFormatUtil.h"
 #include "core/AppSettings.h"
 #include "models/BandPlanManager.h"
 #include "models/BandDefs.h"
@@ -1521,10 +1522,10 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
                 const double stepMhz = m_stepHz / 1e6;
                 snappedMhz = std::round(freqMhz / stepMhz) * stepMhz;
             }
-            const QString freqStr = QString::number(snappedMhz, 'f', 6);
+            const QString freqStr = formatFreqGrouped(snappedMhz);
             menu.addAction(QString("Add Spot at %1 MHz...").arg(freqStr), this,
                 [this, snappedMhz]{ showAddSpotDialog(snappedMhz); });
-            menu.addAction(QString("Add TNF at %1 MHz").arg(freqStr), this,
+            menu.addAction(QString("Add TNF at %1 MHz").arg(formatFreqGrouped(freqMhz)), this,
                 [this, freqMhz]{ emit tnfCreateRequested(freqMhz); });
         }
 
@@ -1549,6 +1550,18 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         tuneGuideAction->setCheckable(true);
         tuneGuideAction->setChecked(m_showTuneGuides);
         connect(tuneGuideAction, &QAction::toggled, this, &SpectrumWidget::setShowTuneGuides);
+
+        QAction* dimDigitsAction = menu.addAction("Dim Fixed Freq Digits");
+        dimDigitsAction->setCheckable(true);
+        dimDigitsAction->setChecked(
+            AppSettings::instance().value("DimFixedFreqDigits", true).toBool());
+        connect(dimDigitsAction, &QAction::toggled, this, [this](bool on) {
+            auto& s = AppSettings::instance();
+            s.setValue("DimFixedFreqDigits", on);
+            s.save();
+            emit dimFixedFreqDigitsChanged(on);
+            markOverlayDirty();
+        });
 
         menu.addSeparator();
         bool floating = m_isFloating;
@@ -2961,14 +2974,7 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 p.drawLine(cx, 0, cx, h);
 
                 const double freqMhz = xToMhz(cx);
-                long long hz = static_cast<long long>(std::round(freqMhz * 1e6));
-                int mhzPart = static_cast<int>(hz / 1000000);
-                int khzPart = static_cast<int>((hz / 1000) % 1000);
-                int hzPart  = static_cast<int>(hz % 1000);
-                const QString label = QString("%1.%2.%3")
-                    .arg(mhzPart)
-                    .arg(khzPart, 3, 10, QChar('0'))
-                    .arg(hzPart, 3, 10, QChar('0'));
+                const QString label = formatFreqGrouped(freqMhz);
                 QFont f = p.font();
                 f.setPointSize(12);
                 p.setFont(f);
@@ -2980,8 +2986,27 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 int ly = m_cursorPos.y() - th - 4;
                 if (ly < 0) { ly = m_cursorPos.y() + 16; }
                 p.fillRect(lx, ly, tw, th, QColor(0x0f, 0x0f, 0x1a, 200));
-                p.setPen(QColor(0xc8, 0xd8, 0xe8));
-                p.drawText(lx + 4, ly + fm.ascent() + 2, label);
+
+                const int dc = fixedDigitCount(m_stepHz);
+                const bool de = AppSettings::instance()
+                    .value("DimFixedFreqDigits", true).toBool();
+                if (de && dc > 0) {
+                    int sp = label.size();
+                    int ds = 0;
+                    for (int i = label.size() - 1; i >= 0; --i) {
+                        if (label[i] == '.') continue;
+                        if (++ds == dc) { sp = i; break; }
+                    }
+                    const int bx = lx + 4;
+                    p.setPen(QColor(0xc8, 0xd8, 0xe8));
+                    p.drawText(bx, ly + fm.ascent() + 2, label.left(sp));
+                    p.setPen(QColor(0x50, 0x58, 0x68));
+                    p.drawText(bx + fm.horizontalAdvance(label.left(sp)),
+                               ly + fm.ascent() + 2, label.mid(sp));
+                } else {
+                    p.setPen(QColor(0xc8, 0xd8, 0xe8));
+                    p.drawText(lx + 4, ly + fm.ascent() + 2, label);
+                }
             }
 
             m_overlayStaticDirty = false;
@@ -3576,14 +3601,7 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
         p.drawLine(cx, 0, cx, height());
 
         const double freqMhz = xToMhz(cx);
-        long long hz = static_cast<long long>(std::round(freqMhz * 1e6));
-        int mhzPart = static_cast<int>(hz / 1000000);
-        int khzPart = static_cast<int>((hz / 1000) % 1000);
-        int hzPart  = static_cast<int>(hz % 1000);
-        const QString label = QString("%1.%2.%3")
-            .arg(mhzPart)
-            .arg(khzPart, 3, 10, QChar('0'))
-            .arg(hzPart, 3, 10, QChar('0'));
+        const QString label = formatFreqGrouped(freqMhz);
         QFont f = p.font();
         f.setPointSize(12);
         p.setFont(f);
@@ -3595,8 +3613,30 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
         int ly = m_cursorPos.y() - th - 4;
         if (ly < 0) { ly = m_cursorPos.y() + 16; }
         p.fillRect(lx, ly, tw, th, QColor(0x0f, 0x0f, 0x1a, 200));
-        p.setPen(QColor(0xc8, 0xd8, 0xe8));
-        p.drawText(lx + 4, ly + fm.ascent() + 2, label);
+
+        // Draw with step-based digit dimming when enabled
+        const int dimCount = fixedDigitCount(m_stepHz);
+        const bool dimEnabled = AppSettings::instance()
+            .value("DimFixedFreqDigits", true).toBool();
+        if (dimEnabled && dimCount > 0) {
+            // Find split point: count dimCount digits from the right
+            int splitPos = label.size();
+            int digitsSeen = 0;
+            for (int i = label.size() - 1; i >= 0; --i) {
+                if (label[i] == '.') continue;
+                if (++digitsSeen == dimCount) { splitPos = i; break; }
+            }
+            const QString bright = label.left(splitPos);
+            const QString dim    = label.mid(splitPos);
+            const int bx = lx + 4;
+            p.setPen(QColor(0xc8, 0xd8, 0xe8));
+            p.drawText(bx, ly + fm.ascent() + 2, bright);
+            p.setPen(QColor(0x50, 0x58, 0x68));
+            p.drawText(bx + fm.horizontalAdvance(bright), ly + fm.ascent() + 2, dim);
+        } else {
+            p.setPen(QColor(0xc8, 0xd8, 0xe8));
+            p.drawText(lx + 4, ly + fm.ascent() + 2, label);
+        }
     }
 
     qCDebug(lcPerf) << "paintEvent:" << static_cast<int>(frameTimer.elapsed()) << "ms";

@@ -66,6 +66,7 @@ public:
     void setPlayEnabled(bool enabled);
     void beginDirectEntry();
     QLabel* freqLabel() const { return m_freqLabel; }
+    void refreshFreqDisplay() { updateFreqLabel(); }
 
     bool isCollapsed() const { return m_collapsed; }
     void setCollapsed(bool collapsed);

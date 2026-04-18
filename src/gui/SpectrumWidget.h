@@ -337,6 +337,7 @@ signals:
     void propForecastClicked();  // click on K/A/SFI overlay text
     void sliceTuneRequested(int sliceId, double freqMhz);
     void popOutRequested(bool popOut);  // true=float, false=dock
+    void dimFixedFreqDigitsChanged(bool enabled);
     void sliceTxRequested(int sliceId);
     // Spot signals
     void spotAddRequested(double freqMhz, const QString& callsign,

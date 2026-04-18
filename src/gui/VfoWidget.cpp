@@ -3,6 +3,7 @@
 #include "ComboStyle.h"
 #include "GuardedSlider.h"
 #include "SliceColors.h"
+#include "FreqFormatUtil.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
 #include "core/AppSettings.h"
@@ -2240,8 +2241,9 @@ void VfoWidget::setSlice(SliceModel* slice)
     m_slice = slice;
     if (!m_slice) return;
 
-    // Frequency
+    // Frequency — also refresh when step changes (digit dimming)
     connect(m_slice, &SliceModel::frequencyChanged, this, [this](double) { updateFreqLabel(); });
+    connect(m_slice, &SliceModel::stepChanged, this, [this](int, const QVector<int>&) { updateFreqLabel(); });
     // Mode list (dynamic from radio)
     connect(m_slice, &SliceModel::modeListChanged, this, [this](const QStringList& modes) {
         if (modes.isEmpty()) return;          // keep static fallback list (#891)
@@ -2842,19 +2844,23 @@ void VfoWidget::syncFromSlice()
 void VfoWidget::updateFreqLabel()
 {
     if (!m_slice) return;
-    long long hz = static_cast<long long>(std::round(m_slice->frequency() * 1e6));
-    int mhzPart = static_cast<int>(hz / 1000000);
-    int khzPart = static_cast<int>((hz / 1000) % 1000);
-    int hzPart  = static_cast<int>(hz % 1000);
-    QString freqText = QString("%1.%2.%3")
-        .arg(mhzPart)
-        .arg(khzPart, 3, 10, QChar('0'))
-        .arg(hzPart, 3, 10, QChar('0'));
-    m_freqLabel->setText(freqText);
+    const double mhz = m_slice->frequency();
+    const int stepHz = m_slice->stepHz();
+    const bool dimEnabled = AppSettings::instance()
+        .value("DimFixedFreqDigits", true).toBool();
+
+    if (dimEnabled && fixedDigitCount(stepHz) > 0) {
+        m_freqLabel->setTextFormat(Qt::RichText);
+        m_freqLabel->setText(formatFreqGroupedHtml(mhz, stepHz));
+    } else {
+        m_freqLabel->setTextFormat(Qt::PlainText);
+        m_freqLabel->setText(formatFreqGrouped(mhz));
+    }
 
     // Keep collapsed frequency label in sync
     if (m_collapsed && m_collapsedFreqLabel) {
-        m_collapsedFreqLabel->setText(freqText);
+        m_collapsedFreqLabel->setTextFormat(m_freqLabel->textFormat());
+        m_collapsedFreqLabel->setText(m_freqLabel->text());
         m_collapsedFreqLabel->adjustSize();
     }
 }

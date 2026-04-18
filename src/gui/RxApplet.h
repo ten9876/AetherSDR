@@ -46,6 +46,7 @@ public:
     void syncStepFromSlice(int stepHz, const QVector<int>& stepList);
     void cycleStepUp();
     void cycleStepDown();
+    void refreshFreqDisplay();
 
     // Connect to transmit model for QSK (break_in) indicator.
     void setTransmitModel(class TransmitModel* txModel);
@@ -126,6 +127,7 @@ private:
     QPushButton* m_txBadge{nullptr};       // TX slice indicator (click to set as TX slice)
     QComboBox*   m_modeCombo{nullptr};     // mode selector (USB, LSB, CW, etc.)
     QLabel*      m_freqLabel{nullptr};     // frequency readout e.g. "14.289.510"
+    QString      m_freqPlainText;          // plain-text frequency for wheel tuning
     QLineEdit*   m_freqEdit{nullptr};
     QStackedWidget* m_freqStack{nullptr};
 
