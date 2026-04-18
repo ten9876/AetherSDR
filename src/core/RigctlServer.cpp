@@ -39,12 +39,19 @@ void RigctlServer::stop()
 {
     if (!m_server) return;
 
-    for (auto& cs : m_clients) {
-        cs.socket->disconnectFromHost();
+    QList<ClientState> clients;
+    clients.swap(m_clients);
+    emit clientCountChanged(0);
+
+    for (auto& cs : clients) {
+        if (cs.socket) {
+            // Prevent synchronous disconnected() delivery from re-entering
+            // onClientDisconnected() while we're already tearing down clients.
+            cs.socket->disconnect(this);
+            cs.socket->close();
+        }
         delete cs.protocol;
     }
-    m_clients.clear();
-    emit clientCountChanged(0);
 
     m_server->close();
     delete m_server;
