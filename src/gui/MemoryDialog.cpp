@@ -18,13 +18,17 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QHeaderView>
+#include <QItemSelectionModel>
 #include <QDebug>
 #include <QMessageBox>
 #include <QPointer>
+#include <QShortcut>
 #include <QSaveFile>
+#include <QSharedPointer>
 #include <QTimer>
 #include <QCloseEvent>
 #include <QKeyEvent>
+#include <QtGlobal>
 
 namespace AetherSDR {
 
@@ -170,6 +174,23 @@ QList<MemoryCsvRecord> currentExportRecords(const QMap<int, MemoryEntry>& memori
     return records;
 }
 
+QString selectionHintText()
+{
+#if defined(Q_OS_MACOS)
+    return "Tip: Double-click tunes. Shift-click selects a range. Command-click adds or removes rows.";
+#else
+    return "Tip: Double-click tunes. Shift-click selects a range. Ctrl-click adds or removes rows.";
+#endif
+}
+
+QString describeMemory(const MemoryEntry& memory)
+{
+    const QString label = memory.name.trimmed().isEmpty()
+        ? QString("Memory %1").arg(memory.index)
+        : memory.name.trimmed();
+    return QString("%1 (%2 MHz)").arg(label, QString::number(memory.freq, 'f', 6));
+}
+
 } // namespace
 
 static const QStringList COLUMNS = {
@@ -206,7 +227,7 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
     connect(m_searchEdit, &QLineEdit::textChanged,
             this, [this](const QString&) { populateTable(); });
     connect(m_searchEdit, &QLineEdit::returnPressed,
-            this, [this]() { activateMemoryRow(m_table->currentRow()); });
+            this, [this]() { activateMemoryRow(m_table ? m_table->currentRow() : -1); });
     connect(m_filterCombo, &QComboBox::currentIndexChanged,
             this, [this](int) { populateTable(); });
 
@@ -214,13 +235,14 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
     m_table = new QTableWidget(0, COLUMNS.size());
     m_table->setHorizontalHeaderLabels(COLUMNS);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_table->setEditTriggers(QAbstractItemView::DoubleClicked);
+    m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->verticalHeader()->setVisible(false);
     m_table->setAlternatingRowColors(true);
     m_table->setSortingEnabled(false);
     m_table->installEventFilter(this);
+    m_table->viewport()->installEventFilter(this);
     m_table->setStyleSheet(
         "QTableWidget { alternate-background-color: #1a1a2e; }"
         "QTableWidget::item:selected { background: #2060a0; }");
@@ -242,24 +264,56 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
         m_table->sortItems(m_sortColumn, m_sortOrder);
     });
     root->addWidget(m_table);
+    root->addWidget(new QLabel(selectionHintText()));
 
     // ── Buttons ───────────────────────────────────────────────────────────
     auto* btnRow = new QHBoxLayout;
     auto* exportBtn = new QPushButton("Export...");
     auto* addBtn = new QPushButton("Add");
-    auto* selectBtn = new QPushButton("Select");
-    auto* removeBtn = new QPushButton("Remove");
+    m_selectionLabel = new QLabel("0 selected");
+    m_editBtn = new QPushButton("Edit");
+    m_selectBtn = new QPushButton("Tune");
+    m_selectAllBtn = new QPushButton("Select All");
+    m_removeBtn = new QPushButton("Remove");
     btnRow->addWidget(addBtn);
-    btnRow->addWidget(selectBtn);
+    btnRow->addWidget(m_editBtn);
+    btnRow->addWidget(m_selectBtn);
+    btnRow->addWidget(m_selectAllBtn);
     btnRow->addWidget(exportBtn);
     btnRow->addStretch();
-    btnRow->addWidget(removeBtn);
+    btnRow->addWidget(m_selectionLabel);
+    btnRow->addWidget(m_removeBtn);
     root->addLayout(btnRow);
+
+    for (QPushButton* button : {addBtn, m_editBtn, m_selectBtn, m_selectAllBtn, exportBtn, m_removeBtn}) {
+        button->setAutoDefault(false);
+        button->setDefault(false);
+    }
 
     connect(exportBtn, &QPushButton::clicked, this, &MemoryDialog::onExport);
     connect(addBtn, &QPushButton::clicked, this, &MemoryDialog::onAdd);
-    connect(selectBtn, &QPushButton::clicked, this, &MemoryDialog::onSelect);
-    connect(removeBtn, &QPushButton::clicked, this, &MemoryDialog::onRemove);
+    connect(m_editBtn, &QPushButton::clicked, this, &MemoryDialog::onEdit);
+    connect(m_selectBtn, &QPushButton::clicked, this, &MemoryDialog::onSelect);
+    connect(m_selectAllBtn, &QPushButton::clicked, this, &MemoryDialog::onSelectAll);
+    connect(m_removeBtn, &QPushButton::clicked, this, &MemoryDialog::onRemove);
+    connect(m_table, &QTableWidget::cellDoubleClicked,
+            this, [this](int row, int) { activateMemoryRow(row); });
+    connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, &MemoryDialog::updateSelectionActions);
+    connect(m_table->selectionModel(), &QItemSelectionModel::currentRowChanged,
+            this, [this](const QModelIndex&, const QModelIndex&) {
+        updateSelectionActions();
+    });
+    new QShortcut(QKeySequence::Find, this, [this]() {
+        if (!m_searchEdit)
+            return;
+        m_searchEdit->setFocus(Qt::ShortcutFocusReason);
+        m_searchEdit->selectAll();
+    });
+    new QShortcut(QKeySequence::New, this, [this]() { onAdd(); });
+    new QShortcut(QKeySequence(Qt::Key_F2), this, [this]() { onEdit(); });
+    new QShortcut(QKeySequence(QStringLiteral("Ctrl+E")), this, [this]() { onEdit(); });
+    new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+A")), this, [this]() { onSelectAll(); });
 
     // Rebuild filter combo when profile lists change
     connect(model, &RadioModel::globalProfilesChanged,
@@ -285,8 +339,8 @@ MemoryDialog::MemoryDialog(RadioModel* model, QWidget* parent)
     connect(m_table, &QTableWidget::cellChanged, this, [this](int row, int col) {
         submitCellEdit(row, col);
     });
-    // Note: double-click starts inline cell editing (DoubleClicked edit trigger).
-    // Memory apply uses Enter key or the Select button — not double-click.
+    // Double-click tunes to the selected memory.
+    // Editing is explicit via the Edit button to avoid accidental cell mutations.
 
     // The radio doesn't support "sub memory all" or "memory list".
     // Populate from RadioModel cache (filled from status pushes during connect).
@@ -301,11 +355,36 @@ void MemoryDialog::closeEvent(QCloseEvent* event)
     QDialog::closeEvent(event);
 }
 
+void MemoryDialog::keyPressEvent(QKeyEvent* event)
+{
+    if (event->key() == Qt::Key_Escape) {
+        if (m_searchEdit && !m_searchEdit->text().isEmpty()) {
+            m_searchEdit->clear();
+            m_searchEdit->setFocus(Qt::ShortcutFocusReason);
+        } else {
+            reject();
+        }
+        return;
+    }
+
+    QDialog::keyPressEvent(event);
+}
+
 bool MemoryDialog::eventFilter(QObject* watched, QEvent* event)
 {
     if (event->type() == QEvent::KeyPress) {
         auto* keyEvent = static_cast<QKeyEvent*>(event);
         const int key = keyEvent->key();
+
+        if ((watched == m_searchEdit || watched == m_table) && key == Qt::Key_Escape) {
+            if (m_searchEdit && !m_searchEdit->text().isEmpty()) {
+                m_searchEdit->clear();
+                m_searchEdit->setFocus(Qt::ShortcutFocusReason);
+            } else {
+                reject();
+            }
+            return true;
+        }
 
         if (watched == m_searchEdit) {
             if (key == Qt::Key_Up || key == Qt::Key_Down) {
@@ -322,20 +401,41 @@ bool MemoryDialog::eventFilter(QObject* watched, QEvent* event)
                 return true;
             }
             if (key == Qt::Key_Return || key == Qt::Key_Enter) {
-                activateMemoryRow(m_table ? m_table->currentRow() : -1);
+                int row = m_table ? m_table->currentRow() : -1;
+                if (m_table && row < 0 && m_table->rowCount() > 0) {
+                    row = 0;
+                    m_table->selectRow(row);
+                    m_table->setCurrentCell(row, 0);
+                }
+                activateMemoryRow(row);
                 return true;
             }
         }
 
-        if (watched == m_table && (key == Qt::Key_Return || key == Qt::Key_Enter)) {
+        if (m_table && watched == m_table && (key == Qt::Key_Return || key == Qt::Key_Enter)) {
             // Don't intercept Enter while editing a cell — let the delegate handle it.
             // QAbstractItemView::state() is protected, so check for an active editor
             // via indexWidget on the current index instead.
             QModelIndex idx = m_table->currentIndex();
-            if (!m_table->indexWidget(idx) && !m_table->isPersistentEditorOpen(m_table->currentItem())) {
+            if (selectedMemoryIndices().size() == 1
+                && !m_table->indexWidget(idx)
+                && !m_table->isPersistentEditorOpen(m_table->currentItem())) {
                 activateMemoryRow(m_table->currentRow());
                 return true;
             }
+        }
+
+        if (m_table && watched == m_table && (key == Qt::Key_Delete || key == Qt::Key_Backspace)) {
+            if (!selectedMemoryIndices().isEmpty()) {
+                onRemove();
+                return true;
+            }
+        }
+
+        if (m_table && watched == m_table && key == Qt::Key_A
+            && (keyEvent->modifiers() & (Qt::ControlModifier | Qt::MetaModifier))) {
+            onSelectAll();
+            return true;
         }
     }
 
@@ -363,14 +463,66 @@ void MemoryDialog::activateMemoryRow(int row)
     if (memoryIt == m_model->memories().constEnd())
         return;
 
+    setInlineEditMode(false);
     m_table->setCurrentCell(row, 0);
+    focusTableOnCurrentRow();
     m_model->sendCommand(QString("memory apply %1").arg(idx));
     m_model->setPanCenter(memoryIt->freq);
+}
+
+void MemoryDialog::beginEditingMemoryName(int memoryIndex)
+{
+    if (!m_table)
+        return;
+
+    for (int row = 0; row < m_table->rowCount(); ++row) {
+        auto* indexItem = m_table->item(row, 0);
+        auto* nameItem = m_table->item(row, 3);
+        if (!indexItem || !nameItem)
+            continue;
+        if (indexItem->data(Qt::UserRole).toInt() != memoryIndex)
+            continue;
+
+        if (auto* selectionModel = m_table->selectionModel()) {
+            selectionModel->select(
+                m_table->model()->index(row, 0),
+                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        }
+        setInlineEditMode(true);
+        m_table->setCurrentCell(row, 3, QItemSelectionModel::NoUpdate);
+        m_table->scrollToItem(nameItem, QAbstractItemView::PositionAtCenter);
+        m_table->setFocus(Qt::OtherFocusReason);
+        updateSelectionActions();
+        m_table->editItem(nameItem);
+        return;
+    }
+}
+
+void MemoryDialog::focusTableOnCurrentRow()
+{
+    if (!m_table)
+        return;
+
+    if (m_table->currentRow() < 0 && m_table->rowCount() > 0)
+        m_table->setCurrentCell(0, 0, QItemSelectionModel::NoUpdate);
+    m_table->setFocus(Qt::OtherFocusReason);
+}
+
+void MemoryDialog::setInlineEditMode(bool enabled)
+{
+    m_inlineEditMode = enabled;
+    if (!m_table)
+        return;
+
+    m_table->setEditTriggers(enabled
+        ? (QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed)
+        : QAbstractItemView::NoEditTriggers);
 }
 
 void MemoryDialog::populateTable()
 {
     const QSignalBlocker blocker(m_table);
+    const QSet<int> previousSelection = selectedMemoryIndices();
     const int currentMemoryIndex = (m_table->currentRow() >= 0 && m_table->item(m_table->currentRow(), 0))
         ? m_table->item(m_table->currentRow(), 0)->data(Qt::UserRole).toInt()
         : -1;
@@ -447,6 +599,8 @@ void MemoryDialog::populateTable()
 
     m_table->resizeColumnsToContents();
     m_table->setColumnWidth(2, std::max(m_table->columnWidth(2), 105));
+    const int minNameWidth = fontMetrics().horizontalAdvance(QString(20, QChar('M')));
+    m_table->setColumnWidth(3, std::max(m_table->columnWidth(3), minNameWidth));
     if (isSortableColumn(m_sortColumn)) {
         auto* header = m_table->horizontalHeader();
         header->setSortIndicatorShown(true);
@@ -456,18 +610,48 @@ void MemoryDialog::populateTable()
     m_table->setSortingEnabled(true);
 
     if (hasRows) {
-        int selectedRow = 0;
-        if (currentMemoryIndex >= 0) {
-            for (int row = 0; row < m_table->rowCount(); ++row) {
-                auto* item = m_table->item(row, 0);
-                if (item && item->data(Qt::UserRole).toInt() == currentMemoryIndex) {
-                    selectedRow = row;
-                    break;
-                }
+        bool restoredSelection = false;
+        int currentRow = -1;
+        int firstSelectedRow = -1;
+        for (int row = 0; row < m_table->rowCount(); ++row) {
+            auto* item = m_table->item(row, 0);
+            if (!item)
+                continue;
+
+            const int memoryIndex = item->data(Qt::UserRole).toInt();
+            if (previousSelection.contains(memoryIndex)) {
+                m_table->selectionModel()->select(
+                    m_table->model()->index(row, 0),
+                    QItemSelectionModel::Select | QItemSelectionModel::Rows);
+                restoredSelection = true;
+                if (firstSelectedRow < 0)
+                    firstSelectedRow = row;
             }
+            if (memoryIndex == currentMemoryIndex)
+                currentRow = row;
         }
-        m_table->selectRow(selectedRow);
-        m_table->setCurrentCell(selectedRow, 0);
+
+        if (!restoredSelection) {
+            currentRow = currentRow >= 0 ? currentRow : 0;
+            m_table->selectRow(currentRow);
+        } else if (currentRow < 0) {
+            currentRow = firstSelectedRow;
+        }
+
+        if (currentRow >= 0)
+            m_table->setCurrentCell(currentRow, 0, QItemSelectionModel::NoUpdate);
+    }
+
+    updateSelectionActions();
+
+    if (m_pendingEditMemoryIndex >= 0 && m_pendingEditRetries > 0) {
+        const int pendingMemoryIndex = m_pendingEditMemoryIndex;
+        --m_pendingEditRetries;
+        QTimer::singleShot(0, this, [this, pendingMemoryIndex]() {
+            beginEditingMemoryName(pendingMemoryIndex);
+        });
+        if (m_pendingEditRetries == 0)
+            m_pendingEditMemoryIndex = -1;
     }
 }
 
@@ -489,6 +673,10 @@ void MemoryDialog::submitCellEdit(int row, int col)
         return;
 
     const int memIdx = indexItem->data(Qt::UserRole).toInt();
+    if (col == 3 && memIdx == m_pendingEditMemoryIndex) {
+        m_pendingEditMemoryIndex = -1;
+        m_pendingEditRetries = 0;
+    }
     RadioModel* const model = m_model;
     const QPointer<MemoryDialog> dialogGuard(this);
     model->sendCmdPublic(QString("memory set %1 %2").arg(memIdx).arg(commandSuffix),
@@ -599,8 +787,11 @@ void MemoryDialog::onAdd()
         kvs["digu_offset"] = QString::number(m.diguOffset);
         model->handleMemoryStatus(idx, kvs);
 
-        if (dialogGuard)
+        if (dialogGuard) {
+            dialogGuard->m_pendingEditMemoryIndex = idx;
+            dialogGuard->m_pendingEditRetries = 3;
             dialogGuard->populateTable();
+        }
     });
 }
 
@@ -665,27 +856,111 @@ void MemoryDialog::onExport()
 
 void MemoryDialog::onSelect()
 {
+    if (selectedMemoryIndices().size() != 1)
+        return;
+
     activateMemoryRow(m_table->currentRow());
+}
+
+void MemoryDialog::onEdit()
+{
+    if (!m_table || selectedMemoryIndices().size() != 1)
+        return;
+
+    auto* indexItem = m_table->item(m_table->currentRow(), 0);
+    if (!indexItem)
+        return;
+
+    beginEditingMemoryName(indexItem->data(Qt::UserRole).toInt());
+}
+
+void MemoryDialog::onSelectAll()
+{
+    if (!m_table || m_table->rowCount() <= 0)
+        return;
+
+    setInlineEditMode(false);
+    m_table->selectAll();
+    if (m_table->currentRow() < 0)
+        m_table->setCurrentCell(0, 0, QItemSelectionModel::NoUpdate);
+    focusTableOnCurrentRow();
+    updateSelectionActions();
 }
 
 void MemoryDialog::onRemove()
 {
-    const int row = m_table->currentRow();
-    if (row < 0) return;
-    const int idx = m_table->item(row, 0)->data(Qt::UserRole).toInt();
+    const QSet<int> selectedIndices = selectedMemoryIndices();
+    if (selectedIndices.isEmpty())
+        return;
+
+    setInlineEditMode(false);
+    QList<int> indices = selectedIndices.values();
+    std::sort(indices.begin(), indices.end());
+
+    QStringList memoryDescriptions;
+    memoryDescriptions.reserve(indices.size());
+    for (int idx : indices) {
+        const auto it = m_model->memories().constFind(idx);
+        memoryDescriptions << (it != m_model->memories().constEnd()
+            ? describeMemory(it.value())
+            : QString("Memory %1").arg(idx));
+    }
+
+    QMessageBox confirm(this);
+    confirm.setIcon(QMessageBox::Warning);
+    confirm.setWindowTitle(indices.size() == 1 ? "Delete Memory" : "Delete Memories");
+    confirm.setText(indices.size() == 1
+        ? QString("Delete %1?").arg(memoryDescriptions.value(0, "the selected memory"))
+        : QString("Delete %1 selected memories?").arg(indices.size()));
+    confirm.setInformativeText("This can't be undone.");
+    if (memoryDescriptions.size() > 1)
+        confirm.setDetailedText(memoryDescriptions.join('\n'));
+    confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+    confirm.setDefaultButton(QMessageBox::Cancel);
+    if (confirm.exec() != QMessageBox::Yes) {
+        focusTableOnCurrentRow();
+        return;
+    }
+
     RadioModel* const model = m_model;
     const QPointer<MemoryDialog> dialogGuard(this);
-    m_model->sendCmdPublic(QString("memory remove %1").arg(idx),
-        [model, dialogGuard, idx](int code, const QString&) {
-        if (code == 0) {
-            QMap<QString, QString> kvs;
-            kvs["removed"] = QString{};
-            model->handleMemoryStatus(idx, kvs);
-            return;
-        }
-        if (dialogGuard)
-            dialogGuard->populateTable();
-    });
+    struct RemovalState {
+        int remaining{0};
+        int failed{0};
+        QStringList failedDescriptions;
+    };
+    const auto state = QSharedPointer<RemovalState>::create();
+    state->remaining = indices.size();
+
+    for (int i = 0; i < indices.size(); ++i) {
+        const int idx = indices.at(i);
+        const QString description = memoryDescriptions.value(i, QString("Memory %1").arg(idx));
+        m_model->sendCmdPublic(QString("memory remove %1").arg(idx),
+            [model, dialogGuard, idx, description, state](int code, const QString&) {
+            if (code == 0) {
+                QMap<QString, QString> kvs;
+                kvs["removed"] = QString{};
+                model->handleMemoryStatus(idx, kvs);
+            } else {
+                ++state->failed;
+                state->failedDescriptions << description;
+            }
+
+            --state->remaining;
+            if (state->remaining == 0 && dialogGuard) {
+                dialogGuard->populateTable();
+                if (state->failed > 0) {
+                    QMessageBox::warning(
+                        dialogGuard,
+                        state->failed == 1 ? "Delete Memory" : "Delete Memories",
+                        state->failed == 1
+                            ? QString("Couldn't delete %1.").arg(state->failedDescriptions.value(0))
+                            : QString("Couldn't delete %1 memories.").arg(state->failed));
+                }
+                dialogGuard->focusTableOnCurrentRow();
+            }
+        });
+    }
 }
 
 void MemoryDialog::rebuildFilterCombo()
@@ -719,6 +994,51 @@ void MemoryDialog::rebuildFilterCombo()
     int idx = m_filterCombo->findData(previous);
     if (idx >= 0) {
         m_filterCombo->setCurrentIndex(idx);
+    }
+}
+
+QSet<int> MemoryDialog::selectedMemoryIndices() const
+{
+    QSet<int> indices;
+    if (!m_table || !m_table->selectionModel())
+        return indices;
+
+    const QModelIndexList rows = m_table->selectionModel()->selectedRows(0);
+    for (const QModelIndex& row : rows)
+        indices.insert(row.data(Qt::UserRole).toInt());
+    return indices;
+}
+
+void MemoryDialog::updateSelectionActions()
+{
+    const int selectedCount = selectedMemoryIndices().size();
+    const int visibleCount = m_table ? m_table->rowCount() : 0;
+    if (selectedCount != 1 && m_inlineEditMode)
+        setInlineEditMode(false);
+    if (m_selectionLabel) {
+        m_selectionLabel->setText(QString("%1 of %2 selected").arg(selectedCount).arg(visibleCount));
+    }
+    if (m_editBtn) {
+        m_editBtn->setEnabled(selectedCount == 1);
+        m_editBtn->setToolTip(selectedCount == 1
+            ? "Edit the highlighted memory fields."
+            : "Edit is available when exactly one memory is highlighted.");
+    }
+    if (m_selectBtn) {
+        m_selectBtn->setEnabled(selectedCount == 1);
+        m_selectBtn->setToolTip(selectedCount == 1
+            ? QString()
+            : "Tune is available when exactly one memory is highlighted.");
+    }
+    if (m_selectAllBtn) {
+        m_selectAllBtn->setEnabled(visibleCount > 0 && selectedCount < visibleCount);
+        m_selectAllBtn->setToolTip(visibleCount > 0
+            ? "Select every memory in the current search/filter result."
+            : QString());
+    }
+    if (m_removeBtn) {
+        m_removeBtn->setEnabled(selectedCount > 0);
+        m_removeBtn->setText(selectedCount > 1 ? "Remove Selected" : "Remove");
     }
 }
 
