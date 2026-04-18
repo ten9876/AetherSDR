@@ -10,6 +10,10 @@
 #include "core/FlexControlManager.h"
 #include <QSerialPortInfo>
 #endif
+#ifdef HAVE_HIDAPI
+#include "core/HidEncoderManager.h"
+#include "core/HidDeviceParser.h"
+#endif
 #include "core/FirmwareUploader.h"
 #include "core/FirmwareStager.h"
 #include "core/TgxlConnection.h"
@@ -3199,6 +3203,151 @@ QWidget* RadioSetupDialog::buildSerialTab()
 
         vbox->addWidget(group);
     }
+
+#ifdef HAVE_HIDAPI
+    // ── HID Encoder (RC-28, PowerMate, Shuttle) ──────────────────────── (#616)
+    {
+        auto* group = new QGroupBox("HID Encoder (RC-28, PowerMate, Shuttle)");
+        group->setStyleSheet(kGroupStyle);
+        auto* grid = new QGridLayout(group);
+        grid->setSpacing(6);
+
+        // Status
+        auto* hidStatusLabel = new QLabel("Not detected");
+        hidStatusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+        grid->addWidget(new QLabel("Status:"), 0, 0);
+        grid->addWidget(hidStatusLabel, 0, 1);
+
+        // Detect / Close buttons
+        auto* hidDetectBtn = new QPushButton("Detect");
+        hidDetectBtn->setFixedWidth(80);
+        hidDetectBtn->setStyleSheet(
+            "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+            "border: 1px solid #008ba8; padding: 3px; border-radius: 3px; }"
+            "QPushButton:hover { background: #00c8f0; }");
+        auto* hidCloseBtn = new QPushButton("Close");
+        hidCloseBtn->setFixedWidth(80);
+        hidCloseBtn->setStyleSheet(hidDetectBtn->styleSheet());
+        hidCloseBtn->setEnabled(false);
+
+        auto* hidBtnRow = new QHBoxLayout;
+        hidBtnRow->addWidget(hidDetectBtn);
+        hidBtnRow->addWidget(hidCloseBtn);
+        hidBtnRow->addStretch();
+        grid->addLayout(hidBtnRow, 0, 2);
+
+        // Update status display
+        auto updateHidStatus = [hidStatusLabel, hidCloseBtn, hidDetectBtn]
+                               (bool connected, const QString& name = {}) {
+            if (connected) {
+                hidStatusLabel->setText(QString("Connected (%1)").arg(name));
+                hidStatusLabel->setStyleSheet("QLabel { color: #30d050; font-size: 11px; }");
+                hidCloseBtn->setEnabled(true);
+                hidDetectBtn->setEnabled(false);
+            } else {
+                hidStatusLabel->setText("Not detected");
+                hidStatusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+                hidCloseBtn->setEnabled(false);
+                hidDetectBtn->setEnabled(true);
+            }
+        };
+
+        connect(hidDetectBtn, &QPushButton::clicked, this, [updateHidStatus] {
+            QString name = AetherSDR::HidEncoderManager::detectDevice();
+            if (name.isEmpty()) {
+                updateHidStatus(false);
+#ifdef Q_OS_MAC
+                QMessageBox::information(nullptr, "HID Encoder",
+                    "No supported HID encoder found.\n\n"
+                    "If your device is plugged in, check that AetherSDR has "
+                    "Input Monitoring permission in System Settings → "
+                    "Privacy & Security → Input Monitoring.");
+#endif
+                return;
+            }
+            updateHidStatus(true, name);
+            auto& s = AppSettings::instance();
+            s.setValue("HidEncoderAutoDetect", "True");
+            s.save();
+        });
+        connect(hidCloseBtn, &QPushButton::clicked, this, [updateHidStatus] {
+            updateHidStatus(false);
+            auto& s = AppSettings::instance();
+            s.setValue("HidEncoderAutoDetect", "False");
+            s.save();
+        });
+
+        // Show current state from settings (auto-detect = device should be open)
+        if (settings.value("HidEncoderAutoDetect", "True").toString() == "True") {
+            QString name = AetherSDR::HidEncoderManager::detectDevice();
+            if (!name.isEmpty()) {
+                updateHidStatus(true, name);
+            }
+        }
+
+        // Button action configuration — same actions as FlexControl
+        static const QStringList hidActions = {
+            "None", "StepUp", "StepDown", "ToggleMox",
+            "ToggleTune", "ToggleMute", "ToggleLock",
+            "NextSlice", "PrevSlice",
+            "ToggleAgc", "VolumeUp", "VolumeDown",
+            "WheelFrequency", "WheelVolume", "WheelPower"
+        };
+        static const char* hidDefaultActions[2][2] = {
+            {"StepUp", "StepDown"},
+            {"ToggleMox", "ToggleTune"},
+        };
+        static const char* hidBtnLabels[2] = {"Button 1:", "Button 2:"};
+        static const char* hidActLabels[2] = {"Tap", "Double"};
+
+        for (int b = 0; b < 2; ++b) {
+            grid->addWidget(new QLabel(hidBtnLabels[b]), b + 1, 0);
+            auto* row = new QHBoxLayout;
+            for (int a = 0; a < 2; ++a) {
+                row->addWidget(new QLabel(hidActLabels[a]));
+                auto* combo = new QComboBox;
+                combo->addItems(hidActions);
+                combo->setStyleSheet(QString(kEditStyle).replace("QLineEdit", "QComboBox"));
+                QString key = QString("HidEncoderBtn%1Action%2").arg(b + 1).arg(a);
+                QString current = settings.value(key, hidDefaultActions[b][a]).toString();
+                int idx = hidActions.indexOf(current);
+                if (idx >= 0) { combo->setCurrentIndex(idx); }
+                connect(combo, &QComboBox::currentTextChanged, this, [key](const QString& text) {
+                    auto& s = AppSettings::instance();
+                    s.setValue(key, text);
+                    s.save();
+                });
+                row->addWidget(combo);
+            }
+            row->addStretch();
+            grid->addLayout(row, b + 1, 1, 1, 2);
+        }
+
+        // Auto-detect checkbox
+        auto* hidAutoDetect = new QCheckBox("Auto-detect on startup");
+        hidAutoDetect->setStyleSheet("QCheckBox { color: #c8d8e8; }");
+        hidAutoDetect->setChecked(settings.value("HidEncoderAutoDetect", "True").toString() == "True");
+        connect(hidAutoDetect, &QCheckBox::toggled, this, [](bool on) {
+            auto& s = AppSettings::instance();
+            s.setValue("HidEncoderAutoDetect", on ? "True" : "False");
+            s.save();
+        });
+        grid->addWidget(hidAutoDetect, 3, 0, 1, 3);
+
+        // Invert direction checkbox
+        auto* hidInvertDir = new QCheckBox("Invert tuning direction");
+        hidInvertDir->setStyleSheet("QCheckBox { color: #c8d8e8; }");
+        hidInvertDir->setChecked(settings.value("HidEncoderInvertDir", "False").toString() == "True");
+        connect(hidInvertDir, &QCheckBox::toggled, this, [](bool on) {
+            auto& s = AppSettings::instance();
+            s.setValue("HidEncoderInvertDir", on ? "True" : "False");
+            s.save();
+        });
+        grid->addWidget(hidInvertDir, 4, 0, 1, 3);
+
+        vbox->addWidget(group);
+    }
+#endif
 
     vbox->addStretch();
     return page;

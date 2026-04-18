@@ -1848,8 +1848,13 @@ MainWindow::MainWindow(QWidget* parent)
     });
 
     connect(m_hidEncoder, &HidEncoderManager::connectionChanged,
-            this, [](bool connected, const QString& name) {
-        qDebug() << "HID encoder:" << (connected ? "connected" : "disconnected") << name;
+            this, [this](bool connected, const QString& name) {
+        qCDebug(lcDevices) << "HID encoder:" << (connected ? "connected" : "disconnected") << name;
+        if (connected) {
+            statusBar()->showMessage(QString("HID encoder connected: %1").arg(name), 5000);
+        } else {
+            statusBar()->showMessage("HID encoder disconnected", 3000);
+        }
     });
 
     // StreamDeck native integration removed — use TCI StreamController plugin instead.
@@ -2752,6 +2757,13 @@ void MainWindow::buildMenuBar()
     });
 #endif
 #ifdef HAVE_HIDAPI
+    auto* hidAction = settingsMenu->addAction("HID Encoder...");
+    connect(hidAction, &QAction::triggered, this, [this] {
+        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, nullptr, nullptr, nullptr, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->selectTab("Serial");
+        dlg->show();
+    });
 #endif
     auto* spotsAction = settingsMenu->addAction("SpotHub...");
     connect(spotsAction, &QAction::triggered, this, [this] {

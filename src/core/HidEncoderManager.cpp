@@ -51,8 +51,12 @@ bool HidEncoderManager::open(uint16_t vid, uint16_t pid)
 
     m_device = hid_open(vid, pid, nullptr);
     if (!m_device) {
-        qCDebug(lcDevices) << "HidEncoderManager: failed to open"
+        qCWarning(lcDevices) << "HidEncoderManager: failed to open"
                         << QString("0x%1:0x%2").arg(vid, 4, 16, QChar('0')).arg(pid, 4, 16, QChar('0'));
+#ifdef Q_OS_MAC
+        qCWarning(lcDevices) << "HidEncoderManager: on macOS, ensure AetherSDR has Input Monitoring "
+                                "permission (System Settings → Privacy & Security → Input Monitoring)";
+#endif
         return false;
     }
 
