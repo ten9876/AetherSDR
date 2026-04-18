@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QList>
 #include <QMap>
 #include <QSet>
@@ -83,7 +84,12 @@ private:
         int          audioChannels{2};       // 1=mono, 2=stereo
         int          audioFormat{3};         // 0=int16, 3=float32
         Resampler*   resampler{nullptr};    // null if rate == 24000 (native)
-        QByteArray   rxAccumBuf;            // buffer DAX packets before resampling
+        // Per-DAX-channel accumulation buffers. Concatenating multi-channel
+        // packets into a shared buffer would interleave audio from different
+        // slices and destroy the resampler output, so each channel maintains
+        // its own staging area. QHash over QMap: channel count is tiny (1-4)
+        // and we never iterate in key order.
+        QHash<int, QByteArray> rxAccumBuf;
         bool         rxSensorsEnabled{false};
         bool         txSensorsEnabled{false};
         bool         iqEnabled{false};       // client sent IQ_START

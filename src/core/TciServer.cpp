@@ -755,9 +755,10 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
         // Accumulate DAX packets into a buffer before resampling.
         // DAX delivers ~128-frame packets; r8brain needs larger blocks
         // for clean output without startup transients.
-        cs.rxAccumBuf.append(pcm);
+        QByteArray& accumBuf = cs.rxAccumBuf[channel];
+        accumBuf.append(pcm);
 
-        int accumFrames = cs.rxAccumBuf.size() / (2 * static_cast<int>(sizeof(float)));
+        int accumFrames = accumBuf.size() / (2 * static_cast<int>(sizeof(float)));
 
         // If no resampler, flush immediately (native 24kHz pass-through)
         // If resampling, wait for enough data to feed r8brain cleanly
@@ -765,7 +766,7 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
             continue;
         }
 
-        const float* audioSrc = reinterpret_cast<const float*>(cs.rxAccumBuf.constData());
+        const float* audioSrc = reinterpret_cast<const float*>(accumBuf.constData());
         int audioFrames = accumFrames;
         QByteArray resampledBuf;
 
@@ -775,7 +776,12 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
             audioFrames = resampledBuf.size() / (2 * static_cast<int>(sizeof(float)));
         }
 
-        cs.rxAccumBuf.clear();
+        // squeeze() after clear() releases the buffer's heap allocation so
+        // idle channels that were reassigned away don't hold kAccumMinFrames
+        // worth of memory indefinitely. Cost is a re-alloc on next packet —
+        // trivial next to the resampling work that just finished.
+        accumBuf.clear();
+        accumBuf.squeeze();
 
         int srcSamples = audioFrames * 2;  // stereo
 
