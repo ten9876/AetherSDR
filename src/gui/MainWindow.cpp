@@ -1248,14 +1248,24 @@ MainWindow::MainWindow(QWidget* parent)
         m_appletPanel->setMaxSlices(m_radioModel.maxSlices());
     });
 
-    // Propagate late-arriving SmartSDR+ subscription to all existing VFOs (#1356)
+    // Propagate late-arriving SmartSDR+ subscription + dual-SCU diversity
+    // eligibility to all existing VFOs. Both depend on radio info (license
+    // subscription / model) that can arrive after a slice is created — in
+    // which case onSliceAdded reads empty strings and the VFO gets stuck in
+    // the wrong state (#1356 for SmartSDR+, #1503 for DIV).
     connect(&m_radioModel, &RadioModel::infoChanged, this, [this]() {
         const bool hasPlus = m_radioModel.licenseSubscription().contains("SmartSDR+");
+        const QString& model = m_radioModel.model();
+        const bool divAllowed = model.contains("6500") || model.contains("6600")
+                             || model.contains("6700") || model.contains("8600")
+                             || model.contains("AU-520");
         if (m_panStack) {
             for (auto* applet : m_panStack->allApplets()) {
                 auto* sw = applet->spectrumWidget();
-                for (auto* vfo : sw->findChildren<VfoWidget*>())
+                for (auto* vfo : sw->findChildren<VfoWidget*>()) {
                     vfo->setSmartSdrPlus(hasPlus);
+                    vfo->setDiversityAllowed(divAllowed);
+                }
             }
         }
     });
