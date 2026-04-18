@@ -68,14 +68,14 @@ void PanadapterModel::applyPanStatus(const QMap<QString, QString>& kvs)
         int g = kvs["rfgain"].toInt();
         if (g != m_rfGain) {
             m_rfGain = g;
-            emit rfGainChanged(m_rfGain, m_preamp);
+            emit rfGainChanged(m_rfGain);
         }
     }
     if (kvs.contains("pre")) {
         QString pre = kvs["pre"];
         if (pre != m_preamp) {
+            // Preamp is internal state only — no UI listeners, no emit.
             m_preamp = pre;
-            emit rfGainChanged(m_rfGain, m_preamp);
         }
     }
     if (kvs.contains("wnb")) {

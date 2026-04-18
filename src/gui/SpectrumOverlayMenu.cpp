@@ -303,7 +303,13 @@ void SpectrumOverlayMenu::buildAntPanel()
             m_rfGainSlider->setValue(snapped);
         }
         m_rfGainLabel->setText(QString("%1 dB").arg(snapped));
-        if (!m_updatingFromModel) {
+        // Only emit when the snapped value actually differs from the last
+        // emitted one. Mouse drags within a single step fire valueChanged
+        // with many unsnapped values that all round to the same snapped
+        // value — without this guard we'd spam rfgain commands to the
+        // radio on every drag tick (#1498).
+        if (!m_updatingFromModel && snapped != m_lastEmittedRfGain) {
+            m_lastEmittedRfGain = snapped;
             emit rfGainChanged(snapped);
             if (m_slice)
                 m_slice->setRfGain(static_cast<float>(snapped));
@@ -1366,6 +1372,7 @@ void SpectrumOverlayMenu::setRfGain(int gain)
     QSignalBlocker b(m_rfGainSlider);
     m_rfGainSlider->setValue(gain);
     m_rfGainLabel->setText(QString("%1 dB").arg(gain));
+    m_lastEmittedRfGain = gain;  // keep emit-dedupe in sync with external updates
 }
 
 void SpectrumOverlayMenu::setRfGainRange(int low, int high, int step)

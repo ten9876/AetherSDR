@@ -1074,7 +1074,7 @@ MainWindow::MainWindow(QWidget* parent)
                 applet->spectrumWidget()->overlayMenu(),
                 &SpectrumOverlayMenu::setRfGainRange);
         connect(pan, &PanadapterModel::rfGainChanged,
-                this, [applet](int gain, const QString&) {
+                this, [applet](int gain) {
             applet->spectrumWidget()->setRfGain(gain);
             applet->spectrumWidget()->overlayMenu()->setRfGain(gain);
         });

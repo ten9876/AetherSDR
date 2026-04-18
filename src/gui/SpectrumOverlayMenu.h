@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QVector>
+#include <climits>
 #include <QStringList>
 #include <QPoint>
 #include <QPointer>
@@ -216,6 +217,7 @@ private:
     QStringList  m_antList;
     QPointer<SliceModel> m_slice;
     bool         m_updatingFromModel{false};
+    int          m_lastEmittedRfGain{INT_MIN};  // dedupe rfgain emits across drag snap ticks (#1498)
 };
 
 } // namespace AetherSDR
