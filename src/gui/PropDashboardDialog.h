@@ -9,6 +9,7 @@
 #include "core/PropForecastClient.h"
 
 class QNetworkAccessManager;
+class QFrame;
 
 namespace AetherSDR {
 
@@ -23,20 +24,30 @@ private:
     void refresh();
     void onDetailUpdated(const PropForecastDetail& detail);
     void fetchImages();
+    void updateLearningNotes();
+    void updateVhfLearningNotes();
     static QString kpColor(double kp);
 
     PropForecastClient* m_client;
     QNetworkAccessManager* m_nam{nullptr};
     QTimer m_refreshTimer;
 
-    // Current conditions (single row)
-    QLabel* m_currentCondLabel{nullptr};
+    static constexpr int kMetricCardCount = 5;
+    QFrame* m_metricCards[kMetricCardCount]{};
+    QLabel* m_metricValueLabels[kMetricCardCount]{};
+    QLabel* m_metricDetailLabels[kMetricCardCount]{};
+    static constexpr int kLearningNoteCount = 3;
+    QLabel* m_learningNoteLabels[kLearningNoteCount]{};
+    static constexpr int kVhfNoteCount = 2;
+    QLabel* m_vhfNoteLabels[kVhfNoteCount]{};
 
     // Solar/Lunar imagery
     QLabel* m_solarImage{nullptr};
     QLabel* m_solarTypeLabel{nullptr};
     QLabel* m_lunarImage{nullptr};
     QLabel* m_lunarPhaseLabel{nullptr};
+    QString m_lunarPhaseName;
+    int m_lunarIllumination{-1};
     int m_solarTypeIndex{0};
     void fetchSolarImage();
     void cycleSolarImage();
