@@ -5995,8 +5995,24 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         // stack (frequency, mode, filters, pan center, bandwidth, antennas).
         // One command handles everything.
         m_bandSettings.setCurrentBand(bandName);
+
+        // Translate XVTR display names ("2m", "70cm", "23cm") to their band-stack
+        // key ("X0", "X1", "X2"). SmartSDR pcap shows this is what the radio's
+        // band stack expects — sending band=<xvtr_name> clears the slice because
+        // the name isn't a valid stack key, whereas band=X<idx> restores the
+        // saved XVTR slice correctly (#1540/#1211).
+        QString stackKey = bandName;
+        for (auto it = m_radioModel.xvtrList().constBegin();
+             it != m_radioModel.xvtrList().constEnd(); ++it) {
+            if (it.value().isValid && it.value().name == bandName) {
+                stackKey = QString("X%1").arg(it.key());
+                qDebug() << "  ↳ XVTR match:" << bandName << "->" << stackKey;
+                break;
+            }
+        }
+
         m_radioModel.sendCommand(
-            QString("display pan set %1 band=%2").arg(applet->panId()).arg(bandName));
+            QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
     });
 
     // XVTR button → open Radio Setup XVTR tab (#571)

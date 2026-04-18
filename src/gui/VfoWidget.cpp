@@ -3056,6 +3056,11 @@ void VfoWidget::rebuildFilterButtons()
     if (m_autotuneOnceBtn) { delete m_autotuneOnceBtn; m_autotuneOnceBtn = nullptr; }
     if (m_autotuneLoopBtn) { delete m_autotuneLoopBtn; m_autotuneLoopBtn = nullptr; }
     if (m_zeroBeatBtn) { delete m_zeroBeatBtn; m_zeroBeatBtn = nullptr; }
+    // Remove marker-style buttons if they exist (re-added for CW only, #1526)
+    if (m_markerThinBtn)  { delete m_markerThinBtn;  m_markerThinBtn = nullptr; }
+    if (m_markerThickBtn) { delete m_markerThickBtn; m_markerThickBtn = nullptr; }
+    if (m_edgesShowBtn)   { delete m_edgesShowBtn;   m_edgesShowBtn = nullptr; }
+    if (m_edgesHideBtn)   { delete m_edgesHideBtn;   m_edgesHideBtn = nullptr; }
 
     for (int i = 0; i < m_filterWidths.size(); ++i) {
         const int w = m_filterWidths[i];
@@ -3099,7 +3104,10 @@ void VfoWidget::rebuildFilterButtons()
     }
 
     // Per-slice VFO marker style row: Thin/Thick line + Edges/Hide filter edges (#1526)
-    {
+    // CW/CWL only — the original issue was specifically about CW, and other
+    // modes typically have wide enough filters that the 3-line cluster is not
+    // visually problematic.
+    if (m_slice && (m_slice->mode() == "CW" || m_slice->mode() == "CWL")) {
         int row = (m_filterWidths.size() + 3) / 4;
 
         m_markerThinBtn = new QPushButton("Thin");
