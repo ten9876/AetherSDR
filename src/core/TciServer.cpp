@@ -2,6 +2,7 @@
 #include "TciServer.h"
 #include "TciProtocol.h"
 #include "AudioEngine.h"
+#include "AppSettings.h"
 #include "Resampler.h"
 #include "LogManager.h"
 #include "models/RadioModel.h"
@@ -15,6 +16,8 @@
 #include <QWebSocket>
 #include <QTimer>
 #include <QtEndian>
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace AetherSDR {
@@ -35,6 +38,17 @@ struct TciAudioHeader {
     quint32 reserved[8];  // zero-filled
 };
 static_assert(sizeof(TciAudioHeader) == 64, "TCI audio header must be 64 bytes");
+
+namespace {
+
+constexpr int kTxChronoSamples = 2048; // float payload length sent to WSJT-X
+constexpr int kTxChronoStereoFrames = kTxChronoSamples / 2;
+constexpr qint64 kTxChronoPeriodNs =
+    (static_cast<qint64>(kTxChronoStereoFrames) * 1000000000LL) / 48000LL;
+constexpr int kTxChronoPollMs = 5;
+constexpr qint64 kTxSummaryEveryBlocks = 48;
+
+} // namespace
 
 TciServer::TciServer(RadioModel* model, QObject* parent)
     : QObject(parent)
@@ -91,28 +105,32 @@ TciServer::TciServer(RadioModel* model, QObject* parent)
 
     // TX_CHRONO timer — sends timing frames to TCI client during TX.
     // WSJT-X only sends TX audio in response to these frames.
-    // hdr.length=2048 (matching audio_stream_samples), 21ms cadence.
+    //
+    // One TCI TX block is 2048 float samples = 1024 stereo frames at 48 kHz,
+    // or 21.333 ms of audio. A fixed 21 ms timer runs ~1.6% fast and warps
+    // digital-mode tones, so we poll more frequently and emit frames from a
+    // monotonic elapsed-time accumulator.
     m_txChronoTimer = new QTimer(this);
     m_txChronoTimer->setTimerType(Qt::PreciseTimer);
-    m_txChronoTimer->setInterval(21);
+    m_txChronoTimer->setInterval(kTxChronoPollMs);
     connect(m_txChronoTimer, &QTimer::timeout, this, [this]() {
         // Local copy guards against onClientDisconnected nulling the pointer
         // between the check and the send.
         QWebSocket* client = m_txChronoClient;
         if (!client) { m_txChronoTimer->stop(); return; }
-        // TX_CHRONO: header-only, no payload (matches Thetis).
-        // length=2048 matches audio_stream_samples from init burst.
-        constexpr int kSamples = 2048;
-        QByteArray frame(sizeof(TciAudioHeader), '\0');
-        TciAudioHeader hdr{};
-        hdr.receiver   = static_cast<quint32>(m_txChronoTrx);
-        hdr.sampleRate = 48000;
-        hdr.format     = 3;  // float32
-        hdr.length     = kSamples;
-        hdr.type       = 3;  // TX_CHRONO
-        hdr.channels   = 2;
-        std::memcpy(frame.data(), &hdr, sizeof(hdr));
-        client->sendBinaryMessage(frame);
+
+        if (!m_txChronoClock.isValid()) {
+            m_txChronoClock.start();
+            return;
+        }
+
+        m_txChronoAccumNs += m_txChronoClock.nsecsElapsed();
+        m_txChronoClock.restart();
+
+        while (m_txChronoAccumNs >= kTxChronoPeriodNs) {
+            sendTxChronoFrame(client);
+            m_txChronoAccumNs -= kTxChronoPeriodNs;
+        }
     });
 }
 
@@ -443,19 +461,28 @@ void TciServer::onTextMessage(const QString& msg)
             if (parts.size() >= 2) {
                 int trx = parts[0].trimmed().toInt();
                 bool txOn = (parts[1].trimmed() == "true");
-                // Parse optional third argument: audio source.
-                // - Empty or "dax": DAX TX pipeline (backward compat with
-                //   WSJT-X/JTDX which omit arg3).
-                // - Anything else (micpc, mic, bal, line, vac, ...): key the
-                //   radio directly and leave DAX alone. The radio transmits
-                //   using whatever mic_selection is currently configured.
+                // Parse optional third argument: audio source / keying origin.
+                // WSJT-X/JTDX running in ExpertSDR3 compatibility mode send
+                // `trx:<rx>,true,tci`, but they still expect TX_CHRONO timing
+                // frames and deliver TX audio over the TCI binary stream.
+                // Treat `tci` the same as the legacy empty / `dax` cases.
+                //
+                // Only explicit hardware-style sources should bypass TX_CHRONO
+                // and key the radio directly.
                 // Unkey path runs stopTxChrono() + setTransmit(false)
                 // unconditionally so either flavor of TX cleans up, even if
                 // the client omits arg3 on the release message (#1534).
                 QString source;
                 if (parts.size() >= 3)
                     source = parts[2].trimmed().toLower().remove(';');
-                const bool wantDax = source.isEmpty() || source == QStringLiteral("dax");
+                const bool wantDax = source.isEmpty()
+                                  || source == QStringLiteral("dax")
+                                  || source == QStringLiteral("tci");
+                qCInfo(lcCat) << "TCI: trx request"
+                              << "trx=" << trx
+                              << "txOn=" << txOn
+                              << "source=" << (source.isEmpty() ? QStringLiteral("[default]") : source)
+                              << "route=" << (wantDax ? QStringLiteral("tci-audio") : QStringLiteral("radio-direct"));
                 if (txOn) {
                     if (wantDax) {
                         startTxChrono(ws, trx);
@@ -526,26 +553,81 @@ void TciServer::onBinaryMessage(const QByteArray& data)
 
     if (pcm.isEmpty()) return;
 
+    int inputFrames48k = 0;
+    bool duplicatedStereo = false;
+
     // ─── TX resampling: 48kHz (TCI) → 24kHz (radio native DAX) ───────────
-    // Detect mono vs stereo from payload size relative to hdr.length.
-    // WSJT-X sends mono float32: hdr.length floats in a flat array.
-    // If payload contains hdr.length floats (not 2×), it's mono.
+    // Detect mono vs stereo from payload layout.
+    //
+    // WSJT-X's TCI modulator writes the first `hdr.length` floats as duplicated
+    // stereo pairs (L=R), even though the payload buffer it allocates is larger.
+    // Treating those `hdr.length` floats as true mono doubles the apparent
+    // duration of every block and destroys digital-mode tones.
     if (m_txResampler) {
         int totalFloats = pcm.size() / static_cast<int>(sizeof(float));
         int declaredSamples = static_cast<int>(hdr.length);
         const auto* fSrc = reinterpret_cast<const float*>(pcm.constData());
 
-        if (totalFloats <= declaredSamples) {
-            // Mono: upmix to stereo then resample
+        if (hdr.format == 3 && totalFloats >= 2 && (totalFloats % 2) == 0) {
+            const int pairsToCheck = std::min(totalFloats / 2, 128);
+            int duplicatedPairs = 0;
+            for (int i = 0; i < pairsToCheck; ++i) {
+                if (std::fabs(fSrc[i * 2] - fSrc[i * 2 + 1]) < 1.0e-6f)
+                    ++duplicatedPairs;
+            }
+            duplicatedStereo = duplicatedPairs >= (pairsToCheck * 9) / 10;
+        }
+
+        if (duplicatedStereo) {
+            // WSJT-X fills `length` floats as stereo pairs in-place.
+            int stereoFrames = totalFloats / 2;
+            inputFrames48k = stereoFrames;
+            pcm = m_txResampler->processStereoToStereo(fSrc, stereoFrames);
+        } else if (totalFloats <= declaredSamples) {
+            // True mono: upmix to stereo then resample.
             int monoFrames = totalFloats;
+            inputFrames48k = monoFrames;
             pcm = m_txResampler->processMonoToStereo(fSrc, monoFrames);
         } else {
-            // Stereo: resample directly
+            // Explicit stereo: resample directly.
             int stereoFrames = totalFloats / 2;
+            inputFrames48k = stereoFrames;
             pcm = m_txResampler->processStereoToStereo(fSrc, stereoFrames);
         }
         if (pcm.isEmpty()) return;
     }
+
+    auto* dst = reinterpret_cast<float*>(pcm.data());
+    const int outputStereoFrames = pcm.size() / (2 * static_cast<int>(sizeof(float)));
+    const int outputSamples = pcm.size() / static_cast<int>(sizeof(float));
+    double sumSq = 0.0;
+    float peak = 0.0f;
+    qint64 clipSamples = 0;
+    for (int i = 0; i < outputSamples; ++i) {
+        float v = dst[i] * m_txGain;
+        if (v > 1.0f) {
+            v = 1.0f;
+            ++clipSamples;
+        } else if (v < -1.0f) {
+            v = -1.0f;
+            ++clipSamples;
+        }
+        dst[i] = v;
+        peak = std::max(peak, std::abs(v));
+        sumSq += static_cast<double>(v) * static_cast<double>(v);
+    }
+
+    ++m_txAudioBlocks;
+    m_txInputFrames += inputFrames48k;
+    m_txOutputFrames += outputStereoFrames;
+    m_txClipSamples += clipSamples;
+    m_txAudioSampleCount += outputSamples;
+    m_txAudioSumSq += sumSq;
+    m_txAudioPeak = std::max(m_txAudioPeak, peak);
+    m_txSawDuplicatedStereo = m_txSawDuplicatedStereo || duplicatedStereo;
+
+    if ((m_txAudioBlocks % kTxSummaryEveryBlocks) == 0)
+        logTxAudioSummary("running");
 
     QMetaObject::invokeMethod(m_audio, "feedDaxTxAudio",
                               Qt::QueuedConnection,
@@ -880,23 +962,48 @@ void TciServer::startTxChrono(QWebSocket* client, int trx)
     m_txChronoClient = client;
     m_txChronoTrx = trx;
 
-    // Radio-native route (PCC 0x0123, int16 mono 24kHz) + transmit set dax=1.
-    // This combination produced RF in earlier testing.
+    const bool lowLatencyRoute =
+        AppSettings::instance().value("DaxTxLowLatency", "False").toString() == "True";
+    m_txUseRadioRoute = !lowLatencyRoute;
+    m_txGain = std::clamp(
+        AppSettings::instance().value("DaxTxGain", "0.5").toString().toFloat(),
+        0.0f, 1.0f);
+    m_txChronoAccumNs = 0;
+    m_txChronoRequestedFrames = 0;
+    m_txAudioBlocks = 0;
+    m_txInputFrames = 0;
+    m_txOutputFrames = 0;
+    m_txClipSamples = 0;
+    m_txAudioSampleCount = 0;
+    m_txAudioSumSq = 0.0;
+    m_txAudioPeak = 0.0f;
+    m_txSawDuplicatedStereo = false;
+
+    // Respect the same DAX TX routing preference used by the bridge path.
+    // Default remains radio-native dax=1; low-latency mode switches to the
+    // float32 dax_tx route with dax=0.
     if (m_audio) {
-        m_audio->setDaxTxUseRadioRoute(true);
+        m_audio->setDaxTxUseRadioRoute(m_txUseRadioRoute);
         m_audio->setDaxTxMode(true);
     }
 
-    // Create TX resampler: 48kHz (TCI client) → 24kHz (radio native DAX)
+    // Create TX resampler: 48kHz (TCI client) → 24kHz (radio DAX/native rate)
     m_txResampler = std::make_unique<Resampler>(48000.0, 24000.0, 4096);
-    // Route radio TX source to DAX so our dax_tx stream packets
-    // reach the transmitter instead of being ignored. — fw v1.4.0.0
     if (m_model) {
-        m_model->sendCmdPublic("transmit set dax=1", nullptr);
+        m_model->sendCmdPublic(
+            QStringLiteral("transmit set dax=%1").arg(m_txUseRadioRoute ? 1 : 0),
+            nullptr);
     }
 
+    m_txChronoClock.start();
+    m_txChronoSessionClock.start();
     m_txChronoTimer->start();
-    qCInfo(lcCat) << "TCI: TX_CHRONO started for TRX" << trx;
+    sendTxChronoFrame(client);
+    qCInfo(lcCat) << "TCI: TX_CHRONO started for TRX" << trx
+                  << "route=" << (m_txUseRadioRoute ? "radio-dax" : "dax-tx-f32")
+                  << "gain=" << m_txGain
+                  << "poll_ms=" << kTxChronoPollMs
+                  << "target_ms=" << (static_cast<double>(kTxChronoPeriodNs) / 1.0e6);
 }
 
 void TciServer::stopTxChrono()
@@ -904,8 +1011,13 @@ void TciServer::stopTxChrono()
     if (!m_txChronoTimer->isActive() && !m_txChronoClient) {
         return;
     }
+
+    logTxAudioSummary("stop");
     m_txChronoTimer->stop();
     m_txChronoClient = nullptr;
+    m_txChronoClock.invalidate();
+    m_txChronoSessionClock.invalidate();
+    m_txChronoAccumNs = 0;
 
     // Do NOT send `transmit set dax=0` here. The radio's status echo
     // flips m_daxTxMode to false via updateDaxTxMode, which blocks the
@@ -918,6 +1030,55 @@ void TciServer::stopTxChrono()
     m_txResampler.reset();
 
     qCInfo(lcCat) << "TCI: TX_CHRONO stopped";
+}
+
+void TciServer::sendTxChronoFrame(QWebSocket* client)
+{
+    if (!client) return;
+
+    // TX_CHRONO: header-only, no payload (matches Thetis).
+    QByteArray frame(sizeof(TciAudioHeader), '\0');
+    TciAudioHeader hdr{};
+    hdr.receiver   = static_cast<quint32>(m_txChronoTrx);
+    hdr.sampleRate = 48000;
+    hdr.format     = 3;                // float32
+    hdr.length     = kTxChronoSamples; // matches audio_stream_samples
+    hdr.type       = 3;                // TX_CHRONO
+    hdr.channels   = 2;
+    std::memcpy(frame.data(), &hdr, sizeof(hdr));
+    client->sendBinaryMessage(frame);
+    m_txChronoRequestedFrames += kTxChronoStereoFrames;
+}
+
+void TciServer::logTxAudioSummary(const char* reason)
+{
+    if (m_txChronoRequestedFrames <= 0 && m_txAudioBlocks <= 0)
+        return;
+
+    const double elapsedSec = m_txChronoSessionClock.isValid()
+        ? static_cast<double>(m_txChronoSessionClock.nsecsElapsed()) / 1.0e9
+        : 0.0;
+    const double effectiveRate48k = elapsedSec > 0.0
+        ? static_cast<double>(m_txChronoRequestedFrames) / elapsedSec
+        : 0.0;
+    const double rms = m_txAudioSampleCount > 0
+        ? std::sqrt(m_txAudioSumSq / static_cast<double>(m_txAudioSampleCount))
+        : 0.0;
+
+    qCInfo(lcCat).nospace()
+        << "TCI TX summary reason=" << reason
+        << " trx=" << m_txChronoTrx
+        << " route=" << (m_txUseRadioRoute ? "radio-dax" : "dax-tx-f32")
+        << " gain=" << m_txGain
+        << " blocks=" << m_txAudioBlocks
+        << " requested48k=" << m_txChronoRequestedFrames
+        << " input48k=" << m_txInputFrames
+        << " output24k=" << m_txOutputFrames
+        << " effective48k=" << effectiveRate48k
+        << " peak=" << m_txAudioPeak
+        << " rms=" << rms
+        << " clips=" << m_txClipSamples
+        << " layout=" << (m_txSawDuplicatedStereo ? "duplicated-stereo" : "mono-or-stereo");
 }
 
 void TciServer::broadcastStatus()

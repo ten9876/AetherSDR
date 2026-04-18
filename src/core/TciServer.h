@@ -2,6 +2,7 @@
 #ifdef HAVE_WEBSOCKETS
 
 #include <QObject>
+#include <QElapsedTimer>
 #include <QList>
 #include <QMap>
 #include <QSet>
@@ -66,6 +67,8 @@ private:
     void broadcastBinary(const QByteArray& data);
     void startTxChrono(QWebSocket* client, int trx);
     void stopTxChrono();
+    void sendTxChronoFrame(QWebSocket* client);
+    void logTxAudioSummary(const char* reason);
 
     // Build a TCI binary audio frame (64-byte header + float32 samples)
     static QByteArray buildAudioFrame(int receiver, int type,
@@ -106,6 +109,20 @@ private:
     QWebSocket*       m_txChronoClient{nullptr};
     int               m_txChronoTrx{0};
     std::unique_ptr<Resampler> m_txResampler; // 48kHz→24kHz TX downsampler
+    QElapsedTimer     m_txChronoClock;
+    QElapsedTimer     m_txChronoSessionClock;
+    qint64            m_txChronoAccumNs{0};
+    qint64            m_txChronoRequestedFrames{0};
+    bool              m_txUseRadioRoute{true};
+    float             m_txGain{1.0f};
+    qint64            m_txAudioBlocks{0};
+    qint64            m_txInputFrames{0};
+    qint64            m_txOutputFrames{0};
+    qint64            m_txClipSamples{0};
+    qint64            m_txAudioSampleCount{0};
+    double            m_txAudioSumSq{0.0};
+    float             m_txAudioPeak{0.0f};
+    bool              m_txSawDuplicatedStereo{false};
     bool              m_lastTx{false};
     float             m_cachedSLevel[8]{-130,-130,-130,-130,-130,-130,-130,-130};
     float             m_cachedFwdPower{0};
