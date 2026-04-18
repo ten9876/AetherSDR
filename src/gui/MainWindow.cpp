@@ -1391,6 +1391,12 @@ MainWindow::MainWindow(QWidget* parent)
             });
             m_radioModel.createRxAudioStream();
         } else {
+            // Stop the local sink so audio isn't played locally even when
+            // the remote_audio_rx stream is still alive for a TCI client
+            // (#1571 follow-up).
+            QMetaObject::invokeMethod(m_audio, [this]() {
+                m_audio->stopRxStream();
+            });
             m_radioModel.removeRxAudioStream();
         }
     });
@@ -4378,7 +4384,14 @@ void MainWindow::onConnectionStateChanged(bool connected)
                 if (auto* vfo = sw->vfoWidget())
                     vfo->setDiversityAllowed(divAllowed);
         }
-        audioStartRx();
+        // Only start the local RX audio sink if the user wants audio routed
+        // to the PC. When PC Audio is off we may still request a
+        // remote_audio_rx stream for TCI clients; the sink should stay
+        // silent in that case. The PC Audio toggle handler starts/stops
+        // the sink when the user flips it.
+        if (AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True") {
+            audioStartRx();
+        }
         updateNr2Availability();  // Disable NR2 if connected via SmartLink/Opus (#1597)
         // TX audio stream will start when the radio assigns a stream ID
         // Auto-hide the connection dialog on successful connect
