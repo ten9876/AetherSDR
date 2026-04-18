@@ -55,8 +55,8 @@ public:
     // Begin WAN UDP registration: sends "client udp_register handle=0x<handle>"
     // via UDP every 50ms until VITA-49 packets arrive, then switches to
     // "client ping handle=0x<handle>" keepalive every 5 seconds.
-    void startWanUdpRegister(quint32 clientHandle);
-    void stop();
+    Q_INVOKABLE void startWanUdpRegister(quint32 clientHandle);
+    Q_INVOKABLE void stop();
 
     QHostAddress localAddress() const { return m_localAddress; }
     quint16 localPort() const { return m_localPort; }
@@ -88,7 +88,7 @@ public:
     void unregisterIqStream(quint32 streamId);
 
     // Send a raw UDP datagram to the radio (used for DAX TX VITA-49 packets)
-    void sendToRadio(const QByteArray& packet);
+    Q_INVOKABLE void sendToRadio(const QByteArray& packet);
 
 signals:
     void daxAudioReady(int channel, const QByteArray& pcm);
@@ -192,7 +192,7 @@ private:
     mutable QMutex  m_streamMutex;
     QSet<quint32>   m_knownPanStreams;     // registered pan stream IDs
     QSet<quint32>   m_knownWfStreams;     // registered wf stream IDs
-    QUdpSocket      m_socket;
+    QUdpSocket*     m_socket{nullptr};
     quint16         m_localPort{0};
     QMap<quint32, QPair<float,float>> m_dbmRanges;  // streamId → (min, max)
     QMap<quint32, int> m_yPixels;  // streamId → ypixels for FFT bin scaling
@@ -235,9 +235,9 @@ private:
     bool         m_hasReceivedPacket{false};
 
     // WAN UDP registration and keepalive
-    QTimer   m_wanRegisterTimer;   // 50ms: "client udp_register" until first packet
-    QTimer   m_wanPingTimer;       // 5s: "client ping" keepalive after registration
-    QTimer   m_routedPrimeTimer;   // 250ms: non-WAN UDP prime retry until first packet
+    QTimer*  m_wanRegisterTimer{nullptr};   // 50ms: "client udp_register" until first packet
+    QTimer*  m_wanPingTimer{nullptr};       // 5s: "client ping" keepalive after registration
+    QTimer*  m_routedPrimeTimer{nullptr};   // 250ms: non-WAN UDP prime retry until first packet
     bool     m_isWanMode{false};
     bool     m_wanRegistered{false};
     quint32  m_wanClientHandle{0};

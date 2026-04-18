@@ -460,16 +460,24 @@ void RadioModel::sendNetCwCommand(const QString& baseCmd)
 
     // Redundant sends via UDP: 0ms, 5ms, 10ms, 15ms
     // Radio deduplicates by index — processes first arrival, ignores repeats
-    m_panStream->sendToRadio(packet);
+    QMetaObject::invokeMethod(m_panStream, [this, packet]() {
+        m_panStream->sendToRadio(packet);
+    }, Qt::QueuedConnection);
 
     QTimer::singleShot(5, this, [this, packet]() {
-        m_panStream->sendToRadio(packet);
+        QMetaObject::invokeMethod(m_panStream, [this, packet]() {
+            m_panStream->sendToRadio(packet);
+        }, Qt::QueuedConnection);
     });
     QTimer::singleShot(10, this, [this, packet]() {
-        m_panStream->sendToRadio(packet);
+        QMetaObject::invokeMethod(m_panStream, [this, packet]() {
+            m_panStream->sendToRadio(packet);
+        }, Qt::QueuedConnection);
     });
     QTimer::singleShot(15, this, [this, packet]() {
-        m_panStream->sendToRadio(packet);
+        QMetaObject::invokeMethod(m_panStream, [this, packet]() {
+            m_panStream->sendToRadio(packet);
+        }, Qt::QueuedConnection);
     });
 
     // TCP fallback — guarantees delivery if all UDP packets are lost

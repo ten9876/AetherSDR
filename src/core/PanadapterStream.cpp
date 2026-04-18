@@ -39,41 +39,54 @@ PanadapterStream::PanadapterStream(QObject* parent)
 
 void PanadapterStream::init()
 {
-    connect(&m_socket, &QUdpSocket::readyRead,
+    if (!m_socket) {
+        m_socket = new QUdpSocket(this);
+    }
+    if (!m_wanRegisterTimer) {
+        m_wanRegisterTimer = new QTimer(this);
+    }
+    if (!m_wanPingTimer) {
+        m_wanPingTimer = new QTimer(this);
+    }
+    if (!m_routedPrimeTimer) {
+        m_routedPrimeTimer = new QTimer(this);
+    }
+
+    connect(m_socket, &QUdpSocket::readyRead,
             this, &PanadapterStream::onDatagramReady);
 
     // WAN UDP register: send "client udp_register handle=0x<handle>" every 50ms
     // until first VITA-49 packet arrives (confirms radio knows our address).
-    connect(&m_wanRegisterTimer, &QTimer::timeout, this, [this] {
+    connect(m_wanRegisterTimer, &QTimer::timeout, this, [this] {
         if (m_radioAddress.isNull() || m_wanClientHandle == 0) return;
         const QString hex = QString::number(m_wanClientHandle, 16).toUpper();
         const QByteArray cmd = QStringLiteral("client udp_register handle=0x%1").arg(hex).toUtf8();
-        const qint64 sent = m_socket.writeDatagram(cmd, m_radioAddress, m_radioPort);
+        const qint64 sent = m_socket->writeDatagram(cmd, m_radioAddress, m_radioPort);
         if (sent > 0)
             m_totalTxBytes += sent;
     });
 
     // WAN ping keepalive: send "client ping handle=0x<handle>" every 5s
     // to maintain NAT pinhole after registration is confirmed.
-    connect(&m_wanPingTimer, &QTimer::timeout, this, [this] {
+    connect(m_wanPingTimer, &QTimer::timeout, this, [this] {
         if (m_radioAddress.isNull() || m_wanClientHandle == 0) return;
         const QString hex = QString::number(m_wanClientHandle, 16).toUpper();
         const QByteArray cmd = QStringLiteral("client ping handle=0x%1").arg(hex).toUtf8();
-        m_socket.writeDatagram(cmd, m_radioAddress, m_radioPort);
+        m_socket->writeDatagram(cmd, m_radioAddress, m_radioPort);
         m_totalTxBytes += cmd.size();
         qCDebug(lcVita49) << "PanadapterStream: WAN ping keepalive"
                  << "(totalRx:" << m_totalRxBytes << "bytes)";
     });
 
-    connect(&m_routedPrimeTimer, &QTimer::timeout, this, [this] {
+    connect(m_routedPrimeTimer, &QTimer::timeout, this, [this] {
         if (m_isWanMode || m_hasReceivedPacket || m_radioAddress.isNull())
             return;
         if (!m_routedPrimeElapsed.isValid() || m_routedPrimeElapsed.elapsed() >= 2000) {
-            m_routedPrimeTimer.stop();
+            m_routedPrimeTimer->stop();
             return;
         }
         const QByteArray reg(1, '\x00');
-        const qint64 sent = m_socket.writeDatagram(reg, m_radioAddress, 4992);
+        const qint64 sent = m_socket->writeDatagram(reg, m_radioAddress, 4992);
         if (sent > 0)
             m_totalTxBytes += sent;
     });
@@ -81,7 +94,7 @@ void PanadapterStream::init()
 
 bool PanadapterStream::isRunning() const
 {
-    return m_socket.state() == QAbstractSocket::BoundState;
+    return m_socket && m_socket->state() == QAbstractSocket::BoundState;
 }
 
 bool PanadapterStream::start(RadioConnection* conn)
@@ -127,7 +140,7 @@ bool PanadapterStream::start(RadioConnection* conn)
 
     for (int attempt = 0; attempt < MAX_PORT_ATTEMPTS && !bound; ++attempt) {
         quint16 port = LAN_VITA_PORT - attempt;
-        bound = m_socket.bind(bindAddr, port);
+        bound = m_socket->bind(bindAddr, port);
         if (bound) {
             qCDebug(lcVita49) << "PanadapterStream: bound UDP to"
                               << bindAddr.toString() << ":" << port
@@ -135,21 +148,21 @@ bool PanadapterStream::start(RadioConnection* conn)
         }
     }
     if (!bound) {
-        bound = m_socket.bind(bindAddr, 0);
+        bound = m_socket->bind(bindAddr, 0);
         if (bound)
-            qCDebug(lcVita49) << "PanadapterStream: using OS-assigned port" << m_socket.localPort();
+            qCDebug(lcVita49) << "PanadapterStream: using OS-assigned port" << m_socket->localPort();
     }
     if (!bound) {
         qCWarning(lcVita49) << "PanadapterStream: failed to bind UDP socket:"
-                            << m_socket.errorString()
+                            << m_socket->errorString()
                             << "mode=" << (bindMode == RadioBindMode::Explicit ? "Explicit" : "Auto")
                             << "chosen=" << (chosenAddress.isNull() ? QStringLiteral("<none>")
                                                                     : chosenAddress.toString());
         return false;
     }
 
-    m_localAddress = m_socket.localAddress();
-    m_localPort = m_socket.localPort();
+    m_localAddress = m_socket->localAddress();
+    m_localPort = m_socket->localPort();
     qCDebug(lcVita49) << "PanadapterStream: local UDP endpoint"
                       << m_localAddress.toString() << ":" << m_localPort;
 
@@ -160,16 +173,16 @@ bool PanadapterStream::start(RadioConnection* conn)
     const QHostAddress radioAddr = conn->radioAddress();
     if (!radioAddr.isNull()) {
         const QByteArray reg(1, '\x00');
-        const qint64 sent = m_socket.writeDatagram(reg, radioAddr, 4992);
+        const qint64 sent = m_socket->writeDatagram(reg, radioAddr, 4992);
         if (sent == 1) {
             m_totalTxBytes += sent;
             qCDebug(lcVita49) << "PanadapterStream: sent UDP registration to"
                               << radioAddr.toString() << ":4992";
             m_routedPrimeElapsed.restart();
-            m_routedPrimeTimer.start(250);
+            m_routedPrimeTimer->start(250);
         } else {
             qCWarning(lcVita49) << "PanadapterStream: UDP registration send failed:"
-                                << m_socket.errorString();
+                                << m_socket->errorString();
         }
     } else {
         qCWarning(lcVita49) << "PanadapterStream: radio address unknown — skipping UDP registration";
@@ -196,15 +209,15 @@ bool PanadapterStream::startWan(const QHostAddress& radioAddr, quint16 radioUdpP
 
     // For WAN: bind to any port. The actual UDP registration happens later
     // in startWanUdpRegister() once the client handle is known.
-    bool bound = m_socket.bind(QHostAddress::AnyIPv4, 0);
+    bool bound = m_socket->bind(QHostAddress::AnyIPv4, 0);
     if (!bound) {
         qCWarning(lcVita49) << "PanadapterStream: WAN — failed to bind UDP socket:"
-                   << m_socket.errorString();
+                   << m_socket->errorString();
         return false;
     }
 
-    m_localPort = m_socket.localPort();
-    m_localAddress = m_socket.localAddress();
+    m_localPort = m_socket->localPort();
+    m_localAddress = m_socket->localAddress();
     m_radioAddress = radioAddr;
     m_radioPort = radioUdpPort;
     m_isWanMode = true;
@@ -230,22 +243,30 @@ void PanadapterStream::startWanUdpRegister(quint32 clientHandle)
 
     // Send first registration immediately, then every 50ms until confirmed
     const QByteArray cmd = QStringLiteral("client udp_register handle=0x%1").arg(hex).toUtf8();
-    const qint64 sent = m_socket.writeDatagram(cmd, m_radioAddress, m_radioPort);
+    const qint64 sent = m_socket->writeDatagram(cmd, m_radioAddress, m_radioPort);
     if (sent > 0)
         m_totalTxBytes += sent;
-    m_wanRegisterTimer.start(50);
+    m_wanRegisterTimer->start(50);
 }
 
 void PanadapterStream::stop()
 {
-    m_wanRegisterTimer.stop();
-    m_wanPingTimer.stop();
-    m_routedPrimeTimer.stop();
+    if (m_wanRegisterTimer) {
+        m_wanRegisterTimer->stop();
+    }
+    if (m_wanPingTimer) {
+        m_wanPingTimer->stop();
+    }
+    if (m_routedPrimeTimer) {
+        m_routedPrimeTimer->stop();
+    }
     m_isWanMode = false;
     m_wanRegistered = false;
     m_wanClientHandle = 0;
     m_hasReceivedPacket = false;
-    m_socket.close();
+    if (m_socket) {
+        m_socket->close();
+    }
     m_radioAddress = QHostAddress();
     m_radioPort = 0;
     m_localAddress = QHostAddress();
@@ -317,12 +338,14 @@ void PanadapterStream::setYPixels(quint32 streamId, int yPixels)
 
 void PanadapterStream::onDatagramReady()
 {
-    while (m_socket.hasPendingDatagrams()) {
-        const QNetworkDatagram dg = m_socket.receiveDatagram();
+    while (m_socket && m_socket->hasPendingDatagrams()) {
+        const QNetworkDatagram dg = m_socket->receiveDatagram();
         if (!dg.isNull()) {
             if (!m_hasReceivedPacket) {
                 m_hasReceivedPacket = true;
-                m_routedPrimeTimer.stop();
+                if (m_routedPrimeTimer) {
+                    m_routedPrimeTimer->stop();
+                }
                 qCDebug(lcVita49) << "PanadapterStream: first UDP packet received from"
                                   << dg.senderAddress().toString() << ":" << dg.senderPort();
             }
@@ -334,8 +357,12 @@ void PanadapterStream::onDatagramReady()
                          << dg.senderAddress().toString() << ":" << dg.senderPort()
                          << "— UDP registration confirmed";
                 m_wanRegistered = true;
-                m_wanRegisterTimer.stop();
-                m_wanPingTimer.start(5000);
+                if (m_wanRegisterTimer) {
+                    m_wanRegisterTimer->stop();
+                }
+                if (m_wanPingTimer) {
+                    m_wanPingTimer->start(5000);
+                }
             }
             m_totalRxBytes += dg.data().size();
             processDatagram(dg.data());
@@ -873,7 +900,10 @@ void PanadapterStream::sendToRadio(const QByteArray& packet)
                        << m_radioAddress.toString() << "port=" << m_radioPort;
         return;
     }
-    const qint64 sent = m_socket.writeDatagram(packet, m_radioAddress, m_radioPort);
+    if (!m_socket) {
+        return;
+    }
+    const qint64 sent = m_socket->writeDatagram(packet, m_radioAddress, m_radioPort);
     if (sent > 0) m_totalTxBytes += sent;
     static int txCount = 0;
     ++txCount;
@@ -882,12 +912,12 @@ void PanadapterStream::sendToRadio(const QByteArray& packet)
                  << "bytes=" << packet.size()
                  << "sent=" << sent
                  << "to=" << m_radioAddress.toString() << ":" << m_radioPort
-                 << "localPort=" << m_socket.localPort();
+                 << "localPort=" << m_socket->localPort();
     }
     if (sent < 0) {
         static int errCount = 0;
         if (++errCount <= 10)
-            qCWarning(lcVita49) << "PanadapterStream::sendToRadio ERROR:" << m_socket.errorString();
+            qCWarning(lcVita49) << "PanadapterStream::sendToRadio ERROR:" << m_socket->errorString();
     }
 }
 
