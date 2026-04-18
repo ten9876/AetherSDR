@@ -568,13 +568,26 @@ void SpectrumWidget::ensureWaterfallHistory()
         return;
     }
 
-    m_waterfallHistory = QImage(desiredSize, QImage::Format_RGB32);
-    m_waterfallHistory.fill(Qt::black);
-    m_wfHistoryTimestamps = QVector<qint64>(desiredSize.height(), 0);
-    m_wfHistoryWriteRow = 0;
-    m_wfHistoryRowCount = 0;
-    m_wfHistoryOffsetRows = 0;
-    m_wfLive = true;
+    // Preserve rows across width changes (e.g. band stack toggle, manual
+    // window resize) by horizontally scaling the existing history image.
+    // Height capacity is fixed via waterfallHistoryCapacityRows() so row
+    // indices and timestamps remain valid.
+    QImage newHistory;
+    if (!m_waterfallHistory.isNull() && m_wfHistoryRowCount > 0
+        && m_waterfallHistory.height() == desiredSize.height()) {
+        newHistory = m_waterfallHistory.scaled(
+            desiredSize, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+    }
+    if (newHistory.isNull() || newHistory.size() != desiredSize) {
+        newHistory = QImage(desiredSize, QImage::Format_RGB32);
+        newHistory.fill(Qt::black);
+        m_wfHistoryTimestamps = QVector<qint64>(desiredSize.height(), 0);
+        m_wfHistoryWriteRow = 0;
+        m_wfHistoryRowCount = 0;
+        m_wfHistoryOffsetRows = 0;
+        m_wfLive = true;
+    }
+    m_waterfallHistory = newHistory;
 }
 
 void SpectrumWidget::appendVisibleRow(const QRgb* rowData)
