@@ -3277,9 +3277,15 @@ void MainWindow::buildMenuBar()
             && action != midiAction
 #endif
             && action != multiFlexAction
-            && action != autoRigctlAction && action != autoCatAction
+            && action != autoRigctlAction
+#ifndef _WIN32
+            && action != autoCatAction
+#endif
             && action != autoTciAction
-            && action != autoDaxAction && action != lowLatencyDaxTxAction) {
+#if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
+            && action != autoDaxAction
+#endif
+            && action != lowLatencyDaxTxAction) {
             connect(action, &QAction::triggered, this, [this, action] {
                 statusBar()->showMessage(action->text().remove("...") + " — not yet implemented", 3000);
             });
