@@ -49,6 +49,7 @@ void RigctlServer::stop()
             // onClientDisconnected() while we're already tearing down clients.
             cs.socket->disconnect(this);
             cs.socket->close();
+            cs.socket->deleteLater();
         }
         delete cs.protocol;
     }
