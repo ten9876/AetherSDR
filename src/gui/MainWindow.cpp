@@ -6301,6 +6301,17 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     });
 #endif
 
+    // Per-slice VFO marker style (#1526): push user's saved line thickness and
+    // filter-edge visibility preferences to this slice's overlay whenever they
+    // change. Also fires once on setSlice() below to apply loaded defaults.
+    connect(w, &VfoWidget::markerStyleChanged, this,
+            [this, sliceId](bool thin, bool hideEdges) {
+        auto* sl = m_radioModel.slice(sliceId);
+        if (!sl) return;
+        if (auto* sw = spectrumForSlice(sl))
+            sw->setSliceOverlayMarkerStyle(sliceId, thin, hideEdges);
+    });
+
     // Wire slice data into widget
     w->setSlice(s);
     w->setAntennaList(m_radioModel.antennaList());

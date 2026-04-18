@@ -1160,6 +1160,17 @@ void SpectrumWidget::setSliceOverlay(int sliceId, double freq, int fLow, int fHi
     }
 }
 
+void SpectrumWidget::setSliceOverlayMarkerStyle(int sliceId, bool markerThin, bool filterEdgesHidden)
+{
+    int idx = overlayIndex(sliceId);
+    if (idx < 0) return;
+    auto& o = m_sliceOverlays[idx];
+    if (o.markerThin == markerThin && o.filterEdgesHidden == filterEdgesHidden) return;
+    o.markerThin = markerThin;
+    o.filterEdgesHidden = filterEdgesHidden;
+    markOverlayDirty();
+}
+
 void SpectrumWidget::setSliceOverlayFreq(int sliceId, double freqMhz)
 {
     for (auto& so : m_sliceOverlays) {
@@ -4395,10 +4406,12 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
         p.fillRect(QRect(fX1, wfRect.top(), fW, wfRect.height()),
                    QColor(col.red(), col.green(), col.blue(), 25));
 
-        // Filter edge lines
-        p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 130), 1));
-        p.drawLine(fX1, specRect.top(), fX1, specRect.bottom());
-        p.drawLine(fX2, specRect.top(), fX2, specRect.bottom());
+        // Filter edge lines — user-hidden via per-slice VFO flag toggle (#1526)
+        if (!so.filterEdgesHidden) {
+            p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 130), 1));
+            p.drawLine(fX1, specRect.top(), fX1, specRect.bottom());
+            p.drawLine(fX2, specRect.top(), fX2, specRect.bottom());
+        }
 
         // ── RTTY/DIGL: mark/space lines replace the VFO center line ────
         const bool isRttyMode = (so.mode == "RTTY" || so.mode == "DIGL");
@@ -4438,8 +4451,8 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
             // ── Standard VFO center line ─────────────────────────────────
             int markerX = vfoX;
 
-            // Reduce line width when a filter edge is very close (e.g. CW mode) (#764)
-            const qreal vfoLineW = (std::abs(vfoX - fX1) <= 4 || std::abs(vfoX - fX2) <= 4) ? 1.0 : 2.0;
+            // Per-slice VFO marker thickness — user-toggled via VFO flag (#1526)
+            const qreal vfoLineW = so.markerThin ? 1.0 : 2.0;
             p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 220), vfoLineW));
             p.drawLine(markerX, specRect.top(), markerX, freqLineBottom);
 

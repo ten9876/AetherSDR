@@ -246,6 +246,9 @@ public:
         int    ritFreq{0};          // Hz offset
         bool   xitOn{false};
         int    xitFreq{0};          // Hz offset
+        // Per-slice VFO marker display preferences (#1526)
+        bool   markerThin{false};         // 1px center line instead of 2px
+        bool   filterEdgesHidden{false};  // skip drawing filter-edge vertical lines
     };
 
     // Add or update a slice overlay (called per-slice on any state change).
@@ -257,6 +260,8 @@ public:
                          bool xitOn = false, int xitFreq = 0);
     // Update just the frequency on an existing overlay (for optimistic scroll-to-tune)
     void setSliceOverlayFreq(int sliceId, double freqMhz);
+    // Update per-slice marker display style (#1526)
+    void setSliceOverlayMarkerStyle(int sliceId, bool markerThin, bool filterEdgesHidden);
     // Remove a slice overlay.
     void removeSliceOverlay(int sliceId);
 

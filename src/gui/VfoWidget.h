@@ -104,6 +104,8 @@ Q_SIGNALS:
     // Emitted when the wheel tunes by step (autopan=0 path) — MainWindow uses
     // this to explicitly re-center the pan if the new freq is outside the window.
     void stepTuned(double mhz);
+    // Per-slice VFO marker style changed (#1526)
+    void markerStyleChanged(bool markerThin, bool filterEdgesHidden);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -199,7 +201,22 @@ private:
 public:
     void setDiversityAllowed(bool allowed);
     void setSmartSdrPlus(bool has);
+
+    // Per-slice VFO marker display prefs, persisted by slice ID (#1526)
+    bool markerThin() const { return m_markerThin; }
+    bool filterEdgesHidden() const { return m_filterEdgesHidden; }
+    void setMarkerThin(bool thin);
+    void setFilterEdgesHidden(bool hide);
 private:
+    bool m_markerThin{false};
+    bool m_filterEdgesHidden{false};
+    class QPushButton* m_markerThinBtn{nullptr};
+    class QPushButton* m_markerThickBtn{nullptr};
+    class QPushButton* m_edgesShowBtn{nullptr};
+    class QPushButton* m_edgesHideBtn{nullptr};
+    void loadDisplayPrefs();
+    void saveDisplayPrefs();
+
     QSlider* m_sqlSlider{nullptr};
     QComboBox* m_agcCmb{nullptr};
     QSlider* m_agcTSlider{nullptr};
