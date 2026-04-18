@@ -199,6 +199,16 @@ quint16 TciServer::port() const
     return m_server ? m_server->serverPort() : 0;
 }
 
+void TciServer::setTxGain(float gain)
+{
+    const float clamped = std::clamp(gain, 0.0f, 1.0f);
+    if (m_txGain == clamped) return;
+    m_txGain = clamped;
+    auto& s = AppSettings::instance();
+    s.setValue("TciTxGain", QString::number(clamped, 'f', 2));
+    s.save();
+}
+
 void TciServer::onNewConnection()
 {
     while (m_server->hasPendingConnections()) {
@@ -971,8 +981,18 @@ void TciServer::startTxChrono(QWebSocket* client, int trx)
     const bool lowLatencyRoute =
         AppSettings::instance().value("DaxTxLowLatency", "False").toString() == "True";
     m_txUseRadioRoute = !lowLatencyRoute;
+    // TCI has its own TX gain (decoupled from DaxTxGain) so users who split
+    // DAX and TCI routing get independent slider control.  On first read,
+    // copy DaxTxGain into TciTxGain so upgrading users see no behavior
+    // change — later the DAX/TCI applet split supplies separate UI.
+    auto& txGainSettings = AppSettings::instance();
+    if (!txGainSettings.contains("TciTxGain")) {
+        const QString legacy = txGainSettings.value("DaxTxGain", "0.5").toString();
+        txGainSettings.setValue("TciTxGain", legacy);
+        txGainSettings.save();
+    }
     m_txGain = std::clamp(
-        AppSettings::instance().value("DaxTxGain", "0.5").toString().toFloat(),
+        txGainSettings.value("TciTxGain", "0.5").toString().toFloat(),
         0.0f, 1.0f);
     m_txChronoAccumNs = 0;
     m_txChronoRequestedFrames = 0;

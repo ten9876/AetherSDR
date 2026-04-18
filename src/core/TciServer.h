@@ -40,6 +40,12 @@ public:
 
     void setAudioEngine(AudioEngine* audio) { m_audio = audio; }
 
+    // TCI TX gain (0.0–1.0). Applied to outbound TX audio from WSJT-X/JTDX
+    // before the radio.  Decoupled from DaxTxGain (#1627) — the DAX bridge
+    // and TCI maintain independent gain settings.  Persists to TciTxGain.
+    void setTxGain(float gain);
+    float txGain() const { return m_txGain; }
+
     // Wire slice signals for state change broadcasts
     void wireSlice(int trx, SliceModel* slice);
     void wireSpotModel();
