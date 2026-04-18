@@ -21,6 +21,7 @@ public:
     void setMenuBar(QMenuBar* mb);
 
     void setPcAudioEnabled(bool on);
+    void setLineoutMuted(bool muted);
     void setMasterVolume(int pct);
     void setHeadphoneVolume(int pct);
     void setOtherClientTx(bool transmitting, const QString& station);
