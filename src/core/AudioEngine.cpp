@@ -26,6 +26,17 @@ namespace AetherSDR {
 
 namespace {
 constexpr qint64 kTxAutoRestartMinRuntimeMs = 60000;
+
+bool devicePresent(const QList<QAudioDevice>& devices, const QAudioDevice& target)
+{
+    if (target.isNull()) {
+        return false;
+    }
+
+    return std::any_of(devices.begin(), devices.end(), [&target](const QAudioDevice& device) {
+        return device.id() == target.id();
+    });
+}
 }
 
 void AudioEngine::updateRxBufferStats()
@@ -59,9 +70,16 @@ AudioEngine::AudioEngine(QObject* parent)
     // Windows/macOS only: PipeWire on Linux crashes in pw_stream_connect when
     // audioOutputsChanged fires during device enumeration. The zombie sink
     // watchdog and stateChanged handlers cover Linux recovery instead.
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_MAC)
     m_mediaDevices = new QMediaDevices(this);
     connect(m_mediaDevices, &QMediaDevices::audioOutputsChanged, this, [this]() {
+        if (!m_outputDevice.isNull()) {
+            const auto outputs = QMediaDevices::audioOutputs();
+            if (!devicePresent(outputs, m_outputDevice)) {
+                qCWarning(lcAudio) << "AudioEngine: selected output device is no longer available, falling back to the system default";
+                m_outputDevice = QAudioDevice{};
+            }
+        }
         if (!m_audioSink) return;
         qCWarning(lcAudio) << "AudioEngine: audio output device list changed, restarting RX (#1361)";
         QMetaObject::invokeMethod(this, [this]() {
@@ -191,8 +209,16 @@ bool AudioEngine::startRxStream()
     m_lastAudioFeedTime.start();  // initialize liveness watchdog (#1411)
 
     QAudioFormat fmt = makeFormat();
-    QAudioDevice dev = m_outputDevice.isNull()
-        ? QMediaDevices::defaultAudioOutput() : m_outputDevice;
+    QAudioDevice dev = QMediaDevices::defaultAudioOutput();
+    if (!m_outputDevice.isNull()) {
+        const auto outputs = QMediaDevices::audioOutputs();
+        if (devicePresent(outputs, m_outputDevice)) {
+            dev = m_outputDevice;
+        } else {
+            qCWarning(lcAudio) << "AudioEngine: saved output device is unavailable, using the system default output instead";
+            m_outputDevice = QAudioDevice{};
+        }
+    }
 
 #ifdef Q_OS_MAC
     if (!m_allowBluetoothTelephonyOutput.load()) {
@@ -262,6 +288,7 @@ bool AudioEngine::startRxStream()
         if (state != QAudio::StoppedState) {
             return;
         }
+        m_audioDevice = nullptr;
         if (!m_audioSink) {
             return;   // intentional stop (stopRxStream nulls this)
         }
@@ -351,6 +378,7 @@ bool AudioEngine::startRxStream()
         if (state != QAudio::StoppedState) {
             return;
         }
+        m_audioDevice = nullptr;
         if (!m_audioSink) {
             return;   // intentional stop (stopRxStream nulls this)
         }

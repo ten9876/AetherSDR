@@ -13,6 +13,7 @@
 #include <QBuffer>
 #include <QByteArray>
 #include <QElapsedTimer>
+#include <QPointer>
 
 class QMediaDevices;
 
@@ -203,12 +204,12 @@ private:
 
     // RX
     QAudioSink*   m_audioSink{nullptr};
-    QIODevice*    m_audioDevice{nullptr};   // raw device from QAudioSink
+    QPointer<QIODevice> m_audioDevice;   // sink-owned device, may vanish on hot-unplug
 
     // TX
     QUdpSocket    m_txSocket;
     QAudioSource* m_audioSource{nullptr};
-    QIODevice*    m_micDevice{nullptr};
+    QPointer<QIODevice> m_micDevice;
 #ifdef Q_OS_MAC
     QTimer*       m_txPollTimer{nullptr};
     QBuffer*      m_micBuffer{nullptr};
