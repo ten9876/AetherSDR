@@ -195,13 +195,24 @@ VfoWidget::VfoWidget(QWidget* parent)
     m_signalMeterAnimation.setInterval(kSignalMeterAnimationIntervalMs);
     connect(&m_signalMeterAnimation, &QTimer::timeout, this, &VfoWidget::animateSignalMeter);
 
+    // Hover-to-preview timer: short delay before expanding on hover
+    m_hoverTimer = new QTimer(this);
+    m_hoverTimer->setSingleShot(true);
+    m_hoverTimer->setInterval(200);  // 200ms delay to avoid flicker
+    connect(m_hoverTimer, &QTimer::timeout, this, [this] {
+        if (m_collapsed && !m_hoverExpanded) {
+            m_hoverExpanded = true;
+            applyCollapsedVisual(false);
+        }
+    });
+
     buildUI();
 }
 
 void VfoWidget::wheelEvent(QWheelEvent* ev)
 {
-    // In collapsed mode, scroll anywhere to tune by step size
-    if (m_collapsed && m_slice && !m_slice->isLocked()) {
+    // In collapsed mode (not hover-expanded), scroll anywhere to tune by step size
+    if (m_collapsed && !m_hoverExpanded && m_slice && !m_slice->isLocked()) {
         int stepHz = m_slice->stepHz();
         if (stepHz > 0) {
             int delta = ev->angleDelta().y();
@@ -240,7 +251,7 @@ void VfoWidget::wheelEvent(QWheelEvent* ev)
 void VfoWidget::mousePressEvent(QMouseEvent* ev)
 {
     ev->accept();
-    if (m_collapsed) {
+    if (m_collapsed && !m_hoverExpanded) {
         // Match the painted geometry in paintEvent
         const int badgeSize = 20;
         const int margin = (width() - badgeSize) / 2;
@@ -258,6 +269,20 @@ void VfoWidget::mousePressEvent(QMouseEvent* ev)
         QTimer::singleShot(0, this, [this] { setCollapsed(false); });
         return;
     }
+    // Click while hover-expanded → make the expand permanent
+    if (m_hoverExpanded) {
+        m_hoverExpanded = false;
+        m_hoverTimer->stop();
+        // Widget is already visually expanded; just persist the state
+        m_collapsed = false;
+        if (m_slice) {
+            auto& s = AppSettings::instance();
+            s.setValue(QString("SliceFlagCollapsed_%1").arg(m_slice->sliceId()), "False");
+        }
+        if (m_slice)
+            emit sliceActivationRequested(m_slice->sliceId());
+        return;
+    }
     // Click on the slice badge → collapse the flag (deferred)
     if (ev->button() == Qt::LeftButton && m_sliceBadge && m_sliceBadge->isVisible()
         && m_sliceBadge->geometry().contains(ev->pos())) {
@@ -271,6 +296,30 @@ void VfoWidget::mousePressEvent(QMouseEvent* ev)
 void VfoWidget::mouseReleaseEvent(QMouseEvent* ev)
 {
     ev->accept();
+}
+
+void VfoWidget::enterEvent(QEnterEvent* ev)
+{
+    QWidget::enterEvent(ev);
+    if (m_collapsed && !m_hoverExpanded) {
+        m_hoverTimer->start();  // start delayed hover-expand
+    }
+}
+
+void VfoWidget::leaveEvent(QEvent* ev)
+{
+    QWidget::leaveEvent(ev);
+    m_hoverTimer->stop();  // cancel pending hover-expand
+    if (m_hoverExpanded) {
+        // Re-collapse after a short grace period so the flag doesn't snap
+        // shut if the mouse briefly overshoots
+        QTimer::singleShot(300, this, [this] {
+            if (m_hoverExpanded && !underMouse()) {
+                m_hoverExpanded = false;
+                applyCollapsedVisual(true);
+            }
+        });
+    }
 }
 
 VfoWidget::~VfoWidget()
@@ -1733,6 +1782,7 @@ void VfoWidget::setCollapsed(bool collapsed)
 {
     if (m_collapsed == collapsed) return;
     m_collapsed = collapsed;
+    m_hoverExpanded = false;
 
     // Persist per-slice preference
     if (m_slice) {
@@ -1741,6 +1791,13 @@ void VfoWidget::setCollapsed(bool collapsed)
                    collapsed ? "True" : "False");
     }
 
+    applyCollapsedVisual(collapsed);
+}
+
+// Apply the visual expand/collapse without persisting to settings.
+// Used by setCollapsed() (after persisting) and by hover preview.
+void VfoWidget::applyCollapsedVisual(bool collapsed)
+{
     if (collapsed) {
         // Remember which children were already hidden so we don't show them on expand
         m_hiddenBeforeCollapse.clear();
@@ -1970,7 +2027,7 @@ void VfoWidget::updatePosition(int vfoX, int specTop, FlagDir dir)
             btnX = x + w + gap;        // right of VFO widget
 
         int btnY = specTop;
-        if (!m_collapsed) {
+        if (!m_collapsed || m_hoverExpanded) {
             m_closeSliceBtn->move(btnX, btnY);
             btnY += btnSize + gap;
 
@@ -1988,7 +2045,7 @@ void VfoWidget::updatePosition(int vfoX, int specTop, FlagDir dir)
     }
 
     // Position collapsed frequency label next to the collapsed widget
-    if (m_collapsedFreqLabel && m_collapsed) {
+    if (m_collapsedFreqLabel && m_collapsed && !m_hoverExpanded) {
         const int freqGap = 2;
         int freqX;
         int freqH = m_collapsedFreqLabel->sizeHint().height();
@@ -2022,7 +2079,7 @@ void VfoWidget::paintEvent(QPaintEvent* event)
     p.setBrush(QColor(255, 255, 255, 13));
     p.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 3, 3);
 
-    if (m_collapsed) {
+    if (m_collapsed && !m_hoverExpanded) {
         // ── Collapsed mode: draw slice badge and TX badge via painter ──────
         const int badgeSize = 20;
         const int margin = (width() - badgeSize) / 2;

@@ -69,6 +69,7 @@ public:
 
     bool isCollapsed() const { return m_collapsed; }
     void setCollapsed(bool collapsed);
+    bool isHoverExpanded() const { return m_hoverExpanded; }
 
 #ifdef HAVE_RADE
     void setRadeActive(bool on);
@@ -111,6 +112,8 @@ protected:
     void wheelEvent(QWheelEvent* ev) override;
     void mousePressEvent(QMouseEvent* ev) override;
     void mouseReleaseEvent(QMouseEvent* ev) override;
+    void enterEvent(QEnterEvent* ev) override;
+    void leaveEvent(QEvent* ev) override;
 
 private:
     void updateSignalMeterTarget();
@@ -119,6 +122,7 @@ private:
 
     void buildUI();
     void buildTabContent();
+    void applyCollapsedVisual(bool collapsed);
     void updateTxBadgeStyle(bool isTx);
     void showTab(int index);
     void updateFreqLabel();
@@ -142,8 +146,10 @@ private:
     float          m_signalMeterFraction{0.0f};
     float          m_targetSignalMeterFraction{0.0f};
     bool           m_collapsed{false};
+    bool           m_hoverExpanded{false};    // temporarily expanded on mouse hover
     bool           m_collapseToggled{false};  // guard: absorb release after toggle
     QPointer<QLabel> m_collapsedFreqLabel;
+    QTimer*        m_hoverTimer{nullptr};     // delay before hover-expand
     QSet<QWidget*> m_hiddenBeforeCollapse;    // widgets already hidden before collapse
 
     // Header row
