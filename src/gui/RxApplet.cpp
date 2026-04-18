@@ -706,9 +706,14 @@ void RxApplet::buildUI()
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
 
-        auto* lLbl = new QLabel("L");
-        lLbl->setStyleSheet(kDimLabelStyle);
-        row->addWidget(lLbl);
+        auto* lBtn = new QPushButton("L");
+        lBtn->setFlat(true);
+        lBtn->setCursor(Qt::PointingHandCursor);
+        lBtn->setFixedWidth(16);
+        lBtn->setStyleSheet(
+            "QPushButton { color: #8090a0; font-size: 11px; border: none; }"
+            "QPushButton:hover { color: #c0d0e0; }");
+        row->addWidget(lBtn);
 
         m_panSlider = new CenterMarkSlider(50, Qt::Horizontal);
         m_panSlider->setRange(0, 100);
@@ -716,13 +721,31 @@ void RxApplet::buildUI()
         m_panSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_panSlider, 1);
 
-        auto* rLbl = new QLabel("R");
-        rLbl->setStyleSheet(kDimLabelStyle);
-        row->addWidget(rLbl);
+        auto* rBtn = new QPushButton("R");
+        rBtn->setFlat(true);
+        rBtn->setCursor(Qt::PointingHandCursor);
+        rBtn->setFixedWidth(16);
+        rBtn->setStyleSheet(
+            "QPushButton { color: #8090a0; font-size: 11px; border: none; }"
+            "QPushButton:hover { color: #c0d0e0; }");
+        row->addWidget(rBtn);
 
         connect(m_panSlider, &QSlider::valueChanged, this, [this](int v) {
             if (m_slice) m_slice->setAudioPan(v);
         });
+
+        connect(lBtn, &QPushButton::clicked, this, [this] {
+            if (!m_slice) return;
+            int cur = m_panSlider->value();
+            m_panSlider->setValue(cur == 0 ? 50 : 0);
+        });
+
+        connect(rBtn, &QPushButton::clicked, this, [this] {
+            if (!m_slice) return;
+            int cur = m_panSlider->value();
+            m_panSlider->setValue(cur == 100 ? 50 : 100);
+        });
+
         rightCol->addLayout(row);
     }
 
