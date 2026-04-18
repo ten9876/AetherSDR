@@ -294,21 +294,24 @@ QString RigctlProtocol::cmdSetMode(const QString& args)
 
 QString RigctlProtocol::cmdGetVfo()
 {
+    // Always report VFOA — this connection's slice is the "current" VFO
+    // for the client.  The actual slice index is set by the TCP port binding.
     if (m_extended)
-        return QStringLiteral("get_vfo:\nVFO: %1\n").arg(m_sliceIndex == 0 ? "VFOA" : "VFOB") + rprt(0);
-    return QStringLiteral("%1\n").arg(m_sliceIndex == 0 ? "VFOA" : "VFOB");
+        return QStringLiteral("get_vfo:\nVFO: VFOA\n") + rprt(0);
+    return QStringLiteral("VFOA\n");
 }
 
 QString RigctlProtocol::cmdSetVfo(const QString& arg)
 {
+    // Accept the command without error but do NOT modify m_sliceIndex.
+    // The slice binding is determined by which TCP port the client connected
+    // to (set in RigctlServer::onNewConnection) and must not be overridden
+    // by the VFO command.  WSJT-X sends "V VFOB" during init which would
+    // otherwise force all instances onto Slice B (#1621).
     QString vfo = arg.trimmed().toUpper();
-    if (vfo == "VFOA" || vfo == "MAIN")
-        m_sliceIndex = 0;
-    else if (vfo == "VFOB" || vfo == "SUB")
-        m_sliceIndex = 1;
-    else
-        return rprt(-1);
-    return rprt(0);
+    if (vfo == "VFOA" || vfo == "MAIN" || vfo == "VFOB" || vfo == "SUB")
+        return rprt(0);
+    return rprt(-1);
 }
 
 QString RigctlProtocol::cmdGetPtt()
@@ -363,9 +366,9 @@ QString RigctlProtocol::cmdGetSplitVfo()
     auto* rxSlice = currentSlice();
     auto* txSlice = findTxSlice();
     bool split = (rxSlice && txSlice && rxSlice != txSlice);
-    const QString txVfo = txSlice
-        ? (txSlice->sliceId() == 0 ? "VFOA" : "VFOB")
-        : "VFOA";
+    // Report TX VFO as VFOB when split (TX on a different slice), VFOA otherwise.
+    // The actual slice is resolved internally — the VFO label is only for the client.
+    const QString txVfo = split ? "VFOB" : "VFOA";
     if (m_extended)
         return QString("get_split_vfo:\nSplit: %1\nTX VFO: %2\n").arg(split ? 1 : 0).arg(txVfo) + rprt(0);
     return QString("%1\n%2\n").arg(split ? 1 : 0).arg(txVfo);
