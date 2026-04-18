@@ -73,6 +73,10 @@ public:
     // Convenience: SWR.
     float swr() const { return m_swr; }
 
+    // Timestamp of the last TX meter sample (milliseconds since epoch).
+    qint64 txMetersUpdatedAtMs() const { return m_lastTxMeterUpdateMs; }
+    bool hasRecentTxMeters(qint64 maxAgeMs) const;
+
     // Convenience: mic peak level (dBFS) and compression peak (dB).
     float micPeak()  const { return m_micPeak; }
     float compPeak() const { return m_compPeak; }
@@ -151,6 +155,7 @@ private:
     float m_sLevel{-130.0f};
     float m_fwdPower{0.0f};
     float m_swr{1.0f};
+    qint64 m_lastTxMeterUpdateMs{0};
     float m_micPeak{-50.0f};
     float m_compPeak{0.0f};      // computed gain reduction (displayed)
     float m_compPeakRaw{-150.0f}; // smoothed COMPPEAK value

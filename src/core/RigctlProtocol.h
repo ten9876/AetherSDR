@@ -48,6 +48,8 @@ private:
     QString cmdSetSplitFreq(const QString& args);
     QString cmdGetSplitMode();
     QString cmdSetSplitMode(const QString& args);
+    QString cmdGetLevel(const QString& arg);
+    QString cmdSetLevel(const QString& args);
     QString cmdDumpState();
     QString cmdSendMorse(const QString& text);  // b <text> / \send_morse
     QString cmdStopMorse();                     // \stop_morse

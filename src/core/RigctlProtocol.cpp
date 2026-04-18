@@ -3,9 +3,49 @@
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
 
+#include <QLocale>
 #include <QMetaObject>
+#include <QStringList>
+#include <QtGlobal>
 
 namespace AetherSDR {
+
+namespace {
+
+constexpr quint64 kRigLevelKeyspd            = (1ULL << 14);
+constexpr quint64 kRigLevelSwr               = (1ULL << 28);
+constexpr quint64 kRigLevelRfPowerMeter      = (1ULL << 32);
+constexpr quint64 kRigLevelRfPowerMeterWatts = (1ULL << 39);
+constexpr qint64  kTxMeterFreshMs            = 1500;
+constexpr quint64 kRigGetLevelMask = kRigLevelKeyspd
+                                   | kRigLevelSwr
+                                   | kRigLevelRfPowerMeter
+                                   | kRigLevelRfPowerMeterWatts;
+
+QStringList rigGetLevelTokens()
+{
+    return {
+        QStringLiteral("KEYSPD"),
+        QStringLiteral("SWR"),
+        QStringLiteral("RFPOWER_METER"),
+        QStringLiteral("RFPOWER_METER_WATTS"),
+    };
+}
+
+QStringList rigSetLevelTokens()
+{
+    return { QStringLiteral("KEYSPD") };
+}
+
+QString formatRigLevelValue(double value)
+{
+    QString text = QLocale::c().toString(value, 'g', 6);
+    if (text == "-0" || text == "-0.0")
+        text = "0";
+    return text;
+}
+
+} // namespace
 
 RigctlProtocol::RigctlProtocol(RadioModel* model)
     : m_model(model)
@@ -132,13 +172,13 @@ QString RigctlProtocol::processCommand(const QString& cmd)
         if (name == "set_split_freq") return cmdSetSplitFreq(args);
         if (name == "get_split_mode") return cmdGetSplitMode();
         if (name == "set_split_mode") return cmdSetSplitMode(args);
+        if (name == "get_level")      return cmdGetLevel(args);
+        if (name == "set_level")      return cmdSetLevel(args);
         if (name == "dump_state")     return cmdDumpState();
         if (name == "quit")           return {};  // caller handles disconnect
         if (name == "chk_vfo")        return QStringLiteral("0\n");  // VFO mode disabled
         if (name == "send_morse")    return cmdSendMorse(args);
         if (name == "stop_morse")    return cmdStopMorse();
-        if (name == "set_level" && args.startsWith("KEYSPD"))
-            return cmdSetKeySpeed(args.mid(7).trimmed());
 
         return rprt(-4);  // RIG_EINVAL
     }
@@ -160,6 +200,8 @@ QString RigctlProtocol::processCommand(const QString& cmd)
     case 'S': return cmdGetSplitVfo();
     case 'I': return cmdGetSplitFreq();
     case 'X': return cmdGetSplitMode();
+    case 'l': return cmdGetLevel(args);
+    case 'L': return cmdSetLevel(args);
     case '1': return cmdDumpState();       // \dump_state
     case 'b': return cmdSendMorse(args);    // send morse
     case 'q': return {};                   // quit
@@ -395,6 +437,78 @@ QString RigctlProtocol::cmdSetSplitMode(const QString& args)
     return rprt(0);
 }
 
+QString RigctlProtocol::cmdGetLevel(const QString& arg)
+{
+    if (!m_model) return rprt(-8);
+
+    const QString level = arg.trimmed().toUpper();
+    if (level.isEmpty())
+        return rprt(-1);
+
+    if (level == "?") {
+        const QString supported = rigGetLevelTokens().join(' ');
+        if (m_extended)
+            return QStringLiteral("get_level:\nLevels: %1\n").arg(supported) + rprt(0);
+        return supported + "\n";
+    }
+
+    auto makeResponse = [this, &level](const QString& value) {
+        if (m_extended) {
+            return QStringLiteral("get_level:\nLevel: %1\nLevel Value: %2\n")
+                .arg(level, value) + rprt(0);
+        }
+        return value + "\n";
+    };
+
+    const auto& txModel = m_model->transmitModel();
+    const bool txMetersActive = txModel.isTransmitting() || txModel.isMox() || txModel.isTuning();
+    const bool txMetersFresh = txMetersActive
+        && m_model->meterModel().hasRecentTxMeters(kTxMeterFreshMs);
+
+    if (level == "KEYSPD")
+        return makeResponse(QString::number(txModel.cwSpeed()));
+
+    if (level == "SWR") {
+        // WSJT-X polls immediately after PTT and treats 0 as "no valid reading".
+        // Suppress cached last-TX values until a fresh TX meter sample arrives.
+        const float swr = txMetersFresh ? qMax(0.0f, m_model->meterModel().swr()) : 0.0f;
+        return makeResponse(formatRigLevelValue(swr));
+    }
+
+    if (level == "RFPOWER_METER_WATTS") {
+        const float watts = txMetersFresh ? qMax(0.0f, m_model->meterModel().fwdPower()) : 0.0f;
+        return makeResponse(formatRigLevelValue(watts));
+    }
+
+    if (level == "RFPOWER_METER") {
+        const float watts = txMetersFresh ? qMax(0.0f, m_model->meterModel().fwdPower()) : 0.0f;
+        const int maxPower = qMax(1, txModel.maxPowerLevel());
+        float ratio = watts / static_cast<float>(maxPower);
+        ratio = qBound(0.0f, ratio, 1.0f);
+        return makeResponse(formatRigLevelValue(ratio));
+    }
+
+    return rprt(-11);  // RIG_ENAVAIL
+}
+
+QString RigctlProtocol::cmdSetLevel(const QString& args)
+{
+    QStringList parts = args.split(' ', Qt::SkipEmptyParts);
+    if (parts.isEmpty())
+        return rprt(-1);
+
+    const QString level = parts[0].trimmed().toUpper();
+    if (level == "?") {
+        const QString supported = rigSetLevelTokens().join(' ');
+        if (m_extended)
+            return QStringLiteral("set_level:\nLevels: %1\n").arg(supported) + rprt(0);
+        return supported + "\n";
+    }
+    if (level == "KEYSPD")
+        return cmdSetKeySpeed(parts.mid(1).join(' '));
+    return rprt(-11);  // RIG_ENAVAIL
+}
+
 QString RigctlProtocol::cmdDumpState()
 {
     // Mimic rigctld --model=2 (NET rigctl) output.
@@ -439,10 +553,11 @@ QString RigctlProtocol::cmdDumpState()
     dump += "\n";
     dump += "\n";
     // has get/set func/level/parm
+    // Levels: KEYSPD, SWR, RFPOWER_METER, RFPOWER_METER_WATTS
     dump += "0x0\n";
     dump += "0x0\n";
-    dump += "0x0\n";
-    dump += "0x0\n";
+    dump += QStringLiteral("0x%1\n").arg(kRigGetLevelMask, 0, 16);
+    dump += QStringLiteral("0x%1\n").arg(kRigLevelKeyspd, 0, 16);
     dump += "0x0\n";
     dump += "0x0\n";
     // Protocol v1 additional fields (required by netrigctl_open)
