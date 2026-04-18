@@ -2906,6 +2906,8 @@ QWidget* RadioSetupDialog::buildSerialTab()
         auto* dataCombo = new QComboBox;
         dataCombo->addItem("8", 8);
         dataCombo->addItem("7", 7);
+        int savedData = settings.value("SerialDataBits", "8").toInt();
+        dataCombo->setCurrentIndex(dataCombo->findData(savedData));
         grid->addWidget(dataCombo, 2, 3);
 
         // Parity
@@ -2914,6 +2916,8 @@ QWidget* RadioSetupDialog::buildSerialTab()
         parityCombo->addItem("None", 0);
         parityCombo->addItem("Even", 2);
         parityCombo->addItem("Odd", 3);
+        int savedParity = settings.value("SerialParity", "0").toInt();
+        parityCombo->setCurrentIndex(parityCombo->findData(savedParity));
         grid->addWidget(parityCombo, 3, 1);
 
         // Stop bits
@@ -2921,6 +2925,8 @@ QWidget* RadioSetupDialog::buildSerialTab()
         auto* stopCombo = new QComboBox;
         stopCombo->addItem("1", 1);
         stopCombo->addItem("2", 2);
+        int savedStop = settings.value("SerialStopBits", "1").toInt();
+        stopCombo->setCurrentIndex(stopCombo->findData(savedStop));
         grid->addWidget(stopCombo, 3, 3);
 
         vbox->addWidget(group);
@@ -2942,6 +2948,9 @@ QWidget* RadioSetupDialog::buildSerialTab()
         connect(portCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
         connect(customEdit, &QLineEdit::textChanged, this, savePort);
         connect(baudCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
+        connect(dataCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
+        connect(parityCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
+        connect(stopCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
     }
 
     // ── Pin Assignment ───────────────────────────────────────────────────
