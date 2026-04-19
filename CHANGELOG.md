@@ -3,6 +3,127 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.16] — 2026-04-18
+
+### DIGI Applet Split, TCI Audio Reliability, PGXL-Aware S-Meter, Community Contributions
+
+### Features
+
+**DIGI applet split into CAT, DAX, TCI, IQ (#1627)**
+- Four independent applets replace the monolithic DIGI tile
+- Each has its own toggle button, drag-reorder slot, and float/dock affordance
+- TCI gains per-channel RX gain (TciRxGain1-4) and a decoupled TX gain (TciTxGain)
+- DAX and TCI audio gains no longer fight each other
+- Migrates existing Applet_DIGI and DaxRx/TxGain settings on first launch
+
+**PGXL standby-aware S-Meter (#1635)**
+- VU / S-Meter switches between barefoot and PGXL 2kW scales automatically
+- In STANDBY the meter shows exciter FWDPWR on the barefoot scale
+- In OPERATE the meter shows amp output on the 2kW scale
+- Scale and feed flip live on amp state change — no dialog re-open needed
+
+**Refined HF Propagation Dashboard (#1626, community: jensenpat)**
+- Five color-coded metric cards for K, A, SFI, SSN, X-ray with plain-language summaries
+- Teaching panels for Solar/Lunar (VIEW/HF/MOON) and VHF (AURORA/E-SKIP)
+- Cropped lunar bitmap fills the frame; empty-phase caption no longer leaves a blank line
+
+**Pan-follows-VFO with 5% edge threshold (#1476/#1477)**
+- Opt-in toggle; VFO slides freely through the center 90% of the pan
+- Pan only shifts when the VFO crosses the 5% edge on either side
+
+**Memory dialog CSV bulk import (#1529)**
+- Import memory channels from SmartSDR-compatible 22-column CSV with progress feedback
+- Bulk selection and editing flow improvements (#1522)
+
+**RAC (Canada) band plan overlay (#716)**
+
+**Audio Boost toggle (#1445)**
+- Optional gain boost in Radio Setup for low-volume AGC audio
+
+**Configurable audio buffer cap (#1505)**
+- User-tunable RX buffer size; DSP bypass for external TX paths
+
+**Per-slice VFO marker style toggles (#1526/#1614)**
+- Thin / thick / edges / hide choices per slice (restricted to CW/CWL modes)
+
+**Extended frequency line (#1502)**
+
+**rigctl TX PWR / SWR meters for WSJT-X and JTDX (#1594)**
+- Expose transmit power and SWR over rigctld
+
+**StreamController TX audio source selector (#1617)**
+- MOX and PTT actions in the StreamController plugin can pick DAX vs mic source
+
+**Smooth S-meter peak hold animation (#1501)**
+
+### Bug Fixes
+
+**TCI audio reliability for WSJT-X / JTDX**
+- Fix TCI TX timing for WSJT-X (#1624) — 2048/48000 = 21.333ms cadence was rounding to 21ms
+- Fix TCI audio for multi-slice: per-channel accumulation buffers (#1595/#1596)
+- Fix TCI audio for WSJT-X: DAX stream lifecycle and frame format (#1439)
+- Fix TCI trx command ignoring micpc audio source arg (#1534/#1535)
+- Fix TCI server crash on stop due to double-free in client cleanup (#1532)
+- Decouple TciServer TX gain from DaxTxGain (#1628)
+
+**macOS Tahoe pop-out / re-dock UI freeze (#1344/#1345)**
+- Clears stale native window state on reparent
+
+**rigctld shutdown stability**
+- Fix rigctld shutdown crash with active CAT clients (#1601)
+- Schedule rigctld client sockets for deletion on server stop (#1605)
+
+**PC Audio persistence and recovery**
+- Fix PC Audio mute state not persisting across restarts or sleep/wake (#1571/#1572)
+- Fix PC Audio silence after Teams/Zoom reconfigures audio endpoint (#1569/#1570)
+- Keep local audio sink off when PC Audio is disabled but stream alive (#1622)
+- Handle macOS Bluetooth audio hotplug safely (#1602)
+- Fix macOS Bluetooth audio route handling (#1486)
+
+**Panadapter and spectrum**
+- Fix RF Gain echo-driven command loop (#1498/#1612)
+- Fix RF gain / WNB controls affecting wrong panadapter (#1548)
+- Fix VFO disappearing from pan area on startup (#1493/#1495)
+- Preserve waterfall history on width change instead of blanking (#1608)
+- Fix Band Stack Panel expanding main window width (#1487/#1488)
+- Recenter panadapter when activating an off-screen slice (#1554/#1555)
+- Fix noise floor mismatch between slices by syncing yPixels on resize (#1511)
+- Center signal on VFO when zoom-in button/keyboard pushes it offscreen (#1550/#1551)
+- Propagate late-arriving DIV eligibility to all VFOs (#1503/#1613)
+- Fix PanadapterStream thread affinity (#1489)
+- Fix RF Gain slider wiring and keyboard shortcut yield (#1497)
+
+**FlexControl tuning jitter**
+- Resolve optimistic/confirmed frequency race that caused knob jitter (#1524)
+
+**CW**
+- Fix CW macros requiring CWX window open and ESC not stopping TX (#1552/#1553)
+- Fix CW decoder header jitter when WPM changes (#1546)
+- Fix Autotune label leaking to non-CW modes and show marker row always (#1620)
+- Restrict VFO marker-style buttons to CW/CWL modes and clean up on rebuild (#1615)
+
+**Mic and TX**
+- Fix Mic Gain resetting when toggling Processor state (#1573)
+- Disable NR2 when Opus audio compression is active (#1597)
+
+**TGXL and band selection**
+- Fix TGXL showing wrong SWR after tune and meter freeze (#1530/#1531)
+- Map WWV/GEN to their band-stack slot indexes (#1540/#1211 follow-up) (#1616)
+
+**TNF on macOS (#1452)**
+- Split setGlobalEnabled into status and command paths so TNF tracks on macOS
+
+**MQTT TLS with OpenSSL 3.5+ (#1483/#1484)**
+
+**Radio connection UX (#1545)**
+- Better panadapter feedback during connect
+- Larger connection dialog buttons and window
+- Clarify disabled CAT/DAX menu items on unsupported platforms (#1556/#1557)
+
+**Windows build**
+- Guard autoCatAction / autoDaxAction refs in placeholder-action loop (#1618/#1619)
+- Guard m_hidCoalesceTimer reference behind HAVE_HIDAPI (#1606)
+
 ## [v0.8.15] — 2026-04-15
 
 ### Waterfall Scrollback, Pan-Follow Animation, TCI-via-DAX, Community Contributions
