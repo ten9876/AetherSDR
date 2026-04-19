@@ -528,6 +528,7 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
     }
     if (kvs.contains("mode_list")) {
         QStringList modes = kvs["mode_list"].split(',', Qt::SkipEmptyParts);
+        modes.removeAll("SSB");
         if (modes != m_modeList) {
             m_modeList = modes;
             emit modeListChanged(modes);
