@@ -57,6 +57,7 @@ public:
     QPushButton* rn2Button() const { return m_rn2Btn; }
     QPushButton* bnrButton() const { return m_bnrBtn; }
     QPushButton* nr4Button() const { return m_nr4Btn; }
+    QPushButton* mnrButton() const { return m_mnrBtn; }
     QPushButton* dfnrButton() const { return m_dfnrBtn; }
     void setAfGain(int pct);
     void setEscLevel(float dbm);
@@ -87,6 +88,8 @@ Q_SIGNALS:
     void rn2Toggled(bool on);
     void bnrToggled(bool on);
     void nr4Toggled(bool on);
+    void mnrToggled(bool on);
+    void mnrRightClicked(const QPoint& globalPos);
     void dfnrToggled(bool on);
     void dfnrRightClicked(const QPoint& globalPos);
 #ifdef HAVE_RADE
@@ -232,6 +235,7 @@ private:
     QPushButton* m_rn2Btn{nullptr};
     QPushButton* m_bnrBtn{nullptr};
     QPushButton* m_nr4Btn{nullptr};
+    QPushButton* m_mnrBtn{nullptr};
     QPushButton* m_dfnrBtn{nullptr};
     QPushButton* m_nrfBtn{nullptr};
     QPushButton* m_anflBtn{nullptr};

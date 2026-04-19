@@ -135,6 +135,7 @@ private:
     void showNr2ParamPopup(const QPoint& globalPos);
     void showNr4ParamPopup(const QPoint& globalPos);
     void showDfnrParamPopup(const QPoint& globalPos);
+    void showMnrSettings();
     void applyPanLayout(const QString& layoutId);
     void createPansSequentially(const QString& layoutId, int total,
                                 std::shared_ptr<QStringList> panIds, int created);

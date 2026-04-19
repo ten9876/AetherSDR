@@ -409,10 +409,11 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
         {&S::setAnft, &S::anftChanged},  // 10
         {nullptr,     nullptr},           // 11 — BNR (client-side, wired separately)
         {nullptr,     nullptr},           // 12 — NR4 (client-side, wired separately)
-        {nullptr,     nullptr},           // 13 — DFNR (client-side, wired separately)
+        {nullptr,     nullptr},           // 13 — MNR (client-side, wired separately)
+        {nullptr,     nullptr},           // 14 — DFNR (client-side, wired separately)
     };
 
-    for (int i = 0; i < 13; ++i) {
+    for (int i = 0; i < 15; ++i) {
         if (!toggleDefs[i].setter) continue;  // skip NR2/RN2
         auto* btn = m_dspRows[i].btn;
         auto setter = toggleDefs[i].setter;
@@ -524,19 +525,34 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
     m_dspRows[12].btn->setVisible(false);
 #endif
 
-    // DFNR (client-side, index 13) — emit signal for MainWindow to handle
+    // MNR (client-side, index 13) — emit signal for MainWindow to handle
     connect(m_dspRows[13].btn, &QPushButton::toggled, this, [this](bool on) {
+        if (!m_updatingFromModel)
+            emit mnrToggled(on);
+    });
+    // MNR right-click → parameter popup
+    m_dspRows[13].btn->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_dspRows[13].btn, &QPushButton::customContextMenuRequested,
+            this, [this](const QPoint& pos) {
+        emit mnrRightClicked(m_dspRows[13].btn->mapToGlobal(pos));
+    });
+#ifndef __APPLE__
+    m_dspRows[13].btn->setVisible(false);  // MNR is macOS only
+#endif
+
+    // DFNR (client-side, index 14) — emit signal for MainWindow to handle
+    connect(m_dspRows[14].btn, &QPushButton::toggled, this, [this](bool on) {
         if (!m_updatingFromModel)
             emit dfnrToggled(on);
     });
     // DFNR right-click → parameter popup
-    m_dspRows[13].btn->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_dspRows[13].btn, &QPushButton::customContextMenuRequested,
+    m_dspRows[14].btn->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_dspRows[14].btn, &QPushButton::customContextMenuRequested,
             this, [this](const QPoint& pos) {
-        emit dfnrRightClicked(m_dspRows[13].btn->mapToGlobal(pos));
+        emit dfnrRightClicked(m_dspRows[14].btn->mapToGlobal(pos));
     });
 #ifndef HAVE_DFNR
-    m_dspRows[13].btn->setVisible(false);
+    m_dspRows[14].btn->setVisible(false);
 #endif
 
     syncAntPanel();
@@ -596,7 +612,8 @@ void SpectrumOverlayMenu::buildDspPanel()
         {"ANFT", false},  // 10
         {"BNR",  true},   // 11 — client-side NVIDIA NIM (intensity slider)
         {"NR4",  false},  // 12 — client-side spectral bleach (libspecbleach)
-        {"DFNR", false},  // 13 — client-side DeepFilterNet3 neural NR
+        {"MNR",  false},  // 13 — macOS MMSE-Wiener spectral NR
+        {"DFNR", false},  // 14 — client-side DeepFilterNet3 neural NR
     };
 
     // First pass: create all buttons and collect toggle-only (no slider) indices
@@ -668,7 +685,8 @@ void SpectrumOverlayMenu::buildDspPanel()
     m_dspRows[10].btn->setToolTip("FFT-based notch filter \u2014 removes up to five persistent tones from transformers or power supplies.");
     m_dspRows[11].btn->setToolTip("NVIDIA GPU-accelerated neural audio denoising. Requires NVIDIA RTX 4000+ with Docker.");
     m_dspRows[12].btn->setToolTip("Client-side spectral bleach noise reduction (libspecbleach). Right-click for NR4 settings.");
-    m_dspRows[13].btn->setToolTip("DeepFilterNet3 neural noise reduction \u2014 AI speech enhancement\nwith higher fidelity than RNNoise in high-noise environments.\nCPU-only, 10 ms latency. Right-click for DFNR settings.");
+    m_dspRows[13].btn->setToolTip("macOS only \u2014 MMSE-Wiener spectral noise reduction with asymmetric gain smoothing.\nUses Apple Accelerate vDSP for hardware-accelerated FFT on Apple Silicon.\nRemoves consistent background noise while preserving speech clarity.");
+    m_dspRows[14].btn->setToolTip("DeepFilterNet3 neural noise reduction \u2014 AI speech enhancement\nwith higher fidelity than RNNoise in high-noise environments.\nCPU-only, 10 ms latency. Right-click for DFNR settings.");
 
     // DSP slider tooltips
     if (m_dspRows[0].slider) m_dspRows[0].slider->setToolTip("Adjusts blanking depth. Higher values suppress more impulse noise but may clip desired signals.");
@@ -680,7 +698,7 @@ void SpectrumOverlayMenu::buildDspPanel()
     if (m_dspRows[9].slider) m_dspRows[9].slider->setToolTip("Adjusts ANFL notch depth.");
     if (m_dspRows[11].slider) m_dspRows[11].slider->setToolTip("Adjusts BNR denoising intensity.");
 
-    m_dspPanel->setFixedWidth(200);
+    m_dspPanel->setFixedWidth(280);
     m_dspPanel->adjustSize();
 
     // Wiring is done in setSlice() since we need the slice model
@@ -1617,9 +1635,14 @@ QPushButton* SpectrumOverlayMenu::dspNr4Button() const
     return m_dspRows.size() > 12 ? m_dspRows[12].btn : nullptr;
 }
 
-QPushButton* SpectrumOverlayMenu::dspDfnrButton() const
+QPushButton* SpectrumOverlayMenu::dspMnrButton() const
 {
     return m_dspRows.size() > 13 ? m_dspRows[13].btn : nullptr;
+}
+
+QPushButton* SpectrumOverlayMenu::dspDfnrButton() const
+{
+    return m_dspRows.size() > 14 ? m_dspRows[14].btn : nullptr;
 }
 
 bool SpectrumOverlayMenu::eventFilter(QObject* obj, QEvent* event)

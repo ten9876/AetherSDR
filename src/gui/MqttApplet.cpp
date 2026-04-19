@@ -138,7 +138,7 @@ void MqttApplet::buildUI()
     ctrlRow->addWidget(m_enableBtn);
 
     m_statusLabel = new QLabel("Disconnected");
-    m_statusLabel->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
+    m_statusLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 10px; }");
     ctrlRow->addWidget(m_statusLabel, 1);
     vbox->addLayout(ctrlRow);
 
@@ -254,7 +254,7 @@ void MqttApplet::updateStatus(const QString& text, bool ok)
     m_statusLabel->setText(text);
     m_statusLabel->setStyleSheet(
         ok ? "QLabel { color: #00c040; font-size: 10px; }"
-           : "QLabel { color: #506070; font-size: 10px; }");
+           : "QLabel { color: #8aa8c0; font-size: 10px; }");
 }
 
 void MqttApplet::onMessageReceived(const QString& topic, const QByteArray& payload)

@@ -77,7 +77,7 @@ public:
 
         // Drag grip dots
         auto* grip = new QLabel(QString::fromUtf8("\xe2\x8b\xae\xe2\x8b\xae"));  // ⋮⋮
-        grip->setStyleSheet("QLabel { background: transparent; color: #607080; font-size: 10px; }");
+        grip->setStyleSheet("QLabel { background: transparent; color: #8aa8c0; font-size: 10px; }");
         layout->addWidget(grip);
 
         m_label = new QLabel(text);

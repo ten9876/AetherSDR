@@ -138,6 +138,12 @@ public:
     void setNr4MaskingDepth(float v);
     void setNr4SuppressionStrength(float v);
 
+    // Client-side MNR (macOS MMSE-Wiener spectral noise reduction)
+    Q_INVOKABLE void setMnrEnabled(bool on);
+    bool mnrEnabled() const { return m_mnrEnabled.load(); }
+    void setMnrStrength(float normalized);
+    float mnrStrength() const;
+
     // Client-side BNR (NVIDIA NIM GPU noise removal)
     Q_INVOKABLE void setBnrEnabled(bool on);
     bool bnrEnabled() const { return m_bnrEnabled.load(); }
@@ -221,6 +227,7 @@ signals:
     void levelChanged(float rms);  // audio level for VU meter, 0.0–1.0
     void nr2EnabledChanged(bool on);
     void nr4EnabledChanged(bool on);
+    void mnrEnabledChanged(bool on);
     void rn2EnabledChanged(bool on);
     void bnrEnabledChanged(bool on);
     void bnrConnectionChanged(bool connected);
@@ -320,6 +327,13 @@ private:
     std::unique_ptr<SpecbleachFilter> m_nr4;
 #endif
     std::atomic<bool> m_nr4Enabled{false};
+
+    // Client-side MNR (macOS MMSE-Wiener)
+#ifdef __APPLE__
+    class MacNRFilter* m_mnr{nullptr};
+#endif
+    std::atomic<bool> m_mnrEnabled{false};
+    float m_mnrStrength{1.0f};
 
     // Client-side RN2 (RNNoise)
     std::unique_ptr<RNNoiseFilter> m_rn2;

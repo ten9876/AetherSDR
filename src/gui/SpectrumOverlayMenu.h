@@ -64,6 +64,7 @@ public:
     QPushButton* dspRn2Button() const;
     QPushButton* dspBnrButton() const;
     QPushButton* dspNr4Button() const;
+    QPushButton* dspMnrButton() const;
     QPushButton* dspDfnrButton() const;
 
 protected:
@@ -82,10 +83,12 @@ signals:
     void rn2Toggled(bool on);
     void bnrToggled(bool on);
     void nr4Toggled(bool on);
+    void mnrToggled(bool on);
     void dfnrToggled(bool on);
     void bnrIntensityChanged(float ratio);
     void nr2RightClicked(const QPoint& globalPos);
     void nr4RightClicked(const QPoint& globalPos);
+    void mnrRightClicked(const QPoint& globalPos);
     void dfnrRightClicked(const QPoint& globalPos);
     // Display sub-panel signals
     void fftAverageChanged(int frames);

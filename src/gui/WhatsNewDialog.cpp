@@ -202,7 +202,7 @@ QString WhatsNewDialog::renderHtml(const std::vector<ReleaseEntry>& entries,
         if (!isWelcome || entries.size() > 1) {
             html += QString("<div class='release-header'>v%1</div>").arg(entry.version);
             if (!entry.date.isEmpty())
-                html += QString("<div style='color:#506070; font-size:10px; margin-bottom:4px;'>%1</div>")
+                html += QString("<div style='color:#8aa8c0; font-size:10px; margin-bottom:4px;'>%1</div>")
                     .arg(entry.date);
         }
 
@@ -224,7 +224,7 @@ QString WhatsNewDialog::renderHtml(const std::vector<ReleaseEntry>& entries,
     }
 
     if (entries.empty()) {
-        html += "<div style='text-align:center; color:#506070; padding:40px;'>"
+        html += "<div style='text-align:center; color:#8aa8c0; padding:40px;'>"
                 "No new changes to report.</div>";
     }
 

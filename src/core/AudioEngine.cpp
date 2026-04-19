@@ -13,6 +13,9 @@
 #ifdef HAVE_DFNR
 #include "DeepFilterFilter.h"
 #endif
+#ifdef __APPLE__
+#include "MacNRFilter.h"
+#endif
 #include "Resampler.h"
 
 #include <cmath>
@@ -572,6 +575,12 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
             writeAudio(processed);
             emit levelChanged(computeRMS(processed));
 #endif
+#ifdef __APPLE__
+        } else if (m_mnrEnabled && m_mnr) {
+            QByteArray processed = m_mnr->process(pcm);
+            writeAudio(processed);
+            emit levelChanged(computeRMS(processed));
+#endif
         } else if (m_bnrEnabled && m_bnr && m_bnr->isConnected()) {
             processBnr(pcm);
             // processBnr writes audio and emits level internally
@@ -1052,6 +1061,43 @@ void AudioEngine::setNr4NoiseEstimationMethod(int) {}
 void AudioEngine::setNr4MaskingDepth(float) {}
 void AudioEngine::setNr4SuppressionStrength(float) {}
 #endif // HAVE_SPECBLEACH
+
+// MNR (macOS MMSE-Wiener noise reduction)
+void AudioEngine::setMnrEnabled(bool on)
+{
+    if (m_mnrEnabled == on) return;
+    std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
+#ifdef __APPLE__
+    if (on) {
+        m_mnr = new MacNRFilter();
+        if (!m_mnr->isValid()) {
+            qCWarning(lcAudio) << "AudioEngine: MNR vDSP setup failed — disabling";
+            delete m_mnr;
+            m_mnr = nullptr;
+            return;
+        }
+        m_mnr->setStrength(m_mnrStrength);
+    } else {
+        delete m_mnr;
+        m_mnr = nullptr;
+    }
+#endif
+    m_mnrEnabled = on;
+    emit mnrEnabledChanged(on);
+}
+
+void AudioEngine::setMnrStrength(float normalized)
+{
+    m_mnrStrength = std::clamp(normalized, 0.0f, 1.0f);
+#ifdef __APPLE__
+    if (m_mnr) m_mnr->setStrength(m_mnrStrength);
+#endif
+}
+
+float AudioEngine::mnrStrength() const
+{
+    return m_mnrStrength;
+}
 
 void AudioEngine::setRn2Enabled(bool on)
 {

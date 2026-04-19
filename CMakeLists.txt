@@ -639,7 +639,8 @@ if(APPLE)
         MACOSX_BUNDLE_ICON_FILE "AetherSDR.icns"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/packaging/macos/Info.plist.in"
     )
-    target_link_libraries(AetherSDR PRIVATE "-framework AVFoundation")
+    target_link_libraries(AetherSDR PRIVATE "-framework AVFoundation" "-framework Accelerate")
+    target_sources(AetherSDR PRIVATE src/core/MacNRFilter.cpp)
     set(MACOSX_ICON "${CMAKE_SOURCE_DIR}/docs/AetherSDR.icns")
     if(EXISTS "${MACOSX_ICON}")
         target_sources(AetherSDR PRIVATE "${MACOSX_ICON}")

@@ -206,7 +206,7 @@ void EqApplet::buildUI()
             auto* scaleCol = new QVBoxLayout;
             scaleCol->setSpacing(0);
             auto* topLbl = new QLabel("+10");
-            topLbl->setStyleSheet("QLabel { color: #607080; font-size: 9px; }");
+            topLbl->setStyleSheet("QLabel { color: #8aa8c0; font-size: 9px; }");
             topLbl->setAlignment(Qt::AlignRight | Qt::AlignTop);
             topLbl->setFixedWidth(20);
             scaleCol->addWidget(topLbl);
@@ -218,7 +218,7 @@ void EqApplet::buildUI()
             scaleCol->addWidget(midLbl);
             scaleCol->addStretch();
             auto* botLbl = new QLabel("-10");
-            botLbl->setStyleSheet("QLabel { color: #607080; font-size: 9px; }");
+            botLbl->setStyleSheet("QLabel { color: #8aa8c0; font-size: 9px; }");
             botLbl->setAlignment(Qt::AlignRight | Qt::AlignBottom);
             botLbl->setFixedWidth(20);
             scaleCol->addWidget(botLbl);
@@ -272,7 +272,7 @@ void EqApplet::buildUI()
             auto* scaleCol = new QVBoxLayout;
             scaleCol->setSpacing(0);
             auto* topLbl = new QLabel("+10");
-            topLbl->setStyleSheet("QLabel { color: #607080; font-size: 9px; }");
+            topLbl->setStyleSheet("QLabel { color: #8aa8c0; font-size: 9px; }");
             topLbl->setAlignment(Qt::AlignLeft | Qt::AlignTop);
             topLbl->setFixedWidth(20);
             scaleCol->addWidget(topLbl);
@@ -284,7 +284,7 @@ void EqApplet::buildUI()
             scaleCol->addWidget(midLbl);
             scaleCol->addStretch();
             auto* botLbl = new QLabel("-10");
-            botLbl->setStyleSheet("QLabel { color: #607080; font-size: 9px; }");
+            botLbl->setStyleSheet("QLabel { color: #8aa8c0; font-size: 9px; }");
             botLbl->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
             botLbl->setFixedWidth(20);
             scaleCol->addWidget(botLbl);

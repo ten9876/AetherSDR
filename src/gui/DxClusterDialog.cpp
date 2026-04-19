@@ -1266,7 +1266,7 @@ void DxClusterDialog::buildSpotCollectorTab(QTabWidget* tabs)
         "In SpotCollector, enable UDP broadcast to this port (default 9999).\n"
         "Alternatively, use the DX Cluster tab to connect to SpotCollector's telnet interface.");
     helpLabel->setWordWrap(true);
-    helpLabel->setStyleSheet("QLabel { color: #607080; font-size: 11px; }");
+    helpLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; }");
     connLayout->addWidget(helpLabel);
 
     // Button row
