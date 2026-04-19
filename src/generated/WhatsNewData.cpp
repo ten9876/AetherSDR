@@ -6,11 +6,13 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
-        {QStringLiteral("0.8.17"), QStringLiteral("2026-04-19"), QStringLiteral("Client-side TX Compressor (Pro-XL-style, Phase 1)"), {
-            {ChangeCategory::Feature, QStringLiteral("Client-side TX dynamics processor"), QStringLiteral("Feed-forward compressor with soft-knee quadratic interpolation, linear- domain peak envelope detection, stereo-linked gain application, and a brickwall peak limiter on the output Parameters: thresh...")},
+        {QStringLiteral("0.8.17"), QStringLiteral("2026-04-19"), QStringLiteral("Client-side TX Compressor (Pro-XL-style, Phase 1) + Fully-interactive 10-band Client EQ"), {
+            {ChangeCategory::Feature, QStringLiteral("Client EQ — 10-band parametric, 4 filter families, output fader (#1650 / #1651 / #1658 / #1660)"), QStringLiteral("Client-side 10-band parametric EQ on both RX (post-NR, pre-sink) and TX (post-mic, pre-VITA-49) paths.  Default layout: HP / Low Shelf / 6× Peak / High Shelf / LP, all disabled on first launch Each...")},
+            {ChangeCategory::Feature, QStringLiteral("Client-side TX compressor (Pro-XL-style, Phase 1)"), QStringLiteral("Feed-forward compressor with soft-knee quadratic interpolation, linear- domain peak envelope detection, stereo-linked gain application, and a brickwall peak limiter on the output Parameters: thresh...")},
             {ChangeCategory::Feature, QStringLiteral("Docked Compressor applet + floating editor"), QStringLiteral("View-only CMP tile in the applet tray: live transfer curve with a glowing ball that slides along the curve at the current envelope level, horizontal GR strip beneath, Bypass toggle + Edit… button F...")},
             {ChangeCategory::Feature, QStringLiteral("DSP test harness"), QStringLiteral("tests/client_comp_test.cpp — 11 standalone smoke tests: bypass, below-threshold passthrough, static ratio (4:1 and 20:1), makeup, limiter ceiling, stereo linking, attack timing, soft-knee monotonic...")},
-            {ChangeCategory::Feature, QStringLiteral("Settings:"), QStringLiteral("")},
+            {ChangeCategory::Feature, QStringLiteral("Settings"), QStringLiteral("Client EQ: ClientEq{Rx,Tx}_Enabled / ActiveBandCount, per-band ClientEq{Rx,Tx}_Band{N}_* (type, freq, gain, Q, slope, enabled), ClientEq{Rx,Tx}_FilterFamily, ClientEq{Rx,Tx}_MasterGain, plus Client...")},
+            {ChangeCategory::Feature, QStringLiteral("Docs"), QStringLiteral("docs/tx-audio-signal-path.md — new \"Client-side TX DSP\" section showing mic → ClientEq + ClientComp → VITA-49 → radio firmware chain docs/architecture-pipelines.md — TX pipeline diagram shows apply...")},
         }},
         {QStringLiteral("0.8.16"), QStringLiteral("2026-04-18"), QStringLiteral("DIGI Applet Split, TCI Audio Reliability, PGXL-Aware S-Meter, Community Contributions"), {
             {ChangeCategory::Feature, QStringLiteral("DIGI applet split into CAT, DAX, TCI, IQ"), QStringLiteral("Four independent applets replace the monolithic DIGI tile Each has its own toggle button, drag-reorder slot, and float/dock affordance TCI gains per-channel RX gain (TciRxGain1-4) and a decoupled T...")},

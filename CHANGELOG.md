@@ -5,11 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [v0.8.17] — 2026-04-19
 
-### Client-side TX Compressor (Pro-XL-style, Phase 1)
+### Client-side TX Compressor (Pro-XL-style, Phase 1) + Fully-interactive 10-band Client EQ
 
 ### Features
 
-**Client-side TX dynamics processor (#1661)**
+**Client EQ — 10-band parametric, 4 filter families, output fader (#1650 / #1651 / #1658 / #1660)**
+- Client-side 10-band parametric EQ on both RX (post-NR, pre-sink) and
+  TX (post-mic, pre-VITA-49) paths.  Default layout: HP / Low Shelf /
+  6× Peak / High Shelf / LP, all disabled on first launch
+- Each pass (HP / LP) band cascades up to 4 biquad sections for slopes
+  of 12 / 24 / 36 / 48 dB/oct; peak / shelf bands stay native 2nd-order
+- Global filter-family enum: Butterworth (flat maximal), Chebyshev I
+  (1 dB ripple), Bessel (tabulated pole Q/mag for orders 2-8), Elliptic
+  (Chebyshev-II-ish approximation).  Display path sums section
+  magnitudes in dB from the analog prototype, in double precision, so
+  the curve stays clean at all frequencies
+- Grabbing a handle or clicking an icon auto-enables the band.  Right-
+  click handles for type picker, bypass, reset-to-default; HP / LP also
+  get a Slope submenu
+- Live post-EQ FFT analyzer overlaid on the response curve (2048-point
+  Cooley-Tukey at ~25 Hz, fed from an audio-thread ring buffer with no
+  UI-side mutex).  Gradient terminates at the last valid bin so there's
+  no misleading plateau above Nyquist
+- Combined output-fader widget on the right edge: one custom-painted
+  widget with a vertical peak meter, dB scale (0 / -6 / -12 / -20 / -40)
+  and a horizontal fader handle that overhangs the bar on both sides.
+  Click-drag, wheel for 0.5 dB fine step, double-click resets to 0 dB
+- Settings migrate cleanly — existing users' saved bands map into the
+  new 10-slot layout
+
+**Client-side TX compressor (Pro-XL-style, Phase 1) (#1661)**
 - Feed-forward compressor with soft-knee quadratic interpolation, linear-
   domain peak envelope detection, stereo-linked gain application, and a
   brickwall peak limiter on the output
@@ -39,12 +64,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   limiter ceiling, stereo linking, attack timing, soft-knee monotonicity,
   transient sanity, reset(). Built as `client_comp_test` CMake target.
 
-**Settings:** adds ClientCompTx* keys (Enabled, ThresholdDb, Ratio,
-AttackMs, ReleaseMs, KneeDb, MakeupDb, LimEnabled, LimCeilingDb) plus
-ClientCompTxChainOrder and ClientCompEditorGeometry.
+**Settings**
+- Client EQ: ClientEq{Rx,Tx}_Enabled / ActiveBandCount, per-band
+  ClientEq{Rx,Tx}_Band{N}_* (type, freq, gain, Q, slope, enabled),
+  ClientEq{Rx,Tx}_FilterFamily, ClientEq{Rx,Tx}_MasterGain, plus
+  ClientEqEditorGeometry
+- Client Comp: ClientCompTx* keys (Enabled, ThresholdDb, Ratio,
+  AttackMs, ReleaseMs, KneeDb, MakeupDb, LimEnabled, LimCeilingDb),
+  ClientCompTxChainOrder, ClientCompEditorGeometry
 
-Phase 2+ (expander/gate, de-esser, tube, enhancer, low contour, IKA/IRC,
-lookahead limiter, preset system) tracked in #1661 for future releases.
+**Docs**
+- docs/tx-audio-signal-path.md — new "Client-side TX DSP" section
+  showing mic → ClientEq + ClientComp → VITA-49 → radio firmware chain
+- docs/architecture-pipelines.md — TX pipeline diagram shows
+  applyClientTxDsp stage inserted between onTxAudioReady and the
+  voice/DAX/RADE fork
+
+Compressor Phase 2+ (expander/gate, de-esser, tube, enhancer, low
+contour, IKA/IRC, lookahead limiter, preset system) tracked in #1661
+for future releases.
 
 ## [v0.8.16] — 2026-04-18
 
