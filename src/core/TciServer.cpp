@@ -797,8 +797,10 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
         }
     }
 
-    // RMS level meter: compute on the raw incoming packet BEFORE per-client
-    // gain, so the level reflects radio output, not local slider position.
+    const float channelGain = (channel >= 1 && channel <= 4)
+        ? m_rxChannelGain[channel - 1] : 1.0f;
+
+    // RMS level meter — post-gain, consistent with DAX meter convention.
     // One emission per DAX packet is cheap at ~187 Hz (128-frame packets /24kHz).
     if (channel >= 1 && channel <= 4) {
         const auto* src = reinterpret_cast<const float*>(pcm.constData());
@@ -806,12 +808,9 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
         if (n > 0) {
             double sumSq = 0.0;
             for (int i = 0; i < n; ++i) sumSq += static_cast<double>(src[i]) * src[i];
-            emit rxLevel(channel, std::sqrt(static_cast<float>(sumSq / n)));
+            emit rxLevel(channel, std::sqrt(static_cast<float>(sumSq / n)) * channelGain);
         }
     }
-
-    const float channelGain = (channel >= 1 && channel <= 4)
-        ? m_rxChannelGain[channel - 1] : 1.0f;
 
     // Per-client: accumulate then resample
     for (auto& cs : m_clients) {
