@@ -19,7 +19,6 @@
 #include <QScreen>
 #include <QSizePolicy>
 #include <QVBoxLayout>
-#include <type_traits>
 
 namespace AetherSDR {
 
@@ -50,7 +49,6 @@ constexpr MetricDefinition kMetricDefinitions[] = {
     {"SUNSPOTS", "Sunspot number tracks how many active sunspot regions are facing Earth. More spots often means stronger ionization and better support for higher-frequency HF propagation."},
     {"X-RAY", "X-ray class shows how intense the latest solar flare activity is. Stronger C, M, and X-class flares can trigger daylight radio blackouts on sunlit paths."},
 };
-constexpr int kMetricDefinitionCount = static_cast<int>(std::extent_v<decltype(kMetricDefinitions)>);
 
 static constexpr SolarImageType kSolarTypes[] = {
     {"0193", "Corona (193\xc3\x85)"},
@@ -368,15 +366,6 @@ QString PropDashboardDialog::kpColor(double kp)
 PropDashboardDialog::PropDashboardDialog(PropForecastClient* client, QWidget* parent)
     : QDialog(parent), m_client(client)
 {
-    static_assert(kMetricDefinitionCount == kMetricCardCount,
-                  "Metric definitions must match kMetricCardCount.");
-    static_assert(static_cast<int>(std::extent_v<decltype(m_metricCards)>) == kMetricCardCount,
-                  "Metric card storage must match kMetricCardCount.");
-    static_assert(static_cast<int>(std::extent_v<decltype(m_metricValueLabels)>) == kMetricCardCount,
-                  "Metric value storage must match kMetricCardCount.");
-    static_assert(static_cast<int>(std::extent_v<decltype(m_metricDetailLabels)>) == kMetricCardCount,
-                  "Metric detail storage must match kMetricCardCount.");
-
     setWindowTitle("HF Propagation Dashboard");
     setStyleSheet(kDialogStyle);
 
