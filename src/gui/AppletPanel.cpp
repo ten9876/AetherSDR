@@ -29,6 +29,7 @@
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include "FlowLayout.h"
 #include <QLabel>
 #include <QFrame>
 #include <QDrag>
@@ -226,28 +227,21 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
-    // ── Toggle button rows (always at the very top) ──────────────────────────
+    // ── Toggle button row (FlowLayout wraps to multiple rows as needed) ──────
     const char* btnRowStyle =
-        "QWidget { background: #0a0a18; }"
+        "QWidget#btnTray { background: #0a0a18; border-bottom: 1px solid #1e2e3e; }"
         "QPushButton { background: #1a2a3a; border: 1px solid #203040; "
         "border-radius: 3px; padding: 2px 3px; font-size: 11px; color: #c8d8e8; }"
         "QPushButton:checked { background: #0070c0; color: #ffffff; "
         "border: 1px solid #0090e0; }";
 
-    auto* btnRow1 = new QWidget;
-    btnRow1->setStyleSheet(btnRowStyle);
-    auto* btnLayout1 = new QHBoxLayout(btnRow1);
-    btnLayout1->setContentsMargins(2, 3, 2, 0);
-    btnLayout1->setSpacing(1);
-    root->addWidget(btnRow1);
-
-    auto* btnRow2 = new QWidget;
-    btnRow2->setStyleSheet(QString(btnRowStyle) +
-        "QWidget { border-bottom: 1px solid #1e2e3e; }");
-    auto* btnLayout2 = new QHBoxLayout(btnRow2);
-    btnLayout2->setContentsMargins(2, 2, 2, 3);
-    btnLayout2->setSpacing(1);
-    root->addWidget(btnRow2);
+    auto* btnTray = new QWidget;
+    btnTray->setObjectName("btnTray");
+    btnTray->setStyleSheet(btnRowStyle);
+    auto* btnFlowLayout = new FlowLayout(btnTray, /*margin=*/-1,
+                                         /*hSpacing=*/1, /*vSpacing=*/2);
+    btnFlowLayout->setContentsMargins(2, 3, 2, 3);
+    root->addWidget(btnTray);
 
     // ── S-Meter section (with title bar, toggled by ANLG button) ─────────────
     m_sMeterSection = new QWidget;
@@ -480,8 +474,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     };
 
     auto makeEntry = [&](const QString& id, const QString& label,
-                         QWidget* applet, bool defaultOn,
-                         QWidget* rowParent, QHBoxLayout* rowLayout) -> AppletEntry {
+                         QWidget* applet, bool defaultOn) -> AppletEntry {
         auto* titleBar = new AppletTitleBar(label, id, this);
         auto* wrapper = new QWidget;
         auto* wl = new QVBoxLayout(wrapper);
@@ -491,9 +484,9 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         applet->show();
         wl->addWidget(applet);
 
-        auto* btn = new QPushButton(id, rowParent);
+        auto* btn = new QPushButton(id, btnTray);
         btn->setCheckable(true);
-        rowLayout->addWidget(btn);
+        btnFlowLayout->addWidget(btn);
 
         const QString key = QStringLiteral("Applet_%1").arg(id);
         bool on = settings.value(key, defaultOn ? "True" : "False").toString() == "True";
@@ -525,7 +518,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
     // Controls lock toggle — disables wheel/mouse on sidebar sliders (#745)
     {
-        m_lockBtn = new QPushButton("LCK", btnRow2);
+        m_lockBtn = new QPushButton("LCK", btnTray);
         m_lockBtn->setCheckable(true);
         m_lockBtn->setToolTip("Lock sidebar controls — prevent accidental\n"
                               "value changes while scrolling");
@@ -536,7 +529,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         AppSettings::instance().remove("ControlsLocked");
         m_lockBtn->setChecked(false);
         ControlsLock::setLocked(false);
-        btnLayout2->addWidget(m_lockBtn);
+        btnFlowLayout->addWidget(m_lockBtn);
         connect(m_lockBtn, &QPushButton::toggled, this, [this](bool on) {
             setControlsLocked(on);
         });
@@ -544,12 +537,12 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
     // ANLG / VU button — toggles the S-Meter section (not in the reorderable stack)
     {
-        auto* anlgBtn = new QPushButton("VU", btnRow1);
+        auto* anlgBtn = new QPushButton("VU", btnTray);
         anlgBtn->setCheckable(true);
         bool anlgOn = settings.value("Applet_ANLG", "True").toString() == "True";
         anlgBtn->setChecked(anlgOn);
         m_sMeterSection->setVisible(anlgOn);
-        btnLayout1->addWidget(anlgBtn);
+        btnFlowLayout->addWidget(anlgBtn);
         connect(anlgBtn, &QPushButton::toggled, this, [this](bool on) {
             // If currently floating, raise/hide the floating window instead of the panel section.
             if (m_floatingWindows.contains("VU")) {
@@ -573,7 +566,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
     // Create all applets — row 1: core, row 2: accessories/conditional
     m_rxApplet = new RxApplet;
-    m_appletOrder.append(makeEntry("RX", "RX Controls", m_rxApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("RX", "RX Controls", m_rxApplet, true));
 
     m_tunerApplet = new TunerApplet;
     {
@@ -586,10 +579,10 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         m_tunerApplet->show();
         wl->addWidget(m_tunerApplet);
 
-        m_tuneBtn = new QPushButton("TUN", btnRow1);
+        m_tuneBtn = new QPushButton("TUN", btnTray);
         m_tuneBtn->setCheckable(true);
         m_tuneBtn->hide();
-        btnLayout1->addWidget(m_tuneBtn);
+        btnFlowLayout->addWidget(m_tuneBtn);
         wrapper->hide();
         connect(m_tuneBtn, &QPushButton::toggled, this, [this, wrapper](bool checked) {
             if (m_floatingWindows.contains("TUN")) {
@@ -623,10 +616,10 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         m_ampApplet->show();
         wl->addWidget(m_ampApplet);
 
-        m_ampBtn = new QPushButton("AMP", btnRow1);
+        m_ampBtn = new QPushButton("AMP", btnTray);
         m_ampBtn->setCheckable(true);
         m_ampBtn->hide();
-        btnLayout1->addWidget(m_ampBtn);
+        btnFlowLayout->addWidget(m_ampBtn);
         wrapper->hide();
         connect(m_ampBtn, &QPushButton::toggled, this, [this, wrapper](bool checked) {
             if (m_floatingWindows.contains("AMP")) {
@@ -650,37 +643,37 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     }
 
     m_txApplet = new TxApplet;
-    m_appletOrder.append(makeEntry("TX", "TX Controls", m_txApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("TX", "TX Controls", m_txApplet, true));
 
     m_phoneApplet = new PhoneApplet;
-    m_appletOrder.append(makeEntry("PHNE", "Phone", m_phoneApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("PHNE", "Phone", m_phoneApplet, true));
 
     m_phoneCwApplet = new PhoneCwApplet;
-    m_appletOrder.append(makeEntry("P/CW", "Phone/CW", m_phoneCwApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("P/CW", "Phone/CW", m_phoneCwApplet, true));
 
     m_eqApplet = new EqApplet;
-    m_appletOrder.append(makeEntry("EQ", "Equalizer", m_eqApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("EQ", "Equalizer", m_eqApplet, true));
 
     m_clientEqApplet = new ClientEqApplet;
-    m_appletOrder.append(makeEntry("CEQ", "Client EQ", m_clientEqApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("CEQ", "Client EQ", m_clientEqApplet, false));
 
     m_clientCompApplet = new ClientCompApplet;
-    m_appletOrder.append(makeEntry("CMP", "Client Compressor", m_clientCompApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("CMP", "Client Compressor", m_clientCompApplet, false));
 
     m_catControlApplet = new CatControlApplet;
-    m_appletOrder.append(makeEntry("CAT", "CAT Control", m_catControlApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("CAT", "CAT Control", m_catControlApplet, false));
 
     m_daxApplet = new DaxApplet;
-    m_appletOrder.append(makeEntry("DAX", "DAX Audio", m_daxApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("DAX", "DAX Audio", m_daxApplet, false));
 
     m_tciApplet = new TciApplet;
-    m_appletOrder.append(makeEntry("TCI", "TCI Server", m_tciApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("TCI", "TCI Server", m_tciApplet, false));
 
     m_daxIqApplet = new DaxIqApplet;
-    m_appletOrder.append(makeEntry("IQ", "DAX IQ", m_daxIqApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("IQ", "DAX IQ", m_daxIqApplet, false));
 
     m_meterApplet = new MeterApplet;
-    m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false));
 
     m_agApplet = new AntennaGeniusApplet;
     {
@@ -693,10 +686,10 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         m_agApplet->show();
         wl->addWidget(m_agApplet);
 
-        m_agBtn = new QPushButton("AG", btnRow2);
+        m_agBtn = new QPushButton("AG", btnTray);
         m_agBtn->setCheckable(true);
         m_agBtn->hide();
-        btnLayout2->addWidget(m_agBtn);
+        btnFlowLayout->addWidget(m_agBtn);
         wrapper->hide();
         connect(m_agBtn, &QPushButton::toggled, this, [this, wrapper](bool checked) {
             if (m_floatingWindows.contains("AG")) {
@@ -721,11 +714,10 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
 #ifdef HAVE_MQTT
     m_mqttApplet = new MqttApplet;
-    m_appletOrder.append(makeEntry("MQTT", "MQTT", m_mqttApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("MQTT", "MQTT", m_mqttApplet, false));
 #endif
 
-    btnLayout1->addStretch();
-    btnLayout2->addStretch();
+    // FlowLayout handles wrapping automatically — no stretch needed.
 
     // ── Restore saved order ─────────────────────────────────────────────────
     QString savedOrder = settings.value("AppletOrder").toString();
