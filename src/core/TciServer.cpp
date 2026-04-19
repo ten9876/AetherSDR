@@ -66,7 +66,7 @@ TciServer::TciServer(RadioModel* model, QObject* parent)
                 s.setValue(key, legacy);
             }
             m_rxChannelGain[ch - 1] = std::clamp(
-                s.value(key, "1.0").toString().toFloat(), 0.0f, 1.0f);
+                s.value(key, "0.5").toString().toFloat(), 0.0f, 1.0f);
         }
         s.save();
     }
