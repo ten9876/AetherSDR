@@ -1071,9 +1071,9 @@ void TciServer::startTxChrono(QWebSocket* client, int trx)
     m_txAudioPeak = 0.0f;
     m_txSawDuplicatedStereo = false;
 
-    // Respect the same DAX TX routing preference used by the bridge path.
-    // Default remains radio-native dax=1; low-latency mode switches to the
-    // float32 dax_tx route with dax=0.
+    // DaxTxLowLatency selects VITA-49 packet format only (PCC 0x03E3 float32
+    // stereo vs PCC 0x0123 int16 mono in feedDaxTxAudio). Both formats require
+    // dax=1 on the radio side — see the sendCmdPublic call below.
     if (m_audio) {
         m_audio->setDaxTxUseRadioRoute(m_txUseRadioRoute);
         m_audio->setDaxTxMode(true);
