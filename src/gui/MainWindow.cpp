@@ -5945,7 +5945,30 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             return;
         }
 
+        // Snapshot the current pan geometry so we can restore it after
+        // `spot trigger` — the radio's autopan would otherwise widen/recenter
+        // the panadapter, undoing the autopan=0 tune we already sent (#1638).
+        QString panId;
+        double savedBw = 0;
+        double savedCenter = 0;
+        if (auto* s = activeSlice()) {
+            panId = s->panId();
+            if (auto* pan = m_radioModel.panadapter(panId)) {
+                savedBw     = pan->bandwidthMhz();
+                savedCenter = pan->centerMhz();
+            }
+        }
+
         m_radioModel.sendCommand(QString("spot trigger %1").arg(spotIndex));
+
+        // Restore the pan geometry that autopan may have changed (#1638).
+        if (savedBw > 0 && !panId.isEmpty()) {
+            m_radioModel.sendCommand(
+                QString("display pan set %1 center=%2 bandwidth=%3")
+                    .arg(panId)
+                    .arg(savedCenter, 0, 'f', 6)
+                    .arg(savedBw, 0, 'f', 6));
+        }
 
         // Auto-switch mode from spot metadata (#424)
         if (AppSettings::instance().value("SpotAutoSwitchMode", "False").toString() != "True")
