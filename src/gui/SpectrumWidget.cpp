@@ -1535,6 +1535,7 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         const QPoint pos(static_cast<int>(ev->position().x()), y);
         if (m_propClickRect.contains(pos)) {
             emit propForecastClicked();
+            m_spotClickConsumed = true;   // suppress release-to-tune (#1647)
             ev->accept();
             return;
         }
