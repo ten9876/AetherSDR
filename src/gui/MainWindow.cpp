@@ -7072,7 +7072,10 @@ void MainWindow::panFollowVfo(SliceModel* s, double mhz)
     // window = 10% of halfBw.
     static constexpr double kMarginFrac = 0.10;
     const double deadZoneHalfBw = halfBw * (1.0 - kMarginFrac);
-    const double center = pan->centerMhz();
+    // Read the *visible* center from the spectrum widget, not the model —
+    // PanadapterModel may lag behind after a manual drag (#1643).
+    auto* sw = spectrumForSlice(s);
+    const double center = sw ? sw->centerMhz() : pan->centerMhz();
     double newCenter;
     if (mhz > center + deadZoneHalfBw) {
         newCenter = mhz - deadZoneHalfBw;   // VFO pinned to right fence
