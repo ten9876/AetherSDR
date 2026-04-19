@@ -249,6 +249,7 @@ void TciServer::onNewConnection()
     while (m_server->hasPendingConnections()) {
         auto* ws = m_server->nextPendingConnection();
         auto* protocol = new TciProtocol(m_model);
+        protocol->setVoiceKeyer(m_voiceKeyer);
 
         ClientState cs;
         cs.socket = ws;

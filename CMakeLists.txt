@@ -442,6 +442,7 @@ set(CORE_SOURCES
     src/core/DxccColorProvider.cpp
     src/core/SleepInhibitor.cpp
     src/core/MemoryCsvCompat.cpp
+    src/core/VoiceKeyer.cpp
 )
 
 if(APPLE)

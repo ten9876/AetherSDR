@@ -1,5 +1,6 @@
 #ifdef HAVE_WEBSOCKETS
 #include "TciProtocol.h"
+#include "VoiceKeyer.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
@@ -189,11 +190,13 @@ QString TciProtocol::handleCommand(const QString& cmd)
 
     // Commands with special handling
     if (name == "start")            return cmdStart();
-    if (name == "stop")             return cmdStop();
+    if (name == "stop")             { cmdCwMacrosStop(); return cmdStop(); }
     if (name == "tx_enable")        return cmdTxEnable(args);
     if (name == "cw_msg")           return cmdCwMsg(args);
-    if (name == "cw_macros")        return cmdCwMacros(args);
+    if (name == "cw" ||
+        name == "cw_macros")        return cmdCwMacros(args);
     if (name == "cw_macros_stop")   return cmdCwMacrosStop();
+    if (name == "voice_message")    return cmdVoiceMessage(args);
     if (name == "spot")             return cmdSpot(args);
     if (name == "spot_delete")      return cmdSpotDelete(args);
     if (name == "spot_clear")       return cmdSpotClear();
@@ -1431,6 +1434,29 @@ QString TciProtocol::cmdTxFrequency()
             long long hz = static_cast<long long>(std::round(s->frequency() * 1e6));
             return QStringLiteral("tx_frequency:%1;").arg(hz);
         }
+    }
+    return {};
+}
+
+// ── Voice message (client-side WAV playback) ──────────────────────────────
+
+QString TciProtocol::cmdVoiceMessage(const QStringList& args)
+{
+    if (!m_voiceKeyer) return {};
+
+    // voice_message:start,path  or  voice_message:stop
+    if (args.isEmpty()) return {};
+
+    QString action = args[0].toLower().trimmed();
+    if (action == "stop") {
+        QMetaObject::invokeMethod(m_voiceKeyer, [this]() {
+            m_voiceKeyer->stop();
+        }, Qt::QueuedConnection);
+    } else if (action == "start" && args.size() >= 2) {
+        QString path = args[1].trimmed();
+        QMetaObject::invokeMethod(m_voiceKeyer, [this, path]() {
+            m_voiceKeyer->play(path);
+        }, Qt::QueuedConnection);
     }
     return {};
 }

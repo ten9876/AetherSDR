@@ -7,11 +7,14 @@ class QLabel;
 class QSlider;
 class QComboBox;
 class QStackedWidget;
+class QLineEdit;
 
 namespace AetherSDR {
 
 class HGauge;
 class TransmitModel;
+class CwxModel;
+class VoiceKeyer;
 
 // P/CW applet — mode-aware panel that shows Phone controls (default) or CW
 // controls when the active slice is in CW/CWL mode.  Both sub-panels live
@@ -23,6 +26,8 @@ public:
     explicit PhoneCwApplet(QWidget* parent = nullptr);
 
     void setTransmitModel(TransmitModel* model);
+    void setCwxModel(CwxModel* model);
+    void setVoiceKeyer(VoiceKeyer* keyer);
 
 signals:
     void micLevelChanged(int level);  // slider value 0-100
@@ -42,10 +47,18 @@ public slots:
 private:
     void buildPhonePanel();
     void buildCwPanel();
+    void buildCwMacroRow();
+    void buildVoiceMacroRow();
     void syncPhoneFromModel();
     void syncCwFromModel();
+    void loadCwMacroSettings();
+    void saveCwMacroSettings();
+    void loadVoiceMacroSettings();
+    void saveVoiceMacroSettings();
 
     TransmitModel* m_model{nullptr};
+    CwxModel*      m_cwxModel{nullptr};
+    VoiceKeyer*    m_voiceKeyer{nullptr};
     QStackedWidget* m_stack{nullptr};
     QWidget* m_phonePanel{nullptr};
     QWidget* m_cwPanel{nullptr};
@@ -92,6 +105,22 @@ private:
     QLabel*      m_pitchLabel{nullptr};
     QPushButton* m_pitchDown{nullptr};
     QPushButton* m_pitchUp{nullptr};
+
+    // ── CW macro buttons (embedded in CW sub-panel) ───────────────────
+    static constexpr int kCwMacroCount = 6;
+    QPushButton* m_cwMacroBtns[kCwMacroCount]{};
+    QPushButton* m_cwStopBtn{nullptr};
+    QLineEdit*   m_cwTextInput{nullptr};
+    QPushButton* m_cwSendBtn{nullptr};
+    QString      m_cwMacroLabels[kCwMacroCount];
+    QString      m_cwMacroTexts[kCwMacroCount];
+
+    // ── Voice macro buttons (embedded in Phone sub-panel) ───────────
+    static constexpr int kVoiceMacroCount = 4;
+    QPushButton* m_voiceMacroBtns[kVoiceMacroCount]{};
+    QPushButton* m_voiceStopBtn{nullptr};
+    QString      m_voiceMacroLabels[kVoiceMacroCount];
+    QString      m_voiceMacroFiles[kVoiceMacroCount];
 
     // ── Shared state ─────────────────────────────────────────────────────
 

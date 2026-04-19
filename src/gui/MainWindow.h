@@ -9,6 +9,7 @@
 #ifdef HAVE_WEBSOCKETS
 #include "core/TciServer.h"
 #endif
+#include "core/VoiceKeyer.h"
 #include "core/RigctlPty.h"
 #include "core/SmartLinkClient.h"
 #include "core/WanConnection.h"
@@ -168,6 +169,7 @@ private:
 #ifdef HAVE_WEBSOCKETS
     TciServer*        m_tciServer{nullptr};
 #endif
+    VoiceKeyer*       m_voiceKeyer{nullptr};
     SmartLinkClient   m_smartLink;
     WanConnection     m_wanConnection;
     AntennaGeniusModel m_antennaGenius;

@@ -20,6 +20,7 @@ class AudioEngine;
 class SliceModel;
 class TciProtocol;
 class Resampler;
+class VoiceKeyer;
 
 // TCI WebSocket server — exposes radio state and audio over the TCI protocol.
 // Phase 1: text commands (VFO, mode, filter, TX, RIT/XIT, CW, spots)
@@ -39,6 +40,7 @@ public:
     int clientCount() const { return m_clients.size(); }
 
     void setAudioEngine(AudioEngine* audio) { m_audio = audio; }
+    void setVoiceKeyer(VoiceKeyer* keyer) { m_voiceKeyer = keyer; }
 
     // TCI TX gain (0.0–1.0). Applied to outbound TX audio from WSJT-X/JTDX
     // before the radio.  Decoupled from DaxTxGain (#1627) — the DAX bridge
@@ -121,6 +123,7 @@ private:
 
     RadioModel*       m_model;
     AudioEngine*      m_audio{nullptr};
+    VoiceKeyer*       m_voiceKeyer{nullptr};
     QWebSocketServer* m_server{nullptr};
     QList<ClientState> m_clients;
     QSet<int>         m_tciDaxSlices;   // slice IDs where we auto-assigned DAX (#1331)

@@ -3,7 +3,9 @@
 #include "ComboStyle.h"
 #include "HGauge.h"
 #include "models/TransmitModel.h"
+#include "models/CwxModel.h"
 #include "core/AppSettings.h"
+#include "core/VoiceKeyer.h"
 
 #include <QPushButton>
 #include <QLabel>
@@ -12,11 +14,15 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QLineEdit>
 #include <QSignalBlocker>
 #include <QTimer>
 #include <QPainter>
 #include <QDir>
 #include <QStandardPaths>
+#include <QFileDialog>
+#include <QMenu>
+#include <QInputDialog>
 
 namespace AetherSDR {
 
@@ -334,6 +340,10 @@ void PhoneCwApplet::buildPhonePanel()
 
         vbox->addLayout(row);
     }
+
+    // ── Voice macro buttons (V1–V4 + STOP) ──────────────────────────
+    buildVoiceMacroRow();
+    vbox->addWidget(m_voiceMacroBtns[0]->parentWidget());
 }
 
 // ── CW sub-panel ─────────────────────────────────────────────────────────────
@@ -573,6 +583,203 @@ void PhoneCwApplet::buildCwPanel()
         vbox->addLayout(row);
     }
 
+    // ── CW macro buttons + text input ───────────────────────────────
+    buildCwMacroRow();
+    vbox->addWidget(m_cwMacroBtns[0]->parentWidget());
+}
+
+// ── CW macro row ─────────────────────────────────────────────────────────────
+
+void PhoneCwApplet::buildCwMacroRow()
+{
+    auto* container = new QWidget;
+    auto* vlay = new QVBoxLayout(container);
+    vlay->setContentsMargins(0, 4, 0, 0);
+    vlay->setSpacing(2);
+
+    // Load saved macro labels/texts from AppSettings
+    loadCwMacroSettings();
+
+    // Row of macro buttons (M1–M6) + STOP
+    auto* btnRow = new QHBoxLayout;
+    btnRow->setSpacing(2);
+
+    for (int i = 0; i < kCwMacroCount; ++i) {
+        QString label = m_cwMacroLabels[i].isEmpty()
+                            ? QStringLiteral("M%1").arg(i + 1)
+                            : m_cwMacroLabels[i];
+        m_cwMacroBtns[i] = new QPushButton(label);
+        m_cwMacroBtns[i]->setFixedHeight(22);
+        m_cwMacroBtns[i]->setStyleSheet(kButtonBase);
+        m_cwMacroBtns[i]->setAccessibleName(QStringLiteral("CW macro %1").arg(i + 1));
+
+        connect(m_cwMacroBtns[i], &QPushButton::clicked, this, [this, i]() {
+            if (!m_cwxModel) return;
+            if (!m_cwMacroTexts[i].isEmpty()) {
+                m_cwxModel->send(m_cwMacroTexts[i]);
+            } else {
+                // Fall back to radio-side macro (1-based)
+                m_cwxModel->sendMacro(i + 1);
+            }
+        });
+
+        // Right-click to edit label and text
+        m_cwMacroBtns[i]->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_cwMacroBtns[i], &QPushButton::customContextMenuRequested,
+                this, [this, i](const QPoint& pos) {
+            QMenu menu;
+            menu.addAction("Edit macro...", this, [this, i]() {
+                bool ok = false;
+                QString text = QInputDialog::getText(
+                    this, QStringLiteral("CW Macro M%1").arg(i + 1),
+                    "Macro text:", QLineEdit::Normal, m_cwMacroTexts[i], &ok);
+                if (!ok) return;
+                m_cwMacroTexts[i] = text;
+
+                QString label = QInputDialog::getText(
+                    this, QStringLiteral("CW Macro M%1").arg(i + 1),
+                    "Button label:", QLineEdit::Normal,
+                    m_cwMacroLabels[i].isEmpty() ? QStringLiteral("M%1").arg(i + 1)
+                                                  : m_cwMacroLabels[i], &ok);
+                if (ok && !label.isEmpty()) {
+                    m_cwMacroLabels[i] = label;
+                    m_cwMacroBtns[i]->setText(label);
+                }
+                saveCwMacroSettings();
+            });
+            menu.exec(m_cwMacroBtns[i]->mapToGlobal(pos));
+        });
+
+        btnRow->addWidget(m_cwMacroBtns[i], 1);
+    }
+
+    m_cwStopBtn = new QPushButton("STOP");
+    m_cwStopBtn->setFixedHeight(22);
+    m_cwStopBtn->setFixedWidth(48);
+    m_cwStopBtn->setStyleSheet(
+        "QPushButton { background: #5a1a1a; border: 1px solid #802020; "
+        "border-radius: 3px; color: #ff6060; font-size: 10px; font-weight: bold; }"
+        "QPushButton:hover { background: #702020; }"
+        "QPushButton:pressed { background: #901010; }");
+    m_cwStopBtn->setAccessibleName("Stop CW");
+    connect(m_cwStopBtn, &QPushButton::clicked, this, [this]() {
+        if (m_cwxModel) m_cwxModel->clearBuffer();
+    });
+    btnRow->addWidget(m_cwStopBtn);
+
+    vlay->addLayout(btnRow);
+
+    // Text input row: line edit + Send button
+    auto* inputRow = new QHBoxLayout;
+    inputRow->setSpacing(2);
+
+    m_cwTextInput = new QLineEdit;
+    m_cwTextInput->setPlaceholderText("Type CW text...");
+    m_cwTextInput->setFixedHeight(22);
+    m_cwTextInput->setStyleSheet(
+        "QLineEdit { background: #0a0a18; border: 1px solid #1e2e3e; "
+        "border-radius: 3px; color: #c8d8e8; font-size: 10px; padding: 1px 4px; }");
+    m_cwTextInput->setAccessibleName("CW text input");
+    inputRow->addWidget(m_cwTextInput, 1);
+
+    m_cwSendBtn = new QPushButton("Send");
+    m_cwSendBtn->setFixedHeight(22);
+    m_cwSendBtn->setFixedWidth(48);
+    m_cwSendBtn->setStyleSheet(kButtonBase);
+    m_cwSendBtn->setAccessibleName("Send CW text");
+    inputRow->addWidget(m_cwSendBtn);
+
+    auto sendCwText = [this]() {
+        if (!m_cwxModel) return;
+        QString text = m_cwTextInput->text().trimmed();
+        if (!text.isEmpty()) {
+            m_cwxModel->send(text);
+            m_cwTextInput->clear();
+        }
+    };
+    connect(m_cwSendBtn, &QPushButton::clicked, this, sendCwText);
+    connect(m_cwTextInput, &QLineEdit::returnPressed, this, sendCwText);
+
+    vlay->addLayout(inputRow);
+}
+
+// ── Voice macro row ──────────────────────────────────────────────────────────
+
+void PhoneCwApplet::buildVoiceMacroRow()
+{
+    loadVoiceMacroSettings();
+
+    auto* container = new QWidget;
+    auto* hlay = new QHBoxLayout(container);
+    hlay->setContentsMargins(0, 4, 0, 0);
+    hlay->setSpacing(2);
+
+    for (int i = 0; i < kVoiceMacroCount; ++i) {
+        QString label = m_voiceMacroLabels[i].isEmpty()
+                            ? QStringLiteral("V%1").arg(i + 1)
+                            : m_voiceMacroLabels[i];
+        m_voiceMacroBtns[i] = new QPushButton(label);
+        m_voiceMacroBtns[i]->setFixedHeight(22);
+        m_voiceMacroBtns[i]->setStyleSheet(kButtonBase);
+        m_voiceMacroBtns[i]->setAccessibleName(QStringLiteral("Voice macro %1").arg(i + 1));
+
+        connect(m_voiceMacroBtns[i], &QPushButton::clicked, this, [this, i]() {
+            if (!m_voiceKeyer || m_voiceMacroFiles[i].isEmpty()) return;
+            m_voiceKeyer->play(m_voiceMacroFiles[i]);
+        });
+
+        // Right-click to assign WAV file and edit label
+        m_voiceMacroBtns[i]->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_voiceMacroBtns[i], &QPushButton::customContextMenuRequested,
+                this, [this, i](const QPoint& pos) {
+            QMenu menu;
+            menu.addAction("Assign WAV file...", this, [this, i]() {
+                QString path = QFileDialog::getOpenFileName(
+                    this, QStringLiteral("Voice Macro V%1").arg(i + 1),
+                    QStandardPaths::writableLocation(QStandardPaths::MusicLocation),
+                    "WAV files (*.wav)");
+                if (path.isEmpty()) return;
+                m_voiceMacroFiles[i] = path;
+
+                bool ok = false;
+                QString label = QInputDialog::getText(
+                    this, QStringLiteral("Voice Macro V%1").arg(i + 1),
+                    "Button label:", QLineEdit::Normal,
+                    m_voiceMacroLabels[i].isEmpty() ? QStringLiteral("V%1").arg(i + 1)
+                                                     : m_voiceMacroLabels[i], &ok);
+                if (ok && !label.isEmpty()) {
+                    m_voiceMacroLabels[i] = label;
+                    m_voiceMacroBtns[i]->setText(label);
+                }
+                saveVoiceMacroSettings();
+            });
+            if (!m_voiceMacroFiles[i].isEmpty()) {
+                menu.addAction("Clear", this, [this, i]() {
+                    m_voiceMacroFiles[i].clear();
+                    m_voiceMacroLabels[i].clear();
+                    m_voiceMacroBtns[i]->setText(QStringLiteral("V%1").arg(i + 1));
+                    saveVoiceMacroSettings();
+                });
+            }
+            menu.exec(m_voiceMacroBtns[i]->mapToGlobal(pos));
+        });
+
+        hlay->addWidget(m_voiceMacroBtns[i], 1);
+    }
+
+    m_voiceStopBtn = new QPushButton("STOP");
+    m_voiceStopBtn->setFixedHeight(22);
+    m_voiceStopBtn->setFixedWidth(48);
+    m_voiceStopBtn->setStyleSheet(
+        "QPushButton { background: #5a1a1a; border: 1px solid #802020; "
+        "border-radius: 3px; color: #ff6060; font-size: 10px; font-weight: bold; }"
+        "QPushButton:hover { background: #702020; }"
+        "QPushButton:pressed { background: #901010; }");
+    m_voiceStopBtn->setAccessibleName("Stop voice playback");
+    connect(m_voiceStopBtn, &QPushButton::clicked, this, [this]() {
+        if (m_voiceKeyer) m_voiceKeyer->stop();
+    });
+    hlay->addWidget(m_voiceStopBtn);
 }
 
 // ── Mode switching ───────────────────────────────────────────────────────────
@@ -582,6 +789,60 @@ void PhoneCwApplet::setMode(const QString& mode)
     // CWL is not a separate slice mode on fw v1.4.0.0 — only "CW" appears.
     bool isCw = (mode == "CW");
     m_stack->setCurrentIndex(isCw ? 1 : 0);
+}
+
+// ── CwxModel binding ─────────────────────────────────────────────────────────
+
+void PhoneCwApplet::setCwxModel(CwxModel* model)
+{
+    m_cwxModel = model;
+}
+
+// ── VoiceKeyer binding ───────────────────────────────────────────────────────
+
+void PhoneCwApplet::setVoiceKeyer(VoiceKeyer* keyer)
+{
+    m_voiceKeyer = keyer;
+}
+
+// ── AppSettings persistence for macros ───────────────────────────────────────
+
+void PhoneCwApplet::loadCwMacroSettings()
+{
+    auto& s = AppSettings::instance();
+    for (int i = 0; i < kCwMacroCount; ++i) {
+        m_cwMacroLabels[i] = s.value(QStringLiteral("CwMacroLabel%1").arg(i)).toString();
+        m_cwMacroTexts[i]  = s.value(QStringLiteral("CwMacroText%1").arg(i)).toString();
+    }
+}
+
+void PhoneCwApplet::saveCwMacroSettings()
+{
+    auto& s = AppSettings::instance();
+    for (int i = 0; i < kCwMacroCount; ++i) {
+        s.setValue(QStringLiteral("CwMacroLabel%1").arg(i), m_cwMacroLabels[i]);
+        s.setValue(QStringLiteral("CwMacroText%1").arg(i), m_cwMacroTexts[i]);
+    }
+    s.save();
+}
+
+void PhoneCwApplet::loadVoiceMacroSettings()
+{
+    auto& s = AppSettings::instance();
+    for (int i = 0; i < kVoiceMacroCount; ++i) {
+        m_voiceMacroLabels[i] = s.value(QStringLiteral("VoiceMacroLabel%1").arg(i)).toString();
+        m_voiceMacroFiles[i]  = s.value(QStringLiteral("VoiceMacroFile%1").arg(i)).toString();
+    }
+}
+
+void PhoneCwApplet::saveVoiceMacroSettings()
+{
+    auto& s = AppSettings::instance();
+    for (int i = 0; i < kVoiceMacroCount; ++i) {
+        s.setValue(QStringLiteral("VoiceMacroLabel%1").arg(i), m_voiceMacroLabels[i]);
+        s.setValue(QStringLiteral("VoiceMacroFile%1").arg(i), m_voiceMacroFiles[i]);
+    }
+    s.save();
 }
 
 // ── Model binding ────────────────────────────────────────────────────────────

@@ -90,6 +90,9 @@ private:
     QString cmdSetInFocus();
     QString cmdTxFrequency();
 
+    // Voice keyer (client-side WAV playback over TX audio)
+    QString cmdVoiceMessage(const QStringList& args);
+
     // Helpers
     SliceModel* sliceForTrx(int trx) const;
 
@@ -98,11 +101,15 @@ public:
     static QString smartsdrToTci(const QString& mode);
     static QString tciToSmartSDR(const QString& mode);
 
+    // Set VoiceKeyer for TCI voice_message support
+    void setVoiceKeyer(class VoiceKeyer* keyer) { m_voiceKeyer = keyer; }
+
 private:
 
-    RadioModel* m_model;
-    QString     m_pendingNotification;
-    bool        m_started{false};  // client sent START
+    RadioModel*    m_model;
+    class VoiceKeyer* m_voiceKeyer{nullptr};
+    QString        m_pendingNotification;
+    bool           m_started{false};  // client sent START
 };
 
 } // namespace AetherSDR

@@ -1983,8 +1983,13 @@ MainWindow::MainWindow(QWidget* parent)
         });
     }
     m_appletPanel->phoneCwApplet()->setTransmitModel(&m_radioModel.transmitModel());
+    m_appletPanel->phoneCwApplet()->setCwxModel(&m_radioModel.cwxModel());
 
-
+    // ── Voice keyer (client-side WAV playback over TX audio) ────────────────
+    m_voiceKeyer = new VoiceKeyer(this);
+    m_voiceKeyer->setAudioEngine(m_audio);
+    m_voiceKeyer->setTransmitModel(&m_radioModel.transmitModel());
+    m_appletPanel->phoneCwApplet()->setVoiceKeyer(m_voiceKeyer);
 
     // ── PHNE applet: VOX + CW controls ──────────────────────────────────────
     m_appletPanel->phoneApplet()->setTransmitModel(&m_radioModel.transmitModel());
@@ -2054,6 +2059,7 @@ MainWindow::MainWindow(QWidget* parent)
 #ifdef HAVE_WEBSOCKETS
     m_tciServer = new TciServer(&m_radioModel, this);
     m_tciServer->setAudioEngine(m_audio);
+    m_tciServer->setVoiceKeyer(m_voiceKeyer);
     m_appletPanel->tciApplet()->setRadioModel(&m_radioModel);
     m_appletPanel->tciApplet()->setTciServer(m_tciServer);
 
