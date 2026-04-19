@@ -1319,13 +1319,26 @@ void TciServer::ensureDaxForTci()
         }
     }
 
-    // Create DAX RX streams for channels that need them.  Insert placeholder
-    // (streamId=0) so the statusReceived handler knows to register the response.
+    // Create DAX RX streams for channels that need them.  If an existing stream
+    // is already registered in PanadapterStream (e.g. created by DaxBridge or
+    // left over from a previous session), reuse it rather than stacking a
+    // second subscription — duplicate streams cause daxAudioReady to fire
+    // twice per period, doubling the apparent audio speed at the TCI client.
     for (int ch : channelsNeeded) {
         if (m_tciDaxStreamIds.contains(ch)) continue; // already have/pending
-        m_tciDaxStreamIds[ch] = 0;
-        m_model->sendCommand(QString("stream create type=dax_rx dax_channel=%1").arg(ch));
-        qCInfo(lcCat) << "TCI: creating DAX RX stream for channel" << ch << "(#1331)";
+        quint32 existingId = m_model->panStream()
+                           ? m_model->panStream()->daxStreamIdForChannel(ch)
+                           : 0;
+        if (existingId != 0) {
+            m_tciDaxStreamIds[ch] = existingId;
+            m_tciDaxBorrowedChannels.insert(ch);
+            qCInfo(lcCat) << "TCI: reusing existing DAX RX stream" << Qt::hex << existingId
+                          << "for channel" << ch << "(#1331)";
+        } else {
+            m_tciDaxStreamIds[ch] = 0;
+            m_model->sendCommand(QString("stream create type=dax_rx dax_channel=%1").arg(ch));
+            qCInfo(lcCat) << "TCI: creating DAX RX stream for channel" << ch << "(#1331)";
+        }
     }
 
     // Re-assert slice → DAX channel mapping so the radio registers our
@@ -1346,9 +1359,12 @@ void TciServer::releaseDaxForTci()
 {
     if (!m_model) return;
 
-    // Remove DAX RX streams we created
+    // Remove DAX RX streams we created (skip borrowed streams — owned by DaxBridge
+    // or pre-existing; removing them would break other audio consumers).
     for (auto it = m_tciDaxStreamIds.begin(); it != m_tciDaxStreamIds.end(); ++it) {
+        int ch = it.key();
         quint32 streamId = it.value();
+        if (m_tciDaxBorrowedChannels.contains(ch)) continue;
         if (streamId != 0) {
             if (m_model->panStream()) {
                 m_model->panStream()->unregisterDaxStream(streamId);
@@ -1358,10 +1374,11 @@ void TciServer::releaseDaxForTci()
                     .arg(streamId, 8, 16, QChar('0')));
             }
             qCInfo(lcCat) << "TCI: removed DAX RX stream" << Qt::hex << streamId
-                          << "channel" << it.key() << "(#1331)";
+                          << "channel" << ch << "(#1331)";
         }
     }
     m_tciDaxStreamIds.clear();
+    m_tciDaxBorrowedChannels.clear();
 
     // Release DAX channel assignments we made
     for (int sliceId : m_tciDaxSlices) {

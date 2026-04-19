@@ -860,8 +860,31 @@ int PanadapterStream::packetTotalCount() const
 void PanadapterStream::registerDaxStream(quint32 streamId, int channel)
 {
     QMutexLocker lock(&m_streamMutex);
+    // Enforce one active stream per channel. A stale stream from a previous
+    // session or a duplicate subscription created by another code path would
+    // cause daxAudioReady to fire twice per audio period — doubling perceived
+    // speed. Remove any prior mapping for this channel before inserting.
+    for (auto it = m_daxStreamIds.begin(); it != m_daxStreamIds.end(); ) {
+        if (it.value() == channel && it.key() != streamId) {
+            qCDebug(lcVita49) << "PanadapterStream: evicting stale DAX stream"
+                              << Qt::hex << it.key() << "from channel" << channel;
+            it = m_daxStreamIds.erase(it);
+        } else {
+            ++it;
+        }
+    }
     m_daxStreamIds[streamId] = channel;
     qCDebug(lcVita49) << "PanadapterStream: registered DAX stream" << Qt::hex << streamId << "-> channel" << channel;
+}
+
+quint32 PanadapterStream::daxStreamIdForChannel(int channel) const
+{
+    QMutexLocker lock(&m_streamMutex);
+    for (auto it = m_daxStreamIds.constBegin(); it != m_daxStreamIds.constEnd(); ++it) {
+        if (it.value() == channel)
+            return it.key();
+    }
+    return 0;
 }
 
 void PanadapterStream::unregisterDaxStream(quint32 streamId)

@@ -82,6 +82,7 @@ public:
     void registerDaxStream(quint32 streamId, int channel);
     void unregisterDaxStream(quint32 streamId);
     QList<quint32> daxStreamIds() const;
+    quint32 daxStreamIdForChannel(int channel) const;
 
     // DAX IQ stream routing
     void registerIqStream(quint32 streamId, int channel);

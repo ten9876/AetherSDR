@@ -124,7 +124,8 @@ private:
     QWebSocketServer* m_server{nullptr};
     QList<ClientState> m_clients;
     QSet<int>         m_tciDaxSlices;   // slice IDs where we auto-assigned DAX (#1331)
-    QMap<int, quint32> m_tciDaxStreamIds; // DAX channel → stream ID created by TCI
+    QMap<int, quint32> m_tciDaxStreamIds;      // DAX channel → stream ID created or borrowed by TCI
+    QSet<int>          m_tciDaxBorrowedChannels; // channels where TCI reused an existing stream
     QTimer*           m_meterTimer{nullptr};  // 200ms status broadcast
     QTimer*           m_txChronoTimer{nullptr}; // TX_CHRONO frame cadence
     QWebSocket*       m_txChronoClient{nullptr};
