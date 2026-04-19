@@ -10,7 +10,10 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
-#include "CatApplet.h"
+#include "CatControlApplet.h"
+#include "DaxApplet.h"
+#include "TciApplet.h"
+#include "DaxIqApplet.h"
 #include "AntennaGeniusApplet.h"
 #include "MeterApplet.h"
 #ifdef HAVE_MQTT
@@ -48,7 +51,7 @@ static QString floatKey(const QString& id)
 }
 
 const QStringList AppletPanel::kDefaultOrder = {
-    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "DIGI", "MTR", "AG"
+    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "CAT", "DAX", "TCI", "IQ", "MTR", "AG"
 };
 
 // ── Drag-handle title bar ───────────────────────────────────────────────────
@@ -422,6 +425,15 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
     auto& settings = AppSettings::instance();
 
+    // Migrate Applet_DIGI → Applet_CAT on first run after the DIGI split (#1627).
+    // DAX/TCI/IQ default off regardless — only the CAT tile inherits the old
+    // DIGI visibility because the CAT button replaces DIGI's slot in the tray.
+    if (settings.contains("Applet_DIGI") && !settings.contains("Applet_CAT")) {
+        settings.setValue("Applet_CAT", settings.value("Applet_DIGI", "False").toString());
+        settings.remove("Applet_DIGI");
+        settings.save();
+    }
+
     // ── Build all applets with title bars ────────────────────────────────────
 
     // Helper: create an applet entry with draggable title bar
@@ -572,10 +584,10 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         m_tunerApplet->show();
         wl->addWidget(m_tunerApplet);
 
-        m_tuneBtn = new QPushButton("TUN", btnRow2);
+        m_tuneBtn = new QPushButton("TUN", btnRow1);
         m_tuneBtn->setCheckable(true);
         m_tuneBtn->hide();
-        btnLayout2->addWidget(m_tuneBtn);
+        btnLayout1->addWidget(m_tuneBtn);
         wrapper->hide();
         connect(m_tuneBtn, &QPushButton::toggled, this, [this, wrapper](bool checked) {
             if (m_floatingWindows.contains("TUN")) {
@@ -609,10 +621,10 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         m_ampApplet->show();
         wl->addWidget(m_ampApplet);
 
-        m_ampBtn = new QPushButton("AMP", btnRow2);
+        m_ampBtn = new QPushButton("AMP", btnRow1);
         m_ampBtn->setCheckable(true);
         m_ampBtn->hide();
-        btnLayout2->addWidget(m_ampBtn);
+        btnLayout1->addWidget(m_ampBtn);
         wrapper->hide();
         connect(m_ampBtn, &QPushButton::toggled, this, [this, wrapper](bool checked) {
             if (m_floatingWindows.contains("AMP")) {
@@ -647,11 +659,20 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_eqApplet = new EqApplet;
     m_appletOrder.append(makeEntry("EQ", "Equalizer", m_eqApplet, true, btnRow1, btnLayout1));
 
-    m_catApplet = new CatApplet;
-    m_appletOrder.append(makeEntry("DIGI", "Digital Mode Controls", m_catApplet, false, btnRow2, btnLayout2));
+    m_catControlApplet = new CatControlApplet;
+    m_appletOrder.append(makeEntry("CAT", "CAT Control", m_catControlApplet, false, btnRow2, btnLayout2));
+
+    m_daxApplet = new DaxApplet;
+    m_appletOrder.append(makeEntry("DAX", "DAX Audio", m_daxApplet, false, btnRow2, btnLayout2));
+
+    m_tciApplet = new TciApplet;
+    m_appletOrder.append(makeEntry("TCI", "TCI Server", m_tciApplet, false, btnRow2, btnLayout2));
+
+    m_daxIqApplet = new DaxIqApplet;
+    m_appletOrder.append(makeEntry("IQ", "DAX IQ", m_daxIqApplet, false, btnRow2, btnLayout2));
 
     m_meterApplet = new MeterApplet;
-    m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false, btnRow2, btnLayout2));
+    m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false, btnRow1, btnLayout1));
 
     m_agApplet = new AntennaGeniusApplet;
     {

@@ -54,6 +54,23 @@ TciServer::TciServer(RadioModel* model, QObject* parent)
     : QObject(parent)
     , m_model(model)
 {
+    // Load per-channel RX gains from persistence (decoupled from DaxRxGain<n>, #1627).
+    // Migrate DaxRxGain<n> → TciRxGain<n> on first read so existing users keep
+    // their current balance when the applets split.
+    {
+        auto& s = AppSettings::instance();
+        for (int ch = 1; ch <= 4; ++ch) {
+            const QString key = QStringLiteral("TciRxGain%1").arg(ch);
+            if (!s.contains(key)) {
+                const QString legacy = s.value(QStringLiteral("DaxRxGain%1").arg(ch), "0.5").toString();
+                s.setValue(key, legacy);
+            }
+            m_rxChannelGain[ch - 1] = std::clamp(
+                s.value(key, "1.0").toString().toFloat(), 0.0f, 1.0f);
+        }
+        s.save();
+    }
+
     // Cache S-meter values for periodic broadcast (avoid flooding clients)
     if (m_model) {
         connect(&m_model->meterModel(), &MeterModel::sLevelChanged,
@@ -207,6 +224,24 @@ void TciServer::setTxGain(float gain)
     auto& s = AppSettings::instance();
     s.setValue("TciTxGain", QString::number(clamped, 'f', 2));
     s.save();
+}
+
+void TciServer::setRxChannelGain(int channel, float gain)
+{
+    if (channel < 1 || channel > 4) return;
+    const float clamped = std::clamp(gain, 0.0f, 1.0f);
+    if (m_rxChannelGain[channel - 1] == clamped) return;
+    m_rxChannelGain[channel - 1] = clamped;
+    auto& s = AppSettings::instance();
+    s.setValue(QStringLiteral("TciRxGain%1").arg(channel),
+               QString::number(clamped, 'f', 2));
+    s.save();
+}
+
+float TciServer::rxChannelGain(int channel) const
+{
+    if (channel < 1 || channel > 4) return 1.0f;
+    return m_rxChannelGain[channel - 1];
 }
 
 void TciServer::onNewConnection()
@@ -636,6 +671,10 @@ void TciServer::onBinaryMessage(const QByteArray& data)
     m_txAudioPeak = std::max(m_txAudioPeak, peak);
     m_txSawDuplicatedStereo = m_txSawDuplicatedStereo || duplicatedStereo;
 
+    if (outputSamples > 0) {
+        emit txLevel(std::sqrt(static_cast<float>(sumSq / outputSamples)));
+    }
+
     if ((m_txAudioBlocks % kTxSummaryEveryBlocks) == 0)
         logTxAudioSummary("running");
 
@@ -758,6 +797,22 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
         }
     }
 
+    // RMS level meter: compute on the raw incoming packet BEFORE per-client
+    // gain, so the level reflects radio output, not local slider position.
+    // One emission per DAX packet is cheap at ~187 Hz (128-frame packets /24kHz).
+    if (channel >= 1 && channel <= 4) {
+        const auto* src = reinterpret_cast<const float*>(pcm.constData());
+        const int n = pcm.size() / static_cast<int>(sizeof(float));
+        if (n > 0) {
+            double sumSq = 0.0;
+            for (int i = 0; i < n; ++i) sumSq += static_cast<double>(src[i]) * src[i];
+            emit rxLevel(channel, std::sqrt(static_cast<float>(sumSq / n)));
+        }
+    }
+
+    const float channelGain = (channel >= 1 && channel <= 4)
+        ? m_rxChannelGain[channel - 1] : 1.0f;
+
     // Per-client: accumulate then resample
     for (auto& cs : m_clients) {
         if (!cs.audioEnabled) continue;
@@ -794,6 +849,17 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
         accumBuf.squeeze();
 
         int srcSamples = audioFrames * 2;  // stereo
+
+        // Apply per-channel TCI gain.  Copy into a gained buffer only when the
+        // gain is not unity — unity skips the memcpy and keeps audioSrc pointing
+        // at the resampler output (or the raw accumulator in the 24kHz path).
+        QByteArray gainedBuf;
+        if (channelGain != 1.0f) {
+            gainedBuf.resize(srcSamples * static_cast<int>(sizeof(float)));
+            auto* dst = reinterpret_cast<float*>(gainedBuf.data());
+            for (int i = 0; i < srcSamples; ++i) dst[i] = audioSrc[i] * channelGain;
+            audioSrc = dst;
+        }
 
         if (cs.audioFormat == 3) {
             // float32 output — pass through directly

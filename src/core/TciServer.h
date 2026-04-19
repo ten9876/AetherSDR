@@ -46,6 +46,13 @@ public:
     void setTxGain(float gain);
     float txGain() const { return m_txGain; }
 
+    // Per-channel TCI RX gain (0.0–1.0), applied to outbound DAX audio before
+    // resampling and sending to TCI clients.  Decoupled from DaxRxGain<n> so
+    // DAX bridge and TCI maintain independent per-channel gains.
+    // Channel is 1-based (1–4).  Persists to TciRxGain<channel>.
+    void setRxChannelGain(int channel, float gain);
+    float rxChannelGain(int channel) const;
+
     // Wire slice signals for state change broadcasts
     void wireSlice(int trx, SliceModel* slice);
     void wireSpotModel();
@@ -60,6 +67,8 @@ public slots:
 
 signals:
     void clientCountChanged(int count);
+    void rxLevel(int channel, float rms);  // 1-based channel, RMS of TCI-gained RX audio
+    void txLevel(float rms);                // RMS of post-gain TCI TX audio
 
 private slots:
     void onNewConnection();
@@ -127,6 +136,7 @@ private:
     qint64            m_txChronoRequestedFrames{0};
     bool              m_txUseRadioRoute{true};
     float             m_txGain{1.0f};
+    float             m_rxChannelGain[4]{1.0f, 1.0f, 1.0f, 1.0f};
     qint64            m_txAudioBlocks{0};
     qint64            m_txInputFrames{0};
     qint64            m_txOutputFrames{0};
