@@ -570,6 +570,7 @@ private:
     QString  m_wanPublicIp;
     quint16  m_wanUdpPort{4991};
     QSet<int>          m_ownedSliceIds;   // slice IDs that belong to our client
+    QList<int>         m_radioSliceIds;   // all slice IDs reported by "slice list" at connect
     bool               m_txOwnedByUs{true};  // true when tx_client_handle matches our handle
     bool               m_fullDuplex{false};
     int                m_rttyMarkDefault{2125};

@@ -932,6 +932,13 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                         const QStringList ids = body.trimmed().split(' ', Qt::SkipEmptyParts);
                         qCDebug(lcProtocol) << "RadioModel: slice list ->" << (ids.isEmpty() ? "(empty)" : body);
 
+                        // Remember all slice IDs the radio reported so we can
+                        // detect stale slices later in the deferred check.
+                        m_radioSliceIds.clear();
+                        for (const QString& s : ids) {
+                            m_radioSliceIds.append(s.toInt());
+                        }
+
                         if (ids.isEmpty()) {
                             // Radio has no slices at all — create one
                             qCDebug(lcProtocol) << "RadioModel: no slices on radio, creating default";
@@ -954,16 +961,59 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                                      << "slice(s) but none matched yet — deferring 500ms";
                             QTimer::singleShot(500, this, [this]() {
                                 if (m_slices.isEmpty() && isConnected()) {
-                                    qCDebug(lcProtocol) << "RadioModel: deferred check — still no owned slices, creating default";
-                                    auto& settings = AppSettings::instance();
-                                    double lastFreq = settings.value("LastFrequency", "0").toDouble();
-                                    QString lastMode = settings.value("LastMode", "").toString();
-                                    if (lastFreq > 0.0) {
-                                        createDefaultSlice(
-                                            QString::number(lastFreq, 'f', 6),
-                                            lastMode.isEmpty() ? "USB" : lastMode);
+                                    // Check for stale slices from a previous session:
+                                    // if we are the sole connected client, any slices
+                                    // still on the radio must be leftovers — remove
+                                    // them so the radio assigns indices 0/1 to our
+                                    // new slices instead of higher indices. (#1702)
+                                    bool soleClient = true;
+                                    quint32 ours = clientHandle();
+                                    for (auto it = m_clientInfoMap.cbegin();
+                                         it != m_clientInfoMap.cend(); ++it) {
+                                        if (it.key() != ours) {
+                                            soleClient = false;
+                                            break;
+                                        }
+                                    }
+
+                                    if (soleClient && !m_radioSliceIds.isEmpty()) {
+                                        qCDebug(lcProtocol) << "RadioModel: sole client — removing"
+                                                 << m_radioSliceIds.size() << "stale slice(s) before creating default";
+                                        for (int staleId : m_radioSliceIds) {
+                                            if (!m_ownedSliceIds.contains(staleId)) {
+                                                sendCmd(QString("slice remove %1").arg(staleId));
+                                            }
+                                        }
+                                        m_radioSliceIds.clear();
+                                        // Allow the radio time to process the removes
+                                        // before creating new slices.
+                                        QTimer::singleShot(300, this, [this]() {
+                                            if (m_slices.isEmpty() && isConnected()) {
+                                                qCDebug(lcProtocol) << "RadioModel: stale slices removed, creating default";
+                                                auto& settings = AppSettings::instance();
+                                                double lastFreq = settings.value("LastFrequency", "0").toDouble();
+                                                QString lastMode = settings.value("LastMode", "").toString();
+                                                if (lastFreq > 0.0) {
+                                                    createDefaultSlice(
+                                                        QString::number(lastFreq, 'f', 6),
+                                                        lastMode.isEmpty() ? "USB" : lastMode);
+                                                } else {
+                                                    createDefaultSlice();
+                                                }
+                                            }
+                                        });
                                     } else {
-                                        createDefaultSlice();
+                                        qCDebug(lcProtocol) << "RadioModel: deferred check — still no owned slices, creating default";
+                                        auto& settings = AppSettings::instance();
+                                        double lastFreq = settings.value("LastFrequency", "0").toDouble();
+                                        QString lastMode = settings.value("LastMode", "").toString();
+                                        if (lastFreq > 0.0) {
+                                            createDefaultSlice(
+                                                QString::number(lastFreq, 'f', 6),
+                                                lastMode.isEmpty() ? "USB" : lastMode);
+                                        } else {
+                                            createDefaultSlice();
+                                        }
                                     }
                                 } else if (!m_slices.isEmpty()) {
                                     qCDebug(lcProtocol) << "RadioModel: deferred check — adopted"
@@ -1229,6 +1279,7 @@ void RadioModel::onDisconnected()
     m_panadapters.clear();
     m_activePanId.clear();
     m_ownedSliceIds.clear();
+    m_radioSliceIds.clear();
     m_tnfModel.clear();
     if (!m_memories.isEmpty()) {
         m_memories.clear();
