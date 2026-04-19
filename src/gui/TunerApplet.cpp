@@ -9,6 +9,7 @@
 #include <QHBoxLayout>
 #include <QSignalBlocker>
 #include <QTimer>
+#include <algorithm>
 
 namespace AetherSDR {
 
@@ -26,7 +27,7 @@ TunerApplet::TunerApplet(QWidget* parent)
     // for 400ms so the final settled value from the TGXL has time to arrive.
     m_postTuneTimer = new QTimer(this);
     m_postTuneTimer->setSingleShot(true);
-    m_postTuneTimer->setInterval(400);
+    m_postTuneTimer->setInterval(1200);  // span at least one TGXL status poll (#1670)
     connect(m_postTuneTimer, &QTimer::timeout, this, [this]() {
         m_postTuneCapture = false;
         float result = (m_tuneSwr < 900.0f) ? m_tuneSwr : m_swr;
@@ -230,6 +231,7 @@ void TunerApplet::setTunerModel(TunerModel* model)
             m_postTuneCapture = false;
             m_postTuneTimer->stop();
             m_tuneSwr = 999.0f;  // reset high so capture tracking works
+            m_sweepMinSwr = 999.0f;  // reset sweep tracker (#1670)
             m_tuneBtn->setStyleSheet(
                 "QPushButton { background: #cc2222; border: 1px solid #ff4444; "
                 "border-radius: 3px; color: #ffffff; font-size: 10px; font-weight: bold; }");
@@ -247,7 +249,7 @@ void TunerApplet::setTunerModel(TunerModel* model)
             if (m_wasTuning) {
                 m_wasTuning = false;
                 m_postTuneCapture = true;
-                m_tuneSwr = 999.0f;  // reset — we want the post-tune value, not the sweep
+                m_tuneSwr = m_sweepMinSwr;  // seed with best SWR from sweep (#1670)
                 m_tuneBtn->setText("TUNING...");
                 m_postTuneTimer->start();
             } else {
@@ -320,6 +322,12 @@ void TunerApplet::updateMeters(float fwdPower, float swr)
     m_swr = swr;
     static_cast<HGauge*>(m_fwdGauge)->setValue(fwdPower);
     static_cast<HGauge*>(m_swrGauge)->setValue(swr);
+
+    // During tuning sweep, track minimum SWR (= best relay match found).
+    // This is used as fallback if no post-tune reading arrives (#1670).
+    if (m_wasTuning && swr > 1.01f) {
+        m_sweepMinSwr = std::min(m_sweepMinSwr, swr);
+    }
 
     // During the post-tune capture window, record the last non-idle SWR.
     // The TGXL reports the settled SWR shortly after tuning=0 arrives;

@@ -80,6 +80,7 @@ private:
     bool m_wasTuning{false};
     bool m_postTuneCapture{false};  // true during post-tune settling window
     float m_tuneSwr{1.0f};   // last non-1.00 SWR seen while tuning
+    float m_sweepMinSwr{999.0f}; // minimum SWR seen during tuning sweep (#1670)
     QTimer* m_postTuneTimer{nullptr};
 };
 
