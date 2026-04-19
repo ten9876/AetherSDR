@@ -24,7 +24,7 @@ class SerialPortController : public QObject {
 
 public:
     // Output functions (DTR/RTS)
-    enum class PinFunction { None, PTT, CwKey, CwPTT };
+    enum class PinFunction { None, PTT, CwKey, CwPTT, AlwaysOn };
     // Input functions (CTS/DSR)
     enum class InputFunction { None, PttInput, CwKeyInput, CwDitInput, CwDahInput };
 

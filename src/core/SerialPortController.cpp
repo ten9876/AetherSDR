@@ -46,9 +46,9 @@ bool SerialPortController::open(const QString& portName, int baudRate,
         return false;
     }
 
-    // Start with all output lines deasserted
-    m_port.setDataTerminalReady(!m_dtrActiveHigh);
-    m_port.setRequestToSend(!m_rtsActiveHigh);
+    // Start with all output lines deasserted (unless AlwaysOn)
+    m_port.setDataTerminalReady(m_dtrFn == PinFunction::AlwaysOn ? m_dtrActiveHigh : !m_dtrActiveHigh);
+    m_port.setRequestToSend(m_rtsFn == PinFunction::AlwaysOn ? m_rtsActiveHigh : !m_rtsActiveHigh);
 
     // Reset input state
     m_lastCtsActive = false;
@@ -116,11 +116,11 @@ void SerialPortController::applyPin(PinFunction targetFn, bool active)
 #ifdef HAVE_SERIALPORT
     if (!m_port.isOpen()) return;
 
-    if (m_dtrFn == targetFn) {
+    if (m_dtrFn == targetFn && m_dtrFn != PinFunction::AlwaysOn) {
         bool level = m_dtrActiveHigh ? active : !active;
         m_port.setDataTerminalReady(level);
     }
-    if (m_rtsFn == targetFn) {
+    if (m_rtsFn == targetFn && m_rtsFn != PinFunction::AlwaysOn) {
         bool level = m_rtsActiveHigh ? active : !active;
         m_port.setRequestToSend(level);
     }
@@ -220,6 +220,7 @@ void SerialPortController::loadSettings()
         if (str == "PTT") return PinFunction::PTT;
         if (str == "CwKey") return PinFunction::CwKey;
         if (str == "CwPTT") return PinFunction::CwPTT;
+        if (str == "AlwaysOn") return PinFunction::AlwaysOn;
         return PinFunction::None;
     };
 
@@ -242,12 +243,24 @@ void SerialPortController::loadSettings()
     m_dsrActiveHigh = s.value("SerialDsrPolarity", "ActiveLow").toString() == "ActiveHigh";
     m_paddleSwap = s.value("SerialPaddleSwap", "False").toString() == "True";
 
-    if (!port.isEmpty() && s.value("SerialAutoOpen", "False").toString() == "True") {
+    bool autoOpen = s.value("SerialAutoOpen", "False").toString() == "True";
+    bool manualOpen = s.value("SerialPortOpen", "False").toString() == "True";
+    if (!port.isEmpty() && (autoOpen || manualOpen)) {
         int baud = s.value("SerialBaudRate", "9600").toInt();
         int data = s.value("SerialDataBits", "8").toInt();
         int par  = s.value("SerialParity", "0").toInt();
         int stop = s.value("SerialStopBits", "1").toInt();
         open(port, baud, data, par, stop);
+    } else if (isOpen()) {
+        // Port already open (e.g. via manual Open button) — apply any
+        // changed pin config and restart polling without re-opening.
+        updatePolling();
+
+        // Re-apply AlwaysOn pins in case function/polarity changed
+#ifdef HAVE_SERIALPORT
+        m_port.setDataTerminalReady(m_dtrFn == PinFunction::AlwaysOn ? m_dtrActiveHigh : !m_dtrActiveHigh);
+        m_port.setRequestToSend(m_rtsFn == PinFunction::AlwaysOn ? m_rtsActiveHigh : !m_rtsActiveHigh);
+#endif
     }
 }
 
@@ -257,10 +270,11 @@ void SerialPortController::saveSettings()
 
     auto fnToStr = [](PinFunction fn) -> QString {
         switch (fn) {
-        case PinFunction::PTT:   return "PTT";
-        case PinFunction::CwKey: return "CwKey";
-        case PinFunction::CwPTT: return "CwPTT";
-        default:                 return "None";
+        case PinFunction::PTT:      return "PTT";
+        case PinFunction::CwKey:    return "CwKey";
+        case PinFunction::CwPTT:    return "CwPTT";
+        case PinFunction::AlwaysOn: return "AlwaysOn";
+        default:                    return "None";
         }
     };
 

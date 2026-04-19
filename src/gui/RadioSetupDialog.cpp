@@ -2963,10 +2963,11 @@ QWidget* RadioSetupDialog::buildSerialTab()
 
         auto makeFnCombo = [this](const QString& savedKey) {
             auto* combo = new QComboBox;
-            combo->addItem("None",   "None");
-            combo->addItem("PTT",    "PTT");
-            combo->addItem("CW Key", "CwKey");
-            combo->addItem("CW PTT", "CwPTT");
+            combo->addItem("None",      "None");
+            combo->addItem("PTT",       "PTT");
+            combo->addItem("CW Key",    "CwKey");
+            combo->addItem("CW PTT",    "CwPTT");
+            combo->addItem("Always On", "AlwaysOn");
             QString saved = AppSettings::instance().value(savedKey, "None").toString();
             for (int i = 0; i < combo->count(); ++i)
                 if (combo->itemData(i).toString() == saved) { combo->setCurrentIndex(i); break; }
@@ -3060,6 +3061,48 @@ QWidget* RadioSetupDialog::buildSerialTab()
             s.save();
         });
         vbox->addWidget(autoOpen);
+    }
+
+    // ── Open / Close port button ─────────────────────────────────────────
+    {
+        auto* openBtn = new QPushButton("Open Port");
+        openBtn->setFixedWidth(120);
+        openBtn->setStyleSheet(
+            "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+            "border: 1px solid #008ba8; padding: 4px; border-radius: 3px; }"
+            "QPushButton:hover { background: #00c8f0; }");
+
+        auto* statusLabel = new QLabel("Closed");
+        statusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+
+        // Check if the port is already open via SerialAutoOpen + a valid port
+        bool alreadyOpen = AppSettings::instance().value("SerialPortOpen", "False").toString() == "True";
+        if (alreadyOpen) {
+            openBtn->setText("Close Port");
+            statusLabel->setText("Open");
+            statusLabel->setStyleSheet("QLabel { color: #30d050; font-size: 11px; }");
+        }
+
+        connect(openBtn, &QPushButton::clicked, this, [this, openBtn, statusLabel]() {
+            bool isOpen = (openBtn->text() == "Close Port");
+            if (isOpen) {
+                emit serialCloseRequested();
+                openBtn->setText("Open Port");
+                statusLabel->setText("Closed");
+                statusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+            } else {
+                emit serialOpenRequested();
+                openBtn->setText("Close Port");
+                statusLabel->setText("Open");
+                statusLabel->setStyleSheet("QLabel { color: #30d050; font-size: 11px; }");
+            }
+        });
+
+        auto* row = new QHBoxLayout;
+        row->addWidget(openBtn);
+        row->addWidget(statusLabel);
+        row->addStretch();
+        vbox->addLayout(row);
     }
 
     // ── FlexControl tuning knob ────────────────────────────────────────

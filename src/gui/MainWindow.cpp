@@ -2729,6 +2729,30 @@ void MainWindow::buildMenuBar()
         m_radioSetupDialog = dlg;
         connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
                 m_txBandAction, &QAction::trigger);
+#ifdef HAVE_SERIALPORT
+        connect(dlg, &RadioSetupDialog::serialOpenRequested, this, [this]() {
+            auto& s = AppSettings::instance();
+            QString port = s.value("SerialPortName", "").toString();
+            int baud = s.value("SerialBaudRate", "9600").toInt();
+            int data = s.value("SerialDataBits", "8").toInt();
+            int par  = s.value("SerialParity", "0").toInt();
+            int stop = s.value("SerialStopBits", "1").toInt();
+            QMetaObject::invokeMethod(m_serialPort, [this, port, baud, data, par, stop] {
+                m_serialPort->loadSettings();
+                m_serialPort->open(port, baud, data, par, stop);
+            });
+            s.setValue("SerialPortOpen", "True");
+            s.save();
+        });
+        connect(dlg, &RadioSetupDialog::serialCloseRequested, this, [this]() {
+            QMetaObject::invokeMethod(m_serialPort, [this] {
+                m_serialPort->close();
+            });
+            auto& s = AppSettings::instance();
+            s.setValue("SerialPortOpen", "False");
+            s.save();
+        });
+#endif
         connect(dlg, &QDialog::finished, this, [this, prevComp]() {
 #ifdef HAVE_SERIALPORT
             // Re-load serial port settings if changed (on worker thread)
@@ -2784,6 +2808,28 @@ void MainWindow::buildMenuBar()
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
                 m_txBandAction, &QAction::trigger);
+        connect(dlg, &RadioSetupDialog::serialOpenRequested, this, [this]() {
+            auto& s = AppSettings::instance();
+            QString port = s.value("SerialPortName", "").toString();
+            int baud = s.value("SerialBaudRate", "9600").toInt();
+            int data = s.value("SerialDataBits", "8").toInt();
+            int par  = s.value("SerialParity", "0").toInt();
+            int stop = s.value("SerialStopBits", "1").toInt();
+            QMetaObject::invokeMethod(m_serialPort, [this, port, baud, data, par, stop] {
+                m_serialPort->loadSettings();
+                m_serialPort->open(port, baud, data, par, stop);
+            });
+            s.setValue("SerialPortOpen", "True");
+            s.save();
+        });
+        connect(dlg, &RadioSetupDialog::serialCloseRequested, this, [this]() {
+            QMetaObject::invokeMethod(m_serialPort, [this] {
+                m_serialPort->close();
+            });
+            auto& s = AppSettings::instance();
+            s.setValue("SerialPortOpen", "False");
+            s.save();
+        });
         if (auto* tabs = dlg->findChild<QTabWidget*>()) {
             for (int i = 0; i < tabs->count(); ++i) {
                 if (tabs->tabText(i) == "Serial") {
