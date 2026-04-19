@@ -7017,13 +7017,16 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     // Per-slice AF mute persistence (#1560): save state to AppSettings on each
     // toggle so it survives the session; restore it once the slice is ready
     // (the radio does not persist audio_mute between client connections).
-    connect(w, &VfoWidget::audioMuteToggled, this, [this, sliceId](bool on) {
+    // Use the user-visible slice letter (A/B/C/D) as the key so the saved state
+    // survives sessions where the radio assigns different numeric IDs (#1560).
+    const QChar sliceLetter = QChar('A' + sliceId);
+    connect(w, &VfoWidget::audioMuteToggled, this, [this, sliceLetter](bool on) {
         AppSettings::instance().setValue(
-            QString("SliceAudioMuted_%1").arg(sliceId), on ? "True" : "False");
+            QString("SliceAudioMuted_%1").arg(sliceLetter), on ? "True" : "False");
     });
     {
         bool savedMute = AppSettings::instance()
-            .value(QString("SliceAudioMuted_%1").arg(sliceId), "False")
+            .value(QString("SliceAudioMuted_%1").arg(sliceLetter), "False")
             .toString() == "True";
         if (savedMute)
             s->setAudioMute(true);  // send audio_mute=1 to radio for this slice

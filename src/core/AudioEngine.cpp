@@ -509,9 +509,11 @@ void AudioEngine::setRxPan(int v)
 //   pan 0-50  → L=1.0,           R=pan/50
 //   pan 50-100→ L=(100-pan)/50,  R=1.0
 // At pan=50 both gains are 1.0, so it is a true no-op when centred.
+// Safety: if nFrames==0 (e.g. empty or partial buffer on an error path),
+// the loop body never executes — no UB.
 static void applyRxPanInPlace(float* stereo, int nFrames, int pan)
 {
-    if (pan == 50) return;  // centre — nothing to do
+    if (pan == 50 || nFrames <= 0) return;
     const float lGain = (pan >= 50) ? (100 - pan) / 50.0f : 1.0f;
     const float rGain = (pan <= 50) ? pan        / 50.0f : 1.0f;
     for (int i = 0; i < nFrames; ++i) {
