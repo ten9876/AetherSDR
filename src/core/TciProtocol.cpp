@@ -384,7 +384,11 @@ QString TciProtocol::cmdTxEnable(const QStringList& args)
             }, Qt::QueuedConnection);
         }
     }
-    return {};
+
+    m_pendingNotification = QStringLiteral("tx_enable:%1,%2;")
+                                .arg(trx).arg(enable ? "true" : "false");
+    return QStringLiteral("tx_enable:%1,%2;")
+               .arg(trx).arg(enable ? "true" : "false");
 }
 
 // ── TUNE: get/set tune state ───────────────────────────────────────────────
