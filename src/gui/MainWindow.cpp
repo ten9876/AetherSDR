@@ -24,6 +24,7 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
+#include "ClientEqApplet.h"
 #include "CatControlApplet.h"
 #include "DaxApplet.h"
 #include "TciApplet.h"
@@ -1987,6 +1988,17 @@ MainWindow::MainWindow(QWidget* parent)
 
     // ── EQ applet: graphic equalizer ─────────────────────────────────────────
     m_appletPanel->eqApplet()->setEqualizerModel(&m_radioModel.equalizerModel());
+
+    // ── Client EQ applet: client-side parametric EQ for RX/TX paths ──────────
+    m_appletPanel->clientEqApplet()->setAudioEngine(m_audio);
+    // Edit… requests land here — the floating editor window lands in the
+    // next PR in this series. For now we surface a concise toast so users
+    // understand the feature is arriving incrementally.
+    connect(m_appletPanel->clientEqApplet(), &ClientEqApplet::editRequested,
+            this, [this](ClientEqApplet::Path) {
+        statusBar()->showMessage("Client EQ editor lands in the next update.",
+                                 4000);
+    });
 
     // ── Antenna Genius applet: external 4O3A antenna switch ──────────────────
     m_appletPanel->agApplet()->setModel(&m_antennaGenius);

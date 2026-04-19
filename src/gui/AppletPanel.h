@@ -23,6 +23,7 @@ class TxApplet;
 class PhoneCwApplet;
 class PhoneApplet;
 class EqApplet;
+class ClientEqApplet;
 class CatControlApplet;
 class DaxApplet;
 class TciApplet;
@@ -54,6 +55,7 @@ public:
     PhoneCwApplet*  phoneCwApplet()  { return m_phoneCwApplet; }
     PhoneApplet*    phoneApplet()    { return m_phoneApplet; }
     EqApplet*       eqApplet()       { return m_eqApplet; }
+    ClientEqApplet* clientEqApplet() { return m_clientEqApplet; }
     CatControlApplet* catControlApplet() { return m_catControlApplet; }
     DaxApplet*      daxApplet()      { return m_daxApplet; }
     TciApplet*      tciApplet()      { return m_tciApplet; }
@@ -120,6 +122,7 @@ private:
     PhoneCwApplet* m_phoneCwApplet{nullptr};
     PhoneApplet*   m_phoneApplet{nullptr};
     EqApplet*      m_eqApplet{nullptr};
+    ClientEqApplet* m_clientEqApplet{nullptr};
     CatControlApplet* m_catControlApplet{nullptr};
     DaxApplet*     m_daxApplet{nullptr};
     TciApplet*     m_tciApplet{nullptr};
