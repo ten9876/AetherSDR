@@ -62,6 +62,14 @@ void DxClusterClient::connectToCluster(const QString& host, quint16 port, const 
             qCWarning(lcDxCluster) << "DxClusterClient: connection timeout";
             m_socket->abort();
             emit connectionError("Connection timeout");
+            // Schedule retry if this wasn't intentional
+            if (!m_intentionalDisconnect) {
+                int delay = std::min(InitialReconnectDelayMs * (1 << m_reconnectAttempts),
+                                     MaxReconnectDelayMs);
+                qCDebug(lcDxCluster) << "DxClusterClient: timeout, retrying in" << delay << "ms";
+                m_reconnectTimer->start(delay);
+                m_reconnectAttempts++;
+            }
         }
     });
 }
@@ -135,6 +143,16 @@ void DxClusterClient::onSocketError(QAbstractSocket::SocketError /*err*/)
     QString msg = m_socket->errorString();
     qCWarning(lcDxCluster) << "DxClusterClient: socket error:" << msg;
     emit connectionError(msg);
+
+    // If we were trying to reconnect and the attempt failed, schedule another try.
+    // onDisconnected() won't fire because the socket was never in ConnectedState.
+    if (!m_intentionalDisconnect && !m_connected) {
+        int delay = std::min(InitialReconnectDelayMs * (1 << m_reconnectAttempts),
+                             MaxReconnectDelayMs);
+        qCDebug(lcDxCluster) << "DxClusterClient: reconnect attempt failed, retrying in" << delay << "ms";
+        m_reconnectTimer->start(delay);
+        m_reconnectAttempts++;
+    }
 }
 
 void DxClusterClient::onReconnectTimer()
