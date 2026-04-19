@@ -698,7 +698,13 @@ void SpectrumOverlayMenu::buildDspPanel()
     if (m_dspRows[9].slider) m_dspRows[9].slider->setToolTip("Adjusts ANFL notch depth.");
     if (m_dspRows[11].slider) m_dspRows[11].slider->setToolTip("Adjusts BNR denoising intensity.");
 
+    // MNR adds one extra button to the toggle row on Apple builds; widen
+    // the panel only on platforms where it actually appears (#1672 review).
+#ifdef __APPLE__
     m_dspPanel->setFixedWidth(280);
+#else
+    m_dspPanel->setFixedWidth(200);
+#endif
     m_dspPanel->adjustSize();
 
     // Wiring is done in setSlice() since we need the slice model
