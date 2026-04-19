@@ -7,6 +7,7 @@ namespace AetherSDR {
 
 namespace {
 
+constexpr float kPi    = 3.14159265358979323846f;
 constexpr float kTwoPi = 6.28318530717958647692f;
 
 // Minimum difference in smoothed params before we bother recomputing the
@@ -47,7 +48,7 @@ struct SectionDesign {
 SectionDesign butterworthSection(int k, int numSections)
 {
     const int N = 2 * numSections;
-    const float angle = static_cast<float>((2 * k + 1) * M_PI) /
+    const float angle = static_cast<float>((2 * k + 1) * kPi) /
                         static_cast<float>(2 * N);
     return { 1.0f / (2.0f * std::sin(angle)), 1.0f };
     // Note: sin form of 1/(2·cos(θ)): we want angle from jω axis;
@@ -68,7 +69,7 @@ SectionDesign chebyshevSection(int k, int numSections, float rippleDb)
     const int N = 2 * numSections;
     const float eps = std::sqrt(std::pow(10.0f, rippleDb / 10.0f) - 1.0f);
     const float nu  = std::asinh(1.0f / eps) / static_cast<float>(N);
-    const float theta = static_cast<float>((2 * k + 1) * M_PI) /
+    const float theta = static_cast<float>((2 * k + 1) * kPi) /
                         static_cast<float>(2 * N);
     const float re = -std::sinh(nu) * std::sin(theta);
     const float im =  std::cosh(nu) * std::cos(theta);
