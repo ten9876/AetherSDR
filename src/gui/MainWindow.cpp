@@ -1521,7 +1521,10 @@ MainWindow::MainWindow(QWidget* parent)
             amp->setMeff(kvs["meffa"]);
         // Convert PGXL dBm to watts and feed S-Meter alongside radio meters.
         // Use peakfwd (actual peak power) not fwd (floor/minimum).
-        if (kvs.contains("peakfwd") && m_radioModel.hasAmplifier()) {
+        // Skip when amp is STANDBY — peakfwd reads ~0 dBm in standby and would
+        // stomp on the exciter feed that should drive the barefoot scale.
+        if (kvs.contains("peakfwd") && m_radioModel.hasAmplifier()
+                && m_radioModel.ampOperate()) {
             float dbm = kvs["peakfwd"].toFloat();
             float watts = std::pow(10.0f, (dbm - 30.0f) / 10.0f);
             qCDebug(lcTuner) << "PGXL→SMeter: peakfwd=" << dbm << "dBm =" << watts << "W";
@@ -1551,6 +1554,9 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Switch Fwd Power gauge scale based on radio max power and amplifier presence.
     // All three power gauges (TxApplet, TunerApplet, SMeterWidget) update together.
+    // When the PGXL is in STANDBY we fall back to the barefoot scale — only the
+    // radio's forward power is reaching the meter, so the 2kW arc would make
+    // every reading look tiny and useless.
     auto updatePowerScale = [this]() {
         int maxW = m_radioModel.transmitModel().maxPowerLevel();
         // Aurora (AU-) radios have an integrated 600W PA (Overlord) but
@@ -1560,12 +1566,14 @@ MainWindow::MainWindow(QWidget* parent)
         if (model.startsWith("AU-") && maxW <= 100) {
             maxW = 500;
         }
-        bool hasAmp = m_radioModel.hasAmplifier();
-        m_appletPanel->txApplet()->setPowerScale(maxW, hasAmp);
-        m_appletPanel->tunerApplet()->setPowerScale(maxW, hasAmp);
-        m_appletPanel->sMeterWidget()->setPowerScale(maxW, hasAmp);
+        const bool ampActive = m_radioModel.hasAmplifier()
+                            && m_radioModel.ampOperate();
+        m_appletPanel->txApplet()->setPowerScale(maxW, ampActive);
+        m_appletPanel->tunerApplet()->setPowerScale(maxW, ampActive);
+        m_appletPanel->sMeterWidget()->setPowerScale(maxW, ampActive);
     };
     connect(&m_radioModel, &RadioModel::amplifierChanged, this, updatePowerScale);
+    connect(&m_radioModel, &RadioModel::ampStateChanged, this, updatePowerScale);
 
     // TGXL indicator: two-line rich text — label on top, state smaller below.
     // Green = OPERATE, amber = BYPASS, grey = STANDBY (matches SmartSDR)
@@ -1606,8 +1614,10 @@ MainWindow::MainWindow(QWidget* parent)
         m_appletPanel->ampApplet()->setFwdPower(fwdPwr);
         m_appletPanel->ampApplet()->setSwr(swr);
         m_appletPanel->ampApplet()->setTemp(temp);
-        // When PGXL is present, S-Meter TX power shows amplifier output, not exciter
-        if (m_radioModel.hasAmplifier()) {
+        // S-Meter TX power follows the scale: amp output when PGXL is OPERATE,
+        // exciter output when it's STANDBY (txMetersChanged already handles that
+        // path, so we just stop overriding it here).
+        if (m_radioModel.hasAmplifier() && m_radioModel.ampOperate()) {
             m_appletPanel->sMeterWidget()->setTxMeters(fwdPwr, swr);
             static int ampDbg = 0;
             if (++ampDbg % 50 == 1)
