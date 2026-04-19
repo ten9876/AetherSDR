@@ -1242,14 +1242,20 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
 {
     // Forward to GPU renderer (#502)
 
+    // Freeze spectrum trace during TX when show-tx-in-waterfall is off
+    // and this pan contains the TX slice (#1630). Skip smoothing so the
+    // last RX frame is held on screen, matching the waterfall freeze.
+    const bool freezeTrace = m_transmitting && !m_showTxInWaterfall && m_hasTxSlice;
 
-    if (m_smoothed.size() != binsDbm.size())
-        m_smoothed = binsDbm;
-    else {
-        for (int i = 0; i < binsDbm.size(); ++i)
-            m_smoothed[i] = SMOOTH_ALPHA * binsDbm[i] + (1.0f - SMOOTH_ALPHA) * m_smoothed[i];
+    if (!freezeTrace) {
+        if (m_smoothed.size() != binsDbm.size())
+            m_smoothed = binsDbm;
+        else {
+            for (int i = 0; i < binsDbm.size(); ++i)
+                m_smoothed[i] = SMOOTH_ALPHA * binsDbm[i] + (1.0f - SMOOTH_ALPHA) * m_smoothed[i];
+        }
+        m_bins = binsDbm;
     }
-    m_bins = binsDbm;
 
     // Noise floor auto-adjust: every 10 frames, measure noise floor and
     // adjust min_dbm so it sits at the user's chosen position.
