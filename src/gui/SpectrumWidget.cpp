@@ -1141,6 +1141,15 @@ const SpectrumWidget::SliceOverlay* SpectrumWidget::activeOverlay() const
     return m_sliceOverlays.isEmpty() ? nullptr : &m_sliceOverlays.first();
 }
 
+double SpectrumWidget::txFreqOffsetMhz() const
+{
+    if (!m_transmitting || !m_hasTxSlice) return 0.0;
+    for (const auto& ov : m_sliceOverlays) {
+        if (ov.isTxSlice) return ov.freqMhz - m_centerMhz;
+    }
+    return 0.0;
+}
+
 void SpectrumWidget::setSliceOverlay(int sliceId, double freq, int fLow, int fHigh,
                                      bool tx, bool active, const QString& mode,
                                      int rttyMark, int rttyShift,
@@ -2660,10 +2669,17 @@ void SpectrumWidget::pushWaterfallRow(const QVector<float>& bins, int destWidth,
     Q_UNUSED(tileLowMhz);
     Q_UNUSED(tileHighMhz);
 
+    // During TX the radio's FFT bins are centered on the TX slice frequency.
+    // Shift the bin-to-pixel mapping so the waterfall aligns correctly. (#1674)
+    const double txOffMhz = txFreqOffsetMhz();
+    const int binCount = bins.size();
+    const double binShift = (m_bandwidthMhz > 0 && binCount > 0)
+        ? -txOffMhz / m_bandwidthMhz * binCount : 0.0;
+
     QVector<QRgb> scanline(destWidth, qRgb(0, 0, 0));
     for (int x = 0; x < destWidth; ++x) {
-        const int binIdx = x * bins.size() / destWidth;
-        const float dbm = (binIdx >= 0 && binIdx < bins.size()) ? bins[binIdx] : m_wfMinDbm;
+        const int binIdx = static_cast<int>(x * binCount / destWidth + binShift);
+        const float dbm = (binIdx >= 0 && binIdx < binCount) ? bins[binIdx] : m_wfMinDbm;
         scanline[x] = dbmToRgb(dbm);
     }
 
@@ -3297,11 +3313,17 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             // Fill vertices: 2N × (x, y, r, g, b, a)
             QVector<float> fillVerts(n * 2 * kFftVertStride);
 
+            // During TX the radio's FFT bins are centered on the TX slice
+            // frequency, not the panadapter center. Shift in NDC. (#1674)
+            const double txOffMhz = txFreqOffsetMhz();
+            const float txOffNdc = (m_bandwidthMhz > 0)
+                ? static_cast<float>(2.0 * txOffMhz / m_bandwidthMhz) : 0.0f;
+
             // Pre-compute positions for normal calculation
             struct Pt { float x, y; };
             QVector<Pt> pts(n);
             for (int i = 0; i < n; ++i) {
-                pts[i].x = 2.0f * i / (n - 1) - 1.0f;
+                pts[i].x = 2.0f * i / (n - 1) - 1.0f + txOffNdc;
                 float t = qBound(0.0f, (m_smoothed[i] - minDbm) / range, 1.0f);
                 pts[i].y = yBot + t * (yTop - yBot);
             }
@@ -3956,13 +3978,20 @@ void SpectrumWidget::drawSpectrum(QPainter& p, const QRect& r)
         return QColor::fromRgbF(cr, cg, cb);
     };
 
+    // During TX the radio's FFT bins are centered on the TX slice frequency,
+    // not the panadapter center. Shift the trace so the carrier appears at
+    // the correct display position. (#1674)
+    const double txOffsetMhz = txFreqOffsetMhz();
+    const int txOffsetPx = (m_bandwidthMhz > 0)
+        ? static_cast<int>(txOffsetMhz / m_bandwidthMhz * w) : 0;
+
     // Pre-compute positions and normalized levels
     struct Pt { int x, y; float t; };
     QVector<Pt> pts(n);
     for (int i = 0; i < n; ++i) {
         const float dbm  = m_smoothed[i];
         const float norm = qBound(0.0f, (m_refLevel - dbm) / m_dynamicRange, 1.0f);
-        pts[i].x = r.left() + static_cast<int>(static_cast<float>(i) / n * w);
+        pts[i].x = r.left() + static_cast<int>(static_cast<float>(i) / n * w) + txOffsetPx;
         pts[i].y = r.top()  + qMin(static_cast<int>(norm * h), h - 1);
         pts[i].t = 1.0f - norm;  // 0=noise floor, 1=strong signal
     }

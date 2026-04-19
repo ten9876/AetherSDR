@@ -409,6 +409,10 @@ private:
     int overlayIndex(int sliceId) const;
     // Helper: find active overlay (or nullptr).
     const SliceOverlay* activeOverlay() const;
+    // Helper: TX FFT frequency offset (MHz). During TX the radio's FFT bins
+    // are centered on the TX slice frequency, not the panadapter center.
+    // Returns (txFreq − panCenter) so callers can shift the bin mapping. (#1674)
+    double txFreqOffsetMhz() const;
 
     void pushWaterfallRow(const QVector<float>& bins, int destWidth,
                           double tileLowMhz = -1, double tileHighMhz = -1);
