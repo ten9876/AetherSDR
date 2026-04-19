@@ -259,9 +259,18 @@ bool AudioEngine::startRxStream()
 
 #ifdef Q_OS_MAC
     if (!m_allowBluetoothTelephonyOutput.load()) {
+        // Only override devices that look like Bluetooth telephony routes.
+        // Telephony-only (HFP/SCO) routes cap out at 8-16 kHz and cannot
+        // handle our native 24 kHz Float stereo format.  If the device
+        // supports 24 kHz it is a normal output and should not be replaced,
+        // even if Qt reports 48 kHz as unsupported (which can happen on
+        // newer Qt versions with certain CoreAudio device types).
+        QAudioFormat nativeFmt = makeFormat();          // 24 kHz Float stereo
+        bool looksLikeTelephony = !dev.isFormatSupported(nativeFmt);
+
         QAudioFormat preferredFmt = makeFormat();
         preferredFmt.setSampleRate(48000);
-        if (!dev.isFormatSupported(preferredFmt)) {
+        if (looksLikeTelephony && !dev.isFormatSupported(preferredFmt)) {
             const auto supportsPreferredOutput = [&preferredFmt](const QAudioDevice& candidate) {
                 return !candidate.isNull() && candidate.isFormatSupported(preferredFmt);
             };
@@ -1895,7 +1904,7 @@ void AudioEngine::sendVoiceTxPacket(const QByteArray& pcmData, quint32 streamId)
 void AudioEngine::setOutputDevice(const QAudioDevice& dev)
 {
     m_outputDevice = dev;
-    qCDebug(lcAudio) << "AudioEngine: output device set to" << dev.description();
+    qCWarning(lcAudio) << "AudioEngine: output device set to" << dev.description();
 
     // Persist selection
     auto& s = AppSettings::instance();
