@@ -1160,7 +1160,18 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         });
         grid->addWidget(decodeBtn, 2, 5);
 
-
+        // Auto-open CW decode panel on mode change (#1645)
+        auto* autoOpenLbl = new QLabel("Auto-open on mode change:");
+        autoOpenLbl->setStyleSheet(kLabelStyle);
+        grid->addWidget(autoOpenLbl, 3, 4);
+        bool autoOpenOn = AppSettings::instance().value("CwAutoOpenOnModeChange", "True").toString() == "True";
+        auto* autoOpenBtn = mkTogBtn("On", autoOpenOn);
+        connect(autoOpenBtn, &QPushButton::toggled, this, [](bool on) {
+            auto& s = AppSettings::instance();
+            s.setValue("CwAutoOpenOnModeChange", on ? "True" : "False");
+            s.save();
+        });
+        grid->addWidget(autoOpenBtn, 3, 5);
 
         vbox->addWidget(group);
     }

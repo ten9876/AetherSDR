@@ -4991,15 +4991,40 @@ void MainWindow::onSliceAdded(SliceModel* s)
         pushSliceOverlay(s);
 
         // Show/hide CW decode panel and start/stop decoder
-        if (s->sliceId() == m_activeSliceId) {
+        {
             bool isCw = (mode == "CW" || mode == "CWL");
             bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
-            if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
-            if (isCw && !m_cwDecoder.isRunning())
-                m_cwDecoder.start();
-            else if (!isCw && m_cwDecoder.isRunning())
-                m_cwDecoder.stop();
+            bool autoOpen = AppSettings::instance().value("CwAutoOpenOnModeChange", "True").toString() == "True";
 
+            if (s->sliceId() == m_activeSliceId) {
+                // Active slice: control decoder applet + start/stop decoder
+                if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
+                if (isCw && !m_cwDecoder.isRunning())
+                    m_cwDecoder.start();
+                else if (!isCw && m_cwDecoder.isRunning())
+                    m_cwDecoder.stop();
+            } else if (isCw && decodeOn && autoOpen && m_panStack) {
+                // Non-active slice entering CW: auto-open decode panel on its pan (#1645)
+                if (auto* applet = m_panStack->panadapter(s->panId()))
+                    applet->setCwPanelVisible(true);
+            } else if (!isCw && m_panStack) {
+                // Non-active slice leaving CW: hide panel if no other slice on that pan is in CW
+                bool anyOtherCw = false;
+                for (auto* other : m_radioModel.slices()) {
+                    if (other != s && other->panId() == s->panId()
+                        && (other->mode() == "CW" || other->mode() == "CWL")) {
+                        anyOtherCw = true;
+                        break;
+                    }
+                }
+                if (!anyOtherCw) {
+                    if (auto* applet = m_panStack->panadapter(s->panId()))
+                        applet->setCwPanelVisible(false);
+                }
+            }
+        }
+
+        if (s->sliceId() == m_activeSliceId) {
             // Update CWX/DVK indicator availability for new mode
             updateKeyerAvailability(mode);
 
