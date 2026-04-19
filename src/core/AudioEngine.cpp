@@ -1,6 +1,7 @@
 #include "AudioEngine.h"
 #include "AppSettings.h"
 #include "ClientEq.h"
+#include "ClientComp.h"
 #include "LogManager.h"
 #include "OpusCodec.h"
 #include "SpectralNR.h"
@@ -50,12 +51,15 @@ AudioEngine::AudioEngine(QObject* parent)
     : QObject(parent)
     , m_clientEqRx(std::make_unique<ClientEq>())
     , m_clientEqTx(std::make_unique<ClientEq>())
+    , m_clientCompTx(std::make_unique<ClientComp>())
 {
-    // Prepare client EQs at the native 24 kHz rate. Sink resampling is
+    // Prepare client DSP at the native 24 kHz rate. Sink resampling is
     // handled separately after EQ — EQ always runs at radio-native rate.
     m_clientEqRx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientEqTx->prepare(DEFAULT_SAMPLE_RATE);
-    loadClientEqSettings();  // restore persisted bands before first audio
+    m_clientCompTx->prepare(DEFAULT_SAMPLE_RATE);
+    loadClientEqSettings();    // restore persisted bands before first audio
+    loadClientCompSettings();  // restore persisted comp params + chain order
 
     // Restore saved audio device selections
     auto& s = AppSettings::instance();
@@ -802,6 +806,122 @@ void AudioEngine::applyClientEqTxFloat32(QByteArray& float32)
                           frames, channels);
     tapClientEqTxFloat32(reinterpret_cast<const float*>(float32.constData()),
                          samples, channels);
+}
+
+void AudioEngine::applyClientCompTxInt16(QByteArray& int16stereo)
+{
+    if (!m_clientCompTx || !m_clientCompTx->isEnabled()) return;
+    if (int16stereo.isEmpty()) return;
+
+    const int samples = int16stereo.size() / static_cast<int>(sizeof(int16_t));
+    if ((samples & 1) != 0) return;
+    const int frames = samples / 2;
+
+    m_clientCompTxScratch.resize(samples * static_cast<int>(sizeof(float)));
+    auto* f32 = reinterpret_cast<float*>(m_clientCompTxScratch.data());
+    const auto* i16 = reinterpret_cast<const int16_t*>(int16stereo.constData());
+    for (int i = 0; i < samples; ++i) f32[i] = i16[i] / 32768.0f;
+
+    m_clientCompTx->process(f32, frames, 2);
+
+    auto* out = reinterpret_cast<int16_t*>(int16stereo.data());
+    for (int i = 0; i < samples; ++i) {
+        out[i] = static_cast<int16_t>(
+            std::clamp(f32[i] * 32768.0f, -32768.0f, 32767.0f));
+    }
+}
+
+void AudioEngine::applyClientCompTxFloat32(QByteArray& float32)
+{
+    if (!m_clientCompTx || !m_clientCompTx->isEnabled()) return;
+    if (float32.isEmpty()) return;
+    const int samples  = float32.size() / static_cast<int>(sizeof(float));
+    const int channels = (samples % 2 == 0) ? 2 : 1;
+    const int frames   = samples / channels;
+    m_clientCompTx->process(reinterpret_cast<float*>(float32.data()),
+                            frames, channels);
+}
+
+void AudioEngine::applyClientTxDspInt16(QByteArray& int16stereo)
+{
+    // Order determines whether the compressor colours the raw mic signal
+    // before the EQ shapes it (default, Pro-XL "tone shaping after
+    // dynamics"), or the EQ shapes first and the compressor tames the
+    // resulting peaks.  EQ's tap is always fed post-EQ so the analyzer
+    // shows the final signal leaving the TX DSP chain.
+    if (m_txChainOrder.load() == TxChainOrder::CompThenEq) {
+        applyClientCompTxInt16(int16stereo);
+        applyClientEqTxInt16(int16stereo);
+    } else {
+        applyClientEqTxInt16(int16stereo);
+        applyClientCompTxInt16(int16stereo);
+    }
+}
+
+void AudioEngine::applyClientTxDspFloat32(QByteArray& float32)
+{
+    if (m_txChainOrder.load() == TxChainOrder::CompThenEq) {
+        applyClientCompTxFloat32(float32);
+        applyClientEqTxFloat32(float32);
+    } else {
+        applyClientEqTxFloat32(float32);
+        applyClientCompTxFloat32(float32);
+    }
+}
+
+void AudioEngine::setTxChainOrder(TxChainOrder order)
+{
+    m_txChainOrder.store(order);
+    AppSettings::instance().setValue(
+        "ClientCompTxChainOrder",
+        QString::number(static_cast<int>(order)));
+}
+
+void AudioEngine::loadClientCompSettings()
+{
+    if (!m_clientCompTx) return;
+    auto& s = AppSettings::instance();
+    m_clientCompTx->setEnabled(
+        s.value("ClientCompTxEnabled", "False").toString() == "True");
+    m_clientCompTx->setThresholdDb(
+        s.value("ClientCompTxThresholdDb", "-18.0").toFloat());
+    m_clientCompTx->setRatio(
+        s.value("ClientCompTxRatio", "3.0").toFloat());
+    m_clientCompTx->setAttackMs(
+        s.value("ClientCompTxAttackMs", "20.0").toFloat());
+    m_clientCompTx->setReleaseMs(
+        s.value("ClientCompTxReleaseMs", "200.0").toFloat());
+    m_clientCompTx->setKneeDb(
+        s.value("ClientCompTxKneeDb", "6.0").toFloat());
+    m_clientCompTx->setMakeupDb(
+        s.value("ClientCompTxMakeupDb", "0.0").toFloat());
+    m_clientCompTx->setLimiterEnabled(
+        s.value("ClientCompTxLimEnabled", "True").toString() == "True");
+    m_clientCompTx->setLimiterCeilingDb(
+        s.value("ClientCompTxLimCeilingDb", "-1.0").toFloat());
+
+    const int order = s.value("ClientCompTxChainOrder", "0").toInt();
+    m_txChainOrder.store(order == 1 ? TxChainOrder::EqThenComp
+                                     : TxChainOrder::CompThenEq);
+}
+
+void AudioEngine::saveClientCompSettings() const
+{
+    if (!m_clientCompTx) return;
+    auto& s = AppSettings::instance();
+    auto toBool = [](bool on) { return on ? QString("True") : QString("False"); };
+    s.setValue("ClientCompTxEnabled",     toBool(m_clientCompTx->isEnabled()));
+    s.setValue("ClientCompTxThresholdDb", QString::number(m_clientCompTx->thresholdDb()));
+    s.setValue("ClientCompTxRatio",       QString::number(m_clientCompTx->ratio()));
+    s.setValue("ClientCompTxAttackMs",    QString::number(m_clientCompTx->attackMs()));
+    s.setValue("ClientCompTxReleaseMs",   QString::number(m_clientCompTx->releaseMs()));
+    s.setValue("ClientCompTxKneeDb",      QString::number(m_clientCompTx->kneeDb()));
+    s.setValue("ClientCompTxMakeupDb",    QString::number(m_clientCompTx->makeupDb()));
+    s.setValue("ClientCompTxLimEnabled",  toBool(m_clientCompTx->limiterEnabled()));
+    s.setValue("ClientCompTxLimCeilingDb",
+               QString::number(m_clientCompTx->limiterCeilingDb()));
+    s.setValue("ClientCompTxChainOrder",
+               QString::number(static_cast<int>(m_txChainOrder.load())));
 }
 
 static QString wisdomDir()
@@ -1576,11 +1696,12 @@ void AudioEngine::onTxAudioReady()
     // Don't send mic audio — it would conflict with the DAX stream.
     if (m_daxTxMode) return;
 
-    // ── Client-side parametric TX EQ (int16 stereo 24 kHz) ──────────────
+    // ── Client-side TX DSP: compressor + parametric EQ ──────────────────
     // Runs after mic capture and resample, before PC mic gain / metering /
     // Opus / VITA-49, so the user hears the shaped signal exactly as the
-    // radio will receive it.
-    applyClientEqTxInt16(data);
+    // radio will receive it.  Chain order (CMP→EQ vs EQ→CMP) is user-
+    // selectable via setTxChainOrder().
+    applyClientTxDspInt16(data);
 
     // ── Apply client-side PC mic gain (int16) ───────────────────────────
     const float gain = m_pcMicGain.load();
@@ -1890,15 +2011,18 @@ void AudioEngine::feedDaxTxAudio(const QByteArray& inPcm)
 {
     if (m_txStreamId == 0 || inPcm.isEmpty()) return;
 
-    // Apply client-side TX EQ in place when enabled. Copy into a local
-    // because the caller owns `inPcm` — small cost only paid on this path
-    // when EQ is enabled. Downstream metering and encoding see the shaped
-    // signal, so the TX meter reflects what the radio is actually sending.
+    // Apply client-side TX DSP (compressor + EQ) in place when any stage
+    // is enabled. Copy into a local because the caller owns `inPcm`; the
+    // copy+process cost is only paid when something is active. Downstream
+    // metering and encoding see the shaped signal, so the TX meter
+    // reflects what the radio is actually sending.
+    const bool eqOn   = m_clientEqTx && m_clientEqTx->isEnabled();
+    const bool compOn = m_clientCompTx && m_clientCompTx->isEnabled();
     QByteArray working;
     const QByteArray* active = &inPcm;
-    if (m_clientEqTx && m_clientEqTx->isEnabled()) {
+    if (eqOn || compOn) {
         working = inPcm;
-        applyClientEqTxFloat32(working);
+        applyClientTxDspFloat32(working);
         active = &working;
     }
     const QByteArray& float32pcm = *active;

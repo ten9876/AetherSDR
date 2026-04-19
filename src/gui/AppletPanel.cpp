@@ -11,6 +11,7 @@
 #include "PhoneApplet.h"
 #include "EqApplet.h"
 #include "ClientEqApplet.h"
+#include "ClientCompApplet.h"
 #include "CatControlApplet.h"
 #include "DaxApplet.h"
 #include "TciApplet.h"
@@ -662,6 +663,9 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
     m_clientEqApplet = new ClientEqApplet;
     m_appletOrder.append(makeEntry("CEQ", "Client EQ", m_clientEqApplet, false, btnRow2, btnLayout2));
+
+    m_clientCompApplet = new ClientCompApplet;
+    m_appletOrder.append(makeEntry("CMP", "Client Compressor", m_clientCompApplet, false, btnRow2, btnLayout2));
 
     m_catControlApplet = new CatControlApplet;
     m_appletOrder.append(makeEntry("CAT", "CAT Control", m_catControlApplet, false, btnRow2, btnLayout2));

@@ -26,6 +26,8 @@
 #include "EqApplet.h"
 #include "ClientEqApplet.h"
 #include "ClientEqEditor.h"
+#include "ClientCompApplet.h"
+#include "ClientCompEditor.h"
 #include "CatControlApplet.h"
 #include "DaxApplet.h"
 #include "TciApplet.h"
@@ -2009,6 +2011,22 @@ MainWindow::MainWindow(QWidget* parent)
             });
         }
         m_clientEqEditor->showForPath(path);
+    });
+
+    // ── Client Compressor applet: client-side TX dynamics processor ──────────
+    m_appletPanel->clientCompApplet()->setAudioEngine(m_audio);
+    connect(m_appletPanel->clientCompApplet(), &ClientCompApplet::editRequested,
+            this, [this]() {
+        if (!m_clientCompEditor) {
+            m_clientCompEditor = new ClientCompEditor(m_audio, this);
+            connect(m_clientCompEditor, &ClientCompEditor::bypassToggled,
+                    this, [this](bool) {
+                if (m_appletPanel && m_appletPanel->clientCompApplet()) {
+                    m_appletPanel->clientCompApplet()->refreshEnableFromEngine();
+                }
+            });
+        }
+        m_clientCompEditor->showForTx();
     });
 
     // ── Antenna Genius applet: external 4O3A antenna switch ──────────────────

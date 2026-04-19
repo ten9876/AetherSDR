@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AetherSDR VERSION 0.8.16 LANGUAGES C CXX)
+project(AetherSDR VERSION 0.8.17 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -402,6 +402,7 @@ set(CORE_SOURCES
     src/core/CommandParser.cpp
     src/core/AudioEngine.cpp
     src/core/ClientEq.cpp
+    src/core/ClientComp.cpp
     src/core/SpectralNR.cpp
     src/core/PanadapterStream.cpp
     src/core/RigctlProtocol.cpp
@@ -512,6 +513,12 @@ set(GUI_SOURCES
     src/gui/ClientEqIconRow.cpp
     src/gui/ClientEqOutputFader.cpp
     src/gui/ClientEqParamRow.cpp
+    src/gui/ClientCompApplet.cpp
+    src/gui/ClientCompCurveWidget.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/ClientCompMeter.cpp
+    src/gui/ClientCompEditor.cpp
+    src/gui/ClientCompEditorCanvas.cpp
     src/gui/CatControlApplet.cpp
     src/gui/DaxApplet.cpp
     src/gui/TciApplet.cpp
@@ -1018,6 +1025,12 @@ add_executable(client_eq_test
     src/core/ClientEq.cpp
 )
 target_include_directories(client_eq_test PRIVATE src)
+
+add_executable(client_comp_test
+    tests/client_comp_test.cpp
+    src/core/ClientComp.cpp
+)
+target_include_directories(client_comp_test PRIVATE src)
 
 
 # ── Install rules ────────────────────────────────────────────────────────────

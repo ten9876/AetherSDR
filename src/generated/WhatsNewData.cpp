@@ -6,6 +6,12 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.8.17"), QStringLiteral("2026-04-19"), QStringLiteral("Client-side TX Compressor (Pro-XL-style, Phase 1)"), {
+            {ChangeCategory::Feature, QStringLiteral("Client-side TX dynamics processor"), QStringLiteral("Feed-forward compressor with soft-knee quadratic interpolation, linear- domain peak envelope detection, stereo-linked gain application, and a brickwall peak limiter on the output Parameters: thresh...")},
+            {ChangeCategory::Feature, QStringLiteral("Docked Compressor applet + floating editor"), QStringLiteral("View-only CMP tile in the applet tray: live transfer curve with a glowing ball that slides along the curve at the current envelope level, horizontal GR strip beneath, Bypass toggle + Edit… button F...")},
+            {ChangeCategory::Feature, QStringLiteral("DSP test harness"), QStringLiteral("tests/client_comp_test.cpp — 11 standalone smoke tests: bypass, below-threshold passthrough, static ratio (4:1 and 20:1), makeup, limiter ceiling, stereo linking, attack timing, soft-knee monotonic...")},
+            {ChangeCategory::Feature, QStringLiteral("Settings:"), QStringLiteral("")},
+        }},
         {QStringLiteral("0.8.16"), QStringLiteral("2026-04-18"), QStringLiteral("DIGI Applet Split, TCI Audio Reliability, PGXL-Aware S-Meter, Community Contributions"), {
             {ChangeCategory::Feature, QStringLiteral("DIGI applet split into CAT, DAX, TCI, IQ"), QStringLiteral("Four independent applets replace the monolithic DIGI tile Each has its own toggle button, drag-reorder slot, and float/dock affordance TCI gains per-channel RX gain (TciRxGain1-4) and a decoupled T...")},
             {ChangeCategory::Feature, QStringLiteral("PGXL standby-aware S-Meter"), QStringLiteral("VU / S-Meter switches between barefoot and PGXL 2kW scales automatically In STANDBY the meter shows exciter FWDPWR on the barefoot scale In OPERATE the meter shows amp output on the 2kW scale Scale...")},

@@ -305,6 +305,7 @@ private:
     bool m_userDisconnected{false};  // true after explicit disconnect, blocks auto-connect
     QDialog* m_reconnectDlg{nullptr}; // shown on unexpected disconnect, dismissed on reconnect
     class ClientEqEditor* m_clientEqEditor{nullptr}; // lazy — created on first Edit… click
+    class ClientCompEditor* m_clientCompEditor{nullptr}; // lazy — created on first Edit… click
     bool m_displaySettingsPushed{false};  // one-shot: push saved display settings after pan created
     bool m_applyingLayout{false};        // true during layout tear-down/recreate — suppresses panadapterAdded handler
     QTimer* m_layoutRestoreTimer{nullptr}; // debounced layout rearrange after pans added on connect

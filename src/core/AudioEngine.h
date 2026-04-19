@@ -32,6 +32,7 @@ class NvidiaBnrFilter;
 class DeepFilterFilter;
 class Resampler;
 class ClientEq;
+class ClientComp;
 
 // AudioEngine handles audio playback (RX) and capture (TX).
 //
@@ -160,6 +161,20 @@ public:
     ClientEq* clientEqRx() { return m_clientEqRx.get(); }
     ClientEq* clientEqTx() { return m_clientEqTx.get(); }
 
+    // Client-side TX dynamics processor (Pro-XL-style compressor +
+    // brickwall limiter, #1661).  Runs on the TX audio path only;
+    // chain order (CMP→EQ vs EQ→CMP) is user-selectable.
+    ClientComp* clientCompTx() { return m_clientCompTx.get(); }
+
+    enum class TxChainOrder {
+        CompThenEq = 0,  // mic → CMP → EQ → radio (default, colour-then-shape)
+        EqThenComp = 1,  // mic → EQ → CMP → radio (shape-then-tame)
+    };
+    void setTxChainOrder(TxChainOrder order);
+    TxChainOrder txChainOrder() const { return m_txChainOrder.load(); }
+    void loadClientCompSettings();
+    void saveClientCompSettings() const;
+
     // Post-Client-EQ audio tap for the editor's FFT analyzer.  Exposes
     // a rolling mono buffer filled on the audio thread; UI thread copies
     // the most-recent N samples for FFT without allocating or blocking.
@@ -229,6 +244,12 @@ private:
     // Apply client-side TX EQ in-place. No-op if disabled. Caller owns data.
     void applyClientEqTxInt16(QByteArray& int16stereo);
     void applyClientEqTxFloat32(QByteArray& float32);
+    // Apply client-side TX compressor in-place.  No-op if disabled.
+    void applyClientCompTxInt16(QByteArray& int16stereo);
+    void applyClientCompTxFloat32(QByteArray& float32);
+    // Apply the whole TX DSP chain (CMP + EQ) in the configured order.
+    void applyClientTxDspInt16(QByteArray& int16stereo);
+    void applyClientTxDspFloat32(QByteArray& float32);
 
     // RX
     QAudioSink*   m_audioSink{nullptr};
@@ -323,9 +344,13 @@ private:
     // Client-side parametric EQ, independent instances for RX and TX.
     std::unique_ptr<ClientEq> m_clientEqRx;
     std::unique_ptr<ClientEq> m_clientEqTx;
+    // Client-side TX compressor (Pro-XL-style).
+    std::unique_ptr<ClientComp> m_clientCompTx;
+    std::atomic<TxChainOrder> m_txChainOrder{TxChainOrder::CompThenEq};
     // Scratch buffer for in-place EQ on the RX path (avoids per-call alloc).
     QByteArray m_clientEqRxScratch;
     QByteArray m_clientEqTxScratch;
+    QByteArray m_clientCompTxScratch;
     // Post-EQ analyzer tap. One ring per path, mono (L+R averaged).
     // Audio thread writes via tapClientEqRxStereo() / tapClientEqTxInt16()
     // / tapClientEqTxFloat32(); UI thread snapshots via the public

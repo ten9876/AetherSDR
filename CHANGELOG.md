@@ -3,6 +3,49 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.17] — 2026-04-19
+
+### Client-side TX Compressor (Pro-XL-style, Phase 1)
+
+### Features
+
+**Client-side TX dynamics processor (#1661)**
+- Feed-forward compressor with soft-knee quadratic interpolation, linear-
+  domain peak envelope detection, stereo-linked gain application, and a
+  brickwall peak limiter on the output
+- Parameters: threshold (-60..0 dB), ratio (1:1..20:1), attack (0.1..300 ms),
+  release (5..2000 ms), knee (0..24 dB), makeup (-12..+24 dB), limiter
+  enable + ceiling (-24..0 dB)
+- Chain-order toggle in the editor: CMP→EQ (default, colour-then-shape)
+  or EQ→CMP (shape-then-tame) — the two client-side TX DSP stages now
+  run in a user-configurable order
+- Atomic parameter handoff from UI to audio thread, lock-free, no alloc
+  in process(), identical pattern to ClientEq
+
+**Docked Compressor applet + floating editor**
+- View-only CMP tile in the applet tray: live transfer curve with a
+  glowing ball that slides along the curve at the current envelope level,
+  horizontal GR strip beneath, Bypass toggle + Edit… button
+- Full floating editor (Ableton-inspired, extended for our limiter and
+  chain order): rotary knobs for Ratio / Attack / Release / Knee /
+  Makeup / Ceiling, interactive transfer curve with draggable threshold
+  handle + ratio handle, vertical Input / GR / Output meters, Limiter
+  enable toggle, chain-order selector, persistent window geometry
+- Meter ballistics match Phone/CW Level (30 ms attack, 180 ms release)
+
+**DSP test harness**
+- tests/client_comp_test.cpp — 11 standalone smoke tests: bypass,
+  below-threshold passthrough, static ratio (4:1 and 20:1), makeup,
+  limiter ceiling, stereo linking, attack timing, soft-knee monotonicity,
+  transient sanity, reset(). Built as `client_comp_test` CMake target.
+
+**Settings:** adds ClientCompTx* keys (Enabled, ThresholdDb, Ratio,
+AttackMs, ReleaseMs, KneeDb, MakeupDb, LimEnabled, LimCeilingDb) plus
+ClientCompTxChainOrder and ClientCompEditorGeometry.
+
+Phase 2+ (expander/gate, de-esser, tube, enhancer, low contour, IKA/IRC,
+lookahead limiter, preset system) tracked in #1661 for future releases.
+
 ## [v0.8.16] — 2026-04-18
 
 ### DIGI Applet Split, TCI Audio Reliability, PGXL-Aware S-Meter, Community Contributions
