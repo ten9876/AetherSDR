@@ -849,32 +849,164 @@ void AudioEngine::applyClientTxDspInt16(QByteArray& int16stereo)
     // dynamics"), or the EQ shapes first and the compressor tames the
     // resulting peaks.  EQ's tap is always fed post-EQ so the analyzer
     // shows the final signal leaving the TX DSP chain.
-    if (m_txChainOrder.load() == TxChainOrder::CompThenEq) {
-        applyClientCompTxInt16(int16stereo);
-        applyClientEqTxInt16(int16stereo);
-    } else {
-        applyClientEqTxInt16(int16stereo);
-        applyClientCompTxInt16(int16stereo);
+    // Walk the packed chain-stage list and dispatch each entry to its
+    // matching per-stage apply helper.  The audio thread loads the
+    // full chain in one atomic read — each byte is a TxChainStage.
+    const uint64_t packed = m_txChainPacked.load(std::memory_order_acquire);
+    for (int i = 0; i < kMaxTxChainStages; ++i) {
+        const auto stage = static_cast<TxChainStage>((packed >> (i * 8)) & 0xFF);
+        switch (stage) {
+            case TxChainStage::None:   return;     // end-of-list marker
+            case TxChainStage::Eq:     applyClientEqTxInt16(int16stereo);   break;
+            case TxChainStage::Comp:   applyClientCompTxInt16(int16stereo); break;
+            // Gate / DeEss / Tube / Enh — placeholders for Phase 2+
+            // (#1661).  No DSP yet, pass-through.
+            case TxChainStage::Gate:
+            case TxChainStage::DeEss:
+            case TxChainStage::Tube:
+            case TxChainStage::Enh:
+                break;
+        }
     }
 }
 
 void AudioEngine::applyClientTxDspFloat32(QByteArray& float32)
 {
-    if (m_txChainOrder.load() == TxChainOrder::CompThenEq) {
-        applyClientCompTxFloat32(float32);
-        applyClientEqTxFloat32(float32);
-    } else {
-        applyClientEqTxFloat32(float32);
-        applyClientCompTxFloat32(float32);
+    const uint64_t packed = m_txChainPacked.load(std::memory_order_acquire);
+    for (int i = 0; i < kMaxTxChainStages; ++i) {
+        const auto stage = static_cast<TxChainStage>((packed >> (i * 8)) & 0xFF);
+        switch (stage) {
+            case TxChainStage::None:   return;
+            case TxChainStage::Eq:     applyClientEqTxFloat32(float32);   break;
+            case TxChainStage::Comp:   applyClientCompTxFloat32(float32); break;
+            case TxChainStage::Gate:
+            case TxChainStage::DeEss:
+            case TxChainStage::Tube:
+            case TxChainStage::Enh:
+                break;
+        }
     }
+}
+
+namespace {
+
+// Pack a stage list into the uint64_t atomic format used by the audio
+// thread.  Unused slots are TxChainStage::None (0).
+uint64_t packChain(const QVector<AudioEngine::TxChainStage>& stages)
+{
+    uint64_t v = 0;
+    const int n = std::min(static_cast<int>(stages.size()),
+                           AudioEngine::kMaxTxChainStages);
+    for (int i = 0; i < n; ++i) {
+        v |= static_cast<uint64_t>(static_cast<uint8_t>(stages[i])) << (i * 8);
+    }
+    return v;
+}
+
+QVector<AudioEngine::TxChainStage> unpackChain(uint64_t v)
+{
+    QVector<AudioEngine::TxChainStage> out;
+    out.reserve(AudioEngine::kMaxTxChainStages);
+    for (int i = 0; i < AudioEngine::kMaxTxChainStages; ++i) {
+        const auto s = static_cast<AudioEngine::TxChainStage>((v >> (i * 8)) & 0xFF);
+        if (s == AudioEngine::TxChainStage::None) break;
+        out.append(s);
+    }
+    return out;
+}
+
+// Map persisted stage names (human-readable in the XML settings) to
+// the enum and back.  Keeping names textual means a settings file can
+// be inspected and edited without decoding byte values.
+QString stageName(AudioEngine::TxChainStage s)
+{
+    switch (s) {
+        case AudioEngine::TxChainStage::Gate:  return "Gate";
+        case AudioEngine::TxChainStage::Eq:    return "Eq";
+        case AudioEngine::TxChainStage::DeEss: return "DeEss";
+        case AudioEngine::TxChainStage::Comp:  return "Comp";
+        case AudioEngine::TxChainStage::Tube:  return "Tube";
+        case AudioEngine::TxChainStage::Enh:   return "Enh";
+        case AudioEngine::TxChainStage::None:  return "";
+    }
+    return "";
+}
+
+AudioEngine::TxChainStage stageFromName(const QString& name)
+{
+    if (name == "Gate")  return AudioEngine::TxChainStage::Gate;
+    if (name == "Eq")    return AudioEngine::TxChainStage::Eq;
+    if (name == "DeEss") return AudioEngine::TxChainStage::DeEss;
+    if (name == "Comp")  return AudioEngine::TxChainStage::Comp;
+    if (name == "Tube")  return AudioEngine::TxChainStage::Tube;
+    if (name == "Enh")   return AudioEngine::TxChainStage::Enh;
+    return AudioEngine::TxChainStage::None;
+}
+
+// Canonical default order for a fresh install — stages appear in the
+// order they'll typically be wanted in the signal chain.  Only Eq and
+// Comp do anything today; the others are no-ops until their DSP ships.
+QVector<AudioEngine::TxChainStage> defaultChain()
+{
+    return {
+        AudioEngine::TxChainStage::Gate,
+        AudioEngine::TxChainStage::Eq,
+        AudioEngine::TxChainStage::DeEss,
+        AudioEngine::TxChainStage::Comp,
+        AudioEngine::TxChainStage::Tube,
+        AudioEngine::TxChainStage::Enh,
+    };
+}
+
+} // namespace
+
+void AudioEngine::setTxChainStages(const QVector<TxChainStage>& stages)
+{
+    m_txChainPacked.store(packChain(stages), std::memory_order_release);
+    QStringList names;
+    for (auto s : stages) {
+        const QString n = stageName(s);
+        if (!n.isEmpty()) names.append(n);
+    }
+    AppSettings::instance().setValue(
+        "ClientCompTxChainStages", names.join(","));
+}
+
+QVector<AudioEngine::TxChainStage> AudioEngine::txChainStages() const
+{
+    return unpackChain(m_txChainPacked.load(std::memory_order_acquire));
 }
 
 void AudioEngine::setTxChainOrder(TxChainOrder order)
 {
-    m_txChainOrder.store(order);
-    AppSettings::instance().setValue(
-        "ClientCompTxChainOrder",
-        QString::number(static_cast<int>(order)));
+    // Legacy two-stage API used by the existing ClientCompEditor combo.
+    // Find Eq and Comp in the current chain; swap their relative
+    // positions to match the requested order, preserving every other
+    // stage's slot.  Falls back to just [Eq, Comp] / [Comp, Eq] if
+    // the chain is empty.
+    auto stages = txChainStages();
+    if (stages.isEmpty()) stages = defaultChain();
+
+    const int eqIdx   = stages.indexOf(TxChainStage::Eq);
+    const int compIdx = stages.indexOf(TxChainStage::Comp);
+    if (eqIdx >= 0 && compIdx >= 0) {
+        const bool compFirst = compIdx < eqIdx;
+        const bool wantCompFirst = (order == TxChainOrder::CompThenEq);
+        if (compFirst != wantCompFirst) stages.swapItemsAt(eqIdx, compIdx);
+    }
+    setTxChainStages(stages);
+}
+
+AudioEngine::TxChainOrder AudioEngine::txChainOrder() const
+{
+    const auto stages = txChainStages();
+    const int eqIdx   = stages.indexOf(TxChainStage::Eq);
+    const int compIdx = stages.indexOf(TxChainStage::Comp);
+    if (eqIdx >= 0 && compIdx >= 0 && compIdx < eqIdx) {
+        return TxChainOrder::CompThenEq;
+    }
+    return (eqIdx >= 0 && compIdx >= 0) ? TxChainOrder::EqThenComp
+                                        : TxChainOrder::CompThenEq;
 }
 
 void AudioEngine::loadClientCompSettings()
@@ -900,9 +1032,41 @@ void AudioEngine::loadClientCompSettings()
     m_clientCompTx->setLimiterCeilingDb(
         s.value("ClientCompTxLimCeilingDb", "-1.0").toFloat());
 
-    const int order = s.value("ClientCompTxChainOrder", "0").toInt();
-    m_txChainOrder.store(order == 1 ? TxChainOrder::EqThenComp
-                                     : TxChainOrder::CompThenEq);
+    // Load the generalised chain — stored as a comma-separated list of
+    // stage names (e.g. "Gate,Eq,DeEss,Comp,Tube,Enh").  Migrate from
+    // the older two-state ClientCompTxChainOrder (0 = CompThenEq,
+    // 1 = EqThenComp) if present.
+    QVector<TxChainStage> stages;
+    const QString stored = s.value("ClientCompTxChainStages", "").toString();
+    if (!stored.isEmpty()) {
+        for (const QString& name : stored.split(',', Qt::SkipEmptyParts)) {
+            const auto stage = stageFromName(name.trimmed());
+            if (stage != TxChainStage::None) stages.append(stage);
+        }
+    } else if (s.contains("ClientCompTxChainOrder")) {
+        const int legacy = s.value("ClientCompTxChainOrder", "0").toInt();
+        // Preserve the user's Comp-vs-Eq preference from the old two-
+        // option setting — bracket it with the default canonical
+        // layout for the not-yet-implemented stages.
+        stages = (legacy == 1)
+            ? QVector<TxChainStage>{TxChainStage::Gate, TxChainStage::Eq,
+                                     TxChainStage::DeEss, TxChainStage::Comp,
+                                     TxChainStage::Tube, TxChainStage::Enh}
+            : QVector<TxChainStage>{TxChainStage::Gate, TxChainStage::Comp,
+                                     TxChainStage::Eq, TxChainStage::DeEss,
+                                     TxChainStage::Tube, TxChainStage::Enh};
+    }
+    if (stages.isEmpty()) stages = defaultChain();
+
+    // Append any canonical stages that are missing from the loaded
+    // list — guarantees all 6 processor boxes are always visible in
+    // the chain widget so users can reorder them ahead of time and
+    // future phases slot in automatically without a second migration.
+    for (auto canon : defaultChain()) {
+        if (!stages.contains(canon)) stages.append(canon);
+    }
+
+    m_txChainPacked.store(packChain(stages), std::memory_order_release);
 }
 
 void AudioEngine::saveClientCompSettings() const
@@ -920,8 +1084,15 @@ void AudioEngine::saveClientCompSettings() const
     s.setValue("ClientCompTxLimEnabled",  toBool(m_clientCompTx->limiterEnabled()));
     s.setValue("ClientCompTxLimCeilingDb",
                QString::number(m_clientCompTx->limiterCeilingDb()));
-    s.setValue("ClientCompTxChainOrder",
-               QString::number(static_cast<int>(m_txChainOrder.load())));
+    // Chain stages persist as a comma-separated name list — already
+    // written live by setTxChainStages() but re-emitted here so a
+    // saveClientCompSettings() call dumps everything in sync.
+    QStringList names;
+    for (auto st : txChainStages()) {
+        const QString n = stageName(st);
+        if (!n.isEmpty()) names.append(n);
+    }
+    s.setValue("ClientCompTxChainStages", names.join(","));
 }
 
 static QString wisdomDir()
@@ -2011,21 +2182,13 @@ void AudioEngine::feedDaxTxAudio(const QByteArray& inPcm)
 {
     if (m_txStreamId == 0 || inPcm.isEmpty()) return;
 
-    // Apply client-side TX DSP (compressor + EQ) in place when any stage
-    // is enabled. Copy into a local because the caller owns `inPcm`; the
-    // copy+process cost is only paid when something is active. Downstream
-    // metering and encoding see the shaped signal, so the TX meter
-    // reflects what the radio is actually sending.
-    const bool eqOn   = m_clientEqTx && m_clientEqTx->isEnabled();
-    const bool compOn = m_clientCompTx && m_clientCompTx->isEnabled();
-    QByteArray working;
-    const QByteArray* active = &inPcm;
-    if (eqOn || compOn) {
-        working = inPcm;
-        applyClientTxDspFloat32(working);
-        active = &working;
-    }
-    const QByteArray& float32pcm = *active;
+    // Client-side TX DSP (compressor + EQ) is intentionally NOT
+    // applied here.  This path is fed exclusively by TCI and DAX
+    // (WSJT-X, fldigi, PipeWire bridge, etc.) — digital modes carry
+    // pre-shaped tones that would be destroyed by a voice-tuned
+    // compressor or EQ.  Mic voice TX goes through onTxAudioReady,
+    // which keeps the full DSP chain.
+    const QByteArray& float32pcm = inPcm;
 
     // Measure DAX TX input level and emit via pcMicLevelChanged so the
     // P/CW mic gauge shows DAX audio level regardless of mic profile (#517)

@@ -306,6 +306,15 @@ private:
     QDialog* m_reconnectDlg{nullptr}; // shown on unexpected disconnect, dismissed on reconnect
     class ClientEqEditor* m_clientEqEditor{nullptr}; // lazy — created on first Edit… click
     class ClientCompEditor* m_clientCompEditor{nullptr}; // lazy — created on first Edit… click
+
+    // Applet-panel pop-out support (#1713 Phase 6).  When floating,
+    // the panel lives inside m_appletPanelFloatWindow and its splitter
+    // slot is removed; re-dock appends a fresh slot and re-applies the
+    // canonical {0, 0, width-260, 260} sizing.
+    QWidget*    m_appletPanelFloatWindow{nullptr};
+    QAction*    m_popOutSidebarAction{nullptr};
+    void floatAppletPanel();
+    void dockAppletPanel();
     bool m_displaySettingsPushed{false};  // one-shot: push saved display settings after pan created
     bool m_applyingLayout{false};        // true during layout tear-down/recreate — suppresses panadapterAdded handler
     QTimer* m_layoutRestoreTimer{nullptr}; // debounced layout rearrange after pans added on connect

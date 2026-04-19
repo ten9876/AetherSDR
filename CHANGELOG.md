@@ -3,6 +3,114 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.18] — 2026-04-19
+
+### TX Signal Chain applet, unified TX DSP container, sidebar pop-out
+
+### Features
+
+**Visual TX signal chain applet (#1661)**
+- New CHAIN tile renders the full TX DSP path as a row of labelled
+  boxes — MIC → GATE → EQ → DESS → COMP → TUBE → ENH → TX — with
+  live bypass state, drag-drop reordering, per-stage click-to-edit
+  and right-click bypass.  Snake layout wraps to 3-3-2 rows so the
+  full chain fits inside the 260 px applet panel without cramping
+  box labels.
+- DSP: generalised TX chain replaces the previous two-option
+  CMP↔EQ toggle with a generic ordered stage list stored as a
+  packed uint64_t atomic (one byte per slot).  Audio thread loads
+  the whole chain in one acquire-read per block; `applyClientTxDsp`
+  walks the stage list and dispatches to the matching per-stage
+  apply helper.  Gate, DeEss, Tube, Enh are stub slots today —
+  placeholders for Phase 2+ Pro-XL work — and users can drag them
+  into their preferred position now so the layout is ready when
+  their DSP ships.
+- Existing ClientCompTxChainOrder (0/1) settings migrate cleanly:
+  legacy CMP-first / EQ-first positions carry over into the new
+  stage list with the canonical stages (Gate, DeEss, Tube, Enh)
+  appended in sensible slots.
+
+**Unified TX DSP container**
+- CHAIN, CEQ and CMP are now three sections of a single TXDSP tile
+  in the applet tray.  Each section has its own titlebar with its
+  own float / close buttons so individual sections can pop out
+  independently, while the outer tray toggle, drag-handle and
+  settings all treat the group as one coherent unit.
+- CEQ and CMP tile visibility is driven by DSP bypass state — right-
+  clicking a stage in the CHAIN widget or toggling the Bypass button
+  inside an editor hides the corresponding section; enabling it
+  brings the section back.  No separate "show tile" toggle.
+
+**Applet panel pop-out**
+- View → "Pop Out Applet Panel" (Ctrl+Shift+S) floats the entire
+  right-side panel into its own top-level window.  Splitter slot
+  collapses to zero; spectrum takes the reclaimed width.  Close
+  the floating window (or toggle the menu item) to dock back at
+  the remembered width.  Position and size persist across launches.
+
+**Post-fader level meters on DAX / TCI**
+- MeterSlider now multiplies its displayed RMS by the gain thumb
+  before rendering, so moving the fader on a TCI or DAX channel
+  gives immediate visual feedback instead of showing the raw
+  pre-fader level.
+
+**Consistent meter motion — MeterSmoother**
+- Extracted the asymmetric attack/release smoothing pattern used
+  by HGauge into a shared MeterSmoother helper (30 ms attack,
+  180 ms release, polled at 120 Hz).  Applied to HGauge,
+  ClientCompMeter, ClientCompApplet's GR strip and MeterSlider so
+  every metering surface in the app reads with identical ballistics.
+
+### Fixes
+
+**Digital-mode TX routing**
+- AudioEngine bypasses client-side Comp + EQ on the DAX/TCI TX path
+  so WSJT-X and fldigi tones reach the radio unshaped.  Mic voice
+  TX continues to run through the full client-side DSP chain.
+- Fixed limiter envelope that could latch "active" forever after
+  any trigger because the envelope decays asymptotically toward
+  1.0 in float and never reaches it — now uses a 0.005 dB threshold
+  to detect "not firing" which releases the active indicator.
+
+**Compressor editor polish**
+- Threshold fader on the left of the compressor editor replaces
+  the old numeric label + tiny triangle with a combined input-
+  level meter + draggable slider, matching the Client EQ output
+  fader visual language.
+- Threshold chevron on the curve gained a full-height dashed guide
+  line so it reads from across the room; hit-test widened to grab
+  anywhere along the vertical column.
+- Live tooltips on the threshold chevron and ratio handle show the
+  current value and describe the gesture.
+- Limiter visualization: bright amber ceiling line on the Output
+  meter, dim red "no-go zone" above, cyan GR tick showing how much
+  the limiter is reducing, and a three-state LIMIT button
+  (disarmed / armed / firing) that glows red for 500 ms after each
+  clamp event.
+
+### Under the hood
+
+**Container system (#1713, foundation library)**
+- New src/gui/containers/ subsystem: ContainerWidget (generic
+  dockable wrapper), ContainerTitleBar (header with float/close/
+  drag handle), FloatingContainerWindow (top-level host with
+  geometry persistence + screen-visibility safety),
+  ContainerManager (lifecycle + path lookup + content factory +
+  JSON persistence under the ContainerTree settings key).
+- Supports arbitrary nesting — a container's body can hold leaf
+  widgets, other containers, or any mix.  Each container has its
+  own float/dock/visibility state; transitions cascade correctly
+  across parent/child relationships (floated parent takes docked
+  children with it, floated child is independent of its parent's
+  state, etc.).
+- 80-assertion test suite across three harnesses covering
+  lifecycle, manager persistence round-trip, and all eight of the
+  nested-float/dock/hide edge cases called out in the design plan.
+- This release uses the container system for just the TXDSP group.
+  Future features needing grouped dockable tiles (RX DSP cluster,
+  meter groups, macro panels) build on the same foundation without
+  re-litigating the architecture.
+
 ## [v0.8.17] — 2026-04-19
 
 ### Client-side TX Compressor (Pro-XL-style, Phase 1) + Fully-interactive 10-band Client EQ

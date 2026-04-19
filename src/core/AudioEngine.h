@@ -162,16 +162,45 @@ public:
     ClientEq* clientEqTx() { return m_clientEqTx.get(); }
 
     // Client-side TX dynamics processor (Pro-XL-style compressor +
-    // brickwall limiter, #1661).  Runs on the TX audio path only;
-    // chain order (CMP→EQ vs EQ→CMP) is user-selectable.
+    // brickwall limiter, #1661).  Runs on the TX audio path only.
+    // Execution order is controlled by the TX chain order below.
     ClientComp* clientCompTx() { return m_clientCompTx.get(); }
 
+    // Generalised TX DSP chain — each stage is a separate processing
+    // block run in order on the TX audio path.  Only Eq and Comp are
+    // implemented today; the remaining stages are placeholders for
+    // Phase 2+ work (Gate, DeEss, Tube, Enh from #1661) and are no-ops
+    // until their DSP classes ship.
+    enum class TxChainStage : uint8_t {
+        None  = 0,   // sentinel / end-of-list marker
+        Gate  = 1,
+        Eq    = 2,
+        DeEss = 3,
+        Comp  = 4,
+        Tube  = 5,
+        Enh   = 6,
+    };
+    static constexpr int kMaxTxChainStages = 8;  // packs into uint64_t
+
+    // Set the ordered list of stages.  UI thread API; commits an
+    // atomic snapshot that the audio thread picks up on its next block.
+    // Order may contain any subset of stages; unlisted stages are
+    // bypassed entirely.  Persists via AppSettings.
+    void setTxChainStages(const QVector<TxChainStage>& stages);
+    QVector<TxChainStage> txChainStages() const;
+
+    // Legacy two-stage API — the existing ClientCompEditor combo box
+    // still drives this during the transition to the generalised chain.
+    // Reads the relative position of Comp vs Eq in the current chain.
+    // Set swaps those two stages in-place without disturbing the others.
+    // To be removed when the CHAIN applet takes over chain editing.
     enum class TxChainOrder {
-        CompThenEq = 0,  // mic → CMP → EQ → radio (default, colour-then-shape)
-        EqThenComp = 1,  // mic → EQ → CMP → radio (shape-then-tame)
+        CompThenEq = 0,
+        EqThenComp = 1,
     };
     void setTxChainOrder(TxChainOrder order);
-    TxChainOrder txChainOrder() const { return m_txChainOrder.load(); }
+    TxChainOrder txChainOrder() const;
+
     void loadClientCompSettings();
     void saveClientCompSettings() const;
 
@@ -346,7 +375,13 @@ private:
     std::unique_ptr<ClientEq> m_clientEqTx;
     // Client-side TX compressor (Pro-XL-style).
     std::unique_ptr<ClientComp> m_clientCompTx;
-    std::atomic<TxChainOrder> m_txChainOrder{TxChainOrder::CompThenEq};
+    // Generalised TX DSP chain — stages packed one-byte-per-slot into
+    // a uint64_t so the audio thread can load the full order in a
+    // single atomic read per block.  TxChainStage::None terminates the
+    // list; unused slots are zero.  Default canonical order:
+    // [Gate, Eq, DeEss, Comp, Tube, Enh] — but only Eq and Comp have
+    // implementations today, so the others are no-op pass-throughs.
+    std::atomic<uint64_t> m_txChainPacked{0};
     // Scratch buffer for in-place EQ on the RX path (avoids per-call alloc).
     QByteArray m_clientEqRxScratch;
     QByteArray m_clientEqTxScratch;

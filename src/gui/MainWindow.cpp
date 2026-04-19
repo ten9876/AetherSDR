@@ -28,6 +28,9 @@
 #include "ClientEqEditor.h"
 #include "ClientCompApplet.h"
 #include "ClientCompEditor.h"
+#include "ClientChainApplet.h"
+#include "core/ClientComp.h"
+#include "core/ClientEq.h"
 #include "CatControlApplet.h"
 #include "DaxApplet.h"
 #include "TciApplet.h"
@@ -2001,13 +2004,17 @@ MainWindow::MainWindow(QWidget* parent)
             this, [this](ClientEqApplet::Path path) {
         if (!m_clientEqEditor) {
             m_clientEqEditor = new ClientEqEditor(m_audio, this);
-            // Editor-side bypass updates the applet's Enable toggle so
-            // both controls always agree on the underlying enabled flag.
+            // Editor-side bypass updates the applet's Enable toggle and
+            // drives CEQ tile visibility for TX-path changes (the tile
+            // follows TX EQ bypass state in sync with the CHAIN widget).
             connect(m_clientEqEditor, &ClientEqEditor::bypassToggled,
-                    this, [this](ClientEqApplet::Path, bool) {
-                if (m_appletPanel && m_appletPanel->clientEqApplet()) {
+                    this, [this](ClientEqApplet::Path bypassPath, bool bypassed) {
+                if (m_appletPanel && m_appletPanel->clientEqApplet())
                     m_appletPanel->clientEqApplet()->refreshEnableFromEngine();
-                }
+                if (m_appletPanel && m_appletPanel->clientChainApplet())
+                    m_appletPanel->clientChainApplet()->refreshFromEngine();
+                if (bypassPath == ClientEqApplet::Path::Tx && m_appletPanel)
+                    m_appletPanel->setAppletVisible("CEQ", !bypassed);
             });
         }
         m_clientEqEditor->showForPath(path);
@@ -2020,13 +2027,92 @@ MainWindow::MainWindow(QWidget* parent)
         if (!m_clientCompEditor) {
             m_clientCompEditor = new ClientCompEditor(m_audio, this);
             connect(m_clientCompEditor, &ClientCompEditor::bypassToggled,
-                    this, [this](bool) {
-                if (m_appletPanel && m_appletPanel->clientCompApplet()) {
+                    this, [this](bool bypassed) {
+                if (m_appletPanel && m_appletPanel->clientCompApplet())
                     m_appletPanel->clientCompApplet()->refreshEnableFromEngine();
-                }
+                if (m_appletPanel && m_appletPanel->clientChainApplet())
+                    m_appletPanel->clientChainApplet()->refreshFromEngine();
+                if (m_appletPanel)
+                    m_appletPanel->setAppletVisible("CMP", !bypassed);
             });
         }
         m_clientCompEditor->showForTx();
+    });
+
+    // ── TX signal-chain applet (#1661) ──────────────────────────────────────
+    // Visual strip showing MIC → stages → TX with per-stage bypass +
+    // drag-drop reorder.  Clicking a stage opens its floating editor
+    // (only EQ and COMP have editors today; Gate / DeEss / Tube / Enh
+    // are placeholders awaiting their DSP).
+    //
+    // CEQ and CMP tile visibility is driven by DSP bypass state — the
+    // chain widget right-click menu, and the Bypass buttons inside
+    // each floating editor, all push the new state through
+    // stageEnabledChanged → setAppletVisible here.  Initial state is
+    // seeded from the engine below so settings persist across launches.
+    m_appletPanel->clientChainApplet()->setAudioEngine(m_audio);
+    if (m_audio && m_audio->clientEqTx()) {
+        m_appletPanel->setAppletVisible(
+            "CEQ", m_audio->clientEqTx()->isEnabled());
+    }
+    if (m_audio && m_audio->clientCompTx()) {
+        m_appletPanel->setAppletVisible(
+            "CMP", m_audio->clientCompTx()->isEnabled());
+    }
+    connect(m_appletPanel->clientChainApplet(),
+            &ClientChainApplet::stageEnabledChanged,
+            this, [this](AudioEngine::TxChainStage stage, bool enabled) {
+        if (stage == AudioEngine::TxChainStage::Eq) {
+            m_appletPanel->setAppletVisible("CEQ", enabled);
+            if (m_appletPanel->clientEqApplet())
+                m_appletPanel->clientEqApplet()->refreshEnableFromEngine();
+        } else if (stage == AudioEngine::TxChainStage::Comp) {
+            m_appletPanel->setAppletVisible("CMP", enabled);
+            if (m_appletPanel->clientCompApplet())
+                m_appletPanel->clientCompApplet()->refreshEnableFromEngine();
+        }
+    });
+    connect(m_appletPanel->clientChainApplet(),
+            &ClientChainApplet::editRequested,
+            this, [this](AudioEngine::TxChainStage stage) {
+        switch (stage) {
+            case AudioEngine::TxChainStage::Eq:
+                if (!m_clientEqEditor) {
+                    m_clientEqEditor = new ClientEqEditor(m_audio, this);
+                    connect(m_clientEqEditor, &ClientEqEditor::bypassToggled,
+                            this, [this](ClientEqApplet::Path path, bool bypassed) {
+                        if (m_appletPanel && m_appletPanel->clientEqApplet())
+                            m_appletPanel->clientEqApplet()->refreshEnableFromEngine();
+                        if (m_appletPanel && m_appletPanel->clientChainApplet())
+                            m_appletPanel->clientChainApplet()->refreshFromEngine();
+                        // TX bypass drives CEQ tile visibility to stay in
+                        // sync with the chain widget.  RX bypass is not
+                        // represented in the TX chain, so no tile change.
+                        if (path == ClientEqApplet::Path::Tx && m_appletPanel)
+                            m_appletPanel->setAppletVisible("CEQ", !bypassed);
+                    });
+                }
+                m_clientEqEditor->showForPath(ClientEqApplet::Path::Tx);
+                break;
+            case AudioEngine::TxChainStage::Comp:
+                if (!m_clientCompEditor) {
+                    m_clientCompEditor = new ClientCompEditor(m_audio, this);
+                    connect(m_clientCompEditor, &ClientCompEditor::bypassToggled,
+                            this, [this](bool bypassed) {
+                        if (m_appletPanel && m_appletPanel->clientCompApplet())
+                            m_appletPanel->clientCompApplet()->refreshEnableFromEngine();
+                        if (m_appletPanel && m_appletPanel->clientChainApplet())
+                            m_appletPanel->clientChainApplet()->refreshFromEngine();
+                        if (m_appletPanel)
+                            m_appletPanel->setAppletVisible("CMP", !bypassed);
+                    });
+                }
+                m_clientCompEditor->showForTx();
+                break;
+            default:
+                // Gate / DeEss / Tube / Enh — no editor yet.
+                break;
+        }
     });
 
     // ── Antenna Genius applet: external 4O3A antenna switch ──────────────────
@@ -2308,6 +2394,15 @@ void MainWindow::closeEvent(QCloseEvent* event)
     auto& s = AppSettings::instance();
     s.setValue("MainWindowGeometry", saveGeometry().toBase64());
     s.setValue("MainWindowState",   saveState().toBase64());
+
+    // Close the applet-panel pop-out window if it's floating.  We
+    // must do this explicitly because the window has parent=nullptr
+    // (Qt::Window, top-level) so Qt won't auto-close it when the
+    // main window exits.  m_shuttingDown gates the eventFilter so
+    // AppletPanelFloating stays True for restart persistence.
+    if (m_appletPanelFloatWindow) {
+        m_appletPanelFloatWindow->close();
+    }
     // SplitterState no longer saved (2-pane layout uses stretch factors)
     // ConnPanelCollapsed removed — panel is now a popup dialog
 
@@ -2424,6 +2519,35 @@ void MainWindow::showPropDashboard()
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 {
+    // Applet-panel floating window — save geometry on move/resize, and
+    // dock back on close so the menu action stays in sync.
+    if (obj == m_appletPanelFloatWindow) {
+        if (event->type() == QEvent::Move || event->type() == QEvent::Resize) {
+            AppSettings::instance().setValue(
+                "AppletPanelFloatGeometry",
+                m_appletPanelFloatWindow->saveGeometry().toBase64());
+        } else if (event->type() == QEvent::Close) {
+            // Distinguish user-initiated close from app shutdown.
+            // During shutdown, leave AppletPanelFloating=True so the
+            // next launch re-opens the panel floating — the user
+            // didn't "dock it back", the whole app is exiting.
+            if (m_shuttingDown) {
+                AppSettings::instance().setValue(
+                    "AppletPanelFloatGeometry",
+                    m_appletPanelFloatWindow->saveGeometry().toBase64());
+                // Fall through — let Qt close the window normally.
+            } else {
+                // User clicked the X on the floating window.  Flip
+                // the menu action; its toggled handler docks the
+                // panel back and persists AppletPanelFloating=False.
+                QTimer::singleShot(0, this, [this]() {
+                    if (m_popOutSidebarAction)
+                        m_popOutSidebarAction->setChecked(false);
+                });
+            }
+        }
+    }
+
     // Space PTT: intercept at application level so it works regardless of
     // which widget has focus (buttons, combos, etc. won't steal Space).
     if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
@@ -3429,6 +3553,27 @@ void MainWindow::buildMenuBar()
         AppSettings::instance().setValue("AppletPanelVisible", on ? "True" : "False");
         AppSettings::instance().save();
     });
+
+    // Pop out the whole applet panel into its own window (#1713 Phase 6).
+    // Toggles between panel-docked (inside the QSplitter) and floating
+    // (separate Qt::Window).  Ctrl+Shift+S is the keyboard shortcut.
+    m_popOutSidebarAction = viewMenu->addAction("Pop Out Applet Panel");
+    m_popOutSidebarAction->setCheckable(true);
+    m_popOutSidebarAction->setShortcut(QKeySequence("Ctrl+Shift+S"));
+    m_popOutSidebarAction->setChecked(
+        AppSettings::instance().value(
+            "AppletPanelFloating", "False").toString() == "True");
+    connect(m_popOutSidebarAction, &QAction::toggled, this, [this](bool floating) {
+        if (floating) floatAppletPanel();
+        else          dockAppletPanel();
+        AppSettings::instance().setValue(
+            "AppletPanelFloating", floating ? "True" : "False");
+        AppSettings::instance().save();
+    });
+    if (m_popOutSidebarAction->isChecked()) {
+        QTimer::singleShot(0, this, [this]() { floatAppletPanel(); });
+    }
+
     viewMenu->addSeparator();
 
     // Band Plan submenu — Off / Small / Medium / Large / Huge
@@ -8306,5 +8451,87 @@ void MainWindow::registerMidiParams()
 #endif
 
 // StreamDeck native integration removed — use TCI StreamController plugin instead.
+
+// ─── Applet-panel pop-out (#1713 Phase 6) ───────────────────────────────────
+//
+// The whole AppletPanel widget (tray buttons + S-Meter + scrollable stack)
+// can live either inside m_splitter at the end of the row, or as the sole
+// content of its own top-level window.  Reparenting transfers Qt ownership
+// cleanly; the splitter pane collapses to zero width when the panel floats,
+// and restores to its remembered width when it docks back.
+
+void MainWindow::floatAppletPanel()
+{
+    if (!m_appletPanel || !m_splitter) return;
+    if (m_appletPanelFloatWindow) return;  // already floating
+
+    m_appletPanelFloatWindow = new QWidget(nullptr, Qt::Window);
+    m_appletPanelFloatWindow->setWindowTitle("AetherSDR — Applet Panel");
+    m_appletPanelFloatWindow->setAttribute(Qt::WA_DeleteOnClose, false);
+    auto* layout = new QVBoxLayout(m_appletPanelFloatWindow);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    m_appletPanel->setParent(m_appletPanelFloatWindow);
+    layout->addWidget(m_appletPanel);
+    m_appletPanel->show();
+    // Qt auto-redistributes remaining splitter slots once the panel
+    // is reparented out; we don't need to touch the sizes manually.
+
+    // Restore last-known window geometry or default.
+    const QByteArray geom = QByteArray::fromBase64(
+        AppSettings::instance()
+            .value("AppletPanelFloatGeometry", "").toByteArray());
+    if (!geom.isEmpty()) {
+        m_appletPanelFloatWindow->restoreGeometry(geom);
+    } else {
+        m_appletPanelFloatWindow->resize(320, 720);
+    }
+
+    // Track geometry changes live so the saved position/size stays
+    // current without a per-tick timer.
+    m_appletPanelFloatWindow->installEventFilter(this);
+
+    // On close → dock back (unchecks the menu action via its own
+    // toggled handler, which re-enters dockAppletPanel).  Using
+    // QObject::connect with a lambda so we don't need to subclass.
+    connect(m_appletPanelFloatWindow, &QObject::destroyed,
+            this, [this]() {
+        m_appletPanelFloatWindow = nullptr;
+    });
+    m_appletPanelFloatWindow->show();
+}
+
+void MainWindow::dockAppletPanel()
+{
+    if (!m_appletPanel || !m_splitter) return;
+    if (!m_appletPanelFloatWindow) return;  // already docked
+
+    // Save geometry before tearing the window down.
+    AppSettings::instance().setValue(
+        "AppletPanelFloatGeometry",
+        m_appletPanelFloatWindow->saveGeometry().toBase64());
+
+    // Reparent back to the splitter.  addWidget appends, which is
+    // the correct position (last slot) matching the pre-float layout.
+    m_appletPanel->setParent(m_splitter);
+    m_splitter->addWidget(m_appletPanel);
+    m_appletPanel->show();
+
+    // Re-apply the canonical 4-slot layout the app uses at startup:
+    // CWX=0, DVK=0, center=stretch, applet=260px.  Using fixed sizes
+    // instead of saveState()/restoreState() because the saved state
+    // is unreliable in the launch-with-float case — saveState() fires
+    // at a QTimer::singleShot(0) turn before the splitter has fully
+    // laid out, producing captured sizes that don't match the
+    // post-show window width.  The splitter isn't user-draggable for
+    // applet width anyway (startup always forces 260), so recomputing
+    // is both simpler and deterministic.
+    const int centerWidth = std::max(400, m_splitter->width() - 260);
+    m_splitter->setSizes({0, 0, centerWidth, 260});
+
+    m_appletPanelFloatWindow->removeEventFilter(this);
+    m_appletPanelFloatWindow->deleteLater();
+    m_appletPanelFloatWindow = nullptr;
+}
 
 } // namespace AetherSDR

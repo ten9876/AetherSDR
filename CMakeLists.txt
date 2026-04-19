@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AetherSDR VERSION 0.8.17 LANGUAGES C CXX)
+project(AetherSDR VERSION 0.8.18 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,6 +37,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Widgets
     Network
     Multimedia
+    Test
 )
 option(REQUIRE_SERIALPORT "Fail if Qt6 SerialPort is not found (use for release builds)" OFF)
 if(REQUIRE_SERIALPORT)
@@ -496,7 +497,6 @@ set(GUI_SOURCES
     src/gui/PanadapterStack.cpp
     src/gui/PanLayoutDialog.cpp
     src/gui/AppletPanel.cpp
-    src/gui/FloatingAppletWindow.cpp
     src/gui/RxApplet.cpp
     src/gui/FilterPassbandWidget.cpp
     src/gui/SMeterWidget.cpp
@@ -513,6 +513,12 @@ set(GUI_SOURCES
     src/gui/ClientEqIconRow.cpp
     src/gui/ClientEqOutputFader.cpp
     src/gui/ClientEqParamRow.cpp
+    src/gui/ClientChainApplet.cpp
+    src/gui/ClientChainWidget.cpp
+    src/gui/containers/ContainerManager.cpp
+    src/gui/containers/ContainerTitleBar.cpp
+    src/gui/containers/ContainerWidget.cpp
+    src/gui/containers/FloatingContainerWindow.cpp
     src/gui/ClientCompApplet.cpp
     src/gui/ClientCompCurveWidget.cpp
     src/gui/ClientCompKnob.cpp
@@ -1033,6 +1039,48 @@ add_executable(client_comp_test
     src/core/ClientComp.cpp
 )
 target_include_directories(client_comp_test PRIVATE src)
+
+# Container system Phase 1 tests — needs QApplication + Widgets.
+add_executable(container_widget_test
+    tests/container_widget_test.cpp
+    src/gui/containers/ContainerTitleBar.cpp
+    src/gui/containers/ContainerWidget.cpp
+    src/gui/containers/FloatingContainerWindow.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(container_widget_test PRIVATE src)
+target_link_libraries(container_widget_test PRIVATE
+    Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(container_widget_test PROPERTIES AUTOMOC ON)
+
+add_executable(container_manager_test
+    tests/container_manager_test.cpp
+    src/gui/containers/ContainerManager.cpp
+    src/gui/containers/ContainerTitleBar.cpp
+    src/gui/containers/ContainerWidget.cpp
+    src/gui/containers/FloatingContainerWindow.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(container_manager_test PRIVATE src)
+target_link_libraries(container_manager_test PRIVATE
+    Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(container_manager_test PROPERTIES AUTOMOC ON)
+
+add_executable(container_nesting_test
+    tests/container_nesting_test.cpp
+    src/gui/containers/ContainerManager.cpp
+    src/gui/containers/ContainerTitleBar.cpp
+    src/gui/containers/ContainerWidget.cpp
+    src/gui/containers/FloatingContainerWindow.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(container_nesting_test PRIVATE src)
+target_link_libraries(container_nesting_test PRIVATE
+    Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(container_nesting_test PROPERTIES AUTOMOC ON)
 
 
 # ── Install rules ────────────────────────────────────────────────────────────
