@@ -672,7 +672,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_appletOrder.append(makeEntry("IQ", "DAX IQ", m_daxIqApplet, false, btnRow2, btnLayout2));
 
     m_meterApplet = new MeterApplet;
-    m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false, btnRow2, btnLayout2));
 
     m_agApplet = new AntennaGeniusApplet;
     {
