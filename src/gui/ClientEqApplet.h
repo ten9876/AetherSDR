@@ -28,6 +28,11 @@ public:
 
     Path currentPath() const { return m_currentPath; }
 
+    // Pull the Enable toggle state from the bound ClientEq — called by
+    // MainWindow after the floating editor toggles its bypass button so
+    // both views stay in sync.
+    void refreshEnableFromEngine();
+
 signals:
     // Fired when the user clicks Edit…. MainWindow owns the single
     // editor window instance and shows / raises it in response.

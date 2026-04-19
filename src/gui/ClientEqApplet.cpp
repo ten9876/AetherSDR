@@ -161,6 +161,12 @@ void ClientEqApplet::syncEnableFromEngine()
         ? m_audio->clientEqRx() : m_audio->clientEqTx();
     QSignalBlocker b(m_enable);
     m_enable->setChecked(eq && eq->isEnabled());
+    if (m_curve) m_curve->update();
+}
+
+void ClientEqApplet::refreshEnableFromEngine()
+{
+    syncEnableFromEngine();
 }
 
 void ClientEqApplet::onEnableToggled(bool on)

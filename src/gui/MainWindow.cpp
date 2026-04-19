@@ -25,6 +25,7 @@
 #include "PhoneApplet.h"
 #include "EqApplet.h"
 #include "ClientEqApplet.h"
+#include "ClientEqEditor.h"
 #include "CatControlApplet.h"
 #include "DaxApplet.h"
 #include "TciApplet.h"
@@ -1995,9 +1996,19 @@ MainWindow::MainWindow(QWidget* parent)
     // next PR in this series. For now we surface a concise toast so users
     // understand the feature is arriving incrementally.
     connect(m_appletPanel->clientEqApplet(), &ClientEqApplet::editRequested,
-            this, [this](ClientEqApplet::Path) {
-        statusBar()->showMessage("Client EQ editor lands in the next update.",
-                                 4000);
+            this, [this](ClientEqApplet::Path path) {
+        if (!m_clientEqEditor) {
+            m_clientEqEditor = new ClientEqEditor(m_audio, this);
+            // Editor-side bypass updates the applet's Enable toggle so
+            // both controls always agree on the underlying enabled flag.
+            connect(m_clientEqEditor, &ClientEqEditor::bypassToggled,
+                    this, [this](ClientEqApplet::Path, bool) {
+                if (m_appletPanel && m_appletPanel->clientEqApplet()) {
+                    m_appletPanel->clientEqApplet()->refreshEnableFromEngine();
+                }
+            });
+        }
+        m_clientEqEditor->showForPath(path);
     });
 
     // ── Antenna Genius applet: external 4O3A antenna switch ──────────────────

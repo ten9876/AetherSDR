@@ -72,6 +72,19 @@ public:
     // bursts (e.g. transmit on/off). Leaves coefficients alone.
     void reset() noexcept;
 
+    // Sample rate this EQ was prepared at. UI uses this when computing
+    // the displayed magnitude response.
+    double sampleRate() const noexcept { return m_sampleRate; }
+
+    // Compute the analytic magnitude of one band at a probe frequency,
+    // in dB, from its target parameters. Pure function, stateless, safe
+    // to call from any thread. Used by the editor and applet to draw
+    // the response curve without having to read the audio thread's
+    // coefficients. A disabled band returns 0.0 (transparent).
+    static float bandMagnitudeDb(const BandParams& p,
+                                 float probeFreqHz,
+                                 double sampleRate) noexcept;
+
 private:
     struct Coeff {
         float b0{1.0f}, b1{0.0f}, b2{0.0f};
