@@ -497,6 +497,9 @@ set(GUI_SOURCES
     src/gui/PanLayoutDialog.cpp
     src/gui/AppletPanel.cpp
     src/gui/FloatingAppletWindow.cpp
+    src/gui/ContainerWidget.cpp
+    src/gui/ContainerManager.cpp
+    src/gui/FloatingContainerWindow.cpp
     src/gui/RxApplet.cpp
     src/gui/FilterPassbandWidget.cpp
     src/gui/SMeterWidget.cpp
