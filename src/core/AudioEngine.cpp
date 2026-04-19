@@ -1,5 +1,6 @@
 #include "AudioEngine.h"
 #include "AppSettings.h"
+#include "ClientEq.h"
 #include "LogManager.h"
 #include "OpusCodec.h"
 #include "SpectralNR.h"
@@ -47,7 +48,15 @@ void AudioEngine::updateRxBufferStats()
 
 AudioEngine::AudioEngine(QObject* parent)
     : QObject(parent)
+    , m_clientEqRx(std::make_unique<ClientEq>())
+    , m_clientEqTx(std::make_unique<ClientEq>())
 {
+    // Prepare client EQs at the native 24 kHz rate. Sink resampling is
+    // handled separately after EQ — EQ always runs at radio-native rate.
+    m_clientEqRx->prepare(DEFAULT_SAMPLE_RATE);
+    m_clientEqTx->prepare(DEFAULT_SAMPLE_RATE);
+    loadClientEqSettings();  // restore persisted bands before first audio
+
     // Restore saved audio device selections
     auto& s = AppSettings::instance();
     QByteArray savedOutId = s.value("AudioOutputDeviceId", "").toByteArray();
@@ -483,7 +492,23 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
 
     auto writeAudio = [this](const QByteArray& data) {
         if (!m_audioDevice || !m_audioDevice->isOpen()) return;
-        const QByteArray& resampled = m_resampleTo48k ? resampleStereo(data) : data;
+
+        // Client-side parametric EQ runs at the native 24 kHz rate, after
+        // any NR chain, before resample-to-48k and soft boost. Copy-then-
+        // process because the caller owns `data`. Skip when disabled or
+        // during TX (matches the NR-chain TX bypass policy).
+        const QByteArray* eqSource = &data;
+        if (m_clientEqRx && m_clientEqRx->isEnabled() && !m_radioTransmitting) {
+            m_clientEqRxScratch = data;
+            const int frames = m_clientEqRxScratch.size()
+                             / (2 * static_cast<int>(sizeof(float)));
+            m_clientEqRx->process(
+                reinterpret_cast<float*>(m_clientEqRxScratch.data()),
+                frames, 2);
+            eqSource = &m_clientEqRxScratch;
+        }
+
+        const QByteArray& resampled = m_resampleTo48k ? resampleStereo(*eqSource) : *eqSource;
         if (m_rxBoost.load()) {
             // Soft-knee boost — increases perceived loudness without hard clipping.
             // Uses tanh compression: loud signals are gently limited while quiet
@@ -541,6 +566,122 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
             emit levelChanged(computeRMS(pcm));
         }
     }
+}
+
+namespace {
+
+// Key builders kept local — settings namespace lives inside AudioEngine.cpp
+// so the applet never reaches past these functions to form keys directly.
+QString ceqKey(const char* pathTag, const char* leaf)
+{
+    return QStringLiteral("ClientEq%1%2").arg(pathTag, leaf);
+}
+
+QString ceqBandKey(const char* pathTag, int band, const char* leaf)
+{
+    return QStringLiteral("ClientEq%1_Band%2_%3")
+        .arg(pathTag).arg(band).arg(leaf);
+}
+
+void loadOne(ClientEq& eq, const char* tag)
+{
+    auto& s = AppSettings::instance();
+    const bool enabled = s.value(ceqKey(tag, "Enabled"), "False").toString() == "True";
+    const int count = std::clamp(
+        s.value(ceqKey(tag, "BandCount"), "0").toString().toInt(),
+        0, ClientEq::kMaxBands);
+    eq.setEnabled(enabled);
+    eq.setActiveBandCount(count);
+
+    for (int i = 0; i < count; ++i) {
+        ClientEq::BandParams p;
+        p.freqHz  = s.value(ceqBandKey(tag, i, "Freq"), "1000").toString().toFloat();
+        p.gainDb  = s.value(ceqBandKey(tag, i, "Gain"), "0").toString().toFloat();
+        p.q       = s.value(ceqBandKey(tag, i, "Q"),    "0.707").toString().toFloat();
+        p.type    = static_cast<ClientEq::FilterType>(
+            s.value(ceqBandKey(tag, i, "Type"), "0").toString().toInt());
+        p.enabled = s.value(ceqBandKey(tag, i, "BandEn"), "True").toString() == "True";
+        eq.setBand(i, p);
+    }
+}
+
+void saveOne(const ClientEq& eq, const char* tag)
+{
+    auto& s = AppSettings::instance();
+    s.setValue(ceqKey(tag, "Enabled"),
+               eq.isEnabled() ? "True" : "False");
+    const int count = eq.activeBandCount();
+    s.setValue(ceqKey(tag, "BandCount"), QString::number(count));
+    for (int i = 0; i < count; ++i) {
+        const ClientEq::BandParams p = eq.band(i);
+        s.setValue(ceqBandKey(tag, i, "Freq"),
+                   QString::number(p.freqHz, 'f', 2));
+        s.setValue(ceqBandKey(tag, i, "Gain"),
+                   QString::number(p.gainDb, 'f', 2));
+        s.setValue(ceqBandKey(tag, i, "Q"),
+                   QString::number(p.q, 'f', 3));
+        s.setValue(ceqBandKey(tag, i, "Type"),
+                   QString::number(static_cast<int>(p.type)));
+        s.setValue(ceqBandKey(tag, i, "BandEn"),
+                   p.enabled ? "True" : "False");
+    }
+}
+
+} // namespace
+
+void AudioEngine::loadClientEqSettings()
+{
+    if (!m_clientEqRx || !m_clientEqTx) return;
+    loadOne(*m_clientEqRx, "Rx");
+    loadOne(*m_clientEqTx, "Tx");
+}
+
+void AudioEngine::saveClientEqSettings() const
+{
+    if (!m_clientEqRx || !m_clientEqTx) return;
+    saveOne(*m_clientEqRx, "Rx");
+    saveOne(*m_clientEqTx, "Tx");
+    AppSettings::instance().save();
+}
+
+void AudioEngine::applyClientEqTxInt16(QByteArray& int16stereo)
+{
+    if (!m_clientEqTx || !m_clientEqTx->isEnabled()) return;
+    if (int16stereo.isEmpty()) return;
+
+    // int16 stereo → float32 stereo → EQ → int16 stereo (in place).
+    const int samples = int16stereo.size() / static_cast<int>(sizeof(int16_t));
+    if ((samples & 1) != 0) return;  // must be stereo
+    const int frames = samples / 2;
+
+    m_clientEqTxScratch.resize(samples * static_cast<int>(sizeof(float)));
+    auto* f32 = reinterpret_cast<float*>(m_clientEqTxScratch.data());
+    const auto* i16 = reinterpret_cast<const int16_t*>(int16stereo.constData());
+    for (int i = 0; i < samples; ++i) {
+        f32[i] = i16[i] / 32768.0f;
+    }
+
+    m_clientEqTx->process(f32, frames, 2);
+
+    auto* out = reinterpret_cast<int16_t*>(int16stereo.data());
+    for (int i = 0; i < samples; ++i) {
+        out[i] = static_cast<int16_t>(std::clamp(f32[i] * 32768.0f,
+                                                 -32768.0f, 32767.0f));
+    }
+}
+
+void AudioEngine::applyClientEqTxFloat32(QByteArray& float32)
+{
+    if (!m_clientEqTx || !m_clientEqTx->isEnabled()) return;
+    if (float32.isEmpty()) return;
+
+    const int samples = float32.size() / static_cast<int>(sizeof(float));
+    // feedDaxTxAudio can deliver mono OR stereo float32 (depends on packet
+    // class). Treat even sample counts as stereo, odd counts as mono.
+    const int channels = (samples % 2 == 0) ? 2 : 1;
+    const int frames = samples / channels;
+    m_clientEqTx->process(reinterpret_cast<float*>(float32.data()),
+                          frames, channels);
 }
 
 static QString wisdomDir()
@@ -1315,6 +1456,12 @@ void AudioEngine::onTxAudioReady()
     // Don't send mic audio — it would conflict with the DAX stream.
     if (m_daxTxMode) return;
 
+    // ── Client-side parametric TX EQ (int16 stereo 24 kHz) ──────────────
+    // Runs after mic capture and resample, before PC mic gain / metering /
+    // Opus / VITA-49, so the user hears the shaped signal exactly as the
+    // radio will receive it.
+    applyClientEqTxInt16(data);
+
     // ── Apply client-side PC mic gain (int16) ───────────────────────────
     const float gain = m_pcMicGain.load();
     if (gain < 0.999f) {
@@ -1619,9 +1766,22 @@ void AudioEngine::setDaxTxUseRadioRoute(bool on)
     m_daxPreTxBuffer.clear();
 }
 
-void AudioEngine::feedDaxTxAudio(const QByteArray& float32pcm)
+void AudioEngine::feedDaxTxAudio(const QByteArray& inPcm)
 {
-    if (m_txStreamId == 0 || float32pcm.isEmpty()) return;
+    if (m_txStreamId == 0 || inPcm.isEmpty()) return;
+
+    // Apply client-side TX EQ in place when enabled. Copy into a local
+    // because the caller owns `inPcm` — small cost only paid on this path
+    // when EQ is enabled. Downstream metering and encoding see the shaped
+    // signal, so the TX meter reflects what the radio is actually sending.
+    QByteArray working;
+    const QByteArray* active = &inPcm;
+    if (m_clientEqTx && m_clientEqTx->isEnabled()) {
+        working = inPcm;
+        applyClientEqTxFloat32(working);
+        active = &working;
+    }
+    const QByteArray& float32pcm = *active;
 
     // Measure DAX TX input level and emit via pcMicLevelChanged so the
     // P/CW mic gauge shows DAX audio level regardless of mic profile (#517)

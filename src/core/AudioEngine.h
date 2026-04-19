@@ -30,6 +30,7 @@ class RNNoiseFilter;
 class NvidiaBnrFilter;
 class DeepFilterFilter;
 class Resampler;
+class ClientEq;
 
 // AudioEngine handles audio playback (RX) and capture (TX).
 //
@@ -151,6 +152,21 @@ public:
     float dfnrAttenLimit() const;
     void setDfnrPostFilterBeta(float beta);
 
+    // Client-side parametric EQ. Two instances: one on the RX audio path
+    // (post-NR, pre-write to sink), one on the TX path (post-mic, pre-
+    // VITA-49 encode). Both are independent from the radio-side EQ.
+    // Returns non-null pointers after first prepare()/startRxStream.
+    ClientEq* clientEqRx() { return m_clientEqRx.get(); }
+    ClientEq* clientEqTx() { return m_clientEqTx.get(); }
+
+    // Load/save all EQ state (enable flag, active band count, per-band
+    // params) via AppSettings. `path` is "Rx" or "Tx" — used as the key
+    // prefix. Call loadClientEqSettings() once at startup (before the
+    // applet wires up); saves happen live from the applet as the user
+    // edits.
+    void loadClientEqSettings();
+    void saveClientEqSettings() const;
+
     // Ensure FFTW wisdom is loaded/generated. Returns true if wisdom
     // needs to be generated (slow). Call generateWisdom() in that case.
     static bool needsWisdomGeneration();
@@ -201,6 +217,9 @@ private:
     QByteArray resampleStereo(const QByteArray& pcm);
     void processNr2(const QByteArray& stereoPcm);
     void updateRxBufferStats();
+    // Apply client-side TX EQ in-place. No-op if disabled. Caller owns data.
+    void applyClientEqTxInt16(QByteArray& int16stereo);
+    void applyClientEqTxFloat32(QByteArray& float32);
 
     // RX
     QAudioSink*   m_audioSink{nullptr};
@@ -291,6 +310,13 @@ private:
     std::unique_ptr<DeepFilterFilter> m_dfnr;
 #endif
     std::atomic<bool> m_dfnrEnabled{false};
+
+    // Client-side parametric EQ, independent instances for RX and TX.
+    std::unique_ptr<ClientEq> m_clientEqRx;
+    std::unique_ptr<ClientEq> m_clientEqTx;
+    // Scratch buffer for in-place EQ on the RX path (avoids per-call alloc).
+    QByteArray m_clientEqRxScratch;
+    QByteArray m_clientEqTxScratch;
 
     // Pre-allocated NR2 work buffers (avoid per-call heap allocation)
     std::vector<float> m_nr2Mono;

@@ -401,6 +401,7 @@ set(CORE_SOURCES
     src/core/TgxlConnection.cpp
     src/core/CommandParser.cpp
     src/core/AudioEngine.cpp
+    src/core/ClientEq.cpp
     src/core/SpectralNR.cpp
     src/core/PanadapterStream.cpp
     src/core/RigctlProtocol.cpp
@@ -998,6 +999,17 @@ else()
         $<$<CONFIG:Debug>:-fsanitize=address>
     )
 endif()
+
+
+# ── Unit test harnesses ──────────────────────────────────────────────────────
+# Standalone DSP smoke tests. Built alongside the main target so they share
+# the same toolchain and warning flags. Run manually with ./build/<target>.
+
+add_executable(client_eq_test
+    tests/client_eq_test.cpp
+    src/core/ClientEq.cpp
+)
+target_include_directories(client_eq_test PRIVATE src)
 
 
 # ── Install rules ────────────────────────────────────────────────────────────
