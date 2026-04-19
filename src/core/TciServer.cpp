@@ -1082,9 +1082,12 @@ void TciServer::startTxChrono(QWebSocket* client, int trx)
     // Create TX resampler: 48kHz (TCI client) → 24kHz (radio DAX/native rate)
     m_txResampler = std::make_unique<Resampler>(48000.0, 24000.0, 4096);
     if (m_model) {
-        m_model->sendCmdPublic(
-            QStringLiteral("transmit set dax=%1").arg(m_txUseRadioRoute ? 1 : 0),
-            nullptr);
+        // Always dax=1 for TCI TX. The DaxTxLowLatency flag only controls
+        // VITA-49 packet format (PCC 0x03E3 vs 0x0123 in feedDaxTxAudio);
+        // both formats require dax=1 so the radio routes the dax_tx stream
+        // to the modulator. Sending dax=0 keeps the radio on the physical
+        // mic and silently discards every dax_tx packet. — fw v1.4.0.0
+        m_model->sendCmdPublic("transmit set dax=1", nullptr);
     }
 
     m_txChronoClock.start();
