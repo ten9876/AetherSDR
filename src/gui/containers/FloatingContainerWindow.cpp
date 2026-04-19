@@ -4,6 +4,7 @@
 
 #include <QByteArray>
 #include <QCloseEvent>
+#include <QGuiApplication>
 #include <QMoveEvent>
 #include <QResizeEvent>
 #include <QScreen>
