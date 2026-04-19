@@ -19,7 +19,12 @@ public:
         : QWidget(parent), m_bandIdx(bandIdx),
           m_eq(eq), m_audio(audio), m_row(row)
     {
-        setFixedSize(40, 26);
+        // Fixed height, stretchable width — each of the 8 row columns
+        // gets equal share of the canvas width so icons align with the
+        // bottom param columns.
+        setFixedHeight(52);
+        setMinimumWidth(40);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         setCursor(Qt::PointingHandCursor);
     }
 
@@ -93,21 +98,27 @@ protected:
             break;
         }
         case ClientEq::FilterType::LowPass: {
-            // Flat on left, falls to the right.
-            path.moveTo(gx,            midY);
-            path.lineTo(gx + gw * 0.40f, midY);
-            path.cubicTo(gx + gw * 0.60f, midY,
+            // Flat passband on the left at the shelf-top level, falls on
+            // the right.  Start-point height matches the HS icon's
+            // end-point so the LP+HS pair reads as a continuous curve
+            // across adjacent slots.
+            path.moveTo(gx,            gy + gh * 0.18f);
+            path.lineTo(gx + gw * 0.40f, gy + gh * 0.18f);
+            path.cubicTo(gx + gw * 0.60f, gy + gh * 0.18f,
                          gx + gw * 0.70f, gy + gh * 0.85f,
                          gx + gw,        gy + gh * 0.85f);
             break;
         }
         case ClientEq::FilterType::HighPass: {
-            // Rises on the left, flat on the right.
+            // Rises on the left, flat passband on the right at the shelf-
+            // top level.  End-point matches the LS icon's start-point so
+            // the HP+LS pair reads as a continuous curve across adjacent
+            // slots.
             path.moveTo(gx,            gy + gh * 0.85f);
             path.cubicTo(gx + gw * 0.30f, gy + gh * 0.85f,
-                         gx + gw * 0.40f, midY,
-                         gx + gw * 0.60f, midY);
-            path.lineTo(gx + gw,        midY);
+                         gx + gw * 0.40f, gy + gh * 0.18f,
+                         gx + gw * 0.60f, gy + gh * 0.18f);
+            path.lineTo(gx + gw,        gy + gh * 0.18f);
             break;
         }
         }
@@ -126,6 +137,9 @@ protected:
             t += (ev->modifiers() & Qt::ShiftModifier) ? -1 : 1;
             t = (t % kTypes + kTypes) % kTypes;
             bp.type = static_cast<ClientEq::FilterType>(t);
+            // Clicking an icon is an explicit interaction — auto-enable
+            // the band so the default disabled layout activates in place.
+            bp.enabled = true;
             m_eq->setBand(m_bandIdx, bp);
             if (m_audio) m_audio->saveClientEqSettings();
             update();
@@ -145,9 +159,11 @@ ClientEqIconRow::ClientEqIconRow(QWidget* parent) : QWidget(parent)
 {
     m_layout = new QHBoxLayout(this);
     m_layout->setContentsMargins(0, 0, 0, 0);
-    m_layout->setSpacing(3);
-    m_layout->addStretch();
-    setFixedHeight(30);
+    // 10 px gap between icon cells for visual breathing room.  The
+    // ClientEqParamRow uses the same spacing so column i in both rows
+    // occupies the same horizontal slot.
+    m_layout->setSpacing(10);
+    setFixedHeight(60);
 }
 
 void ClientEqIconRow::setEq(ClientEq* eq)
@@ -194,19 +210,16 @@ void ClientEqIconRow::rebuild()
         delete it;
     }
 
-    if (!m_eq) {
-        m_layout->addStretch();
-        return;
-    }
+    if (!m_eq) return;
 
     const int n = m_eq->activeBandCount();
-    // Center the icon row — leading stretch, icons, trailing stretch.
-    m_layout->addStretch();
+    // Fill the full row width with n equal-stretch cells — no leading or
+    // trailing stretch — so icon column i aligns with param column i in
+    // the ClientEqParamRow below the canvas.
     for (int i = 0; i < n; ++i) {
         auto* btn = new IconButton(i, m_eq, m_audio, this, this);
-        m_layout->addWidget(btn);
+        m_layout->addWidget(btn, 1);
     }
-    m_layout->addStretch();
 }
 
 } // namespace AetherSDR

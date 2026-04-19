@@ -597,20 +597,41 @@ void loadOne(ClientEq& eq, const char* tag)
 {
     auto& s = AppSettings::instance();
     const bool enabled = s.value(ceqKey(tag, "Enabled"), "False").toString() == "True";
-    const int count = std::clamp(
+    const int savedCount = std::clamp(
         s.value(ceqKey(tag, "BandCount"), "0").toString().toInt(),
         0, ClientEq::kMaxBands);
+    const float masterGain = std::clamp(
+        s.value(ceqKey(tag, "MasterGain"), "1.0").toString().toFloat(),
+        0.0f, 4.0f);
+    const int familyIdx = std::clamp(
+        s.value(ceqKey(tag, "FilterFamily"), "0").toString().toInt(), 0, 3);
     eq.setEnabled(enabled);
-    eq.setActiveBandCount(count);
+    eq.setMasterGain(masterGain);
+    eq.setFilterFamily(static_cast<ClientEq::FilterFamily>(familyIdx));
 
-    for (int i = 0; i < count; ++i) {
+    // Fixed 8-slot layout.  If the user's saved state has fewer bands,
+    // we keep their saved ones in slots [0, savedCount) and pad the
+    // remaining slots with the default Logic-Pro-style templates, all
+    // disabled.  Existing users migrate in place — their configured
+    // bands survive, they just gain a few untouched defaults next to them.
+    const int activeCount = ClientEq::kDefaultBandCount;
+    eq.setActiveBandCount(activeCount);
+
+    for (int i = 0; i < activeCount; ++i) {
         ClientEq::BandParams p;
-        p.freqHz  = s.value(ceqBandKey(tag, i, "Freq"), "1000").toString().toFloat();
-        p.gainDb  = s.value(ceqBandKey(tag, i, "Gain"), "0").toString().toFloat();
-        p.q       = s.value(ceqBandKey(tag, i, "Q"),    "0.707").toString().toFloat();
-        p.type    = static_cast<ClientEq::FilterType>(
-            s.value(ceqBandKey(tag, i, "Type"), "0").toString().toInt());
-        p.enabled = s.value(ceqBandKey(tag, i, "BandEn"), "True").toString() == "True";
+        if (i < savedCount) {
+            p.freqHz  = s.value(ceqBandKey(tag, i, "Freq"), "1000").toString().toFloat();
+            p.gainDb  = s.value(ceqBandKey(tag, i, "Gain"), "0").toString().toFloat();
+            p.q       = s.value(ceqBandKey(tag, i, "Q"),    "0.707").toString().toFloat();
+            p.type    = static_cast<ClientEq::FilterType>(
+                s.value(ceqBandKey(tag, i, "Type"), "0").toString().toInt());
+            p.enabled = s.value(ceqBandKey(tag, i, "BandEn"), "True").toString() == "True";
+            p.slopeDbPerOct = std::clamp(
+                s.value(ceqBandKey(tag, i, "Slope"), "12").toString().toInt(),
+                12, 48);
+        } else {
+            p = ClientEq::defaultBand(i);  // disabled by default
+        }
         eq.setBand(i, p);
     }
 }
@@ -620,6 +641,10 @@ void saveOne(const ClientEq& eq, const char* tag)
     auto& s = AppSettings::instance();
     s.setValue(ceqKey(tag, "Enabled"),
                eq.isEnabled() ? "True" : "False");
+    s.setValue(ceqKey(tag, "MasterGain"),
+               QString::number(eq.masterGain(), 'f', 3));
+    s.setValue(ceqKey(tag, "FilterFamily"),
+               QString::number(static_cast<int>(eq.filterFamily())));
     const int count = eq.activeBandCount();
     s.setValue(ceqKey(tag, "BandCount"), QString::number(count));
     for (int i = 0; i < count; ++i) {
@@ -634,6 +659,8 @@ void saveOne(const ClientEq& eq, const char* tag)
                    QString::number(static_cast<int>(p.type)));
         s.setValue(ceqBandKey(tag, i, "BandEn"),
                    p.enabled ? "True" : "False");
+        s.setValue(ceqBandKey(tag, i, "Slope"),
+                   QString::number(p.slopeDbPerOct));
     }
 }
 

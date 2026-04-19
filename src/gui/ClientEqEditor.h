@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <memory>
 
+class QComboBox;
 class QLabel;
 class QPushButton;
 class QTimer;
@@ -14,6 +15,7 @@ class AudioEngine;
 class ClientEqEditorCanvas;
 class ClientEqFftAnalyzer;
 class ClientEqIconRow;
+class ClientEqOutputFader;
 class ClientEqParamRow;
 
 // Floating editor window for the client-side parametric EQ. One single
@@ -67,10 +69,12 @@ private:
     AudioEngine*               m_audio{nullptr};
     ClientEqApplet::Path       m_path{ClientEqApplet::Path::Rx};
     QLabel*                    m_pathLabel{nullptr};
+    QComboBox*                 m_familyCombo{nullptr};
     QPushButton*               m_bypass{nullptr};
     ClientEqIconRow*           m_iconRow{nullptr};
     ClientEqEditorCanvas*      m_canvas{nullptr};
     ClientEqParamRow*          m_paramRow{nullptr};
+    ClientEqOutputFader*       m_outFader{nullptr};
     QTimer*                    m_fftTimer{nullptr};
     std::unique_ptr<ClientEqFftAnalyzer> m_fftAnalyzer;
     bool                       m_restoring{false};

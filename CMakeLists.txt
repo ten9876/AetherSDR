@@ -510,6 +510,7 @@ set(GUI_SOURCES
     src/gui/ClientEqEditorCanvas.cpp
     src/gui/ClientEqFftAnalyzer.cpp
     src/gui/ClientEqIconRow.cpp
+    src/gui/ClientEqOutputFader.cpp
     src/gui/ClientEqParamRow.cpp
     src/gui/CatControlApplet.cpp
     src/gui/DaxApplet.cpp

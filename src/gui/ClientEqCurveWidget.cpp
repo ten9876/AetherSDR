@@ -198,7 +198,8 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
 
         QPainterPath fftPath;
         fftPath.moveTo(0, h);
-        bool started = false;
+        bool  started = false;
+        float lastX   = 0.0f;
         for (int i = 1; i < bins; ++i) {
             // bins.size() == fftSize/2 + 1; bin i maps to i * fs / fftSize.
             const float f = static_cast<float>(i) *
@@ -209,8 +210,15 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
             const float y = dbfsToY(m_fftBinsDb[i]);
             if (!started) { fftPath.lineTo(x, h); started = true; }
             fftPath.lineTo(x, y);
+            lastX = x;
         }
-        fftPath.lineTo(r.width(), h);
+        // Close the filled region at the last valid bin's x, not at the
+        // canvas right edge.  Above Nyquist the FFT has no bins; drawing
+        // out to r.width() produced a misleading near-horizontal "shelf"
+        // connecting the last bin's level to the bottom-right corner.
+        if (started) {
+            fftPath.lineTo(lastX, h);
+        }
         fftPath.closeSubpath();
 
         QLinearGradient grad(0, 0, 0, h);
@@ -238,10 +246,14 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
     const int   W         = r.width();
     const bool  eqOn      = m_eq->isEnabled();
 
-    // Sample each pixel column — cheap (~W * bandCount coeff evaluations).
-    // Build the summed response path plus per-band sub-paths. Per-band
-    // paths are drawn behind the summed curve so the summed line reads
-    // as the master response on top.
+    // bandMagnitudeDb evaluates analog-prototype transfer functions in
+    // double precision, so the drawn response is ideal across the full
+    // 20 Hz - 20 kHz canvas — no aliasing, no Nyquist artefacts, no low-
+    // end precision loss. The audio path still uses the real-rate digital
+    // biquads; this is the analog reference the biquad approximates.
+    // HP/LP bands cascade internally based on slopeDbPerOct and the
+    // globally-selected FilterFamily on the bound ClientEq.
+    const ClientEq::FilterFamily family = m_eq->filterFamily();
     QVector<float> summed(W, 0.0f);
     QVector<QVector<float>> perBand(bandCount, QVector<float>(W, 0.0f));
     for (int x = 0; x < W; ++x) {
@@ -249,7 +261,7 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
         float acc = 0.0f;
         for (int i = 0; i < bandCount; ++i) {
             const auto bp = m_eq->band(i);
-            const float dB = ClientEq::bandMagnitudeDb(bp, probe, fs);
+            const float dB = ClientEq::bandMagnitudeDb(bp, probe, fs, family);
             perBand[i][x] = dB;
             acc += dB;
         }

@@ -2,12 +2,14 @@
 #include "ClientEqEditorCanvas.h"
 #include "ClientEqFftAnalyzer.h"
 #include "ClientEqIconRow.h"
+#include "ClientEqOutputFader.h"
 #include "ClientEqParamRow.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/ClientEq.h"
 
 #include <QCloseEvent>
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QHideEvent>
 #include <QLabel>
@@ -81,6 +83,48 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
         hint->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
         row->addWidget(hint, 1);
 
+        // Global filter-family selector — applies to HP/LP cascade math.
+        // Shelves and peaks keep their native 2nd-order topology.
+        m_familyCombo = new QComboBox;
+        m_familyCombo->addItem("Butterworth",
+            static_cast<int>(ClientEq::FilterFamily::Butterworth));
+        m_familyCombo->addItem("Chebyshev",
+            static_cast<int>(ClientEq::FilterFamily::Chebyshev));
+        m_familyCombo->addItem("Bessel",
+            static_cast<int>(ClientEq::FilterFamily::Bessel));
+        m_familyCombo->addItem("Elliptic",
+            static_cast<int>(ClientEq::FilterFamily::Elliptic));
+        m_familyCombo->setFixedHeight(24);
+        m_familyCombo->setToolTip(
+            "Filter family for HP / LP cascade math.\n"
+            "• Butterworth — maximally flat passband\n"
+            "• Chebyshev — steeper transition, 1 dB passband ripple\n"
+            "• Bessel — linear phase, gentler rolloff\n"
+            "• Elliptic — steepest transition, ripple in both bands");
+        m_familyCombo->setStyleSheet(
+            "QComboBox {"
+            "  background: #0e1b28; color: #c8d8e8;"
+            "  border: 1px solid #243a4e; border-radius: 3px;"
+            "  padding: 2px 8px; font-size: 11px; font-weight: bold;"
+            "}"
+            "QComboBox:hover { background: #1a2a3a; }"
+            "QComboBox::drop-down { border: none; width: 16px; }"
+            "QComboBox QAbstractItemView {"
+            "  background: #0e1b28; color: #c8d8e8;"
+            "  selection-background-color: #1a3a5a;"
+            "  border: 1px solid #243a4e;"
+            "}");
+        connect(m_familyCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int idx) {
+            ClientEq* eq = (m_path == ClientEqApplet::Path::Rx)
+                ? m_audio->clientEqRx() : m_audio->clientEqTx();
+            if (!eq) return;
+            eq->setFilterFamily(static_cast<ClientEq::FilterFamily>(idx));
+            if (m_audio) m_audio->saveClientEqSettings();
+            if (m_canvas) m_canvas->update();
+        });
+        row->addWidget(m_familyCombo);
+
         m_bypass = new QPushButton("BYPASS");
         m_bypass->setCheckable(true);
         m_bypass->setStyleSheet(kBypassStyle);
@@ -111,19 +155,44 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
         if (m_bypass) m_bypass->toggle();
     });
 
-    // Filter-type icon row: one glyph per active band at the top.
+    // Main body: icon row + canvas + param row stacked vertically, with
+    // the output fader in a sibling column on the right.  The fader spans
+    // the full height of the EQ strip so its meter aligns with the
+    // canvas's visible range.
+    auto* body = new QHBoxLayout;
+    body->setContentsMargins(0, 0, 0, 0);
+    body->setSpacing(8);
+
+    auto* eqColumn = new QVBoxLayout;
+    eqColumn->setContentsMargins(0, 0, 0, 0);
+    eqColumn->setSpacing(6);
+
     m_iconRow = new ClientEqIconRow;
     m_iconRow->setAudioEngine(m_audio);
-    root->addWidget(m_iconRow);
+    eqColumn->addWidget(m_iconRow);
 
-    // Central interactive curve canvas.
     m_canvas = new ClientEqEditorCanvas;
     m_canvas->setAudioEngine(m_audio);
-    root->addWidget(m_canvas, 1);
+    eqColumn->addWidget(m_canvas, 1);
 
-    // Bottom parameter-text row.
     m_paramRow = new ClientEqParamRow;
-    root->addWidget(m_paramRow);
+    eqColumn->addWidget(m_paramRow);
+
+    body->addLayout(eqColumn, 1);
+
+    // Output fader — vertical meter + slider + dB readout on the right.
+    m_outFader = new ClientEqOutputFader;
+    connect(m_outFader, &ClientEqOutputFader::gainChanged,
+            this, [this](float linear) {
+        ClientEq* eq = (m_path == ClientEqApplet::Path::Rx)
+            ? m_audio->clientEqRx() : m_audio->clientEqTx();
+        if (!eq) return;
+        eq->setMasterGain(linear);
+        if (m_audio) m_audio->saveClientEqSettings();
+    });
+    body->addWidget(m_outFader);
+
+    root->addLayout(body, 1);
 
     // Selection plumbing: any of the three views announcing a selection
     // change fans out to the other two, plus triggers a paint refresh.
@@ -183,6 +252,16 @@ void ClientEqEditor::tickFftAnalyzer()
         ? m_audio->clientEqRx() : m_audio->clientEqTx();
     const double fs = eq ? eq->sampleRate() : 24000.0;
     m_canvas->setFftBinsDb(m_fftAnalyzer->magnitudesDb(), fs);
+
+    // Feed the output fader a peak level from the same samples.  Cheap —
+    // one pass over the 2048-sample block while we already have it warm.
+    if (m_outFader) {
+        float peak = 0.0f;
+        for (float s : samples) {
+            peak = std::max(peak, std::fabs(s));
+        }
+        m_outFader->setPeakLinear(peak);
+    }
 }
 
 void ClientEqEditor::syncBypassFromEq()
@@ -215,6 +294,11 @@ void ClientEqEditor::showForPath(ClientEqApplet::Path path)
     m_canvas->setEq(eq);
     if (m_iconRow)  m_iconRow->setEq(eq);
     if (m_paramRow) m_paramRow->setEq(eq);
+    if (m_outFader && eq) m_outFader->setGainLinear(eq->masterGain());
+    if (m_familyCombo && eq) {
+        QSignalBlocker b(m_familyCombo);
+        m_familyCombo->setCurrentIndex(static_cast<int>(eq->filterFamily()));
+    }
     syncBypassFromEq();
     // Clear selection on path swap — the previously-selected index
     // almost certainly doesn't correspond to the other path's bands.

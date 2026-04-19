@@ -75,7 +75,14 @@ void ClientEqEditorCanvas::mousePressEvent(QMouseEvent* ev)
 
     setSelectedBand(idx);
 
-    const auto bp = m_eq->band(idx);
+    auto bp = m_eq->band(idx);
+    // Auto-enable on interaction: the 8 default slots start disabled so
+    // the EQ is audibly transparent until the user grabs a handle.
+    if (!bp.enabled) {
+        bp.enabled = true;
+        m_eq->setBand(idx, bp);
+        emit bandsChanged();
+    }
     m_draggingBand = idx;
     m_dragShift    = (ev->modifiers() & Qt::ShiftModifier) != 0;
     m_dragStart    = ev->position();
@@ -136,53 +143,10 @@ void ClientEqEditorCanvas::mouseReleaseEvent(QMouseEvent* ev)
 
 void ClientEqEditorCanvas::mouseDoubleClickEvent(QMouseEvent* ev)
 {
-    if (!m_eq) { QWidget::mouseDoubleClickEvent(ev); return; }
-    if (ev->button() != Qt::LeftButton) { QWidget::mouseDoubleClickEvent(ev); return; }
-
-    // Adding a new band on empty space. If a handle is near, let the hit
-    // test (which also drives regular drag) handle it on the single-press
-    // pass — here we only care about empty-area creation.
-    if (hitTestHandle(ev->position()) >= 0) {
-        QWidget::mouseDoubleClickEvent(ev);
-        return;
-    }
-
-    const int bandCount = m_eq->activeBandCount();
-    if (bandCount >= ClientEq::kMaxBands) return;
-
-    // Auto-pick the filter type from click position: HP near left edge,
-    // LP near right edge, shelves at top/bottom extremes, peak otherwise.
-    const float xNorm = static_cast<float>(ev->position().x()) / width();
-    const float yNorm = static_cast<float>(ev->position().y()) / height();
-    ClientEq::FilterType type = ClientEq::FilterType::Peak;
-    if (xNorm < 0.08f) {
-        type = ClientEq::FilterType::HighPass;
-    } else if (xNorm > 0.92f) {
-        type = ClientEq::FilterType::LowPass;
-    } else if (yNorm < 0.12f && xNorm < 0.4f) {
-        type = ClientEq::FilterType::LowShelf;
-    } else if (yNorm < 0.12f && xNorm > 0.6f) {
-        type = ClientEq::FilterType::HighShelf;
-    }
-
-    ClientEq::BandParams bp;
-    bp.type    = type;
-    bp.freqHz  = xToFreq(static_cast<float>(ev->position().x()));
-    bp.gainDb  = (type == ClientEq::FilterType::LowPass
-               || type == ClientEq::FilterType::HighPass)
-                 ? 0.0f
-                 : std::clamp(yToDb(static_cast<float>(ev->position().y())),
-                              -18.0f, 18.0f);
-    bp.q       = (type == ClientEq::FilterType::LowPass
-               || type == ClientEq::FilterType::HighPass)
-                 ? 0.707f
-                 : 1.0f;
-    bp.enabled = true;
-    m_eq->setBand(bandCount, bp);
-    m_eq->setActiveBandCount(bandCount + 1);
-    setSelectedBand(bandCount);
-    persist();
-    ev->accept();
+    // Double-click is a no-op under the fixed-8-band model. Handle with
+    // a regular press so the user still gets selection + drag on the
+    // second click rather than a dead gesture.
+    QWidget::mouseDoubleClickEvent(ev);
 }
 
 void ClientEqEditorCanvas::contextMenuEvent(QContextMenuEvent* ev)
@@ -205,20 +169,42 @@ void ClientEqEditorCanvas::contextMenuEvent(QContextMenuEvent* ev)
     typeLabel->setEnabled(false);
     menu.addSeparator();
 
-    auto* peakAct = menu.addAction("Set type: Peak");
-    auto* lsAct   = menu.addAction("Set type: Low Shelf");
-    auto* hsAct   = menu.addAction("Set type: High Shelf");
-    auto* lpAct   = menu.addAction("Set type: Low Pass");
-    auto* hpAct   = menu.addAction("Set type: High Pass");
+    auto* peakAct  = menu.addAction("Set type: Peak");
+    auto* lsAct    = menu.addAction("Set type: Low Shelf");
+    auto* hsAct    = menu.addAction("Set type: High Shelf");
+    auto* lpAct    = menu.addAction("Set type: Low Pass");
+    auto* hpAct    = menu.addAction("Set type: High Pass");
+
+    // Slope submenu — only meaningful for HP / LP bands.
+    const bool isSlope = (bp.type == ClientEq::FilterType::LowPass
+                       || bp.type == ClientEq::FilterType::HighPass);
+    QMenu* slopeMenu = nullptr;
+    QList<QAction*> slopeActions;
+    if (isSlope) {
+        menu.addSeparator();
+        slopeMenu = menu.addMenu(QString("Slope  (%1 dB/oct)")
+                                     .arg(bp.slopeDbPerOct));
+        for (int s : {12, 24, 36, 48}) {
+            auto* a = slopeMenu->addAction(QString("%1 dB/oct").arg(s));
+            a->setCheckable(true);
+            a->setChecked(bp.slopeDbPerOct == s);
+            a->setData(s);
+            slopeActions.append(a);
+        }
+    }
+
     menu.addSeparator();
-    auto* enAct   = menu.addAction(bp.enabled ? "Bypass band" : "Enable band");
-    auto* delAct  = menu.addAction("Delete band");
+    auto* enAct    = menu.addAction(bp.enabled ? "Bypass band" : "Enable band");
+    auto* resetAct = menu.addAction("Reset to default");
 
     QAction* chosen = menu.exec(ev->globalPos());
     if (!chosen) return;
 
     auto change = [&](ClientEq::FilterType t) {
-        ClientEq::BandParams p = bp; p.type = t; m_eq->setBand(idx, p);
+        // Changing the type also enables the band — the user clearly
+        // wants it active if they're reshaping it.
+        ClientEq::BandParams p = bp; p.type = t; p.enabled = true;
+        m_eq->setBand(idx, p);
     };
     if      (chosen == peakAct) change(ClientEq::FilterType::Peak);
     else if (chosen == lsAct)   change(ClientEq::FilterType::LowShelf);
@@ -228,26 +214,17 @@ void ClientEqEditorCanvas::contextMenuEvent(QContextMenuEvent* ev)
     else if (chosen == enAct) {
         ClientEq::BandParams p = bp; p.enabled = !bp.enabled; m_eq->setBand(idx, p);
     }
-    else if (chosen == delAct) {
-        // Collapse: shift all later bands down one slot, shrink active count.
-        const int n = m_eq->activeBandCount();
-        for (int i = idx; i < n - 1; ++i) {
-            m_eq->setBand(i, m_eq->band(i + 1));
-        }
-        // Blank out the now-unused top slot so stale data doesn't leak
-        // back on a future resize.
-        if (n - 1 < ClientEq::kMaxBands) {
-            ClientEq::BandParams blank;
-            m_eq->setBand(n - 1, blank);
-        }
-        m_eq->setActiveBandCount(n - 1);
-        // Adjust selection: if we deleted the selected band, clear;
-        // if the selected band sat above the deletion, shift down.
-        if (selectedBand() == idx) {
-            setSelectedBand(-1);
-        } else if (selectedBand() > idx) {
-            setSelectedBand(selectedBand() - 1);
-        }
+    else if (chosen == resetAct) {
+        // Restore this slot's factory preset — type, freq, Q all reset;
+        // band is left disabled so the row returns to the quiet starting
+        // state (matches the "disabled default" feel of fresh launch).
+        m_eq->setBand(idx, ClientEq::defaultBand(idx));
+    }
+    else if (slopeActions.contains(chosen)) {
+        ClientEq::BandParams p = bp;
+        p.slopeDbPerOct = chosen->data().toInt();
+        p.enabled = true;  // explicit edit = enable
+        m_eq->setBand(idx, p);
     }
     persist();
     ev->accept();

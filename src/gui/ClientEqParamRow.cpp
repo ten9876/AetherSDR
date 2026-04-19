@@ -40,7 +40,11 @@ public:
            QWidget* parent = nullptr)
         : QWidget(parent), m_bandIdx(bandIdx), m_eq(eq), m_row(row)
     {
-        setFixedWidth(82);
+        // Equal-stretch column — width is set by the parent row splitting
+        // its canvas-width across all 8 slots so icon column i aligns
+        // with the param column below it.
+        setMinimumWidth(70);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         setCursor(Qt::PointingHandCursor);
 
         auto* layout = new QVBoxLayout(this);
@@ -76,7 +80,11 @@ public:
         m_freqLbl->setText(formatFreq(bp.freqHz));
         m_gainLbl->setText(formatGain(bp.gainDb));
         m_qLbl->setText(formatQ(bp.q));
-        setEnabled(bp.enabled);
+        // Dim disabled bands via label alpha rather than QWidget::setEnabled
+        // so the column still accepts clicks (letting the user select /
+        // auto-enable it via the canvas or icon).
+        m_bandEnabled = bp.enabled;
+        applyStyle();
     }
 
 protected:
@@ -106,18 +114,26 @@ protected:
 private:
     void applyStyle()
     {
-        const QColor accent = ClientEqCurveWidget::bandColor(m_bandIdx);
+        QColor accent = ClientEqCurveWidget::bandColor(m_bandIdx);
+        QColor qCol("#7f93a5");
+        if (!m_bandEnabled) {
+            // Dim disabled columns so the "available slot" feel is obvious
+            // without greying out so much the user can't read the values.
+            accent.setAlphaF(0.35f);
+            qCol.setAlphaF(0.35f);
+        }
         const QString freqStyle = QString(
             "QLabel { color: %1; font-size: 10px; font-weight: bold;"
             " background: transparent; border: none; }")
-            .arg(accent.name());
+            .arg(accent.name(QColor::HexArgb));
         const QString gainStyle = QString(
             "QLabel { color: %1; font-size: 12px; font-weight: bold;"
             " background: transparent; border: none; padding: 1px 0px; }")
-            .arg(accent.name());
-        const QString qStyle =
-            "QLabel { color: #7f93a5; font-size: 10px;"
-            " background: transparent; border: none; }";
+            .arg(accent.name(QColor::HexArgb));
+        const QString qStyle = QString(
+            "QLabel { color: %1; font-size: 10px;"
+            " background: transparent; border: none; }")
+            .arg(qCol.name(QColor::HexArgb));
         m_freqLbl->setStyleSheet(freqStyle);
         m_gainLbl->setStyleSheet(gainStyle);
         m_qLbl->setStyleSheet(qStyle);
@@ -125,6 +141,7 @@ private:
 
     int   m_bandIdx{0};
     bool  m_selected{false};
+    bool  m_bandEnabled{true};
     ClientEq* m_eq{nullptr};
     ClientEqParamRow* m_row{nullptr};
     QLabel*  m_freqLbl{nullptr};
@@ -136,8 +153,9 @@ ClientEqParamRow::ClientEqParamRow(QWidget* parent) : QWidget(parent)
 {
     m_layout = new QHBoxLayout(this);
     m_layout->setContentsMargins(0, 0, 0, 0);
-    m_layout->setSpacing(6);
-    m_layout->addStretch();
+    // Matches ClientEqIconRow spacing so param column i sits directly
+    // beneath icon column i (a single visual strip across the editor).
+    m_layout->setSpacing(10);
     setFixedHeight(58);
 }
 
@@ -187,18 +205,16 @@ void ClientEqParamRow::rebuild()
         delete it;
     }
 
-    if (!m_eq) {
-        m_layout->addStretch();
-        return;
-    }
+    if (!m_eq) return;
 
+    // Full-width row with N equal-stretch columns — no side stretches.
+    // Column i occupies the same horizontal slot as IconRow icon i so
+    // they read as one visual strip.
     const int n = m_eq->activeBandCount();
-    m_layout->addStretch();
     for (int i = 0; i < n; ++i) {
         auto* col = new Column(i, m_eq, this, this);
-        m_layout->addWidget(col);
+        m_layout->addWidget(col, 1);
     }
-    m_layout->addStretch();
 }
 
 } // namespace AetherSDR

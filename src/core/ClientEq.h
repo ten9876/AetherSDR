@@ -30,7 +30,17 @@ public:
         HighPass   = 4,
     };
 
-    static constexpr int kMaxBands = 16;
+    // Global filter family — applies to the cascade math for HP/LP bands
+    // (shelves and peaks always use their native 2nd-order topology).
+    enum class FilterFamily : int {
+        Butterworth = 0,   // maximally flat passband
+        Chebyshev   = 1,   // steeper rolloff with 1 dB passband ripple
+        Bessel      = 2,   // flat group delay (gentler rolloff)
+        Elliptic    = 3,   // steepest rolloff, ripple in both bands
+    };
+
+    static constexpr int kMaxBands    = 16;
+    static constexpr int kMaxSections = 4;  // up to 48 dB/oct HP/LP
 
     struct BandParams {
         float      freqHz{1000.0f};
@@ -38,6 +48,10 @@ public:
         float      q{0.707f};
         FilterType type{FilterType::Peak};
         bool       enabled{true};
+        // Slope in dB/octave for HP / LP — 12 / 24 / 36 / 48.  Ignored
+        // for peak and shelf bands (they always use their native 2nd-
+        // order topology).
+        int        slopeDbPerOct{12};
     };
 
     ClientEq();
@@ -52,6 +66,15 @@ public:
     // Main thread — global enable (bypass when false). Lock-free.
     void setEnabled(bool on) noexcept;
     bool isEnabled() const noexcept;
+
+    // Main thread — master output gain applied after all bands.  Linear
+    // scale (1.0 = 0 dB).  Clamped to [0.0, 4.0] = [-inf, +12 dB].
+    void setMasterGain(float linear) noexcept;
+    float masterGain() const noexcept;
+
+    // Global filter family for HP/LP cascade math.  Lock-free.
+    void setFilterFamily(FilterFamily f) noexcept;
+    FilterFamily filterFamily() const noexcept;
 
     // Main thread — set a single band's parameters. Triggers a recompute
     // on the audio thread at its next block. Lock-free.
@@ -81,9 +104,23 @@ public:
     // to call from any thread. Used by the editor and applet to draw
     // the response curve without having to read the audio thread's
     // coefficients. A disabled band returns 0.0 (transparent).
+    // The family-less overload assumes Butterworth for HP/LP cascades.
     static float bandMagnitudeDb(const BandParams& p,
                                  float probeFreqHz,
                                  double sampleRate) noexcept;
+    static float bandMagnitudeDb(const BandParams& p,
+                                 float probeFreqHz,
+                                 double sampleRate,
+                                 FilterFamily family) noexcept;
+
+    // Default 10-band Logic-Pro-style layout: HP / LS / Peak×6 / HS / LP,
+    // evenly log-spaced across 40 Hz .. 12 kHz.  All bands return with
+    // enabled=false — the editor UI auto-enables a band the first time
+    // the user interacts with it (drag handle, click icon, right-click).
+    // Handles sit on the 0 dB line so the dots appear as a horizontal
+    // row until the user shapes them.
+    static constexpr int kDefaultBandCount = 10;
+    static BandParams defaultBand(int idx);
 
 private:
     struct Coeff {
@@ -97,14 +134,21 @@ private:
         float q{0.707f};
     };
 
+    struct Section {
+        Coeff coeff;
+        float z1L{0.0f}, z2L{0.0f};
+        float z1R{0.0f}, z2R{0.0f};
+    };
+
     struct Runtime {
-        Coeff      coeff;
+        std::array<Section, kMaxSections> sections;
+        int        activeSections{1};
         Smoothed   current;      // post-smoothing values used for coeff
-        float      z1L{0.0f}, z2L{0.0f};
-        float      z1R{0.0f}, z2R{0.0f};
         uint64_t   lastVersion{0};
         FilterType cachedType{FilterType::Peak};
         bool       cachedEnabled{true};
+        int        cachedSlopeDbPerOct{12};
+        FilterFamily cachedFamily{FilterFamily::Butterworth};
     };
 
     struct AtomicBand {
@@ -113,6 +157,7 @@ private:
         std::atomic<float>    q{0.707f};
         std::atomic<int>      type{static_cast<int>(FilterType::Peak)};
         std::atomic<bool>     enabled{true};
+        std::atomic<int>      slopeDbPerOct{12};
         std::atomic<uint64_t> version{0};
     };
 
@@ -131,6 +176,8 @@ private:
     float              m_smoothCoeff{0.0f};   // recomputed in prepare()
     std::atomic<bool>  m_enabled{false};
     std::atomic<int>   m_activeBandCount{0};
+    std::atomic<float> m_masterGain{1.0f};    // post-band master output
+    std::atomic<int>   m_filterFamily{static_cast<int>(FilterFamily::Butterworth)};
 
     std::array<AtomicBand, kMaxBands> m_bands;
     std::array<Runtime,    kMaxBands> m_runtime;
