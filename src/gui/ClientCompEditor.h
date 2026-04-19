@@ -12,7 +12,9 @@ namespace AetherSDR {
 class AudioEngine;
 class ClientCompEditorCanvas;
 class ClientCompKnob;
+class ClientCompLimiterButton;
 class ClientCompMeter;
+class ClientCompThresholdFader;
 
 // Floating editor for the Pro-XL-style TX compressor.  One instance
 // lives on MainWindow; calling showForTx() raises the window and
@@ -82,12 +84,11 @@ private:
     ClientCompKnob*          m_knee{nullptr};
     ClientCompKnob*          m_makeup{nullptr};
     ClientCompKnob*          m_ceiling{nullptr};
-    ClientCompMeter*         m_inputMeter{nullptr};
+    ClientCompThresholdFader* m_threshFader{nullptr};
     ClientCompMeter*         m_grMeter{nullptr};
     ClientCompMeter*         m_outputMeter{nullptr};
-    QLabel*                  m_thresholdLabel{nullptr};
     QPushButton*             m_bypass{nullptr};
-    QPushButton*             m_limiterEnable{nullptr};
+    ClientCompLimiterButton* m_limiterEnable{nullptr};
     QComboBox*               m_chainOrder{nullptr};
     QTimer*                  m_meterTimer{nullptr};
     bool                     m_restoring{false};

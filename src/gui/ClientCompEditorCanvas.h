@@ -35,6 +35,10 @@ protected:
     void mousePressEvent(QMouseEvent* ev) override;
     void mouseMoveEvent(QMouseEvent* ev) override;
     void mouseReleaseEvent(QMouseEvent* ev) override;
+    // Per-region tooltips — QWidget::setToolTip is whole-widget; this
+    // widget has two distinct draggable regions so we intercept the
+    // tooltip event and dispatch based on the hover point.
+    bool event(QEvent* ev) override;
 
 private:
     enum class Drag { None, Threshold, Ratio };

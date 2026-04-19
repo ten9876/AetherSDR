@@ -1,7 +1,9 @@
 #include "ClientCompEditor.h"
 #include "ClientCompEditorCanvas.h"
 #include "ClientCompKnob.h"
+#include "ClientCompLimiterButton.h"
 #include "ClientCompMeter.h"
+#include "ClientCompThresholdFader.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/ClientComp.h"
@@ -176,29 +178,12 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
             body->addLayout(col);
         }
 
-        // Threshold mini-column: one tall slider view + numeric label.
-        // The interactive canvas owns the real threshold handle; this
-        // label just echoes the current value so the user can read the
-        // exact number at a glance.
-        {
-            auto* col = new QVBoxLayout;
-            col->setSpacing(2);
-            auto* hdr = new QLabel("Thresh");
-            hdr->setAlignment(Qt::AlignCenter);
-            col->addWidget(hdr);
-            m_thresholdLabel = new QLabel("-18.0 dB");
-            m_thresholdLabel->setAlignment(Qt::AlignCenter);
-            m_thresholdLabel->setStyleSheet(
-                "QLabel { color: #e8e8e8; font-size: 11px; font-weight: bold; }");
-            col->addWidget(m_thresholdLabel);
-
-            m_inputMeter = new ClientCompMeter;
-            m_inputMeter->setMode(ClientCompMeter::Mode::Level);
-            m_inputMeter->setLabel("In");
-            m_inputMeter->setMinimumWidth(20);
-            col->addWidget(m_inputMeter, 1);
-            body->addLayout(col);
-        }
+        // Threshold fader — combined input-level meter + threshold
+        // slider, matching the Client EQ output-fader visual language.
+        // Drag the amber handle to set threshold; the chevron on the
+        // curve canvas stays linked via the shared ClientComp state.
+        m_threshFader = new ClientCompThresholdFader;
+        body->addWidget(m_threshFader);
 
         // Canvas (center).
         m_canvas = new ClientCompEditorCanvas;
@@ -233,12 +218,10 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
             auto* col = new QVBoxLayout;
             col->setSpacing(6);
 
-            m_limiterEnable = new QPushButton("LIMIT");
-            m_limiterEnable->setCheckable(true);
-            m_limiterEnable->setStyleSheet(kLimBtnStyle);
-            m_limiterEnable->setFixedHeight(22);
+            m_limiterEnable = new ClientCompLimiterButton;
             m_limiterEnable->setToolTip(
-                "Brickwall peak limiter on the compressor output");
+                "Brickwall peak limiter on the compressor output.\n"
+                "Button glows red when the limiter is actively clamping.");
             col->addWidget(m_limiterEnable);
 
             m_ceiling = new ClientCompKnob;
@@ -291,6 +274,8 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
     });
 
     connect(m_canvas, &ClientCompEditorCanvas::thresholdChanged,
+            this, &ClientCompEditor::applyThreshold);
+    connect(m_threshFader, &ClientCompThresholdFader::thresholdChanged,
             this, &ClientCompEditor::applyThreshold);
     connect(m_canvas, &ClientCompEditorCanvas::ratioChanged,
             this, &ClientCompEditor::applyRatio);
@@ -355,8 +340,7 @@ void ClientCompEditor::syncControlsFromEngine()
     m_makeup->setValue(c->makeupDb());
     m_ceiling->setValue(c->limiterCeilingDb());
     m_limiterEnable->setChecked(c->limiterEnabled());
-    m_thresholdLabel->setText(
-        QString::number(c->thresholdDb(), 'f', 1) + " dB");
+    if (m_threshFader) m_threshFader->setThresholdDb(c->thresholdDb());
     if (m_canvas) m_canvas->update();
 }
 
@@ -365,9 +349,21 @@ void ClientCompEditor::tickMeters()
     if (!m_audio) return;
     ClientComp* c = m_audio->clientCompTx();
     if (!c) return;
-    if (m_inputMeter)  m_inputMeter ->setValueDb(c->inputPeakDb());
+    if (m_threshFader) m_threshFader->setInputPeakDb(c->inputPeakDb());
     if (m_grMeter)     m_grMeter    ->setValueDb(c->gainReductionDb());
-    if (m_outputMeter) m_outputMeter->setValueDb(c->outputPeakDb());
+    if (m_outputMeter) {
+        m_outputMeter->setValueDb(c->outputPeakDb());
+        if (c->limiterEnabled()) {
+            m_outputMeter->setLimiterCeilingDb(c->limiterCeilingDb());
+            m_outputMeter->setLimiterGrDb(c->limiterGrDb());
+        } else {
+            m_outputMeter->setLimiterCeilingDb(1.0f);  // disable overlay
+            m_outputMeter->setLimiterGrDb(0.0f);
+        }
+    }
+    if (m_limiterEnable) {
+        m_limiterEnable->setActive(c->limiterActive() && c->limiterEnabled());
+    }
 }
 
 void ClientCompEditor::applyThreshold(float db)
@@ -377,8 +373,13 @@ void ClientCompEditor::applyThreshold(float db)
     if (!c) return;
     c->setThresholdDb(db);
     m_audio->saveClientCompSettings();
-    if (m_thresholdLabel)
-        m_thresholdLabel->setText(QString::number(db, 'f', 1) + " dB");
+    // Mirror the value onto whichever control didn't originate the
+    // change.  Canvas chevron drags land here too, so this keeps the
+    // fader handle in sync.  Signal blocking avoids a feedback loop.
+    if (m_threshFader && std::fabs(m_threshFader->thresholdDb() - db) > 0.01f) {
+        QSignalBlocker b(m_threshFader);
+        m_threshFader->setThresholdDb(db);
+    }
     if (m_canvas) m_canvas->update();
 }
 

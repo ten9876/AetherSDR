@@ -36,6 +36,14 @@ public:
     // Optional label shown above the bar (e.g. "GR", "Out").
     void setLabel(const QString& label);
 
+    // Limiter overlay (Level mode only).  When a ceiling <= 0 dBFS is
+    // supplied, the meter draws a dim red "no-go zone" above the
+    // ceiling, a bright amber horizontal line at the ceiling dB, and a
+    // cyan tick hanging from the line whenever limiterGrDb < 0.  Pass
+    // any value > 0 to disable the overlay.
+    void setLimiterCeilingDb(float db);
+    void setLimiterGrDb(float db);
+
 protected:
     void paintEvent(QPaintEvent* ev) override;
 
@@ -56,6 +64,10 @@ private:
     QElapsedTimer m_animElapsed;
     float         m_displayFrac{0.0f};
     float         m_targetFrac{0.0f};
+
+    // Optional limiter overlay state — Level mode only.
+    float m_ceilingDb{1.0f};      // >0 means "no overlay"
+    float m_limGrDb{0.0f};        // 0 means "no limiting this frame"
 };
 
 } // namespace AetherSDR

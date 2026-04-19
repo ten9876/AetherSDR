@@ -64,7 +64,8 @@ public:
     // meters. Updated once per block on the audio thread via atomics.
     float inputPeakDb() const noexcept;       // pre-compression peak
     float outputPeakDb() const noexcept;      // post-limiter peak
-    float gainReductionDb() const noexcept;   // latest GR in dB (≤ 0)
+    float gainReductionDb() const noexcept;   // comp GR in dB (≤ 0)
+    float limiterGrDb() const noexcept;       // limiter-only GR in dB (≤ 0)
     bool  limiterActive() const noexcept;     // true while limiter is clamping
 
     // Sample rate this comp was prepared at.
@@ -103,6 +104,7 @@ private:
         std::atomic<float> inputPeakDb{-120.0f};
         std::atomic<float> outputPeakDb{-120.0f};
         std::atomic<float> gainReductionDb{0.0f};
+        std::atomic<float> limiterGrDb{0.0f};
         std::atomic<bool>  limiterActive{false};
     };
 

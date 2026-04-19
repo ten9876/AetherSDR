@@ -516,7 +516,9 @@ set(GUI_SOURCES
     src/gui/ClientCompApplet.cpp
     src/gui/ClientCompCurveWidget.cpp
     src/gui/ClientCompKnob.cpp
+    src/gui/ClientCompLimiterButton.cpp
     src/gui/ClientCompMeter.cpp
+    src/gui/ClientCompThresholdFader.cpp
     src/gui/ClientCompEditor.cpp
     src/gui/ClientCompEditorCanvas.cpp
     src/gui/CatControlApplet.cpp

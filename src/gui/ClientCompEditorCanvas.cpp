@@ -1,11 +1,14 @@
 #include "ClientCompEditorCanvas.h"
 #include "core/ClientComp.h"
 
+#include <QEvent>
+#include <QHelpEvent>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPaintEvent>
 #include <QPen>
+#include <QToolTip>
 #include <algorithm>
 #include <cmath>
 
@@ -33,11 +36,13 @@ bool ClientCompEditorCanvas::thresholdHandleHit(const QPointF& pos) const
 {
     if (!m_comp) return false;
     const float T = m_comp->thresholdDb();
-    // Threshold handle lives on the bottom edge at x=dbToX(T).
-    const QPointF h(dbToX(T), rect().bottom() - 6.0);
-    const float dx = static_cast<float>(pos.x() - h.x());
-    const float dy = static_cast<float>(pos.y() - h.y());
-    return (dx * dx + dy * dy) < kHandleHitRadius * kHandleHitRadius;
+    // Threshold is grabbable along the entire vertical guide line, not
+    // just on the chevron at the bottom — making the whole column a
+    // drag target means the user can grab the threshold from anywhere
+    // on its guide, which is where their eye is already looking.
+    const float tx = dbToX(T);
+    const float dx = std::fabs(static_cast<float>(pos.x() - tx));
+    return dx < kHandleHitRadius;
 }
 
 bool ClientCompEditorCanvas::ratioHandleHit(const QPointF& pos) const
@@ -59,19 +64,30 @@ void ClientCompEditorCanvas::paintEvent(QPaintEvent* ev)
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
 
-    // Threshold handle — small filled triangle hanging off the bottom
-    // of the grid at the current threshold x.  Easy target for the
-    // mouse and doesn't compete visually with the curve dot.
-    const float T    = m_comp->thresholdDb();
-    const float tx   = dbToX(T);
-    const float by   = rect().bottom() - 4.0f;
+    // Threshold visual — full-height dashed amber guide line + a
+    // chevron at the bottom.  Previously the handle was a tiny
+    // triangle that was easy to miss; the guide line now reads as
+    // "the threshold lives at this x" from a glance, and its whole
+    // column is draggable (see thresholdHandleHit).
+    const float T  = m_comp->thresholdDb();
+    const float tx = dbToX(T);
+
+    const float curveY = dbToY(std::clamp(curveOutputDb(T), kMinDb, kMaxDb));
+    QColor guideColor = kThresholdHandle;
+    guideColor.setAlpha(160);
+    QPen guidePen(guideColor, 1.5, Qt::DashLine);
+    guidePen.setDashPattern({4.0, 3.0});
+    p.setPen(guidePen);
+    p.drawLine(QPointF(tx, curveY), QPointF(tx, rect().bottom() - 8.0f));
+
+    const float by = rect().bottom() - 2.0f;
     QPainterPath tri;
-    tri.moveTo(tx,         by);
-    tri.lineTo(tx - 5.5f, by + 8.0f);
-    tri.lineTo(tx + 5.5f, by + 8.0f);
+    tri.moveTo(tx,          by - 14.0f);
+    tri.lineTo(tx - 9.0f,   by);
+    tri.lineTo(tx + 9.0f,   by);
     tri.closeSubpath();
     p.setBrush(kThresholdHandle);
-    p.setPen(QPen(kHandleOutline, 1.0));
+    p.setPen(QPen(kHandleOutline, 1.5));
     p.drawPath(tri);
 
     // Ratio handle — larger filled dot at the knee centre so it reads
@@ -146,6 +162,40 @@ void ClientCompEditorCanvas::mouseReleaseEvent(QMouseEvent* ev)
     m_drag = Drag::None;
     setCursor(Qt::CrossCursor);
     ev->accept();
+}
+
+bool ClientCompEditorCanvas::event(QEvent* ev)
+{
+    if (ev->type() == QEvent::ToolTip && m_comp) {
+        auto* help = static_cast<QHelpEvent*>(ev);
+        if (ratioHandleHit(help->pos())) {
+            const float ratio = m_comp->ratio();
+            QToolTip::showText(help->globalPos(),
+                QString("<b>Ratio — %1 :1</b><br>"
+                        "Amount of compression above the threshold. "
+                        "Higher = harder squeeze.<br>"
+                        "<i>Drag up/down to change. Hold Shift for fine adjust.</i>")
+                    .arg(ratio, 0, 'f', 2),
+                this);
+            return true;
+        }
+        if (thresholdHandleHit(help->pos())) {
+            const float T = m_comp->thresholdDb();
+            QToolTip::showText(help->globalPos(),
+                QString("<b>Threshold — %1 dBFS</b><br>"
+                        "Audio level where compression begins. "
+                        "Anything louder gets reduced.<br>"
+                        "<i>Drag the chevron left/right, or grab anywhere along "
+                        "the dashed guide line.</i>")
+                    .arg(T, 0, 'f', 1),
+                this);
+            return true;
+        }
+        QToolTip::hideText();
+        ev->ignore();
+        return true;
+    }
+    return ClientCompCurveWidget::event(ev);
 }
 
 } // namespace AetherSDR

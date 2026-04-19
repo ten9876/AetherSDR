@@ -134,6 +134,8 @@ float ClientComp::outputPeakDb() const noexcept
 { return m_meters.outputPeakDb.load(std::memory_order_relaxed); }
 float ClientComp::gainReductionDb() const noexcept
 { return m_meters.gainReductionDb.load(std::memory_order_relaxed); }
+float ClientComp::limiterGrDb() const noexcept
+{ return m_meters.limiterGrDb.load(std::memory_order_relaxed); }
 bool  ClientComp::limiterActive() const noexcept
 { return m_meters.limiterActive.load(std::memory_order_relaxed); }
 
@@ -199,6 +201,7 @@ void ClientComp::process(float* interleaved, int frames, int channels) noexcept
     float inPeakLin  = 0.0f;
     float outPeakLin = 0.0f;
     float worstGrDb  = 0.0f;  // most negative (largest reduction)
+    float worstLimGrDb = 0.0f;  // limiter-only GR, most negative
     bool  limFired   = false;
 
     const float attackCoeff  = m_cached.attackCoeff;
@@ -241,11 +244,20 @@ void ClientComp::process(float* interleaved, int frames, int channels) noexcept
             const float target = std::max(1.0f, over);
             const float lc = (target > m_limEnvLin) ? limAttack : limRelease;
             m_limEnvLin += lc * (target - m_limEnvLin);
-            if (m_limEnvLin > 1.0f) {
+            // Threshold slightly above 1.0 — the envelope decays
+            // asymptotically toward 1.0 in float and never quite
+            // reaches it, so a strict `> 1.0f` check would latch the
+            // active indicator forever after any trigger.  Anything
+            // under 0.005 dB of reduction is inaudible anyway.
+            if (m_limEnvLin > 1.0006f) {
                 const float reduce = 1.0f / m_limEnvLin;
                 l *= reduce;
                 r *= reduce;
                 limFired = true;
+                // Track the worst (most negative) limiter GR this block
+                // so the UI can draw a distinct lim-GR indicator.
+                const float limGrDb = linToDb(reduce);
+                if (limGrDb < worstLimGrDb) worstLimGrDb = limGrDb;
             }
         }
 
@@ -262,6 +274,7 @@ void ClientComp::process(float* interleaved, int frames, int channels) noexcept
     m_meters.outputPeakDb.store(linToDb(std::max(outPeakLin, 1e-6f)),
                                 std::memory_order_relaxed);
     m_meters.gainReductionDb.store(worstGrDb, std::memory_order_relaxed);
+    m_meters.limiterGrDb.store(worstLimGrDb, std::memory_order_relaxed);
     m_meters.limiterActive.store(limFired, std::memory_order_relaxed);
 }
 
