@@ -7035,11 +7035,11 @@ void MainWindow::registerShortcutActions()
         }
 
         const double currentBw = sw->bandwidthMhz();
-        const double newBw = currentBw * factor;
-        if (newBw < m_radioModel.minPanBandwidthMhz()
-                || newBw > m_radioModel.maxPanBandwidthMhz()) {
-            return;
-        }
+        // Clamp to limits so the final keypress snaps to exact min/max (#1458).
+        const double newBw = std::clamp(currentBw * factor,
+                                        m_radioModel.minPanBandwidthMhz(),
+                                        m_radioModel.maxPanBandwidthMhz());
+        if (newBw == currentBw) return;  // already at the hard limit
 
         double newCenter = sw->centerMhz();
 

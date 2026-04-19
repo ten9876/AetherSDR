@@ -208,8 +208,10 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     // Send both bandwidth AND current center to prevent the radio from
     // auto-centering the panadapter (which causes band jumps).
     auto emitZoom = [this](double factor) {
-        const double newBw = m_bandwidthMhz * factor;
-        if (newBw < m_minBwMhz || newBw > m_maxBwMhz) { return; }  // at limit
+        // Clamp to limits so the final click always reaches the exact min/max,
+        // matching mouse-drag which uses std::clamp (#1458).
+        const double newBw = std::clamp(m_bandwidthMhz * factor, m_minBwMhz, m_maxBwMhz);
+        if (newBw == m_bandwidthMhz) return;  // already at the hard limit
 
         // When zooming in, shift center toward the active VFO so it stays visible
         double newCenter = m_centerMhz;
