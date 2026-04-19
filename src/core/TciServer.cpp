@@ -209,6 +209,21 @@ void TciServer::setTxGain(float gain)
     s.save();
 }
 
+void TciServer::setRxChannelGain(int channel, float gain)
+{
+    if (channel < 1 || channel > 4) return;
+    const float clamped = std::clamp(gain, 0.0f, 1.0f);
+    m_rxChannelGain[channel] = clamped;
+    auto& s = AppSettings::instance();
+    s.setValue(QStringLiteral("TciRxGain%1").arg(channel), QString::number(clamped, 'f', 2));
+    s.save();
+}
+
+float TciServer::rxChannelGain(int channel) const
+{
+    return m_rxChannelGain.value(channel, 1.0f);
+}
+
 void TciServer::onNewConnection()
 {
     while (m_server->hasPendingConnections()) {
@@ -747,6 +762,32 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
     }
     if (!anyAudio) return;
 
+    // Apply per-channel RX gain (#1627)
+    const float gain = m_rxChannelGain.value(channel, 1.0f);
+    QByteArray gainedPcm;
+    const QByteArray* audioData = &pcm;
+    if (gain < 0.999f) {
+        gainedPcm = pcm;  // copy
+        float* samples = reinterpret_cast<float*>(gainedPcm.data());
+        int sampleCount = gainedPcm.size() / static_cast<int>(sizeof(float));
+        for (int i = 0; i < sampleCount; ++i)
+            samples[i] *= gain;
+        audioData = &gainedPcm;
+    }
+
+    // Compute RMS for meter display and emit signal (#1627)
+    {
+        const float* samples = reinterpret_cast<const float*>(audioData->constData());
+        int sampleCount = audioData->size() / static_cast<int>(sizeof(float));
+        double sumSq = 0.0;
+        for (int i = 0; i < sampleCount; ++i)
+            sumSq += static_cast<double>(samples[i]) * samples[i];
+        if (sampleCount > 0) {
+            float rms = static_cast<float>(std::sqrt(sumSq / sampleCount));
+            emit tciRxLevel(channel, rms);
+        }
+    }
+
     // Map DAX channel → TRX by finding which slice owns this channel.
     int trx = 0;
     if (m_model) {
@@ -766,7 +807,7 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
         // DAX delivers ~128-frame packets; r8brain needs larger blocks
         // for clean output without startup transients.
         QByteArray& accumBuf = cs.rxAccumBuf[channel];
-        accumBuf.append(pcm);
+        accumBuf.append(*audioData);
 
         int accumFrames = accumBuf.size() / (2 * static_cast<int>(sizeof(float)));
 

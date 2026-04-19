@@ -46,6 +46,12 @@ public:
     void setTxGain(float gain);
     float txGain() const { return m_txGain; }
 
+    // Per-channel RX gain (0.0–1.0). Applied to DAX audio before
+    // accumulation/resampling so each TCI channel can be independently
+    // attenuated. Persists to TciRxGain1–4. (#1627)
+    void setRxChannelGain(int channel, float gain);
+    float rxChannelGain(int channel) const;
+
     // Wire slice signals for state change broadcasts
     void wireSlice(int trx, SliceModel* slice);
     void wireSpotModel();
@@ -60,6 +66,7 @@ public slots:
 
 signals:
     void clientCountChanged(int count);
+    void tciRxLevel(int channel, float rms);
 
 private slots:
     void onNewConnection();
@@ -127,6 +134,7 @@ private:
     qint64            m_txChronoRequestedFrames{0};
     bool              m_txUseRadioRoute{true};
     float             m_txGain{1.0f};
+    QHash<int, float> m_rxChannelGain;  // per-channel RX gain (1-4) (#1627)
     qint64            m_txAudioBlocks{0};
     qint64            m_txInputFrames{0};
     qint64            m_txOutputFrames{0};

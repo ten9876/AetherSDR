@@ -1,0 +1,166 @@
+#include "DaxIqApplet.h"
+#include "GuardedSlider.h"
+#include "ComboStyle.h"
+#include "models/RadioModel.h"
+#include "models/DaxIqModel.h"
+#include "core/AppSettings.h"
+
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QPushButton>
+#include <QComboBox>
+#include <QProgressBar>
+#include <algorithm>
+#include <cmath>
+
+namespace AetherSDR {
+
+static constexpr const char* kIqSectionStyle =
+    "QWidget { background: transparent; }"
+    "QLabel { color: #8090a0; font-size: 11px; }"
+    "QPushButton { background: #1a2a3a; border: 1px solid #205070;"
+    "  border-radius: 3px; padding: 2px 8px; font-size: 11px; font-weight: bold; color: #c8d8e8; }"
+    "QPushButton:hover { background: #204060; }";
+
+DaxIqApplet::DaxIqApplet(QWidget* parent) : QWidget(parent)
+{
+    buildUI();
+    hide();
+}
+
+void DaxIqApplet::buildUI()
+{
+    setStyleSheet(kIqSectionStyle);
+
+    auto* outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(2);
+
+    static constexpr const char* kDimLabel =
+        "QLabel { color: #8090a0; font-size: 11px; }";
+
+    static const QString kIqBtnOn =
+        "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+        "border: 1px solid #008ba8; padding: 2px 8px; border-radius: 3px; font-size: 10px; }";
+    static const QString kIqBtnOff =
+        "QPushButton { background: #1a2a3a; color: #8090a0; "
+        "border: 1px solid #205070; padding: 2px 8px; border-radius: 3px; font-size: 10px; }";
+
+    for (int i = 0; i < kChannels; ++i) {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(4);
+        row->setContentsMargins(4, 1, 4, 1);
+
+        auto* label = new QLabel(QString("IQ %1:").arg(i + 1));
+        label->setStyleSheet(kDimLabel);
+        label->setFixedWidth(28);
+        row->addWidget(label);
+
+        m_iqRateCombo[i] = new GuardedComboBox;
+        applyComboStyle(m_iqRateCombo[i]);
+        m_iqRateCombo[i]->addItem("24k",  24000);
+        m_iqRateCombo[i]->addItem("48k",  48000);
+        m_iqRateCombo[i]->addItem("96k",  96000);
+        m_iqRateCombo[i]->addItem("192k", 192000);
+        m_iqRateCombo[i]->setCurrentIndex(1);  // default 48k
+        m_iqRateCombo[i]->setFixedWidth(60);
+        connect(m_iqRateCombo[i], &QComboBox::currentIndexChanged, this, [this, i]() {
+            int rate = m_iqRateCombo[i]->currentData().toInt();
+            emit iqRateChanged(i + 1, rate);
+        });
+        row->addWidget(m_iqRateCombo[i]);
+
+        m_iqMeter[i] = new QProgressBar;
+        m_iqMeter[i]->setRange(0, 100);
+        m_iqMeter[i]->setValue(0);
+        m_iqMeter[i]->setTextVisible(false);
+        m_iqMeter[i]->setFixedHeight(14);
+        m_iqMeter[i]->setStyleSheet(
+            "QProgressBar { background: #0a0a14; border: 1px solid #203040; border-radius: 2px; }"
+            "QProgressBar::chunk { background: #00b4d8; }");
+        row->addWidget(m_iqMeter[i], 1);
+
+        m_iqEnable[i] = new QPushButton("Off");
+        m_iqEnable[i]->setFixedWidth(36);
+        m_iqEnable[i]->setStyleSheet(kIqBtnOff);
+        connect(m_iqEnable[i], &QPushButton::clicked, this, [this, i]() {
+            bool wasOn = m_iqEnable[i]->text() == "On";
+            if (wasOn) {
+                emit iqDisableRequested(i + 1);
+                m_iqEnable[i]->setText("Off");
+                m_iqEnable[i]->setStyleSheet(
+                    "QPushButton { background: #1a2a3a; color: #8090a0; "
+                    "border: 1px solid #205070; padding: 2px 8px; border-radius: 3px; font-size: 10px; }");
+                m_iqMeter[i]->setValue(0);
+            } else {
+                emit iqEnableRequested(i + 1);
+                m_iqEnable[i]->setText("On");
+                m_iqEnable[i]->setStyleSheet(
+                    "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+                    "border: 1px solid #008ba8; padding: 2px 8px; border-radius: 3px; font-size: 10px; }");
+            }
+        });
+        row->addWidget(m_iqEnable[i]);
+
+        outer->addLayout(row);
+    }
+}
+
+void DaxIqApplet::setRadioModel(RadioModel* model)
+{
+    m_model = model;
+    if (!model) return;
+
+    // Reset IQ buttons on connection state change
+    connect(model, &RadioModel::connectionStateChanged,
+            this, [this](bool connected) {
+        if (connected) {
+            static const QString kOff =
+                "QPushButton { background: #1a2a3a; color: #8090a0; "
+                "border: 1px solid #205070; padding: 2px 8px; border-radius: 3px; font-size: 10px; }";
+            for (int i = 0; i < kChannels; ++i) {
+                if (m_iqEnable[i]) {
+                    m_iqEnable[i]->setText("Off");
+                    m_iqEnable[i]->setStyleSheet(kOff);
+                    if (m_iqMeter[i]) m_iqMeter[i]->setValue(0);
+                }
+            }
+        }
+    });
+
+    // Wire DAX IQ stream state changes → sync On/Off buttons
+    connect(&model->daxIqModel(), &DaxIqModel::streamChanged, this, [this](int ch) {
+        if (ch < 1 || ch > kChannels) return;
+        int idx = ch - 1;
+        bool exists = m_model->daxIqModel().stream(ch).exists;
+        m_iqEnable[idx]->setText(exists ? "On" : "Off");
+        static const QString kOn =
+            "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+            "border: 1px solid #008ba8; padding: 2px 8px; border-radius: 3px; font-size: 10px; }";
+        static const QString kOff =
+            "QPushButton { background: #1a2a3a; color: #8090a0; "
+            "border: 1px solid #205070; padding: 2px 8px; border-radius: 3px; font-size: 10px; }";
+        m_iqEnable[idx]->setStyleSheet(exists ? kOn : kOff);
+        if (!exists) m_iqMeter[idx]->setValue(0);
+
+        // Sync rate combo from radio state
+        int rate = m_model->daxIqModel().stream(ch).sampleRate;
+        QSignalBlocker sb(m_iqRateCombo[idx]);
+        for (int i = 0; i < m_iqRateCombo[idx]->count(); ++i) {
+            if (m_iqRateCombo[idx]->itemData(i).toInt() == rate) {
+                m_iqRateCombo[idx]->setCurrentIndex(i);
+                break;
+            }
+        }
+    });
+}
+
+void DaxIqApplet::setDaxIqLevel(int channel, float rms)
+{
+    if (channel < 1 || channel > kChannels) return;
+    int level = static_cast<int>(std::clamp(rms * 200.0f, 0.0f, 100.0f));
+    m_iqMeter[channel - 1]->setValue(level);
+}
+
+} // namespace AetherSDR

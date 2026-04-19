@@ -10,7 +10,12 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
-#include "CatApplet.h"
+#include "CatControlApplet.h"
+#include "DaxApplet.h"
+#ifdef HAVE_WEBSOCKETS
+#include "TciApplet.h"
+#endif
+#include "DaxIqApplet.h"
 #include "AntennaGeniusApplet.h"
 #include "MeterApplet.h"
 #ifdef HAVE_MQTT
@@ -48,7 +53,7 @@ static QString floatKey(const QString& id)
 }
 
 const QStringList AppletPanel::kDefaultOrder = {
-    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "DIGI", "MTR", "AG"
+    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "CAT", "DAX", "TCI", "IQ", "MTR", "AG"
 };
 
 // ── Drag-handle title bar ───────────────────────────────────────────────────
@@ -647,8 +652,19 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_eqApplet = new EqApplet;
     m_appletOrder.append(makeEntry("EQ", "Equalizer", m_eqApplet, true, btnRow1, btnLayout1));
 
-    m_catApplet = new CatApplet;
-    m_appletOrder.append(makeEntry("DIGI", "Digital Mode Controls", m_catApplet, false, btnRow2, btnLayout2));
+    m_catControlApplet = new CatControlApplet;
+    m_appletOrder.append(makeEntry("CAT", "CAT Control", m_catControlApplet, false, btnRow2, btnLayout2));
+
+    m_daxApplet = new DaxApplet;
+    m_appletOrder.append(makeEntry("DAX", "DAX Audio", m_daxApplet, false, btnRow2, btnLayout2));
+
+#ifdef HAVE_WEBSOCKETS
+    m_tciApplet = new TciApplet;
+    m_appletOrder.append(makeEntry("TCI", "TCI Server", m_tciApplet, false, btnRow2, btnLayout2));
+#endif
+
+    m_daxIqApplet = new DaxIqApplet;
+    m_appletOrder.append(makeEntry("IQ", "DAX IQ", m_daxIqApplet, false, btnRow2, btnLayout2));
 
     m_meterApplet = new MeterApplet;
     m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false, btnRow2, btnLayout2));
@@ -698,8 +714,34 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     btnLayout1->addStretch();
     btnLayout2->addStretch();
 
+    // ── Migrate DIGI → CAT/DAX/TCI/IQ settings (#1627) ───────────────────
+    if (!settings.value("Applet_DIGI").toString().isEmpty()
+        && settings.value("Applet_CAT").toString().isEmpty()) {
+        QString digiVal = settings.value("Applet_DIGI").toString();
+        settings.setValue("Applet_CAT", digiVal);
+        settings.setValue("Applet_DAX", digiVal);
+        settings.setValue("Applet_TCI", digiVal);
+        settings.setValue("Applet_IQ",  digiVal);
+        settings.remove("Applet_DIGI");
+        // Propagate visibility to the four new buttons
+        bool digiOn = (digiVal == "True");
+        for (const auto& entry : m_appletOrder) {
+            if (entry.id == "CAT" || entry.id == "DAX" || entry.id == "TCI" || entry.id == "IQ") {
+                if (entry.btn) entry.btn->setChecked(digiOn);
+                if (entry.widget) entry.widget->setVisible(digiOn);
+            }
+        }
+        settings.save();
+    }
+
     // ── Restore saved order ─────────────────────────────────────────────────
     QString savedOrder = settings.value("AppletOrder").toString();
+    // Migrate "DIGI" in saved order → "CAT,DAX,TCI,IQ" (#1627)
+    if (savedOrder.contains("DIGI")) {
+        savedOrder.replace("DIGI", "CAT,DAX,TCI,IQ");
+        settings.setValue("AppletOrder", savedOrder);
+        settings.save();
+    }
     if (!savedOrder.isEmpty()) {
         QStringList ids = savedOrder.split(',');
         QVector<AppletEntry> reordered;

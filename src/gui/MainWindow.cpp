@@ -24,7 +24,12 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
-#include "CatApplet.h"
+#include "CatControlApplet.h"
+#include "DaxApplet.h"
+#ifdef HAVE_WEBSOCKETS
+#include "TciApplet.h"
+#endif
+#include "DaxIqApplet.h"
 #include "AntennaGeniusApplet.h"
 #include "RadioSetupDialog.h"
 #include "NetworkDiagnosticsDialog.h"
@@ -1992,14 +1997,15 @@ MainWindow::MainWindow(QWidget* parent)
                 QString("/tmp/AetherSDR-CAT-%1").arg(kLetters[i]));
         }
     }
-    m_appletPanel->catApplet()->setRadioModel(&m_radioModel);
-    m_appletPanel->catApplet()->setRigctlServers(m_rigctlServers, kCatChannels);
-    m_appletPanel->catApplet()->setRigctlPtys(m_rigctlPtys, kCatChannels);
-    m_appletPanel->catApplet()->setAudioEngine(m_audio);
+    m_appletPanel->catControlApplet()->setRadioModel(&m_radioModel);
+    m_appletPanel->catControlApplet()->setRigctlServers(m_rigctlServers, kCatChannels);
+    m_appletPanel->catControlApplet()->setRigctlPtys(m_rigctlPtys, kCatChannels);
+    m_appletPanel->daxApplet()->setRadioModel(&m_radioModel);
+    m_appletPanel->daxIqApplet()->setRadioModel(&m_radioModel);
 #ifdef HAVE_WEBSOCKETS
     m_tciServer = new TciServer(&m_radioModel, this);
     m_tciServer->setAudioEngine(m_audio);
-    m_appletPanel->catApplet()->setTciServer(m_tciServer);
+    m_appletPanel->tciApplet()->setTciServer(m_tciServer);
 
     // Wire slice state changes → TCI broadcasts
     connect(&m_radioModel, &RadioModel::sliceAdded, this, [this](SliceModel* s) {
@@ -2025,15 +2031,33 @@ MainWindow::MainWindow(QWidget* parent)
     // Control-only TCI clients (StreamDeck) don't need audio, and auto-creating
     // the stream overrode the user's explicit PC Audio toggle. Users who need
     // TCI audio (WSJT-X) should enable PC Audio manually. (#1071)
+
+    // Wire TCI applet gain sliders → TciServer (#1627)
+    connect(m_appletPanel->tciApplet(), &TciApplet::tciRxGainChanged,
+            m_tciServer, &TciServer::setRxChannelGain);
+    connect(m_appletPanel->tciApplet(), &TciApplet::tciTxGainChanged,
+            m_tciServer, &TciServer::setTxGain);
+
+    // Wire TCI per-channel RX level → TCI applet meters (#1627)
+    connect(m_tciServer, &TciServer::tciRxLevel,
+            m_appletPanel->tciApplet(), &TciApplet::setTciRxLevel);
+
+    // Apply saved TCI RX gains to the server
+    {
+        auto& ss = AppSettings::instance();
+        for (int i = 1; i <= 4; ++i)
+            m_tciServer->setRxChannelGain(i,
+                ss.value(QStringLiteral("TciRxGain%1").arg(i), "1.0").toString().toFloat());
+    }
 #endif
 
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
-    // DAX enable button in CatApplet → start/stop DAX bridge
-    connect(m_appletPanel->catApplet(), &CatApplet::daxToggled,
+    // DAX enable button in DaxApplet → start/stop DAX bridge
+    connect(m_appletPanel->daxApplet(), &DaxApplet::daxToggled,
             this, [this](bool on) {
         if (on) {
-            if (!startDax() && m_appletPanel && m_appletPanel->catApplet())
-                m_appletPanel->catApplet()->setDaxEnabled(false);
+            if (!startDax() && m_appletPanel && m_appletPanel->daxApplet())
+                m_appletPanel->daxApplet()->setDaxEnabled(false);
         } else {
             stopDax();
         }
@@ -3178,8 +3202,8 @@ void MainWindow::buildMenuBar()
                 else if (!on && m_rigctlServers[i] && m_rigctlServers[i]->isRunning())
                     m_rigctlServers[i]->stop();
             }
-            if (m_appletPanel && m_appletPanel->catApplet())
-                m_appletPanel->catApplet()->setTcpEnabled(on);
+            if (m_appletPanel && m_appletPanel->catControlApplet())
+                m_appletPanel->catControlApplet()->setTcpEnabled(on);
         }
     });
 
@@ -3210,8 +3234,8 @@ void MainWindow::buildMenuBar()
                 else if (!on && m_rigctlPtys[i] && m_rigctlPtys[i]->isRunning())
                     m_rigctlPtys[i]->stop();
             }
-            if (m_appletPanel && m_appletPanel->catApplet())
-                m_appletPanel->catApplet()->setPtyEnabled(on);
+            if (m_appletPanel && m_appletPanel->catControlApplet())
+                m_appletPanel->catControlApplet()->setPtyEnabled(on);
         }
     });
 #endif
@@ -3232,8 +3256,8 @@ void MainWindow::buildMenuBar()
             } else if (!on && m_tciServer->isRunning()) {
                 m_tciServer->stop();
             }
-            if (m_appletPanel && m_appletPanel->catApplet())
-                m_appletPanel->catApplet()->setTciEnabled(on);
+            if (m_appletPanel && m_appletPanel->tciApplet())
+                m_appletPanel->tciApplet()->setTciEnabled(on);
         }
 #endif
     });
@@ -3259,12 +3283,12 @@ void MainWindow::buildMenuBar()
         s.save();
         if (m_radioModel.isConnected()) {
             if (on) {
-                if (startDax() && m_appletPanel && m_appletPanel->catApplet())
-                    m_appletPanel->catApplet()->setDaxEnabled(true);
+                if (startDax() && m_appletPanel && m_appletPanel->daxApplet())
+                    m_appletPanel->daxApplet()->setDaxEnabled(true);
             } else {
                 stopDax();
-                if (m_appletPanel && m_appletPanel->catApplet())
-                    m_appletPanel->catApplet()->setDaxEnabled(false);
+                if (m_appletPanel && m_appletPanel->daxApplet())
+                    m_appletPanel->daxApplet()->setDaxEnabled(false);
             }
         }
     });
@@ -4430,8 +4454,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
                              << "on port" << (basePort + i);
                 }
             }
-            if (m_appletPanel && m_appletPanel->catApplet())
-                m_appletPanel->catApplet()->setTcpEnabled(true);
+            if (m_appletPanel && m_appletPanel->catControlApplet())
+                m_appletPanel->catControlApplet()->setTcpEnabled(true);
         }
         // Auto-start 8-channel CAT virtual serial ports if enabled
         if (as.value("AutoStartCAT", "False").toString() == "True") {
@@ -4442,8 +4466,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
                              << m_rigctlPtys[i]->symlinkPath();
                 }
             }
-            if (m_appletPanel && m_appletPanel->catApplet())
-                m_appletPanel->catApplet()->setPtyEnabled(true);
+            if (m_appletPanel && m_appletPanel->catControlApplet())
+                m_appletPanel->catControlApplet()->setPtyEnabled(true);
         }
 #ifdef HAVE_WEBSOCKETS
         // Auto-start TCI WebSocket server if enabled
@@ -4453,8 +4477,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
                 m_tciServer->start(static_cast<quint16>(tciPort));
                 qDebug() << "AutoStart: TCI on port" << tciPort;
             }
-            if (m_appletPanel && m_appletPanel->catApplet())
-                m_appletPanel->catApplet()->setTciEnabled(true);
+            if (m_appletPanel && m_appletPanel->tciApplet())
+                m_appletPanel->tciApplet()->setTciEnabled(true);
         }
 #endif
         // Populate XVTR bands after radio status settles, and refresh
@@ -4484,8 +4508,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
         // be registered in PanadapterStream yet.
         if (AppSettings::instance().value("AutoStartDAX", "False").toString() == "True") {
             QTimer::singleShot(3000, this, [this]() {
-                if (startDax() && m_appletPanel && m_appletPanel->catApplet())
-                    m_appletPanel->catApplet()->setDaxEnabled(true);
+                if (startDax() && m_appletPanel && m_appletPanel->daxApplet())
+                    m_appletPanel->daxApplet()->setDaxEnabled(true);
             });
         }
 #endif
@@ -7877,28 +7901,28 @@ bool MainWindow::startDax()
     connect(m_radioModel.panStream(), &PanadapterStream::iqDataReady,
             &m_radioModel.daxIqModel(), &DaxIqModel::feedRawIqPacket);
 
-    // Wire DAX IQ level meters to DIGI applet
+    // Wire DAX IQ level meters to IQ applet
     connect(&m_radioModel.daxIqModel(), &DaxIqModel::iqLevelReady,
-            m_appletPanel->catApplet(), &CatApplet::setDaxIqLevel);
+            m_appletPanel->daxIqApplet(), &DaxIqApplet::setDaxIqLevel);
 
-    // Wire DAX IQ enable/disable/rate from DIGI applet to DaxIqModel
-    connect(m_appletPanel->catApplet(), &CatApplet::iqEnableRequested,
+    // Wire DAX IQ enable/disable/rate from IQ applet to DaxIqModel
+    connect(m_appletPanel->daxIqApplet(), &DaxIqApplet::iqEnableRequested,
             &m_radioModel.daxIqModel(), &DaxIqModel::createStream);
-    connect(m_appletPanel->catApplet(), &CatApplet::iqDisableRequested,
+    connect(m_appletPanel->daxIqApplet(), &DaxIqApplet::iqDisableRequested,
             &m_radioModel.daxIqModel(), &DaxIqModel::removeStream);
-    connect(m_appletPanel->catApplet(), &CatApplet::iqRateChanged,
+    connect(m_appletPanel->daxIqApplet(), &DaxIqApplet::iqRateChanged,
             &m_radioModel.daxIqModel(), &DaxIqModel::setSampleRate);
 
     // Wire DAX level meters
     connect(m_daxBridge, &DaxBridge::daxRxLevel,
-            m_appletPanel->catApplet(), &CatApplet::setDaxRxLevel);
+            m_appletPanel->daxApplet(), &DaxApplet::setDaxRxLevel);
     connect(m_daxBridge, &DaxBridge::daxTxLevel,
-            m_appletPanel->catApplet(), &CatApplet::setDaxTxLevel);
+            m_appletPanel->daxApplet(), &DaxApplet::setDaxTxLevel);
 
     // Wire DAX gain sliders
-    connect(m_appletPanel->catApplet(), &CatApplet::daxRxGainChanged,
+    connect(m_appletPanel->daxApplet(), &DaxApplet::daxRxGainChanged,
             m_daxBridge, &DaxBridge::setChannelGain);
-    connect(m_appletPanel->catApplet(), &CatApplet::daxTxGainChanged,
+    connect(m_appletPanel->daxApplet(), &DaxApplet::daxTxGainChanged,
             m_daxBridge, &DaxBridge::setTxGain);
 
     // Apply saved gains to the bridge

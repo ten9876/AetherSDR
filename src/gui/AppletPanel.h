@@ -23,7 +23,12 @@ class TxApplet;
 class PhoneCwApplet;
 class PhoneApplet;
 class EqApplet;
-class CatApplet;
+class CatControlApplet;
+class DaxApplet;
+class DaxIqApplet;
+#ifdef HAVE_WEBSOCKETS
+class TciApplet;
+#endif
 class AntennaGeniusApplet;
 class MeterApplet;
 class MqttApplet;
@@ -51,7 +56,12 @@ public:
     PhoneCwApplet*  phoneCwApplet()  { return m_phoneCwApplet; }
     PhoneApplet*    phoneApplet()    { return m_phoneApplet; }
     EqApplet*       eqApplet()       { return m_eqApplet; }
-    CatApplet*      catApplet()      { return m_catApplet; }
+    CatControlApplet* catControlApplet() { return m_catControlApplet; }
+    DaxApplet*        daxApplet()        { return m_daxApplet; }
+#ifdef HAVE_WEBSOCKETS
+    TciApplet*        tciApplet()        { return m_tciApplet; }
+#endif
+    DaxIqApplet*      daxIqApplet()      { return m_daxIqApplet; }
     AntennaGeniusApplet* agApplet()  { return m_agApplet; }
     MeterApplet*  meterApplet()  { return m_meterApplet; }
 #ifdef HAVE_MQTT
@@ -114,7 +124,12 @@ private:
     PhoneCwApplet* m_phoneCwApplet{nullptr};
     PhoneApplet*   m_phoneApplet{nullptr};
     EqApplet*      m_eqApplet{nullptr};
-    CatApplet*     m_catApplet{nullptr};
+    CatControlApplet* m_catControlApplet{nullptr};
+    DaxApplet*        m_daxApplet{nullptr};
+#ifdef HAVE_WEBSOCKETS
+    TciApplet*        m_tciApplet{nullptr};
+#endif
+    DaxIqApplet*      m_daxIqApplet{nullptr};
     AntennaGeniusApplet* m_agApplet{nullptr};
     MeterApplet* m_meterApplet{nullptr};
 #ifdef HAVE_MQTT
