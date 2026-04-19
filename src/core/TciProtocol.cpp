@@ -115,6 +115,8 @@ QString TciProtocol::generateInitBurst()
             // AGC
             burst += QStringLiteral("agc_mode:%1,%2;")
                          .arg(trx).arg(s->agcMode().toLower());
+            burst += QStringLiteral("agc_t:%1,%2;")
+                         .arg(trx).arg(s->agcThreshold());
 
             // DSP
             burst += QStringLiteral("rx_nb_enable:%1,%2;")
@@ -248,6 +250,7 @@ QString TciProtocol::handleCommand(const QString& cmd)
     if (name == "mute")             return cmdMute(args, isSet);
     if (name == "agc_mode")         return cmdAgcMode(args, isSet);
     if (name == "agc_gain")         return cmdAgcGain(args, isSet);
+    if (name == "agc_t")            return cmdAgcT(args, isSet);
     if (name == "rx_nb_enable")     return cmdRxNbEnable(args, isSet);
     if (name == "rx_nr_enable")     return cmdRxNrEnable(args, isSet);
     if (name == "rx_anf_enable")    return cmdRxAnfEnable(args, isSet);
@@ -807,6 +810,28 @@ QString TciProtocol::cmdAgcGain(const QStringList& args, bool isSet)
 
     m_pendingNotification = QStringLiteral("agc_gain:%1,%2;")
                                 .arg(trx).arg(gain);
+    return {};
+}
+
+QString TciProtocol::cmdAgcT(const QStringList& args, bool isSet)
+{
+    if (args.isEmpty()) return {};
+    int trx = args[0].toInt();
+    auto* s = sliceForTrx(trx);
+    if (!s) return {};
+
+    if (!isSet) {
+        return QStringLiteral("agc_t:%1,%2;")
+                   .arg(trx).arg(s->agcThreshold());
+    }
+
+    if (args.size() < 2) return {};
+    int level = args[1].toInt();
+    QMetaObject::invokeMethod(s, [s, level]() { s->setAgcThreshold(level); },
+                              Qt::QueuedConnection);
+
+    m_pendingNotification = QStringLiteral("agc_t:%1,%2;")
+                                .arg(trx).arg(level);
     return {};
 }
 

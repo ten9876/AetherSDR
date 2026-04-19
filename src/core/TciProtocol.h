@@ -50,6 +50,7 @@ private:
     QString cmdMute(const QStringList& args, bool isSet);
     QString cmdAgcMode(const QStringList& args, bool isSet);
     QString cmdAgcGain(const QStringList& args, bool isSet);
+    QString cmdAgcT(const QStringList& args, bool isSet);
     QString cmdRxNbEnable(const QStringList& args, bool isSet);
     QString cmdRxNrEnable(const QStringList& args, bool isSet);
     QString cmdRxAnfEnable(const QStringList& args, bool isSet);

@@ -983,6 +983,11 @@ void TciServer::wireSlice(int trx, SliceModel* slice)
         broadcast(QStringLiteral("lock:%1,%2;")
                       .arg(trx).arg(locked ? "true" : "false"));
     });
+
+    connect(slice, &SliceModel::agcThresholdChanged, this, [this, trx](int value) {
+        if (m_clients.isEmpty()) return;
+        broadcast(QStringLiteral("agc_t:%1,%2;").arg(trx).arg(value));
+    });
 }
 
 // ── Wire spot click notifications ───────────────────────────────────────
