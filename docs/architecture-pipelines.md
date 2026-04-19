@@ -64,6 +64,13 @@ SpectrumWidget   SpectrumWidget  MeterModel     AudioEngine
 TX AUDIO PIPELINE:                          ◄── AUDIO THREAD
   QAudioSource (mic) ──→ AudioEngine.onTxAudioReady()
                               │
+                              ▼
+                 applyClientTxDsp{Int16,Float32}
+                 (ClientComp + ClientEq in user-configurable order;
+                  CMP→EQ default, EQ→CMP alt.  See src/core/ClientComp.h
+                  and src/core/ClientEq.h.  Lock-free atomics,
+                  meter snapshots published per block.)
+                              │
               ┌───────────────┼───────────────┐
               ▼               ▼               ▼
          Voice mode      DAX TX mode      RADE mode

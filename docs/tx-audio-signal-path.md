@@ -3,10 +3,40 @@
 Documented from FLEX-8600 firmware v4.1.5 meter definitions.
 All meters are source `TX-` unless noted. Units are dBFS unless noted.
 
-## Signal Flow
+## Client-side TX DSP (AetherSDR, before the radio)
+
+Since v0.8.15 AetherSDR applies its own client-side DSP to the TX
+stream between the mic/VirtualAudioBridge and the VITA-49 encoder.
+The radio receives the already-shaped signal and treats it identically
+to any other PC-mic input (enters at SC_MIC, meter 26).
 
 ```
-PC Mic Audio (Opus via remote_audio_tx)
+Mic capture (QAudioSource) / DAX TX audio
+  │
+  ▼
+┌─────────────────────────────┐
+│  Client EQ   (ClientEq)     │  ◄── 10-band parametric, #1660
+│  Client CMP  (ClientComp)   │  ◄── Pro-XL-style compressor + limiter, #1661
+│                             │     Chain order: CMP→EQ (default) or
+│                             │     EQ→CMP, user-selectable in the
+│                             │     floating editor
+└─────────┬───────────────────┘
+          │
+          ▼  (meters: ClientComp inputPeak/outputPeak/GR/limiterActive,
+          │         ClientEq FFT tap)
+          │
+          ▼
+     VITA-49 encode → UDP → radio
+```
+
+Post-encoding, the radio sees this stream as any other PC-mic source
+and runs it through the firmware TX chain below.
+
+## Firmware Signal Flow
+
+```
+PC Mic Audio (Opus via remote_audio_tx) — arrives with client-side
+                                          EQ + CMP already applied
   │
   ▼
 ┌─────────────────────────────┐
