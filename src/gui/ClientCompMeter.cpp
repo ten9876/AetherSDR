@@ -16,14 +16,6 @@ constexpr float kGrMaxMag   =  20.0f;    // GR range 0..-20 dB
 constexpr int   kPeakHoldMs =  700;
 constexpr float kPeakDecayDbPer100Ms = 1.0f;
 
-// Same ballistics as HGauge so every metering surface in the app
-// has matching motion.  Attack is fast enough to feel responsive on
-// speech peaks; release is slow enough that the fill doesn't flicker.
-constexpr int   kAnimIntervalMs = 8;
-constexpr float kAttackSeconds  = 0.030f;
-constexpr float kReleaseSeconds = 0.180f;
-constexpr float kSnapEpsilon    = 0.001f;
-
 const QColor kBarBg    ("#0a1420");
 const QColor kLevelLo  ("#56c48b");
 const QColor kLevelMid ("#e8d65a");
@@ -45,20 +37,10 @@ ClientCompMeter::ClientCompMeter(QWidget* parent) : QWidget(parent)
     m_peakHoldTimer.start();
 
     m_animTimer.setTimerType(Qt::PreciseTimer);
-    m_animTimer.setInterval(kAnimIntervalMs);
+    m_animTimer.setInterval(kMeterSmootherIntervalMs);
     connect(&m_animTimer, &QTimer::timeout, this, [this]() {
-        const qint64 ms = m_animElapsed.restart();
-        if (ms <= 0) return;
-        const float delta = m_targetFrac - m_displayFrac;
-        if (std::fabs(delta) <= kSnapEpsilon) {
-            m_displayFrac = m_targetFrac;
+        if (!m_smooth.tick(m_animElapsed.restart()))
             m_animTimer.stop();
-        } else {
-            const float tau = (delta >= 0.0f) ? kAttackSeconds : kReleaseSeconds;
-            const float alpha = 1.0f - std::exp(
-                -static_cast<float>(ms) / 1000.0f / tau);
-            m_displayFrac += delta * alpha;
-        }
         update();
     });
 }
@@ -69,8 +51,8 @@ void ClientCompMeter::setMode(Mode m)
     m_mode = m;
     m_currentDb = -120.0f;
     m_peakDb    = -120.0f;
-    m_displayFrac = 0.0f;
-    m_targetFrac  = 0.0f;
+    m_smooth.setTarget(0.0f);
+    m_smooth.snapToTarget();
     update();
 }
 
@@ -105,9 +87,8 @@ void ClientCompMeter::recomputeTarget()
         const float mag = std::clamp(-m_currentDb, 0.0f, kGrMaxMag);
         target = mag / kGrMaxMag;
     }
-    m_targetFrac = target;
-    if (std::fabs(m_targetFrac - m_displayFrac) <= kSnapEpsilon) {
-        m_displayFrac = m_targetFrac;
+    m_smooth.setTarget(target);
+    if (!m_smooth.needsAnimation()) {
         if (m_animTimer.isActive()) m_animTimer.stop();
     } else if (!m_animTimer.isActive()) {
         m_animElapsed.restart();
@@ -120,7 +101,7 @@ void ClientCompMeter::setValueDb(float db)
     // Peak-hold tracks the loudest recent reading (or largest GR) and
     // decays after a 700 ms hold.  Jumps instantly to any new extreme
     // so transients don't get hidden.  Bar fill is smoothed separately
-    // through m_targetFrac / m_displayFrac.
+    // via MeterSmoother.
     if (m_mode == Mode::Level) {
         m_currentDb = db;
         if (db > m_peakDb) {
@@ -165,7 +146,7 @@ void ClientCompMeter::paintEvent(QPaintEvent*)
     p.fillRect(bar, kBarBg);
 
     if (m_mode == Mode::Level) {
-        const float fillH = m_displayFrac * bar.height();
+        const float fillH = m_smooth.value() * bar.height();
         QRectF fill(bar.left(), bar.bottom() - fillH, bar.width(), fillH);
 
         QLinearGradient g(0, bar.bottom(), 0, bar.top());
@@ -222,7 +203,7 @@ void ClientCompMeter::paintEvent(QPaintEvent*)
             p.drawLine(QPointF(bar.left(), y), QPointF(bar.right(), y));
         }
     } else {
-        const float fillH = m_displayFrac * bar.height();
+        const float fillH = m_smooth.value() * bar.height();
         QRectF fill(bar.left(), bar.top(), bar.width(), fillH);
         p.fillRect(fill, kGrColor);
 

@@ -1,5 +1,6 @@
 #include "ClientCompApplet.h"
 #include "ClientCompCurveWidget.h"
+#include "MeterSmoother.h"
 #include "core/AudioEngine.h"
 #include "core/ClientComp.h"
 
@@ -18,9 +19,9 @@ namespace AetherSDR {
 
 // Gain-reduction mini-strip used by the applet.  Named at file scope
 // (not in an anonymous namespace) so ClientCompApplet.h can forward-
-// declare it and keep a typed pointer.  Fill animates with the same
-// asymmetric attack/release ballistics as HGauge so the motion matches
-// every other metering surface in the app (Phone/CW Level, etc.).
+// declare it and keep a typed pointer.  Fill motion uses the shared
+// MeterSmoother ballistics so the strip reads identically to every
+// other metering surface in the app.
 class ClientCompGrBar : public QWidget {
 public:
     explicit ClientCompGrBar(QWidget* parent = nullptr) : QWidget(parent)
@@ -28,20 +29,10 @@ public:
         setFixedHeight(10);
 
         m_animTimer.setTimerType(Qt::PreciseTimer);
-        m_animTimer.setInterval(8);
+        m_animTimer.setInterval(kMeterSmootherIntervalMs);
         connect(&m_animTimer, &QTimer::timeout, this, [this]() {
-            const qint64 ms = m_animElapsed.restart();
-            if (ms <= 0) return;
-            const float delta = m_targetFrac - m_displayFrac;
-            if (std::fabs(delta) <= 0.001f) {
-                m_displayFrac = m_targetFrac;
+            if (!m_smooth.tick(m_animElapsed.restart()))
                 m_animTimer.stop();
-            } else {
-                const float tau = (delta >= 0.0f) ? 0.030f : 0.180f;
-                const float alpha = 1.0f - std::exp(
-                    -static_cast<float>(ms) / 1000.0f / tau);
-                m_displayFrac += delta * alpha;
-            }
             update();
         });
     }
@@ -51,9 +42,8 @@ public:
         if (std::fabs(grDb - m_grDb) < 0.05f) return;
         m_grDb = grDb;
         constexpr float kMaxGr = 20.0f;
-        m_targetFrac = std::clamp(-m_grDb, 0.0f, kMaxGr) / kMaxGr;
-        if (std::fabs(m_targetFrac - m_displayFrac) <= 0.001f) {
-            m_displayFrac = m_targetFrac;
+        m_smooth.setTarget(std::clamp(-m_grDb, 0.0f, kMaxGr) / kMaxGr);
+        if (!m_smooth.needsAnimation()) {
             if (m_animTimer.isActive()) m_animTimer.stop();
             update();
         } else if (!m_animTimer.isActive()) {
@@ -69,8 +59,9 @@ protected:
         const QRectF r = rect();
         p.fillRect(r, QColor("#0a1420"));
         constexpr float kMaxGr = 20.0f;
-        if (m_displayFrac > 0.0f) {
-            const float w = m_displayFrac * r.width();
+        const float frac = m_smooth.value();
+        if (frac > 0.0f) {
+            const float w = frac * r.width();
             QRectF fill(r.right() - w, r.top() + 1.0, w, r.height() - 2.0);
             p.fillRect(fill, QColor("#e8a540"));
         }
@@ -80,11 +71,10 @@ protected:
     }
 
 private:
-    float m_grDb{0.0f};
+    float         m_grDb{0.0f};
+    MeterSmoother m_smooth;
     QTimer        m_animTimer;
     QElapsedTimer m_animElapsed;
-    float         m_displayFrac{0.0f};
-    float         m_targetFrac{0.0f};
 };
 
 namespace {

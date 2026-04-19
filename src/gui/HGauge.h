@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MeterSmoother.h"
+
 #include <QPainter>
 #include <QWidget>
 #include <QWheelEvent>
@@ -35,22 +37,15 @@ public:
         setFixedHeight(24);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
-        m_displayFrac = qBound(0.0f, (0.0f - m_min) / (m_max - m_min), 1.0f);
-        m_targetFrac = m_displayFrac;
+        const float initial = qBound(
+            0.0f, (0.0f - m_min) / (m_max - m_min), 1.0f);
+        m_smooth.setTarget(initial);
+        m_smooth.snapToTarget();
         m_animTimer.setTimerType(Qt::PreciseTimer);
-        m_animTimer.setInterval(kAnimIntervalMs);
+        m_animTimer.setInterval(kMeterSmootherIntervalMs);
         connect(&m_animTimer, &QTimer::timeout, this, [this]() {
-            const qint64 ms = m_animElapsed.restart();
-            if (ms <= 0) return;
-            const float delta = m_targetFrac - m_displayFrac;
-            if (qAbs(delta) <= kSnapEpsilon) {
-                m_displayFrac = m_targetFrac;
+            if (!m_smooth.tick(m_animElapsed.restart()))
                 m_animTimer.stop();
-            } else {
-                const float tau = (delta >= 0.0f) ? kAttackSeconds : kReleaseSeconds;
-                const float alpha = 1.0f - std::exp(-static_cast<float>(ms) / 1000.0f / tau);
-                m_displayFrac += delta * alpha;
-            }
             update();
         });
     }
@@ -58,9 +53,9 @@ public:
     void setValue(float v) {
         if (qFuzzyCompare(m_value, v)) return;
         m_value = v;
-        m_targetFrac = qBound(0.0f, (v - m_min) / (m_max - m_min), 1.0f);
-        if (qAbs(m_targetFrac - m_displayFrac) <= kSnapEpsilon) {
-            m_displayFrac = m_targetFrac;
+        m_smooth.setTarget(
+            qBound(0.0f, (v - m_min) / (m_max - m_min), 1.0f));
+        if (!m_smooth.needsAnimation()) {
             if (m_animTimer.isActive()) m_animTimer.stop();
             update();
         } else if (!m_animTimer.isActive()) {
@@ -104,7 +99,7 @@ protected:
         p.drawRect(barX, barY, barW - 1, barH - 1);
 
         // Filled portion (animated)
-        int fillW = static_cast<int>(m_displayFrac * barW);
+        int fillW = static_cast<int>(m_smooth.value() * barW);
 
         if (m_reversed) {
             // Reversed: bar fills from right to left, single color.
@@ -195,15 +190,10 @@ private:
     QString m_label, m_unit;
     QVector<Tick> m_ticks;
 
-    // Smoothed bar animation (asymmetric attack/release)
+    // Shared meter ballistics — see MeterSmoother.h.
+    MeterSmoother m_smooth;
     QTimer        m_animTimer;
     QElapsedTimer m_animElapsed;
-    float         m_displayFrac{0.0f};
-    float         m_targetFrac{0.0f};
-    static constexpr int   kAnimIntervalMs = 8;
-    static constexpr float kAttackSeconds  = 0.030f;
-    static constexpr float kReleaseSeconds = 0.180f;
-    static constexpr float kSnapEpsilon    = 0.001f;
 };
 
 // ── RelayBar: horizontal bar for relay position (0–255) ───────────────────────

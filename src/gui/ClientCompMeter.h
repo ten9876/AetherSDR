@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MeterSmoother.h"
+
 #include <QWidget>
 #include <QElapsedTimer>
 #include <QTimer>
@@ -59,11 +61,10 @@ private:
     float m_peakDb{-120.0f};
     QElapsedTimer m_peakHoldTimer;
 
-    // Smoothed fill animation (same ballistics as HGauge).
+    // Smoothed fill — shared MeterSmoother ballistics.
+    MeterSmoother m_smooth;
     QTimer        m_animTimer;
     QElapsedTimer m_animElapsed;
-    float         m_displayFrac{0.0f};
-    float         m_targetFrac{0.0f};
 
     // Optional limiter overlay state — Level mode only.
     float m_ceilingDb{1.0f};      // >0 means "no overlay"
