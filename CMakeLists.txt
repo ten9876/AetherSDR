@@ -504,6 +504,13 @@ set(GUI_SOURCES
     src/gui/PhoneCwApplet.cpp
     src/gui/PhoneApplet.cpp
     src/gui/EqApplet.cpp
+    src/gui/ClientEqApplet.cpp
+    src/gui/ClientEqCurveWidget.cpp
+    src/gui/ClientEqEditor.cpp
+    src/gui/ClientEqEditorCanvas.cpp
+    src/gui/ClientEqFftAnalyzer.cpp
+    src/gui/ClientEqIconRow.cpp
+    src/gui/ClientEqParamRow.cpp
     src/gui/CatControlApplet.cpp
     src/gui/DaxApplet.cpp
     src/gui/TciApplet.cpp

@@ -9,6 +9,7 @@
 #include <QUdpSocket>
 #include <QTimer>
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <QBuffer>
 #include <QByteArray>
@@ -158,6 +159,14 @@ public:
     // Returns non-null pointers after first prepare()/startRxStream.
     ClientEq* clientEqRx() { return m_clientEqRx.get(); }
     ClientEq* clientEqTx() { return m_clientEqTx.get(); }
+
+    // Post-Client-EQ audio tap for the editor's FFT analyzer.  Exposes
+    // a rolling mono buffer filled on the audio thread; UI thread copies
+    // the most-recent N samples for FFT without allocating or blocking.
+    // `out` is filled newest-last (FIFO-style), returns true on success.
+    static constexpr int kClientEqTapSize = 2048;  // ~85ms at 24 kHz
+    bool copyRecentClientEqRxSamples(float* out, int count) const;
+    bool copyRecentClientEqTxSamples(float* out, int count) const;
 
     // Load/save all EQ state (enable flag, active band count, per-band
     // params) via AppSettings. `path` is "Rx" or "Tx" — used as the key
@@ -317,6 +326,18 @@ private:
     // Scratch buffer for in-place EQ on the RX path (avoids per-call alloc).
     QByteArray m_clientEqRxScratch;
     QByteArray m_clientEqTxScratch;
+    // Post-EQ analyzer tap. One ring per path, mono (L+R averaged).
+    // Audio thread writes via tapClientEqRxStereo() / tapClientEqTxInt16()
+    // / tapClientEqTxFloat32(); UI thread snapshots via the public
+    // copyRecent*() accessors. Mutex is held for microseconds only.
+    mutable std::mutex m_clientEqTapMutex;
+    float              m_clientEqTapRx[kClientEqTapSize]{};
+    float              m_clientEqTapTx[kClientEqTapSize]{};
+    int                m_clientEqTapRxWrite{0};
+    int                m_clientEqTapTxWrite{0};
+    void tapClientEqRxStereo(const float* stereoInterleaved, int frames);
+    void tapClientEqTxInt16(const int16_t* int16stereo, int frames);
+    void tapClientEqTxFloat32(const float* f32, int samples, int channels);
 
     // Pre-allocated NR2 work buffers (avoid per-call heap allocation)
     std::vector<float> m_nr2Mono;

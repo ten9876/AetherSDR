@@ -112,6 +112,109 @@ void ClientEq::reset() noexcept
     }
 }
 
+float ClientEq::bandMagnitudeDb(const BandParams& p,
+                                float probeFreqHz,
+                                double sampleRate) noexcept
+{
+    if (!p.enabled || probeFreqHz <= 0.0f || sampleRate <= 0.0) return 0.0f;
+
+    // Clamp the probe frequency to just below Nyquist. Above fs/2 the
+    // magnitude response folds (|H(ω)| is periodic with period 2π in the
+    // digital domain), so a band centered at, say, 9 kHz with fs=24 kHz
+    // would produce a phantom peak mirrored at fs - 9 = 15 kHz when the
+    // canvas draws out to 20 kHz. Holding the value at ~Nyquist gives an
+    // honest flat line above fs/2 — the audio path can't carry anything
+    // there anyway.
+    const float nyquist = static_cast<float>(sampleRate * 0.49f);
+    probeFreqHz = std::min(probeFreqHz, nyquist);
+
+    // Derive RBJ coefficients from params — same math as computeCoefficients()
+    // but pure / stateless and using the *target* params rather than the
+    // smoothed current values. The duplication is deliberate: the audio
+    // path's copy is hot and stays inlined; this one is a display helper.
+    const float freq = std::clamp(p.freqHz, 10.0f, nyquist);
+    const float q    = std::max(0.1f, p.q);
+    const float A    = dbToAmp(p.gainDb);
+    const float omega = kTwoPi * freq / static_cast<float>(sampleRate);
+    const float cosW  = std::cos(omega);
+    const float sinW  = std::sin(omega);
+    const float alpha = sinW / (2.0f * q);
+
+    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
+    float a0 = 1.0f, a1 = 0.0f, a2 = 0.0f;
+    switch (p.type) {
+    case FilterType::Peak:
+        b0 = 1.0f + alpha * A;
+        b1 = -2.0f * cosW;
+        b2 = 1.0f - alpha * A;
+        a0 = 1.0f + alpha / A;
+        a1 = -2.0f * cosW;
+        a2 = 1.0f - alpha / A;
+        break;
+    case FilterType::LowShelf: {
+        const float sqrtA  = std::sqrt(A);
+        const float twoSqrtAalpha = 2.0f * sqrtA * alpha;
+        b0 =        A * ((A + 1.0f) - (A - 1.0f) * cosW + twoSqrtAalpha);
+        b1 =  2.0f * A * ((A - 1.0f) - (A + 1.0f) * cosW);
+        b2 =        A * ((A + 1.0f) - (A - 1.0f) * cosW - twoSqrtAalpha);
+        a0 =             (A + 1.0f) + (A - 1.0f) * cosW + twoSqrtAalpha;
+        a1 =     -2.0f * ((A - 1.0f) + (A + 1.0f) * cosW);
+        a2 =             (A + 1.0f) + (A - 1.0f) * cosW - twoSqrtAalpha;
+        break;
+    }
+    case FilterType::HighShelf: {
+        const float sqrtA  = std::sqrt(A);
+        const float twoSqrtAalpha = 2.0f * sqrtA * alpha;
+        b0 =        A * ((A + 1.0f) + (A - 1.0f) * cosW + twoSqrtAalpha);
+        b1 = -2.0f * A * ((A - 1.0f) + (A + 1.0f) * cosW);
+        b2 =        A * ((A + 1.0f) + (A - 1.0f) * cosW - twoSqrtAalpha);
+        a0 =             (A + 1.0f) - (A - 1.0f) * cosW + twoSqrtAalpha;
+        a1 =      2.0f * ((A - 1.0f) - (A + 1.0f) * cosW);
+        a2 =             (A + 1.0f) - (A - 1.0f) * cosW - twoSqrtAalpha;
+        break;
+    }
+    case FilterType::LowPass:
+        b0 = (1.0f - cosW) * 0.5f;
+        b1 =  1.0f - cosW;
+        b2 = (1.0f - cosW) * 0.5f;
+        a0 =  1.0f + alpha;
+        a1 = -2.0f * cosW;
+        a2 =  1.0f - alpha;
+        break;
+    case FilterType::HighPass:
+        b0 =  (1.0f + cosW) * 0.5f;
+        b1 = -(1.0f + cosW);
+        b2 =  (1.0f + cosW) * 0.5f;
+        a0 =  1.0f + alpha;
+        a1 = -2.0f * cosW;
+        a2 =  1.0f - alpha;
+        break;
+    }
+    const float invA0 = 1.0f / a0;
+    b0 *= invA0; b1 *= invA0; b2 *= invA0;
+    a1 *= invA0; a2 *= invA0;
+
+    // Evaluate |H(e^jΩ)| at Ω = 2π * probeFreq / fs
+    const float W = kTwoPi * probeFreqHz / static_cast<float>(sampleRate);
+    const float cw1 = std::cos(W);
+    const float sw1 = std::sin(W);
+    const float cw2 = std::cos(2.0f * W);
+    const float sw2 = std::sin(2.0f * W);
+
+    const float numRe = b0 + b1 * cw1 + b2 * cw2;
+    const float numIm =       -b1 * sw1 - b2 * sw2;
+    const float denRe = 1.0f + a1 * cw1 + a2 * cw2;
+    const float denIm =       -a1 * sw1 - a2 * sw2;
+
+    const float numMag = std::sqrt(numRe * numRe + numIm * numIm);
+    const float denMag = std::sqrt(denRe * denRe + denIm * denIm);
+    if (denMag < 1e-20f) return 0.0f;
+
+    const float mag = numMag / denMag;
+    if (mag < 1e-12f) return -240.0f;
+    return 20.0f * std::log10(mag);
+}
+
 bool ClientEq::smoothTowardTarget(int idx, Runtime& runtime,
                                   const AtomicBand& target,
                                   float smoothCoeff) noexcept

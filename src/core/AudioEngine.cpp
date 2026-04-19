@@ -508,6 +508,16 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
             eqSource = &m_clientEqRxScratch;
         }
 
+        // Tap post-EQ audio into the ring buffer for the editor's FFT
+        // analyzer. Runs whether EQ is active or bypassed — the tap shows
+        // the signal actually heading to the sink at native 24 kHz.
+        const int tapFrames = eqSource->size() / (2 * static_cast<int>(sizeof(float)));
+        if (tapFrames > 0) {
+            tapClientEqRxStereo(
+                reinterpret_cast<const float*>(eqSource->constData()),
+                tapFrames);
+        }
+
         const QByteArray& resampled = m_resampleTo48k ? resampleStereo(*eqSource) : *eqSource;
         if (m_rxBoost.load()) {
             // Soft-knee boost — increases perceived loudness without hard clipping.
@@ -644,6 +654,84 @@ void AudioEngine::saveClientEqSettings() const
     AppSettings::instance().save();
 }
 
+void AudioEngine::tapClientEqRxStereo(const float* stereoInterleaved, int frames)
+{
+    if (frames <= 0) return;
+    // Audio-thread writer: skip silently if UI thread holds the lock —
+    // dropping a block of tap samples just produces a one-frame stutter
+    // on the FFT display, never an audio glitch.
+    std::unique_lock<std::mutex> lk(m_clientEqTapMutex, std::try_to_lock);
+    if (!lk.owns_lock()) return;
+    int w = m_clientEqTapRxWrite;
+    for (int i = 0; i < frames; ++i) {
+        const float mono = 0.5f * (stereoInterleaved[i * 2]
+                                 + stereoInterleaved[i * 2 + 1]);
+        m_clientEqTapRx[w] = mono;
+        w = (w + 1) & (kClientEqTapSize - 1);
+    }
+    m_clientEqTapRxWrite = w;
+}
+
+void AudioEngine::tapClientEqTxInt16(const int16_t* int16stereo, int frames)
+{
+    if (frames <= 0) return;
+    std::unique_lock<std::mutex> lk(m_clientEqTapMutex, std::try_to_lock);
+    if (!lk.owns_lock()) return;
+    int w = m_clientEqTapTxWrite;
+    for (int i = 0; i < frames; ++i) {
+        const float l = int16stereo[i * 2]     / 32768.0f;
+        const float r = int16stereo[i * 2 + 1] / 32768.0f;
+        m_clientEqTapTx[w] = 0.5f * (l + r);
+        w = (w + 1) & (kClientEqTapSize - 1);
+    }
+    m_clientEqTapTxWrite = w;
+}
+
+void AudioEngine::tapClientEqTxFloat32(const float* f32, int samples, int channels)
+{
+    if (samples <= 0 || channels < 1 || channels > 2) return;
+    std::unique_lock<std::mutex> lk(m_clientEqTapMutex, std::try_to_lock);
+    if (!lk.owns_lock()) return;
+    int w = m_clientEqTapTxWrite;
+    const int frames = samples / channels;
+    for (int i = 0; i < frames; ++i) {
+        float mono;
+        if (channels == 2) {
+            mono = 0.5f * (f32[i * 2] + f32[i * 2 + 1]);
+        } else {
+            mono = f32[i];
+        }
+        m_clientEqTapTx[w] = mono;
+        w = (w + 1) & (kClientEqTapSize - 1);
+    }
+    m_clientEqTapTxWrite = w;
+}
+
+bool AudioEngine::copyRecentClientEqRxSamples(float* out, int count) const
+{
+    if (!out || count <= 0 || count > kClientEqTapSize) return false;
+    std::lock_guard<std::mutex> lk(m_clientEqTapMutex);
+    int w = m_clientEqTapRxWrite;
+    for (int i = 0; i < count; ++i) {
+        // Fill newest-last: out[count-1] is the most recent sample.
+        const int idx = (w - count + i + kClientEqTapSize) & (kClientEqTapSize - 1);
+        out[i] = m_clientEqTapRx[idx];
+    }
+    return true;
+}
+
+bool AudioEngine::copyRecentClientEqTxSamples(float* out, int count) const
+{
+    if (!out || count <= 0 || count > kClientEqTapSize) return false;
+    std::lock_guard<std::mutex> lk(m_clientEqTapMutex);
+    int w = m_clientEqTapTxWrite;
+    for (int i = 0; i < count; ++i) {
+        const int idx = (w - count + i + kClientEqTapSize) & (kClientEqTapSize - 1);
+        out[i] = m_clientEqTapTx[idx];
+    }
+    return true;
+}
+
 void AudioEngine::applyClientEqTxInt16(QByteArray& int16stereo)
 {
     if (!m_clientEqTx || !m_clientEqTx->isEnabled()) return;
@@ -668,6 +756,9 @@ void AudioEngine::applyClientEqTxInt16(QByteArray& int16stereo)
         out[i] = static_cast<int16_t>(std::clamp(f32[i] * 32768.0f,
                                                  -32768.0f, 32767.0f));
     }
+    // Feed the editor's TX FFT tap with the post-EQ signal (what the
+    // radio is actually about to transmit).
+    tapClientEqTxInt16(out, frames);
 }
 
 void AudioEngine::applyClientEqTxFloat32(QByteArray& float32)
@@ -682,6 +773,8 @@ void AudioEngine::applyClientEqTxFloat32(QByteArray& float32)
     const int frames = samples / channels;
     m_clientEqTx->process(reinterpret_cast<float*>(float32.data()),
                           frames, channels);
+    tapClientEqTxFloat32(reinterpret_cast<const float*>(float32.constData()),
+                         samples, channels);
 }
 
 static QString wisdomDir()
