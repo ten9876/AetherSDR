@@ -501,7 +501,7 @@ private:
     qint64 m_lastNativeTileMs{0};    // timestamp of last native tile (for fallback)
     QVector<QRgb> m_prevTileScanline;  // previous tile row for interpolation
 
-    static constexpr float SMOOTH_ALPHA    = 0.35f;
+    static constexpr float SMOOTH_ALPHA    = 0.50f;
     // Fraction of the panadapter area (above freq scale) used for spectrum
     float m_spectrumFrac{0.40f};
     // Height of the frequency scale bar
