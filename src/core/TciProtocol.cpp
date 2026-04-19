@@ -571,9 +571,12 @@ QString TciProtocol::cmdSplitEnable(const QStringList& args, bool isSet)
                    .arg(trx).arg(split ? "true" : "false");
     }
 
-    // Set split — not fully controllable from TCI (would need to create a second slice)
-    // Just acknowledge
-    return {};
+    // Set split — delegate to GUI via RadioModel signal (#1686)
+    if (args.size() < 2) return {};
+    bool enable = args[1].trimmed().toLower() == "true";
+    emit m_model->splitRequested(trx, enable);
+    return QStringLiteral("split_enable:%1,%2;")
+               .arg(trx).arg(enable ? "true" : "false");
 }
 
 // ── RX Filter ──────────────────────────────────────────────────────────────

@@ -336,6 +336,8 @@ signals:
     void txAudioGateChanged(bool transmitting);
     // Raw interlock TX state (regardless of ownership — for DAX passthrough).
     void radioTransmittingChanged(bool transmitting);
+    // Emitted by TCI protocol to request split toggle (GUI owns the slice lifecycle).
+    void splitRequested(int trx, bool enable);
     // Emitted when global profile list or active profile changes.
     void globalProfilesChanged();
     // Emitted on each successful ping response from the radio.

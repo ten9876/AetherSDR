@@ -767,6 +767,40 @@ MainWindow::MainWindow(QWidget* parent)
             QString("%1 supports a maximum of %2 slices across all connected clients")
                 .arg(model).arg(limit), 4000);
     });
+    // TCI split_enable command — reuse the same logic as VfoWidget::splitToggled (#1686)
+    connect(&m_radioModel, &RadioModel::splitRequested,
+            this, [this](int trx, bool enable) {
+        // Map TRX to sliceId (same mapping as TciProtocol::sliceForTrx)
+        int sliceId = -1;
+        for (auto* s : m_radioModel.slices()) {
+            if (s->sliceId() == trx) { sliceId = trx; break; }
+        }
+        if (sliceId < 0 && !m_radioModel.slices().isEmpty())
+            sliceId = m_radioModel.slices().first()->sliceId();
+        if (sliceId < 0) return;
+
+        if (enable && !m_splitActive) {
+            // Enable split — same path as VfoWidget::splitToggled
+            if (m_radioModel.slices().size() >= m_radioModel.maxSlices())
+                return;
+            auto* rxSlice = m_radioModel.slice(sliceId);
+            if (!rxSlice) return;
+            QString panId = rxSlice->panId();
+            if (panId.isEmpty())
+                panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
+            const QString mode = rxSlice->mode();
+            bool isCw = mode == "CW" || mode == "CWL";
+            double offsetMhz = isCw ? 0.001 : 0.005;
+            double txFreq = rxSlice->frequency() + offsetMhz;
+            m_splitActive = true;
+            m_splitRxSliceId = sliceId;
+            m_radioModel.sendCommand(
+                QString("slice create pan=%1 freq=%2")
+                    .arg(panId).arg(txFreq, 0, 'f', 6));
+        } else if (!enable && m_splitActive) {
+            disableSplit();
+        }
+    });
     connect(&m_radioModel.spotModel(), &SpotModel::spotsCleared,
             this, &MainWindow::rebuildMemorySpotFeed);
 

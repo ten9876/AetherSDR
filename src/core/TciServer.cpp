@@ -976,6 +976,10 @@ void TciServer::wireSlice(int trx, SliceModel* slice)
         if (m_clients.isEmpty()) return;
         broadcast(QStringLiteral("tx_enable:%1,%2;")
                       .arg(trx).arg(tx ? "true" : "false"));
+        // Broadcast split_enable when TX ownership changes (#1686).
+        // Split = another slice holds TX (this slice lost it → split on for it).
+        broadcast(QStringLiteral("split_enable:%1,%2;")
+                      .arg(trx).arg(tx ? "false" : "true"));
     });
 
     connect(slice, &SliceModel::lockedChanged, this, [this, trx](bool locked) {
