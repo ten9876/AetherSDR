@@ -298,6 +298,19 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
 
+    // (#1681) On Linux, DaxTxLowLatency has no utility and broke TCI TX.
+    // Migrate any stale True value to False on upgrade.
+#ifdef HAVE_PIPEWIRE
+    {
+        auto& s = AppSettings::instance();
+        if (s.value("DaxTxLowLatency", "False").toString() == "True") {
+            s.setValue("DaxTxLowLatency", "False");
+            s.save();
+            qInfo() << "MainWindow: migrated DaxTxLowLatency=True → False (not applicable on Linux)";
+        }
+    }
+#endif
+
     // Band plan manager — must be created before buildMenuBar() which references it
     m_bandPlanMgr = new BandPlanManager(this);
     m_bandPlanMgr->loadPlans();
@@ -3338,6 +3351,7 @@ void MainWindow::buildMenuBar()
     });
 #endif
 
+#if !defined(HAVE_PIPEWIRE)
     auto* lowLatencyDaxTxAction =
         settingsMenu->addAction("Low-Latency DAX (FreeDV)");
     lowLatencyDaxTxAction->setCheckable(true);
@@ -3349,11 +3363,12 @@ void MainWindow::buildMenuBar()
         s.save();
         m_audio->setDaxTxUseRadioRoute(!on);
         m_audio->clearTxAccumulators();
-#if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
+#if defined(Q_OS_MAC)
         if (m_daxBridge)
             m_radioModel.sendCommand(QString("transmit set dax=%1").arg(on ? 0 : 1));
 #endif
     });
+#endif
 
     // Connect placeholder items to show "not implemented" message
     for (auto* action : settingsMenu->actions()) {
@@ -3375,7 +3390,10 @@ void MainWindow::buildMenuBar()
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
             && action != autoDaxAction
 #endif
-            && action != lowLatencyDaxTxAction) {
+#if !defined(HAVE_PIPEWIRE)
+            && action != lowLatencyDaxTxAction
+#endif
+            ) {
             connect(action, &QAction::triggered, this, [this, action] {
                 statusBar()->showMessage(action->text().remove("...") + " — not yet implemented", 3000);
             });
@@ -7991,9 +8009,13 @@ bool MainWindow::startDax()
     // Save current mic selection before forcing PC audio source.
     m_savedMicSelection = m_radioModel.transmitModel().micSelection();
 
+#if !defined(HAVE_PIPEWIRE)
     const bool lowLatencyRoute =
         AppSettings::instance().value("DaxTxLowLatency", "False").toString() == "True";
     m_audio->setDaxTxUseRadioRoute(!lowLatencyRoute);
+#else
+    m_audio->setDaxTxUseRadioRoute(true);
+#endif
     m_radioModel.sendCommand("transmit set mic_selection=PC");
     // Don't force dax=1 here — radio-side DAX flag follows mode changes
     // via updateDaxTxMode(). Bridge up ≠ DAX TX active. (#534)

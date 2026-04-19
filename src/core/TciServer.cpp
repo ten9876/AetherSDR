@@ -1044,9 +1044,13 @@ void TciServer::startTxChrono(QWebSocket* client, int trx)
     m_txChronoClient = client;
     m_txChronoTrx = trx;
 
+#if !defined(HAVE_PIPEWIRE)
     const bool lowLatencyRoute =
         AppSettings::instance().value("DaxTxLowLatency", "False").toString() == "True";
     m_txUseRadioRoute = !lowLatencyRoute;
+#else
+    m_txUseRadioRoute = true;
+#endif
     // TCI has its own TX gain (decoupled from DaxTxGain) so users who split
     // DAX and TCI routing get independent slider control.  On first read,
     // copy DaxTxGain into TciTxGain so upgrading users see no behavior

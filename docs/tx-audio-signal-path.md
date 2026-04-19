@@ -32,6 +32,40 @@ Mic capture (QAudioSource) / DAX TX audio
 Post-encoding, the radio sees this stream as any other PC-mic source
 and runs it through the firmware TX chain below.
 
+## DAX TX Routing
+
+The `DaxTxLowLatency` AppSettings flag controls how DAX TX audio is
+encoded into VITA-49 packets before being sent to the radio.
+
+| Mode | Packet Class Code | Format | `transmit set dax` | Use case |
+|------|-------------------|--------|-------------------|----------|
+| **Radio-native** (default) | PCC 0x0123 | int16 mono | `dax=1` | Standard DAX/TCI TX |
+| **Low-latency** | PCC 0x03E3 | float32 stereo (FlexLib DAXTXAudioStream) | `dax=0` | External FreeDV client via virtual audio cable |
+
+### Platform behavior
+
+- **Linux** (`HAVE_PIPEWIRE` defined): The menu item is **not shown**.
+  FreeDV audio routing is handled at the OS level by PipeWire/PulseAudio,
+  so the low-latency float32 VITA-49 route has no utility. The radio-native
+  `dax=1` route is always used. Any stale `DaxTxLowLatency=True` from prior
+  builds is migrated to `False` on startup (#1681).
+
+- **macOS / Windows**: The **Settings → Low-Latency DAX (FreeDV)** toggle
+  is available for users who route an external FreeDV client through a
+  virtual audio cable (Loopback on macOS, VB-Cable on Windows).
+
+### Why `dax=0` is harmful
+
+When `DaxTxLowLatency=True`, the radio is told `transmit set dax=0`. This
+routes the physical microphone to the TX modulator and **silently discards
+all `dax_tx` VITA-49 packets**. The relay clicks, the TCI TX level meter
+shows audio, but no RF is produced. This was the root cause of the
+WSJT-X/JTDX "no RF output over TCI" failure mode (fixed in #1680).
+
+AetherSDR's internal RADE/FreeDV engine (`AudioEngine::sendModemTxAudio`)
+bypasses this flag entirely — it feeds the modulator directly without
+consulting `DaxTxLowLatency`.
+
 ## Firmware Signal Flow
 
 ```
