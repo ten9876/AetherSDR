@@ -1623,6 +1623,7 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
                 m_offScreenRects[oi].contains(QPoint(static_cast<int>(ev->position().x()), y))) {
                 const auto& so = m_sliceOverlays[oi];
                 if (!so.isActive) emit sliceClicked(so.sliceId);
+                m_spotClickConsumed = true;   // suppress release-to-tune (#1772)
                 ev->accept();
                 return;
             }
