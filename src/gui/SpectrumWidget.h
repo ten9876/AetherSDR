@@ -185,6 +185,8 @@ public:
     bool showTuneGuides() const { return m_showTuneGuides; }
     void setExtendedFrequencyLine(bool on);
     bool extendedFrequencyLine() const { return m_extendedFrequencyLine; }
+    void setExtendedCrosshair(bool on);
+    bool extendedCrosshair() const { return m_extendedCrosshair; }
     void setFloating(bool on) { m_isFloating = on; }
     void setBackgroundImage(const QString& path);
     QString backgroundImagePath() const { return m_bgImagePath; }
@@ -566,6 +568,7 @@ private:
     // Tune guide overlay (vertical line + freq label, auto-hides after 4s)
     bool    m_showTuneGuides{false};
     bool    m_extendedFrequencyLine{false};
+    bool    m_extendedCrosshair{false};
     bool    m_isFloating{false};
     bool    m_tuneGuideVisible{false};
     QTimer* m_tuneGuideTimer{nullptr};

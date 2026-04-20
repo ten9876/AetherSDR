@@ -286,6 +286,7 @@ void SpectrumWidget::loadSettings()
     m_singleClickTune = s.value("SingleClickTune", "False").toString() == "True";
     m_showTuneGuides  = s.value("ShowTuneGuides", "False").toString() == "True";
     m_extendedFrequencyLine = s.value("ExtendedFrequencyLine", "False").toString() == "True";
+    m_extendedCrosshair = s.value("ExtendedCrosshair", "False").toString() == "True";
 
     // Background image — default to bundled logo, "none" = explicitly cleared
     QString bgPath = s.value(settingsKey("BackgroundImage"), ":/bg-default.jpg").toString();
@@ -421,6 +422,24 @@ void SpectrumWidget::setExtendedFrequencyLine(bool on) {
         for (SpectrumWidget* sw : siblings) {
             if (sw != this && sw->m_extendedFrequencyLine != on) {
                 sw->m_extendedFrequencyLine = on;
+                sw->markOverlayDirty();
+            }
+        }
+    }
+}
+void SpectrumWidget::setExtendedCrosshair(bool on) {
+    m_extendedCrosshair = on;
+    auto& s = AppSettings::instance();
+    s.setValue("ExtendedCrosshair", on ? "True" : "False");
+    s.save();
+    markOverlayDirty();
+
+    // Propagate to all sibling SpectrumWidgets so the toggle is global.
+    if (QWidget* top = window()) {
+        const auto siblings = top->findChildren<SpectrumWidget*>();
+        for (SpectrumWidget* sw : siblings) {
+            if (sw != this && sw->m_extendedCrosshair != on) {
+                sw->m_extendedCrosshair = on;
                 sw->markOverlayDirty();
             }
         }
@@ -1803,6 +1822,11 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         extendedLineAction->setChecked(m_extendedFrequencyLine);
         connect(extendedLineAction, &QAction::toggled, this, &SpectrumWidget::setExtendedFrequencyLine);
 
+        QAction* extCrosshairAction = menu.addAction("Extended Crosshair");
+        extCrosshairAction->setCheckable(true);
+        extCrosshairAction->setChecked(m_extendedCrosshair);
+        connect(extCrosshairAction, &QAction::toggled, this, &SpectrumWidget::setExtendedCrosshair);
+
         menu.addSeparator();
         bool floating = m_isFloating;
         QAction* popOutAction = menu.addAction(floating ? "\u21a9 Dock" : "\u2197 Pop out");
@@ -2175,12 +2199,12 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         }
     }
 
-    // Track cursor position for frequency label overlay and tune guides
+    // Track cursor position for frequency label overlay, tune guides, and extended crosshair
     if (m_showTuneGuides) {
         m_tuneGuideVisible = true;
         m_tuneGuideTimer->start();
     }
-    if (m_showCursorFreq || m_showTuneGuides) {
+    if (m_showCursorFreq || m_showTuneGuides || m_extendedCrosshair) {
         m_cursorPos = ev->position().toPoint();
         markOverlayDirty();
     }
@@ -2415,7 +2439,7 @@ void SpectrumWidget::mouseDoubleClickEvent(QMouseEvent* ev)
 void SpectrumWidget::leaveEvent(QEvent* event)
 {
     QWidget::leaveEvent(event);
-    if (m_showCursorFreq || m_showTuneGuides) {
+    if (m_showCursorFreq || m_showTuneGuides || m_extendedCrosshair) {
         m_cursorPos = {-1, -1};
         markOverlayDirty();
     }
@@ -2948,11 +2972,11 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
         setMouseTracking(true);
     }
 
-    // Tune guide recovery: after reparenting (add/remove panadapter), Qt may
-    // not deliver mouseMoveEvents even with mouse tracking enabled (missing
-    // enterEvent, stale widget state). Poll the actual cursor position to
-    // detect when the mouse is inside the widget but events aren't flowing.
-    if (m_showTuneGuides) {
+    // Tune guide / extended crosshair recovery: after reparenting (add/remove
+    // panadapter), Qt may not deliver mouseMoveEvents even with mouse tracking
+    // enabled (missing enterEvent, stale widget state). Poll the actual cursor
+    // position to detect when the mouse is inside the widget but events aren't flowing.
+    if (m_showTuneGuides || m_extendedCrosshair) {
         QPoint localPos = mapFromGlobal(QCursor::pos());
         if (rect().contains(localPos)) {
             if (localPos != m_cursorPos) {
@@ -3208,6 +3232,17 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 p.fillRect(lx, ly, tw, th, QColor(0x0f, 0x0f, 0x1a, 200));
                 p.setPen(QColor(0xc8, 0xd8, 0xe8));
                 p.drawText(lx + 4, ly + fm.ascent() + 2, label);
+            }
+
+            // Extended crosshair overlay (persistent full-height vertical + horizontal)
+            if (m_extendedCrosshair
+                && m_cursorPos.x() >= 0 && m_cursorPos.y() >= 0) {
+                const int cx = m_cursorPos.x();
+                const int cy = m_cursorPos.y();
+                const int bottom = specRect.height() + DIVIDER_H + FREQ_SCALE_H + wfRect.height();
+                p.setPen(QPen(QColor(200, 200, 255, 80), 1));
+                p.drawLine(cx, 0, cx, bottom);
+                p.drawLine(0, cy, w, cy);
             }
 
             // Tune guide overlay (vertical line + frequency label)
@@ -3826,6 +3861,17 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
         p.fillRect(lx, ly, tw, th, QColor(0x0f, 0x0f, 0x1a, 200));
         p.setPen(QColor(0xc8, 0xd8, 0xe8));
         p.drawText(lx + 4, ly + fm.ascent() + 2, label);
+    }
+
+    // ── Extended crosshair overlay (persistent full-height vertical + horizontal) ──
+    if (m_extendedCrosshair
+        && m_cursorPos.x() >= 0 && m_cursorPos.y() >= 0) {
+        const int cx = m_cursorPos.x();
+        const int cy = m_cursorPos.y();
+        const int bottom = wfRect.bottom();
+        p.setPen(QPen(QColor(200, 200, 255, 80), 1));
+        p.drawLine(cx, 0, cx, bottom);
+        p.drawLine(0, cy, width(), cy);
     }
 
     // ── Tune guide overlay (vertical line + frequency label) ──────────────
