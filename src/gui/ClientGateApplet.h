@@ -8,6 +8,7 @@ class QTimer;
 namespace AetherSDR {
 
 class AudioEngine;
+class ClientCompKnob;
 class ClientGateCurveWidget;
 class ClientGateGrBar;
 
@@ -46,6 +47,14 @@ private:
     QPushButton*           m_edit{nullptr};
     ClientGateCurveWidget* m_curve{nullptr};
     ClientGateGrBar*       m_grBar{nullptr};
+    // Five most-tuned knobs mirroring the editor: threshold, ratio,
+    // attack, release, floor.  Saves a trip to the floating editor for
+    // everyday tuning.
+    ClientCompKnob*        m_thresh{nullptr};
+    ClientCompKnob*        m_ratio{nullptr};
+    ClientCompKnob*        m_attack{nullptr};
+    ClientCompKnob*        m_release{nullptr};
+    ClientCompKnob*        m_floor{nullptr};
     QTimer*                m_meterTimer{nullptr};
 
     float m_grDb{0.0f};

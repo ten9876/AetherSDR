@@ -13,6 +13,7 @@
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QSignalBlocker>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <cmath>
 
@@ -59,29 +60,7 @@ ClientDeEssEditor::ClientDeEssEditor(AudioEngine* engine, QWidget* parent)
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(6);
 
-    // Header: Bypass
-    {
-        auto* row = new QHBoxLayout;
-        row->setSpacing(8);
-
-        m_bypass = new QPushButton("Bypass");
-        m_bypass->setCheckable(true);
-        m_bypass->setStyleSheet(kBypassStyle);
-        m_bypass->setFixedHeight(22);
-        m_bypass->setToolTip(
-            "Bypass the de-esser (signal passes through unfiltered)");
-        row->addWidget(m_bypass);
-
-        connect(m_bypass, &QPushButton::toggled, this, [this](bool bypassed) {
-            if (!m_audio || !m_audio->clientDeEssTx()) return;
-            m_audio->clientDeEssTx()->setEnabled(!bypassed);
-            m_audio->saveClientDeEssSettings();
-            emit bypassToggled(bypassed);
-        });
-
-        row->addStretch();
-        root->addLayout(row);
-    }
+    // Bypass moved to the CHAIN widget's single-click gesture.
 
     // Body: 3-column — left knobs | big curve | right knobs
     auto* body = new QHBoxLayout;
@@ -110,7 +89,7 @@ ClientDeEssEditor::ClientDeEssEditor(AudioEngine* engine, QWidget* parent)
             ? QString::number(v / 1000.0f, 'f', 2) + " kHz"
             : QString::number(v, 'f', 0) + " Hz";
     });
-    m_freq->setFixedSize(96, 96);
+    m_freq->setFixedSize(76, 76);
     connect(m_freq, &ClientCompKnob::valueChanged,
             this, &ClientDeEssEditor::applyFrequency);
     left->addWidget(m_freq, 0, Qt::AlignHCenter);
@@ -125,7 +104,7 @@ ClientDeEssEditor::ClientDeEssEditor(AudioEngine* engine, QWidget* parent)
     m_q->setLabelFormat([](float v) {
         return QString::number(v, 'f', 2);
     });
-    m_q->setFixedSize(96, 96);
+    m_q->setFixedSize(76, 76);
     connect(m_q, &ClientCompKnob::valueChanged,
             this, &ClientDeEssEditor::applyQ);
     left->addWidget(m_q, 0, Qt::AlignHCenter);
@@ -140,7 +119,7 @@ ClientDeEssEditor::ClientDeEssEditor(AudioEngine* engine, QWidget* parent)
     m_threshold->setLabelFormat([](float v) {
         return QString::number(v, 'f', 1) + " dB";
     });
-    m_threshold->setFixedSize(96, 96);
+    m_threshold->setFixedSize(76, 76);
     connect(m_threshold, &ClientCompKnob::valueChanged,
             this, &ClientDeEssEditor::applyThreshold);
     left->addWidget(m_threshold, 0, Qt::AlignHCenter);
@@ -169,7 +148,7 @@ ClientDeEssEditor::ClientDeEssEditor(AudioEngine* engine, QWidget* parent)
     m_amount->setLabelFormat([](float v) {
         return QString::number(v, 'f', 1) + " dB";
     });
-    m_amount->setFixedSize(96, 96);
+    m_amount->setFixedSize(76, 76);
     connect(m_amount, &ClientCompKnob::valueChanged,
             this, &ClientDeEssEditor::applyAmount);
     right->addWidget(m_amount, 0, Qt::AlignHCenter);
@@ -188,7 +167,7 @@ ClientDeEssEditor::ClientDeEssEditor(AudioEngine* engine, QWidget* parent)
     m_attack->setLabelFormat([](float v) {
         return QString::number(v, 'f', v < 10.0f ? 2 : 1) + " ms";
     });
-    m_attack->setFixedSize(96, 96);
+    m_attack->setFixedSize(76, 76);
     connect(m_attack, &ClientCompKnob::valueChanged,
             this, &ClientDeEssEditor::applyAttack);
     right->addWidget(m_attack, 0, Qt::AlignHCenter);
@@ -207,7 +186,7 @@ ClientDeEssEditor::ClientDeEssEditor(AudioEngine* engine, QWidget* parent)
     m_release->setLabelFormat([](float v) {
         return QString::number(v, 'f', v < 100.0f ? 1 : 0) + " ms";
     });
-    m_release->setFixedSize(96, 96);
+    m_release->setFixedSize(76, 76);
     connect(m_release, &ClientCompKnob::valueChanged,
             this, &ClientDeEssEditor::applyRelease);
     right->addWidget(m_release, 0, Qt::AlignHCenter);
@@ -223,6 +202,11 @@ ClientDeEssEditor::ClientDeEssEditor(AudioEngine* engine, QWidget* parent)
     }
 
     syncControlsFromEngine();
+
+    m_syncTimer = new QTimer(this);
+    m_syncTimer->setInterval(33);
+    connect(m_syncTimer, &QTimer::timeout,
+            this, &ClientDeEssEditor::syncControlsFromEngine);
 }
 
 ClientDeEssEditor::~ClientDeEssEditor() = default;
@@ -234,6 +218,7 @@ void ClientDeEssEditor::showForTx()
     show();
     raise();
     activateWindow();
+    if (m_syncTimer) m_syncTimer->start();
 }
 
 void ClientDeEssEditor::syncControlsFromEngine()
@@ -242,7 +227,6 @@ void ClientDeEssEditor::syncControlsFromEngine()
     ClientDeEss* d = m_audio->clientDeEssTx();
     m_restoring = true;
 
-    { QSignalBlocker b(m_bypass);    m_bypass->setChecked(!d->isEnabled()); }
     { QSignalBlocker b(m_freq);      m_freq->setValue(d->frequencyHz()); }
     { QSignalBlocker b(m_q);         m_q->setValue(d->q()); }
     { QSignalBlocker b(m_threshold); m_threshold->setValue(d->thresholdDb()); }

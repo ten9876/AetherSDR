@@ -96,36 +96,12 @@ void ClientEqApplet::buildUI()
     // the summed response from the current path's ClientEq; B.3 adds the
     // live FFT analyzer overlay.
     m_curve = new ClientEqCurveWidget;
-    m_curve->setMinimumHeight(90);
+    m_curve->setMinimumHeight(110);
     outer->addWidget(m_curve, 1);
 
-    // Bottom row — Enable toggle on the left, Edit… on the right.
-    {
-        auto* row = new QHBoxLayout;
-        row->setSpacing(4);
-
-        m_enable = new QPushButton("Enable");
-        m_enable->setCheckable(true);
-        m_enable->setStyleSheet(kEnableStyle);
-        m_enable->setFixedHeight(22);
-        row->addWidget(m_enable);
-
-        row->addStretch();
-
-        m_edit = new QPushButton("Edit…");
-        m_edit->setStyleSheet(kEditStyle);
-        m_edit->setFixedHeight(22);
-        m_edit->setToolTip("Open the client EQ editor for the selected path");
-        row->addWidget(m_edit);
-
-        connect(m_enable, &QPushButton::toggled, this,
-                &ClientEqApplet::onEnableToggled);
-        connect(m_edit, &QPushButton::clicked, this, [this]() {
-            emit editRequested(m_currentPath);
-        });
-
-        outer->addLayout(row);
-    }
+    // Enable / Edit buttons removed — CHAIN widget handles bypass
+    // (single-click) and editor-open (double-click).  RX vs TX path
+    // selection still lives in the tab row above.
 }
 
 void ClientEqApplet::setAudioEngine(AudioEngine* engine)
@@ -156,11 +132,6 @@ void ClientEqApplet::setPath(Path p)
 
 void ClientEqApplet::syncEnableFromEngine()
 {
-    if (!m_audio || !m_enable) return;
-    ClientEq* eq = (m_currentPath == Path::Rx)
-        ? m_audio->clientEqRx() : m_audio->clientEqTx();
-    QSignalBlocker b(m_enable);
-    m_enable->setChecked(eq && eq->isEnabled());
     if (m_curve) m_curve->update();
 }
 

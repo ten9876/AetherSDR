@@ -7,6 +7,7 @@
 #include "core/ClientPudu.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QContextMenuEvent>
 #include <QDrag>
 #include <QDragEnterEvent>
@@ -104,6 +105,18 @@ ClientChainWidget::ClientChainWidget(QWidget* parent) : QWidget(parent)
     // Height is computed in rebuildLayout() once we know the box count
     // and the snake row count — start with a single-row default.
     setMinimumHeight(kBoxHeight + 2 * kMarginY);
+
+    // Deferred single-click timer — toggles bypass on fire, cancelled
+    // by a double-click arriving within the double-click interval.
+    m_clickTimer = new QTimer(this);
+    m_clickTimer->setSingleShot(true);
+    connect(m_clickTimer, &QTimer::timeout, this, [this]() {
+        if (m_pendingClickIdx >= 0) {
+            const int idx = m_pendingClickIdx;
+            m_pendingClickIdx = -1;
+            toggleStageBypass(idx);
+        }
+    });
 }
 
 void ClientChainWidget::setAudioEngine(AudioEngine* engine)
@@ -559,17 +572,92 @@ void ClientChainWidget::mouseMoveEvent(QMouseEvent* ev)
     update();
 }
 
+void ClientChainWidget::mouseReleaseEvent(QMouseEvent* ev)
+{
+    if (ev->button() != Qt::LeftButton) { QWidget::mouseReleaseEvent(ev); return; }
+    // If m_pressIndex was cleared by mouseMoveEvent (drag started) the
+    // release isn't a click — skip.  Otherwise it's a genuine single
+    // click; defer the bypass-toggle until the double-click interval
+    // elapses so a follow-up double-click can cancel it and open the
+    // editor instead.
+    if (m_pressIndex < 0) return;
+    const int idx = m_pressIndex;
+    m_pressIndex = -1;
+    if (idx < 0 || idx >= m_boxes.size()) return;
+    if (m_boxes[idx].isEndpoint) return;
+    m_pendingClickIdx = idx;
+    if (m_clickTimer) {
+        m_clickTimer->start(QApplication::doubleClickInterval());
+    }
+    ev->accept();
+}
+
 void ClientChainWidget::mouseDoubleClickEvent(QMouseEvent* ev)
 {
-    // Treat single-click on a stage as "open editor" via
-    // mouseReleaseEvent logic.  We use double-click as a shortcut that
-    // also opens the editor for discoverability.
+    // Double-click = open editor.  Cancel the deferred bypass toggle
+    // queued by the preceding single-click release.
     if (ev->button() != Qt::LeftButton) return;
+    if (m_clickTimer && m_clickTimer->isActive()) m_clickTimer->stop();
+    m_pendingClickIdx = -1;
+
     const int idx = hitTest(ev->position());
     if (idx < 0 || m_boxes[idx].isEndpoint) return;
     if (!isStageImplemented(m_boxes[idx].stage)) return;
     emit editRequested(m_boxes[idx].stage);
     ev->accept();
+}
+
+void ClientChainWidget::toggleStageBypass(int boxIdx)
+{
+    if (!m_audio) return;
+    if (boxIdx < 0 || boxIdx >= m_boxes.size()) return;
+    if (m_boxes[boxIdx].isEndpoint) return;
+    const auto stage = m_boxes[boxIdx].stage;
+    if (!isStageImplemented(stage)) return;
+
+    const bool newEnabled = isStageBypassed(stage);   // was off → turn on
+    switch (stage) {
+        case AudioEngine::TxChainStage::Eq:
+            if (m_audio->clientEqTx()) {
+                m_audio->clientEqTx()->setEnabled(newEnabled);
+                m_audio->saveClientEqSettings();
+            }
+            break;
+        case AudioEngine::TxChainStage::Comp:
+            if (m_audio->clientCompTx()) {
+                m_audio->clientCompTx()->setEnabled(newEnabled);
+                m_audio->saveClientCompSettings();
+            }
+            break;
+        case AudioEngine::TxChainStage::Gate:
+            if (m_audio->clientGateTx()) {
+                m_audio->clientGateTx()->setEnabled(newEnabled);
+                m_audio->saveClientGateSettings();
+            }
+            break;
+        case AudioEngine::TxChainStage::DeEss:
+            if (m_audio->clientDeEssTx()) {
+                m_audio->clientDeEssTx()->setEnabled(newEnabled);
+                m_audio->saveClientDeEssSettings();
+            }
+            break;
+        case AudioEngine::TxChainStage::Tube:
+            if (m_audio->clientTubeTx()) {
+                m_audio->clientTubeTx()->setEnabled(newEnabled);
+                m_audio->saveClientTubeSettings();
+            }
+            break;
+        case AudioEngine::TxChainStage::Enh:
+            if (m_audio->clientPuduTx()) {
+                m_audio->clientPuduTx()->setEnabled(newEnabled);
+                m_audio->saveClientPuduSettings();
+            }
+            break;
+        default:
+            return;
+    }
+    emit stageEnabledChanged(stage, newEnabled);
+    update();
 }
 
 void ClientChainWidget::contextMenuEvent(QContextMenuEvent* ev)

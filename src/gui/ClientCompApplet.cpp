@@ -1,5 +1,6 @@
 #include "ClientCompApplet.h"
 #include "ClientCompCurveWidget.h"
+#include "ClientCompKnob.h"
 #include "MeterSmoother.h"
 #include "core/AudioEngine.h"
 #include "core/ClientComp.h"
@@ -122,32 +123,102 @@ void ClientCompApplet::buildUI()
     m_grBar = new ClientCompGrBar;
     outer->addWidget(m_grBar);
 
+    // Enable / Edit buttons removed — CHAIN widget handles bypass
+    // (single-click) and editor-open (double-click).
+
+    // Five-knob tuning row — Thresh, Ratio, Attack, Release, Makeup.
+    // Mappings match ClientCompEditor.
     {
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
 
-        m_enable = new QPushButton("Enable");
-        m_enable->setCheckable(true);
-        m_enable->setStyleSheet(kEnableStyle);
-        m_enable->setFixedHeight(22);
-        row->addWidget(m_enable);
+        auto makeKnob = [](const QString& label) {
+            auto* k = new ClientCompKnob;
+            k->setLabel(label);
+            k->setCenterLabelMode(true);
+            k->setFixedSize(38, 48);
+            return k;
+        };
 
-        row->addStretch();
-
-        m_edit = new QPushButton("Edit…");
-        m_edit->setStyleSheet(kEditStyle);
-        m_edit->setFixedHeight(22);
-        m_edit->setToolTip("Open the client compressor editor");
-        row->addWidget(m_edit);
-
-        connect(m_enable, &QPushButton::toggled, this,
-                &ClientCompApplet::onEnableToggled);
-        connect(m_edit, &QPushButton::clicked, this, [this]() {
-            emit editRequested();
+        m_thresh = makeKnob("Thresh");
+        m_thresh->setRange(-60.0f, 0.0f);
+        m_thresh->setDefault(-18.0f);
+        m_thresh->setValueFromNorm([](float n) { return -60.0f + n * 60.0f; });
+        m_thresh->setNormFromValue([](float v) { return (v + 60.0f) / 60.0f; });
+        m_thresh->setLabelFormat([](float v) {
+            return QString::number(v, 'f', 1) + " dB";
         });
+        row->addWidget(m_thresh);
+
+        m_ratio = makeKnob("Ratio");
+        m_ratio->setRange(1.0f, 20.0f);
+        m_ratio->setDefault(3.0f);
+        m_ratio->setValueFromNorm([](float n) {
+            return 1.0f * std::pow(20.0f, n);
+        });
+        m_ratio->setNormFromValue([](float v) {
+            if (v <= 1.0f) return 0.0f;
+            return std::log(v) / std::log(20.0f);
+        });
+        m_ratio->setLabelFormat([](float v) {
+            return QString::number(v, 'f', 2) + ":1";
+        });
+        row->addWidget(m_ratio);
+
+        m_attack = makeKnob("Attack");
+        m_attack->setRange(0.1f, 300.0f);
+        m_attack->setDefault(20.0f);
+        m_attack->setValueFromNorm([](float n) {
+            return 0.1f * std::pow(3000.0f, n);
+        });
+        m_attack->setNormFromValue([](float v) {
+            if (v <= 0.1f) return 0.0f;
+            return std::log(v / 0.1f) / std::log(3000.0f);
+        });
+        m_attack->setLabelFormat([](float v) {
+            return v < 10.0f ? QString::number(v, 'f', 1) + " ms"
+                              : QString::number(v, 'f', 0) + " ms";
+        });
+        row->addWidget(m_attack);
+
+        m_release = makeKnob("Release");
+        m_release->setRange(5.0f, 2000.0f);
+        m_release->setDefault(200.0f);
+        m_release->setValueFromNorm([](float n) {
+            return 5.0f * std::pow(400.0f, n);
+        });
+        m_release->setNormFromValue([](float v) {
+            if (v <= 5.0f) return 0.0f;
+            return std::log(v / 5.0f) / std::log(400.0f);
+        });
+        m_release->setLabelFormat([](float v) {
+            return QString::number(v, 'f', 0) + " ms";
+        });
+        row->addWidget(m_release);
+
+        m_makeup = makeKnob("Makeup");
+        m_makeup->setRange(-12.0f, 24.0f);
+        m_makeup->setDefault(0.0f);
+        m_makeup->setLabelFormat([](float v) {
+            return (v >= 0.0f ? "+" : "") + QString::number(v, 'f', 1) + " dB";
+        });
+        row->addWidget(m_makeup);
 
         outer->addLayout(row);
     }
+
+    auto wire = [this](ClientCompKnob* k, auto setter) {
+        connect(k, &ClientCompKnob::valueChanged, this, [this, setter](float v) {
+            if (!m_audio || !m_audio->clientCompTx()) return;
+            (m_audio->clientCompTx()->*setter)(v);
+            m_audio->saveClientCompSettings();
+        });
+    };
+    wire(m_thresh,  &ClientComp::setThresholdDb);
+    wire(m_ratio,   &ClientComp::setRatio);
+    wire(m_attack,  &ClientComp::setAttackMs);
+    wire(m_release, &ClientComp::setReleaseMs);
+    wire(m_makeup,  &ClientComp::setMakeupDb);
 
     m_meterTimer = new QTimer(this);
     m_meterTimer->setInterval(33);
@@ -165,11 +236,14 @@ void ClientCompApplet::setAudioEngine(AudioEngine* engine)
 
 void ClientCompApplet::syncEnableFromEngine()
 {
-    if (!m_audio || !m_enable) return;
-    ClientComp* c = m_audio->clientCompTx();
-    QSignalBlocker b(m_enable);
-    m_enable->setChecked(c && c->isEnabled());
     if (m_curve) m_curve->update();
+    if (!m_audio || !m_audio->clientCompTx()) return;
+    ClientComp* c = m_audio->clientCompTx();
+    if (m_thresh)  { QSignalBlocker b(m_thresh);  m_thresh->setValue(c->thresholdDb()); }
+    if (m_ratio)   { QSignalBlocker b(m_ratio);   m_ratio->setValue(c->ratio()); }
+    if (m_attack)  { QSignalBlocker b(m_attack);  m_attack->setValue(c->attackMs()); }
+    if (m_release) { QSignalBlocker b(m_release); m_release->setValue(c->releaseMs()); }
+    if (m_makeup)  { QSignalBlocker b(m_makeup);  m_makeup->setValue(c->makeupDb()); }
 }
 
 void ClientCompApplet::refreshEnableFromEngine()
@@ -195,6 +269,12 @@ void ClientCompApplet::tickMeter()
     const float gr = c->gainReductionDb();
     m_grBar->setGrDb(gr);
     m_grDb = gr;
+
+    if (m_thresh)  { QSignalBlocker b(m_thresh);  m_thresh->setValue(c->thresholdDb()); }
+    if (m_ratio)   { QSignalBlocker b(m_ratio);   m_ratio->setValue(c->ratio()); }
+    if (m_attack)  { QSignalBlocker b(m_attack);  m_attack->setValue(c->attackMs()); }
+    if (m_release) { QSignalBlocker b(m_release); m_release->setValue(c->releaseMs()); }
+    if (m_makeup)  { QSignalBlocker b(m_makeup);  m_makeup->setValue(c->makeupDb()); }
 }
 
 } // namespace AetherSDR

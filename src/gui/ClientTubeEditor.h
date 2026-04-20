@@ -4,6 +4,7 @@
 
 class QPushButton;
 class QButtonGroup;
+class QTimer;
 
 namespace AetherSDR {
 
@@ -73,6 +74,7 @@ private:
     QPushButton*           m_modelC{nullptr};
     QButtonGroup*          m_modelGroup{nullptr};
     QPushButton*           m_bypass{nullptr};
+    QTimer*                m_syncTimer{nullptr};   // mirror engine → knobs
     bool                   m_restoring{false};
 };
 

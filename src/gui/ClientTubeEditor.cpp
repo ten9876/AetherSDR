@@ -15,6 +15,7 @@
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QSignalBlocker>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <cmath>
 
@@ -72,29 +73,16 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(6);
 
-    // Header: Bypass
-    {
-        auto* row = new QHBoxLayout;
-        row->setSpacing(8);
-
-        m_bypass = new QPushButton("Bypass");
-        m_bypass->setCheckable(true);
-        m_bypass->setStyleSheet(kBypassStyle);
-        m_bypass->setFixedHeight(22);
-        m_bypass->setToolTip(
-            "Bypass the tube saturator (signal passes through unshaped)");
-        row->addWidget(m_bypass);
-
-        connect(m_bypass, &QPushButton::toggled, this, [this](bool bypassed) {
-            if (!m_audio || !m_audio->clientTubeTx()) return;
-            m_audio->clientTubeTx()->setEnabled(!bypassed);
-            m_audio->saveClientTubeSettings();
-            emit bypassToggled(bypassed);
-        });
-
-        row->addStretch();
-        root->addLayout(row);
-    }
+    // Bypass moved to the CHAIN widget's single-click gesture.
+    // Exclusive model group — buttons are created below in the Tone/Bias
+    // row, but the group owner lives here so the change signal can be
+    // wired in one place regardless of button placement.
+    m_modelGroup = new QButtonGroup(this);
+    m_modelGroup->setExclusive(true);
+    connect(m_modelGroup, &QButtonGroup::idToggled, this,
+            [this](int id, bool checked) {
+        if (checked) applyModel(id);
+    });
 
     auto* body = new QHBoxLayout;
     body->setSpacing(12);
@@ -113,7 +101,7 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
     m_dryWet->setLabelFormat([](float v) {
         return QString::number(static_cast<int>(v * 100.0f + 0.5f)) + " %";
     });
-    m_dryWet->setFixedSize(80, 80);
+    m_dryWet->setFixedSize(76, 76);
     connect(m_dryWet, &ClientCompKnob::valueChanged,
             this, &ClientTubeEditor::applyDryWet);
     left->addWidget(m_dryWet, 0, Qt::AlignHCenter);
@@ -128,7 +116,7 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
     m_output->setLabelFormat([](float v) {
         return QString::number(v, 'f', 2) + " dB";
     });
-    m_output->setFixedSize(80, 80);
+    m_output->setFixedSize(76, 76);
     connect(m_output, &ClientCompKnob::valueChanged,
             this, &ClientTubeEditor::applyOutput);
     left->addWidget(m_output, 0, Qt::AlignHCenter);
@@ -143,7 +131,7 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
     m_drive->setLabelFormat([](float v) {
         return QString::number(v, 'f', 2) + " dB";
     });
-    m_drive->setFixedSize(80, 80);
+    m_drive->setFixedSize(76, 76);
     connect(m_drive, &ClientCompKnob::valueChanged,
             this, &ClientTubeEditor::applyDrive);
     left->addWidget(m_drive, 0, Qt::AlignHCenter);
@@ -160,36 +148,9 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
     m_curve->setMinimumHeight(180);
     center->addWidget(m_curve, 1);
 
-    // Model A / B / C row
-    {
-        auto* row = new QHBoxLayout;
-        row->setSpacing(4);
-        row->addStretch();
-
-        m_modelGroup = new QButtonGroup(this);
-        m_modelGroup->setExclusive(true);
-
-        auto addModelBtn = [&](const QString& label, int idx) {
-            auto* btn = new QPushButton(label);
-            btn->setCheckable(true);
-            btn->setStyleSheet(kModelStyle);
-            btn->setFixedHeight(22);
-            m_modelGroup->addButton(btn, idx);
-            row->addWidget(btn);
-            return btn;
-        };
-        m_modelA = addModelBtn("A", 0);
-        m_modelB = addModelBtn("B", 1);
-        m_modelC = addModelBtn("C", 2);
-        row->addStretch();
-
-        connect(m_modelGroup, &QButtonGroup::idToggled, this,
-                [this](int id, bool checked) {
-            if (checked) applyModel(id);
-        });
-
-        center->addLayout(row);
-    }
+    // Model A / B / C selector now lives in the header row so it
+    // doesn't eat vertical space from the curve.  See the header block
+    // above for where the buttons are actually inserted.
 
     // Tone + Bias row
     {
@@ -207,10 +168,31 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
         m_tone->setLabelFormat([](float v) {
             return QString::number(v, 'f', 2);
         });
-        m_tone->setFixedSize(68, 68);
+        m_tone->setFixedSize(76, 76);
         connect(m_tone, &ClientCompKnob::valueChanged,
                 this, &ClientTubeEditor::applyTone);
         row->addWidget(m_tone, 0, Qt::AlignHCenter);
+
+        // A / B / C model selector — narrow vertical stack sitting
+        // between Tone and Bias.  Buttons live in m_modelGroup created
+        // earlier so the change handler stays wired.
+        {
+            auto* modelCol = new QVBoxLayout;
+            modelCol->setSpacing(3);
+            auto addModelBtn = [&](const QString& label, int idx) {
+                auto* btn = new QPushButton(label);
+                btn->setCheckable(true);
+                btn->setStyleSheet(kModelStyle);
+                btn->setFixedSize(22, 20);
+                m_modelGroup->addButton(btn, idx);
+                modelCol->addWidget(btn);
+                return btn;
+            };
+            m_modelA = addModelBtn("A", 0);
+            m_modelB = addModelBtn("B", 1);
+            m_modelC = addModelBtn("C", 2);
+            row->addLayout(modelCol, 0);
+        }
 
         m_bias = new ClientCompKnob;
         m_bias->setLabel("Bias");
@@ -222,7 +204,7 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
         m_bias->setLabelFormat([](float v) {
             return QString::number(static_cast<int>(v * 100.0f + 0.5f)) + " %";
         });
-        m_bias->setFixedSize(68, 68);
+        m_bias->setFixedSize(76, 76);
         connect(m_bias, &ClientCompKnob::valueChanged,
                 this, &ClientTubeEditor::applyBias);
         row->addWidget(m_bias, 0, Qt::AlignHCenter);
@@ -248,7 +230,7 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
         const int pct = static_cast<int>(v * 100.0f + (v >= 0 ? 0.5f : -0.5f));
         return QString::number(pct) + " %";
     });
-    m_envelope->setFixedSize(80, 80);
+    m_envelope->setFixedSize(76, 76);
     connect(m_envelope, &ClientCompKnob::valueChanged,
             this, &ClientTubeEditor::applyEnvelope);
     right->addWidget(m_envelope, 0, Qt::AlignHCenter);
@@ -267,7 +249,7 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
     m_attack->setLabelFormat([](float v) {
         return QString::number(v, 'f', v < 10.0f ? 2 : 1) + " ms";
     });
-    m_attack->setFixedSize(72, 72);
+    m_attack->setFixedSize(76, 76);
     connect(m_attack, &ClientCompKnob::valueChanged,
             this, &ClientTubeEditor::applyAttack);
     right->addWidget(m_attack, 0, Qt::AlignHCenter);
@@ -286,7 +268,7 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
     m_release->setLabelFormat([](float v) {
         return QString::number(v, 'f', v < 100.0f ? 2 : 1) + " ms";
     });
-    m_release->setFixedSize(72, 72);
+    m_release->setFixedSize(76, 76);
     connect(m_release, &ClientCompKnob::valueChanged,
             this, &ClientTubeEditor::applyRelease);
     right->addWidget(m_release, 0, Qt::AlignHCenter);
@@ -301,6 +283,11 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
     }
 
     syncControlsFromEngine();
+
+    m_syncTimer = new QTimer(this);
+    m_syncTimer->setInterval(33);
+    connect(m_syncTimer, &QTimer::timeout,
+            this, &ClientTubeEditor::syncControlsFromEngine);
 }
 
 ClientTubeEditor::~ClientTubeEditor() = default;
@@ -312,6 +299,7 @@ void ClientTubeEditor::showForTx()
     show();
     raise();
     activateWindow();
+    if (m_syncTimer) m_syncTimer->start();
 }
 
 void ClientTubeEditor::syncControlsFromEngine()
@@ -320,7 +308,6 @@ void ClientTubeEditor::syncControlsFromEngine()
     ClientTube* t = m_audio->clientTubeTx();
     m_restoring = true;
 
-    { QSignalBlocker b(m_bypass);  m_bypass->setChecked(!t->isEnabled()); }
     {
         const int idx = static_cast<int>(t->model());
         QPushButton* btn = (idx == 1) ? m_modelB

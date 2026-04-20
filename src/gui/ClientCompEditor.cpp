@@ -9,7 +9,6 @@
 #include "core/ClientComp.h"
 
 #include <QCloseEvent>
-#include <QComboBox>
 #include <QHBoxLayout>
 #include <QHideEvent>
 #include <QLabel>
@@ -75,34 +74,8 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(6);
 
-    // ── Header strip: bypass + chain-order segmented picker ─────────
-    {
-        auto* row = new QHBoxLayout;
-        row->setSpacing(8);
-
-        m_bypass = new QPushButton("Bypass");
-        m_bypass->setCheckable(true);
-        m_bypass->setStyleSheet(kBypassStyle);
-        m_bypass->setFixedHeight(22);
-        m_bypass->setToolTip("Bypass the compressor (signal passes through unshaped)");
-        row->addWidget(m_bypass);
-
-        row->addStretch();
-
-        auto* lbl = new QLabel("Chain:");
-        row->addWidget(lbl);
-
-        m_chainOrder = new QComboBox;
-        m_chainOrder->addItem("CMP → EQ");
-        m_chainOrder->addItem("EQ → CMP");
-        m_chainOrder->setToolTip(
-            "Signal flow order from the mic to the radio. "
-            "CMP→EQ colours the raw mic first then shapes it. "
-            "EQ→CMP shapes first then tames peaks.");
-        row->addWidget(m_chainOrder);
-
-        root->addLayout(row);
-    }
+    // Bypass moved to the CHAIN widget's single-click gesture — nothing
+    // here in the header.
 
     // ── Main body: knobs column | canvas | meters | makeup/limiter ──
     {
@@ -115,6 +88,7 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
             col->setSpacing(4);
 
             m_ratio = new ClientCompKnob;
+            m_ratio->setCenterLabelMode(true);
             m_ratio->setLabel("Ratio");
             m_ratio->setRange(1.0f, 20.0f);
             m_ratio->setDefault(3.0f);
@@ -130,9 +104,11 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
             m_ratio->setLabelFormat([](float v) {
                 return QString::number(v, 'f', 2) + " :1";
             });
+            m_ratio->setFixedSize(76, 76);
             col->addWidget(m_ratio);
 
             m_attack = new ClientCompKnob;
+            m_attack->setCenterLabelMode(true);
             m_attack->setLabel("Attack");
             m_attack->setRange(0.1f, 300.0f);
             m_attack->setDefault(20.0f);
@@ -147,9 +123,11 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
                 return v < 10.0f ? QString::number(v, 'f', 1) + " ms"
                                   : QString::number(v, 'f', 0) + " ms";
             });
+            m_attack->setFixedSize(76, 76);
             col->addWidget(m_attack);
 
             m_release = new ClientCompKnob;
+            m_release->setCenterLabelMode(true);
             m_release->setLabel("Release");
             m_release->setRange(5.0f, 2000.0f);
             m_release->setDefault(200.0f);
@@ -163,15 +141,18 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
             m_release->setLabelFormat([](float v) {
                 return QString::number(v, 'f', 0) + " ms";
             });
+            m_release->setFixedSize(76, 76);
             col->addWidget(m_release);
 
             m_knee = new ClientCompKnob;
+            m_knee->setCenterLabelMode(true);
             m_knee->setLabel("Knee");
             m_knee->setRange(0.0f, 24.0f);
             m_knee->setDefault(6.0f);
             m_knee->setLabelFormat([](float v) {
                 return QString::number(v, 'f', 1) + " dB";
             });
+            m_knee->setFixedSize(76, 76);
             col->addWidget(m_knee);
 
             col->addStretch();
@@ -225,21 +206,25 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
             col->addWidget(m_limiterEnable);
 
             m_ceiling = new ClientCompKnob;
+            m_ceiling->setCenterLabelMode(true);
             m_ceiling->setLabel("Ceiling");
             m_ceiling->setRange(-24.0f, 0.0f);
             m_ceiling->setDefault(-1.0f);
             m_ceiling->setLabelFormat([](float v) {
                 return QString::number(v, 'f', 1) + " dB";
             });
+            m_ceiling->setFixedSize(76, 76);
             col->addWidget(m_ceiling);
 
             m_makeup = new ClientCompKnob;
+            m_makeup->setCenterLabelMode(true);
             m_makeup->setLabel("Makeup");
             m_makeup->setRange(-12.0f, 24.0f);
             m_makeup->setDefault(0.0f);
             m_makeup->setLabelFormat([](float v) {
                 return (v >= 0.0f ? "+" : "") + QString::number(v, 'f', 1) + " dB";
             });
+            m_makeup->setFixedSize(76, 76);
             col->addWidget(m_makeup);
             col->addStretch();
             body->addLayout(col);
@@ -252,26 +237,6 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
     if (m_audio && m_audio->clientCompTx()) {
         m_canvas->setComp(m_audio->clientCompTx());
     }
-
-    connect(m_bypass, &QPushButton::toggled, this, [this](bool checked) {
-        if (!m_audio) return;
-        ClientComp* c = m_audio->clientCompTx();
-        if (!c) return;
-        // "Bypass checked" means the effect is bypassed → comp disabled.
-        c->setEnabled(!checked);
-        m_audio->saveClientCompSettings();
-        emit bypassToggled(checked);
-        if (m_canvas) m_canvas->update();
-    });
-
-    connect(m_chainOrder,
-            QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int idx) {
-        if (!m_audio) return;
-        m_audio->setTxChainOrder(
-            idx == 1 ? AudioEngine::TxChainOrder::EqThenComp
-                     : AudioEngine::TxChainOrder::CompThenEq);
-    });
 
     connect(m_canvas, &ClientCompEditorCanvas::thresholdChanged,
             this, &ClientCompEditor::applyThreshold);
@@ -320,8 +285,6 @@ void ClientCompEditor::syncControlsFromEngine()
     if (!m_audio) return;
     ClientComp* c = m_audio->clientCompTx();
     if (!c) return;
-    QSignalBlocker bb(m_bypass);
-    QSignalBlocker bco(m_chainOrder);
     QSignalBlocker br(m_ratio);
     QSignalBlocker ba(m_attack);
     QSignalBlocker brl(m_release);
@@ -330,9 +293,6 @@ void ClientCompEditor::syncControlsFromEngine()
     QSignalBlocker bce(m_ceiling);
     QSignalBlocker ble(m_limiterEnable);
 
-    m_bypass->setChecked(!c->isEnabled());
-    m_chainOrder->setCurrentIndex(
-        m_audio->txChainOrder() == AudioEngine::TxChainOrder::EqThenComp ? 1 : 0);
     m_ratio->setValue(c->ratio());
     m_attack->setValue(c->attackMs());
     m_release->setValue(c->releaseMs());
@@ -363,6 +323,20 @@ void ClientCompEditor::tickMeters()
     }
     if (m_limiterEnable) {
         m_limiterEnable->setActive(c->limiterActive() && c->limiterEnabled());
+    }
+
+    // Mirror parameter changes made in the applet tile (or other
+    // surfaces) back onto the editor knobs.  QSignalBlocker prevents
+    // a feedback loop through the valueChanged handlers.
+    if (m_ratio)   { QSignalBlocker b(m_ratio);   m_ratio->setValue(c->ratio()); }
+    if (m_attack)  { QSignalBlocker b(m_attack);  m_attack->setValue(c->attackMs()); }
+    if (m_release) { QSignalBlocker b(m_release); m_release->setValue(c->releaseMs()); }
+    if (m_knee)    { QSignalBlocker b(m_knee);    m_knee->setValue(c->kneeDb()); }
+    if (m_makeup)  { QSignalBlocker b(m_makeup);  m_makeup->setValue(c->makeupDb()); }
+    if (m_ceiling) { QSignalBlocker b(m_ceiling); m_ceiling->setValue(c->limiterCeilingDb()); }
+    if (m_threshFader) {
+        QSignalBlocker b(m_threshFader);
+        m_threshFader->setThresholdDb(c->thresholdDb());
     }
 }
 

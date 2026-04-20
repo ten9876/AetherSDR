@@ -630,7 +630,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     makeChildContainer("gate",  "GATE",  m_clientGateApplet,   -1);
     makeChildContainer("ceq",   "CEQ",   m_clientEqApplet,     -1);
     makeChildContainer("dess",  "DESS",  m_clientDeEssApplet,  -1);
-    makeChildContainer("cmp",   "CMP",   m_clientCompApplet,   -1);
+    makeChildContainer("cmp",   "COMPRESSOR",   m_clientCompApplet,   -1);
     makeChildContainer("tube",  "TUBE",  m_clientTubeApplet,   -1);
     makeChildContainer("pudu",  "PUDU",  m_clientPuduApplet,   -1);
 
@@ -648,13 +648,13 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // Register the composite tx_dsp container as one tile in the
     // applet tray — users toggle it, drag it, and pop it out as a
     // unit.  Individual section pop-outs happen via each sub-
-    // container's own titlebar inside.  Button label is "VUDU"
-    // (VooDoo Audio) — a nod to the ham-radio term for tailored
-    // audio processing.  Settings ID stays TXDSP for persistence.
+    // container's own titlebar inside.  Button label is "PUDU" —
+    // matches the exciter stage name and the PooDoo™ Audio brand.
+    // Settings ID stays TXDSP for persistence.
     {
-        auto entry = makeEntry("TXDSP", "VUDU", txDsp, false,
+        auto entry = makeEntry("TXDSP", "PUDU", txDsp, false,
                                btnRow2, btnLayout2);
-        if (entry.btn) entry.btn->setText("VUDU");
+        if (entry.btn) entry.btn->setText("PUDU");
         m_appletOrder.append(entry);
     }
 
@@ -874,6 +874,44 @@ void AppletPanel::setMaxSlices(int maxSlices)
 void AppletPanel::updateSliceButtons(const QList<SliceModel*>& slices, int activeSliceId)
 {
     m_rxApplet->updateSliceButtons(slices, activeSliceId);
+}
+
+void AppletPanel::setTxDspChainOrder(
+    const QVector<AudioEngine::TxChainStage>& stages)
+{
+    if (!m_containerMgr) return;
+    auto* parent = m_containerMgr->container("tx_dsp");
+    if (!parent) return;
+
+    // Map enum → child-container id.  Stages not present in the chain
+    // are ignored (they stay wherever they currently sit; their tiles
+    // should have been hidden via stageEnabledChanged anyway).
+    auto idFor = [](AudioEngine::TxChainStage s) -> QString {
+        switch (s) {
+            case AudioEngine::TxChainStage::Gate:  return "gate";
+            case AudioEngine::TxChainStage::Eq:    return "ceq";
+            case AudioEngine::TxChainStage::DeEss: return "dess";
+            case AudioEngine::TxChainStage::Comp:  return "cmp";
+            case AudioEngine::TxChainStage::Tube:  return "tube";
+            case AudioEngine::TxChainStage::Enh:   return "pudu";
+            case AudioEngine::TxChainStage::None:  return {};
+        }
+        return {};
+    };
+
+    // Pluck each ordered child out of its current position and re-
+    // insert at the end.  Walking the list in chain order rebuilds the
+    // parent body in the desired order without touching CHAIN itself —
+    // CHAIN lives at index 0 and isn't in the ordered set, so it stays
+    // put as the earlier siblings migrate to the end around it.
+    for (auto s : stages) {
+        const QString id = idFor(s);
+        if (id.isEmpty()) continue;
+        auto* child = m_containerMgr->container(id);
+        if (!child) continue;
+        parent->removeChildWidget(child);
+        parent->insertChildWidget(-1, child);
+    }
 }
 
 

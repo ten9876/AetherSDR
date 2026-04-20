@@ -15,6 +15,7 @@
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QSignalBlocker>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <cmath>
 
@@ -82,30 +83,7 @@ ClientGateEditor::ClientGateEditor(AudioEngine* engine, QWidget* parent)
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(6);
 
-    // ── Header: Bypass ────────────────────────────────────────────
-    {
-        auto* row = new QHBoxLayout;
-        row->setSpacing(8);
-
-        m_bypass = new QPushButton("Bypass");
-        m_bypass->setCheckable(true);
-        m_bypass->setStyleSheet(kBypassStyle);
-        m_bypass->setFixedHeight(22);
-        m_bypass->setToolTip(
-            "Bypass the gate (signal passes through untouched)");
-        row->addWidget(m_bypass);
-
-        connect(m_bypass, &QPushButton::toggled, this, [this](bool bypassed) {
-            if (!m_audio || !m_audio->clientGateTx()) return;
-            m_audio->clientGateTx()->setEnabled(!bypassed);
-            m_audio->saveClientGateSettings();
-            emit bypassToggled(bypassed);
-        });
-
-        row->addStretch();
-
-        root->addLayout(row);
-    }
+    // Bypass moved to the CHAIN widget's single-click gesture.
 
     // ── Main body: left control column + right level view ─────────
     auto* body = new QHBoxLayout;
@@ -118,7 +96,7 @@ ClientGateEditor::ClientGateEditor(AudioEngine* engine, QWidget* parent)
     // Threshold — the single largest control, matches Ableton's big
     // top-left knob.  -80..0 dB linear.
     m_threshold = new ClientCompKnob;
-    m_threshold->setLabel("Threshold");
+    m_threshold->setLabel("Thresh");
     m_threshold->setCenterLabelMode(true);
     m_threshold->setRange(-80.0f, 0.0f);
     m_threshold->setDefault(-40.0f);
@@ -127,7 +105,7 @@ ClientGateEditor::ClientGateEditor(AudioEngine* engine, QWidget* parent)
     m_threshold->setLabelFormat([](float v) {
         return QString::number(v, 'f', 1) + " dB";
     });
-    m_threshold->setFixedSize(120, 120);
+    m_threshold->setFixedSize(76, 76);
     connect(m_threshold, &ClientCompKnob::valueChanged,
             this, &ClientGateEditor::applyThreshold);
     left->addWidget(m_threshold, 0, Qt::AlignHCenter);
@@ -143,36 +121,26 @@ ClientGateEditor::ClientGateEditor(AudioEngine* engine, QWidget* parent)
     m_returnKnob->setLabelFormat([](float v) {
         return QString::number(v, 'f', 2) + " dB";
     });
-    m_returnKnob->setFixedSize(80, 80);
+    m_returnKnob->setFixedSize(76, 76);
     connect(m_returnKnob, &ClientCompKnob::valueChanged,
             this, &ClientGateEditor::applyReturn);
     left->addWidget(m_returnKnob, 0, Qt::AlignHCenter);
 
-    // Flip / Lookahead — a narrow stacked pair sitting under the
-    // Return knob to match the Ableton footprint.
+    // Spacer pushes Peek + Flip to the bottom of the column so the
+    // Threshold/Return knobs stay anchored at the top while the mode
+    // toggle and lookahead picker hug the bottom edge.
+    left->addStretch();
+
+    // Peek (lookahead) row — sits directly above the Flip button.
     {
-        auto* flipRow = new QVBoxLayout;
-        flipRow->setSpacing(4);
-
-        m_flip = new QPushButton("Flip");
-        m_flip->setCheckable(true);
-        m_flip->setStyleSheet(kFlipStyle);
-        m_flip->setFixedHeight(22);
-        m_flip->setToolTip(
-            "Flip between downward Expander (gentle) and Gate (hard) "
-            "modes.  Snaps ratio + floor to preset pairs; other knobs "
-            "stay where you left them.");
-        connect(m_flip, &QPushButton::toggled, this, [this](bool checked) {
-            applyMode(checked ? 1 : 0);
-        });
-        flipRow->addWidget(m_flip);
-
-        auto* lookWrap = new QVBoxLayout;
-        lookWrap->setSpacing(2);
-        auto* lookLbl = new QLabel("Lookahead");
-        lookLbl->setAlignment(Qt::AlignCenter);
+        auto* lookWrap = new QHBoxLayout;
+        lookWrap->setSpacing(4);
+        auto* lookLbl = new QLabel("Peek:");
         lookWrap->addWidget(lookLbl);
         m_lookahead = new QComboBox;
+        m_lookahead->setStyleSheet(
+            "QComboBox { padding-left: 0px; padding-right: 0px; }"
+            "QComboBox::drop-down { width: 14px; }");
         for (float v : kLookaheadOptions) {
             const QString label = (v <= 0.0f)
                 ? "Off" : (QString::number(v, 'g', 2) + " ms");
@@ -184,13 +152,24 @@ ClientGateEditor::ClientGateEditor(AudioEngine* engine, QWidget* parent)
             if (i < 0 || i >= kLookaheadOptions.size()) return;
             applyLookahead(kLookaheadOptions[i]);
         });
-        lookWrap->addWidget(m_lookahead);
-        flipRow->addLayout(lookWrap);
-
-        left->addLayout(flipRow);
+        lookWrap->addWidget(m_lookahead, 1);
+        left->addLayout(lookWrap);
     }
 
-    left->addStretch();
+    // Flip button (Expander ↔ Gate) — bottom-most control.
+    m_flip = new QPushButton("Flip");
+    m_flip->setCheckable(true);
+    m_flip->setStyleSheet(kFlipStyle);
+    m_flip->setFixedHeight(22);
+    m_flip->setToolTip(
+        "Flip between downward Expander (gentle) and Gate (hard) "
+        "modes.  Snaps ratio + floor to preset pairs; other knobs "
+        "stay where you left them.");
+    connect(m_flip, &QPushButton::toggled, this, [this](bool checked) {
+        applyMode(checked ? 1 : 0);
+    });
+    left->addWidget(m_flip);
+
     body->addLayout(left, 0);
 
     // Right side: level view + bottom knob row
@@ -208,7 +187,7 @@ ClientGateEditor::ClientGateEditor(AudioEngine* engine, QWidget* parent)
         auto* k = new ClientCompKnob;
         k->setLabel(label);
         k->setCenterLabelMode(true);
-        k->setFixedSize(72, 72);
+        k->setFixedSize(76, 76);
         return k;
     };
 
@@ -304,6 +283,14 @@ ClientGateEditor::ClientGateEditor(AudioEngine* engine, QWidget* parent)
 
     // Initial sync from the engine state.
     syncControlsFromEngine();
+
+    // Continuous polling so changes in the docked applet knobs mirror
+    // here live, and vice versa.  30 Hz is cheap — each knob setValue
+    // is a short clamp + repaint when values differ.
+    m_syncTimer = new QTimer(this);
+    m_syncTimer->setInterval(33);
+    connect(m_syncTimer, &QTimer::timeout,
+            this, &ClientGateEditor::syncControlsFromEngine);
 }
 
 ClientGateEditor::~ClientGateEditor() = default;
@@ -315,6 +302,7 @@ void ClientGateEditor::showForTx()
     show();
     raise();
     activateWindow();
+    if (m_syncTimer) m_syncTimer->start();
 }
 
 void ClientGateEditor::syncControlsFromEngine()
@@ -324,10 +312,6 @@ void ClientGateEditor::syncControlsFromEngine()
 
     m_restoring = true;
 
-    {
-        QSignalBlocker b(m_bypass);
-        m_bypass->setChecked(!g->isEnabled());
-    }
     {
         QSignalBlocker b(m_flip);
         m_flip->setChecked(g->mode() == ClientGate::Mode::Gate);

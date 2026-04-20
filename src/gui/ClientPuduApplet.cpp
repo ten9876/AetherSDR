@@ -104,19 +104,23 @@ void ClientPuduApplet::buildUI()
         auto* group = new QButtonGroup(this);
         group->setExclusive(true);
 
-        m_modeA = new QPushButton("A");
+        m_modeA = new QPushButton("Even");
         m_modeA->setCheckable(true);
         m_modeA->setStyleSheet(kModeStyle);
         m_modeA->setFixedHeight(22);
-        m_modeA->setToolTip("Aphex Aural Exciter + Big Bottom — warm, asymmetric harmonics");
+        m_modeA->setToolTip(
+            "Aphex-lineage asymmetric shaping — predominantly even "
+            "harmonics, warmer, with Big Bottom LF saturation.");
         group->addButton(m_modeA, 0);
         row->addWidget(m_modeA);
 
-        m_modeB = new QPushButton("B");
+        m_modeB = new QPushButton("Odd");
         m_modeB->setCheckable(true);
         m_modeB->setStyleSheet(kModeStyle);
         m_modeB->setFixedHeight(22);
-        m_modeB->setToolTip("Behringer SX 3040 Sonic Exciter — tighter, compressor-based bass");
+        m_modeB->setToolTip(
+            "Behringer-lineage symmetric tanh shaping — pure odd "
+            "harmonics, brighter, with a feed-forward bass compressor.");
         group->addButton(m_modeB, 1);
         row->addWidget(m_modeB);
         row->addStretch();
@@ -236,29 +240,9 @@ void ClientPuduApplet::buildUI()
         outer->addLayout(grid);
     }
 
-    // ── Enable / Edit row ───────────────────────────────────────
-    {
-        auto* row = new QHBoxLayout;
-        row->setSpacing(4);
-        m_enable = new QPushButton("Enable");
-        m_enable->setCheckable(true);
-        m_enable->setStyleSheet(kEnableStyle);
-        m_enable->setFixedHeight(22);
-        row->addWidget(m_enable);
-        row->addStretch();
-        m_edit = new QPushButton("Edit…");
-        m_edit->setStyleSheet(kEditStyle);
-        m_edit->setFixedHeight(22);
-        m_edit->setToolTip("Open the PUDU editor");
-        row->addWidget(m_edit);
-
-        connect(m_enable, &QPushButton::toggled, this,
-                &ClientPuduApplet::onEnableToggled);
-        connect(m_edit, &QPushButton::clicked, this, [this]() {
-            emit editRequested();
-        });
-        outer->addLayout(row);
-    }
+    // Enable / Edit buttons removed — CHAIN widget handles bypass
+    // (single-click) and editor-open (double-click).  Even/Odd mode
+    // toggle above remains.
 }
 
 void ClientPuduApplet::setAudioEngine(AudioEngine* engine)
@@ -275,7 +259,6 @@ void ClientPuduApplet::syncControlsFromEngine()
     ClientPudu* p = m_audio->clientPuduTx();
 
     m_restoring = true;
-    { QSignalBlocker b(m_enable); m_enable->setChecked(p->isEnabled()); }
     {
         const bool isA = (p->mode() == ClientPudu::Mode::Aphex);
         QSignalBlocker ba(m_modeA);

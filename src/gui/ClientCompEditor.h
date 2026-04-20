@@ -2,7 +2,6 @@
 
 #include <QWidget>
 
-class QComboBox;
 class QLabel;
 class QPushButton;
 class QTimer;
@@ -89,7 +88,6 @@ private:
     ClientCompMeter*         m_outputMeter{nullptr};
     QPushButton*             m_bypass{nullptr};
     ClientCompLimiterButton* m_limiterEnable{nullptr};
-    QComboBox*               m_chainOrder{nullptr};
     QTimer*                  m_meterTimer{nullptr};
     bool                     m_restoring{false};
 };

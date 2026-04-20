@@ -10,6 +10,7 @@ namespace AetherSDR {
 class AudioEngine;
 class ClientCompCurveWidget;
 class ClientCompGrBar;
+class ClientCompKnob;
 
 // Docked dashboard tile for the client-side TX compressor.  View-only —
 // shows the transfer curve with a live "ball" at the current envelope
@@ -50,6 +51,12 @@ private:
     QPushButton*          m_edit{nullptr};
     ClientCompCurveWidget* m_curve{nullptr};
     ClientCompGrBar*      m_grBar{nullptr};   // narrow horizontal GR strip
+    // Five-knob tuning row — Thresh, Ratio, Attack, Release, Makeup.
+    ClientCompKnob*       m_thresh{nullptr};
+    ClientCompKnob*       m_ratio{nullptr};
+    ClientCompKnob*       m_attack{nullptr};
+    ClientCompKnob*       m_release{nullptr};
+    ClientCompKnob*       m_makeup{nullptr};
     QTimer*               m_meterTimer{nullptr};
 
     // Latest GR dB (0 = no reduction, negative = active).  Paint is

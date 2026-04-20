@@ -16,7 +16,6 @@
 #include <QMoveEvent>
 #include <QPushButton>
 #include <QResizeEvent>
-#include <QShortcut>
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QTimer>
@@ -125,35 +124,11 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
         });
         row->addWidget(m_familyCombo);
 
-        m_bypass = new QPushButton("BYPASS");
-        m_bypass->setCheckable(true);
-        m_bypass->setStyleSheet(kBypassStyle);
-        m_bypass->setFixedHeight(24);
-        m_bypass->setToolTip(
-            "Toggle EQ bypass for this path — A/B your changes.\n"
-            "Shortcut: B (while this window has focus)");
-        connect(m_bypass, &QPushButton::toggled, this, [this](bool bypassed) {
-            ClientEq* eq = (m_path == ClientEqApplet::Path::Rx)
-                ? m_audio->clientEqRx() : m_audio->clientEqTx();
-            if (!eq) return;
-            eq->setEnabled(!bypassed);
-            if (m_audio) m_audio->saveClientEqSettings();
-            if (m_canvas) m_canvas->update();  // curve gray when bypassed
-            emit bypassToggled(m_path, bypassed);
-        });
-        row->addWidget(m_bypass);
+        // Bypass button moved to the CHAIN widget's single-click
+        // gesture.  Keyboard shortcut retired along with the button.
 
         root->addLayout(row);
     }
-
-    // Keyboard shortcut: B toggles bypass while the editor has focus.
-    // Application-wide would collide with other shortcuts, so scope it
-    // to this window.
-    auto* shortcut = new QShortcut(QKeySequence(Qt::Key_B), this);
-    shortcut->setContext(Qt::WindowShortcut);
-    connect(shortcut, &QShortcut::activated, this, [this]() {
-        if (m_bypass) m_bypass->toggle();
-    });
 
     // Main body: icon row + canvas + param row stacked vertically, with
     // the output fader in a sibling column on the right.  The fader spans
@@ -266,12 +241,9 @@ void ClientEqEditor::tickFftAnalyzer()
 
 void ClientEqEditor::syncBypassFromEq()
 {
-    if (!m_bypass || !m_audio) return;
-    ClientEq* eq = (m_path == ClientEqApplet::Path::Rx)
-        ? m_audio->clientEqRx() : m_audio->clientEqTx();
-    if (!eq) return;
-    QSignalBlocker b(m_bypass);
-    m_bypass->setChecked(!eq->isEnabled());
+    // No in-editor bypass control — bypass lives on the CHAIN widget.
+    // Left as a no-op so existing callers compile; the canvas still
+    // recolours itself via its own enabled check.
 }
 
 void ClientEqEditor::syncSelection(int idx)

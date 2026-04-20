@@ -3,6 +3,7 @@
 #include <QWidget>
 
 class QPushButton;
+class QTimer;
 
 namespace AetherSDR {
 
@@ -63,6 +64,7 @@ private:
     ClientCompKnob*         m_attack{nullptr};
     ClientCompKnob*         m_release{nullptr};
     QPushButton*            m_bypass{nullptr};
+    QTimer*                 m_syncTimer{nullptr};   // mirror engine → knobs
     bool                    m_restoring{false};
 };
 

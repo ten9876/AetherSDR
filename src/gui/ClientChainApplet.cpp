@@ -205,6 +205,8 @@ ClientChainApplet::ClientChainApplet(QWidget* parent) : QWidget(parent)
             this, &ClientChainApplet::editRequested);
     connect(m_chain, &ClientChainWidget::stageEnabledChanged,
             this, &ClientChainApplet::stageEnabledChanged);
+    connect(m_chain, &ClientChainWidget::chainReordered,
+            this, &ClientChainApplet::chainReordered);
 
     hide();  // hidden until toggled on from the applet tray
 }

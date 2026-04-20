@@ -97,42 +97,42 @@ ClientPuduEditor::ClientPuduEditor(AudioEngine* engine, QWidget* parent)
     root->setContentsMargins(12, 10, 12, 10);
     root->setSpacing(8);
 
-    // ── Header: Bypass on the left, A/B on the right ────────────
+    // ── Logo (big in the editor) ────────────────────────────────
+    m_logo = new PooDooLogo;
+    m_logo->setMinimumHeight(80);
+    root->addWidget(m_logo);
+
+    // ── Even / Odd mode toggle — centred in the gap between the
+    // PooDoo™ wordmark and the Poo/Doo knob row.  Aphex generates
+    // even harmonics (asymmetric shape), Behringer generates odd
+    // harmonics (symmetric tanh); labelling by harmonic content is
+    // more descriptive than A/B.
     {
         auto* row = new QHBoxLayout;
-        row->setSpacing(8);
-
-        m_bypass = new QPushButton("Bypass");
-        m_bypass->setCheckable(true);
-        m_bypass->setStyleSheet(kBypassStyle);
-        m_bypass->setFixedHeight(24);
-        m_bypass->setToolTip(
-            "Bypass PUDU (signal passes through with no exciter contribution)");
-        row->addWidget(m_bypass);
-        connect(m_bypass, &QPushButton::toggled, this, [this](bool bypassed) {
-            if (!m_audio || !m_audio->clientPuduTx()) return;
-            m_audio->clientPuduTx()->setEnabled(!bypassed);
-            m_audio->saveClientPuduSettings();
-            emit bypassToggled(bypassed);
-        });
-
+        row->setSpacing(6);
         row->addStretch();
 
         auto* group = new QButtonGroup(this);
         group->setExclusive(true);
-        m_modeA = new QPushButton("A");
+        m_modeA = new QPushButton("Even");
         m_modeA->setCheckable(true);
         m_modeA->setStyleSheet(kModeStyle);
         m_modeA->setFixedHeight(24);
-        m_modeA->setToolTip("Aphex Aural Exciter + Big Bottom — warm, asymmetric harmonics");
+        m_modeA->setToolTip(
+            "Aphex-lineage asymmetric shaping — predominantly even "
+            "harmonics, warmer, diode-style character with Big Bottom "
+            "LF saturation.");
         group->addButton(m_modeA, 0);
         row->addWidget(m_modeA);
 
-        m_modeB = new QPushButton("B");
+        m_modeB = new QPushButton("Odd");
         m_modeB->setCheckable(true);
         m_modeB->setStyleSheet(kModeStyle);
         m_modeB->setFixedHeight(24);
-        m_modeB->setToolTip("Behringer SX 3040 Sonic Exciter — tight, compressor-based bass");
+        m_modeB->setToolTip(
+            "Behringer-lineage symmetric tanh shaping — pure odd "
+            "harmonics, brighter / edgier, paired with a feed-forward "
+            "bass compressor.");
         group->addButton(m_modeB, 1);
         row->addWidget(m_modeB);
 
@@ -141,17 +141,13 @@ ClientPuduEditor::ClientPuduEditor(AudioEngine* engine, QWidget* parent)
             if (checked) onModeToggled(id);
         });
 
+        row->addStretch();
         root->addLayout(row);
     }
 
-    // ── Logo (big in the editor) ────────────────────────────────
-    m_logo = new PooDooLogo;
-    m_logo->setMinimumHeight(80);
-    root->addWidget(m_logo);
-
-    // Breathing room between the wordmark's underline and the
-    // Poo/Doo bracket labels below.
-    root->addSpacing(40);
+    // Tight 4 px gap between the Even/Odd row and the Poo/Doo bracket
+    // labels below.
+    root->addSpacing(4);
 
     // ── Knob row: all 6 on one line with Poo | gap | Doo grouping ──
     //
@@ -174,7 +170,7 @@ ClientPuduEditor::ClientPuduEditor(AudioEngine* engine, QWidget* parent)
             k->setCenterLabelMode(true);
             // Tighter vertical footprint in center-label mode since
             // the label sits inside the ring now.  Ring + value row.
-            k->setFixedSize(88, 92);
+            k->setFixedSize(76, 76);
             return k;
         };
 
@@ -285,7 +281,6 @@ void ClientPuduEditor::syncControlsFromEngine()
     ClientPudu* p = m_audio->clientPuduTx();
     m_restoring = true;
 
-    { QSignalBlocker b(m_bypass); m_bypass->setChecked(!p->isEnabled()); }
     {
         const bool isA = (p->mode() == ClientPudu::Mode::Aphex);
         QSignalBlocker ba(m_modeA);

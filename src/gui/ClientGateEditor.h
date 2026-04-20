@@ -81,6 +81,7 @@ private:
     QPushButton*          m_flip{nullptr};
     QComboBox*            m_lookahead{nullptr};
     QPushButton*          m_bypass{nullptr};
+    QTimer*               m_syncTimer{nullptr};   // mirror engine → knobs
     bool                  m_restoring{false};
 };
 

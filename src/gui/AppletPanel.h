@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/AudioEngine.h"
+
 #include <QWidget>
 #include <QMap>
 #include <QStringList>
@@ -97,6 +99,11 @@ public:
     // external state (e.g. the CHAIN widget mirrors DSP bypass onto
     // CEQ and CMP tile visibility).  No-op for unknown IDs.
     void setAppletVisible(const QString& id, bool visible);
+
+    // Reorder the TX DSP sub-containers inside the "tx_dsp" parent to
+    // mirror the CHAIN's current stage order.  Call whenever the user
+    // drags to reorder the chain; the applet tiles follow.
+    void setTxDspChainOrder(const QVector<AudioEngine::TxChainStage>& stages);
 
     // ── Container system (Phase 4a groundwork, #1713) ───────────
     //

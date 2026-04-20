@@ -1,4 +1,5 @@
 #include "ClientDeEssApplet.h"
+#include "ClientCompKnob.h"
 #include "ClientDeEssCurveWidget.h"
 #include "MeterSmoother.h"
 #include "core/AudioEngine.h"
@@ -119,32 +120,84 @@ void ClientDeEssApplet::buildUI()
     m_grBar = new ClientDeEssGrBar;
     outer->addWidget(m_grBar);
 
+    // Enable / Edit buttons removed — CHAIN widget handles bypass
+    // (single-click) and editor-open (double-click).
+
+    // Four-knob tuning row — Freq, Q, Thresh, Amount.  Mappings mirror
+    // ClientDeEssEditor.
     {
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
 
-        m_enable = new QPushButton("Enable");
-        m_enable->setCheckable(true);
-        m_enable->setStyleSheet(kEnableStyle);
-        m_enable->setFixedHeight(22);
-        row->addWidget(m_enable);
+        auto makeKnob = [](const QString& label) {
+            auto* k = new ClientCompKnob;
+            k->setLabel(label);
+            k->setCenterLabelMode(true);
+            k->setFixedSize(38, 48);
+            return k;
+        };
 
-        row->addStretch();
-
-        m_edit = new QPushButton("Edit…");
-        m_edit->setStyleSheet(kEditStyle);
-        m_edit->setFixedHeight(22);
-        m_edit->setToolTip("Open the de-esser editor");
-        row->addWidget(m_edit);
-
-        connect(m_enable, &QPushButton::toggled, this,
-                &ClientDeEssApplet::onEnableToggled);
-        connect(m_edit, &QPushButton::clicked, this, [this]() {
-            emit editRequested();
+        m_freq = makeKnob("Freq");
+        m_freq->setRange(1000.0f, 12000.0f);
+        m_freq->setDefault(6000.0f);
+        m_freq->setValueFromNorm([](float n) {
+            return 1000.0f * std::pow(12.0f, n);
         });
+        m_freq->setNormFromValue([](float v) {
+            return std::log(std::max(1000.0f, v) / 1000.0f)
+                   / std::log(12.0f);
+        });
+        m_freq->setLabelFormat([](float v) {
+            return (v >= 1000.0f)
+                ? QString::number(v / 1000.0f, 'f', 1) + " kHz"
+                : QString::number(v, 'f', 0) + " Hz";
+        });
+        row->addWidget(m_freq);
+
+        m_q = makeKnob("Q");
+        m_q->setRange(0.5f, 5.0f);
+        m_q->setDefault(2.0f);
+        m_q->setValueFromNorm([](float n) { return 0.5f + n * 4.5f; });
+        m_q->setNormFromValue([](float v) { return (v - 0.5f) / 4.5f; });
+        m_q->setLabelFormat([](float v) {
+            return QString::number(v, 'f', 2);
+        });
+        row->addWidget(m_q);
+
+        m_thresh = makeKnob("Thresh");
+        m_thresh->setRange(-60.0f, 0.0f);
+        m_thresh->setDefault(-30.0f);
+        m_thresh->setValueFromNorm([](float n) { return -60.0f + n * 60.0f; });
+        m_thresh->setNormFromValue([](float v) { return (v + 60.0f) / 60.0f; });
+        m_thresh->setLabelFormat([](float v) {
+            return QString::number(v, 'f', 1) + " dB";
+        });
+        row->addWidget(m_thresh);
+
+        m_amount = makeKnob("Amount");
+        m_amount->setRange(-24.0f, 0.0f);
+        m_amount->setDefault(-6.0f);
+        m_amount->setValueFromNorm([](float n) { return -24.0f + n * 24.0f; });
+        m_amount->setNormFromValue([](float v) { return (v + 24.0f) / 24.0f; });
+        m_amount->setLabelFormat([](float v) {
+            return QString::number(v, 'f', 1) + " dB";
+        });
+        row->addWidget(m_amount);
 
         outer->addLayout(row);
     }
+
+    auto wire = [this](ClientCompKnob* k, auto setter) {
+        connect(k, &ClientCompKnob::valueChanged, this, [this, setter](float v) {
+            if (!m_audio || !m_audio->clientDeEssTx()) return;
+            (m_audio->clientDeEssTx()->*setter)(v);
+            m_audio->saveClientDeEssSettings();
+        });
+    };
+    wire(m_freq,   &ClientDeEss::setFrequencyHz);
+    wire(m_q,      &ClientDeEss::setQ);
+    wire(m_thresh, &ClientDeEss::setThresholdDb);
+    wire(m_amount, &ClientDeEss::setAmountDb);
 
     m_meterTimer = new QTimer(this);
     m_meterTimer->setInterval(33);
@@ -162,11 +215,13 @@ void ClientDeEssApplet::setAudioEngine(AudioEngine* engine)
 
 void ClientDeEssApplet::syncEnableFromEngine()
 {
-    if (!m_audio || !m_enable) return;
-    ClientDeEss* d = m_audio->clientDeEssTx();
-    QSignalBlocker b(m_enable);
-    m_enable->setChecked(d && d->isEnabled());
     if (m_curve) m_curve->update();
+    if (!m_audio || !m_audio->clientDeEssTx()) return;
+    ClientDeEss* d = m_audio->clientDeEssTx();
+    if (m_freq)   { QSignalBlocker b(m_freq);   m_freq->setValue(d->frequencyHz()); }
+    if (m_q)      { QSignalBlocker b(m_q);      m_q->setValue(d->q()); }
+    if (m_thresh) { QSignalBlocker b(m_thresh); m_thresh->setValue(d->thresholdDb()); }
+    if (m_amount) { QSignalBlocker b(m_amount); m_amount->setValue(d->amountDb()); }
 }
 
 void ClientDeEssApplet::refreshEnableFromEngine()
@@ -192,6 +247,11 @@ void ClientDeEssApplet::tickMeter()
     const float gr = d->gainReductionDb();
     m_grBar->setGrDb(gr);
     m_grDb = gr;
+
+    if (m_freq)   { QSignalBlocker b(m_freq);   m_freq->setValue(d->frequencyHz()); }
+    if (m_q)      { QSignalBlocker b(m_q);      m_q->setValue(d->q()); }
+    if (m_thresh) { QSignalBlocker b(m_thresh); m_thresh->setValue(d->thresholdDb()); }
+    if (m_amount) { QSignalBlocker b(m_amount); m_amount->setValue(d->amountDb()); }
 }
 
 } // namespace AetherSDR

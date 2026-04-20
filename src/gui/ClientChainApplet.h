@@ -56,6 +56,10 @@ public:
 signals:
     void editRequested(AudioEngine::TxChainStage stage);
     void stageEnabledChanged(AudioEngine::TxChainStage stage, bool enabled);
+    // Emitted after the user drags a stage to a new position.  MainWindow
+    // subscribes so the applet-panel sub-container order can be kept
+    // in lock-step with the chain order.
+    void chainReordered();
 
     // User clicked the record or play button.  MainWindow decides
     // whether this is a start or a stop based on current monitor

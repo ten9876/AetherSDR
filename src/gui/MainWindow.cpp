@@ -2285,6 +2285,19 @@ MainWindow::MainWindow(QWidget* parent)
         m_appletPanel->setAppletVisible(
             "PUDU", m_audio->clientPuduTx()->isEnabled());
     }
+
+    // Initial applet-stack order mirrors the persisted chain order, and
+    // stays in sync on every subsequent drag-reorder.
+    if (m_audio) {
+        m_appletPanel->setTxDspChainOrder(m_audio->txChainStages());
+    }
+    connect(m_appletPanel->clientChainApplet(),
+            &ClientChainApplet::chainReordered,
+            this, [this]() {
+        if (m_appletPanel && m_audio)
+            m_appletPanel->setTxDspChainOrder(m_audio->txChainStages());
+    });
+
     connect(m_appletPanel->clientChainApplet(),
             &ClientChainApplet::stageEnabledChanged,
             this, [this](AudioEngine::TxChainStage stage, bool enabled) {

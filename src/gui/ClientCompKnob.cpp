@@ -187,13 +187,15 @@ void ClientCompKnob::paintEvent(QPaintEvent*)
     p.drawLine(pIn, pOut);
 
     // Center-label mode: draw the parameter name centred inside the
-    // ring.  Start at 25 % of diameter (good for 3-4 letter labels),
-    // then shrink-to-fit if the word is longer — keeps "Threshold",
-    // "Release" etc. from spilling past the arc on small knobs.
+    // ring.  The cap is sized so a 6-char label like "Thresh" /
+    // "Release" fits inside the ring WITHOUT shrinking — every label
+    // then renders at the same size, whether it's "Hold" or "Return".
+    // Without the cap the shrink-to-fit fires only on long labels and
+    // short labels bloat, visually inconsistent across the row.
     if (m_centerLabel && !m_label.isEmpty()) {
         QFont centerFont = p.font();
         centerFont.setBold(true);
-        int pixelSize = std::max(8, diameter / 4);
+        int pixelSize = std::max(8, diameter / 6);
         centerFont.setPixelSize(pixelSize);
 
         // Max text width is the knob interior, less a ring-thickness

@@ -65,6 +65,7 @@ protected:
     void paintEvent(QPaintEvent* ev) override;
     void mousePressEvent(QMouseEvent* ev) override;
     void mouseMoveEvent(QMouseEvent* ev) override;
+    void mouseReleaseEvent(QMouseEvent* ev) override;
     void mouseDoubleClickEvent(QMouseEvent* ev) override;
     void contextMenuEvent(QContextMenuEvent* ev) override;
     void dragEnterEvent(QDragEnterEvent* ev) override;
@@ -92,6 +93,11 @@ private:
     bool isStageImplemented(AudioEngine::TxChainStage s) const;
     bool isStageBypassed(AudioEngine::TxChainStage s) const;
 
+    // Helper: toggle bypass on the stage at m_boxes[idx], saving settings
+    // and emitting stageEnabledChanged.  Used by the deferred single-
+    // click handler and by the right-click menu.
+    void toggleStageBypass(int boxIdx);
+
     AudioEngine* m_audio{nullptr};
     bool         m_micInputReady{false};
     bool         m_txActive{false};
@@ -103,6 +109,12 @@ private:
     QPoint m_pressPos;
     int    m_pressIndex{-1};
     int    m_dropIndex{-1};      // where the drag is currently hovering (drawn as an insertion line)
+
+    // Deferred single-click → toggle-bypass timer.  Single click fires
+    // after QApplication::doubleClickInterval() so a genuine double
+    // click (editor-open) can cancel it before it fires.
+    class QTimer* m_clickTimer{nullptr};
+    int           m_pendingClickIdx{-1};
 };
 
 } // namespace AetherSDR
