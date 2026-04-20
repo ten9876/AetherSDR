@@ -323,6 +323,7 @@ private:
     bool m_spacePttActive{false};          // true while Space is held for PTT
     bool m_minimalMode{false};             // true when spectrum is hidden (#208)
     QAction* m_minimalModeAction{nullptr};
+    QAction* m_cwDecodeAction{nullptr};
     bool m_panadapterConnectionAnimationVisible{false};
     bool m_waitingForFirstPanadapterFrame{false};
     QString m_panadapterConnectionAnimationLabel;

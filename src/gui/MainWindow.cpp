@@ -3710,6 +3710,26 @@ void MainWindow::buildMenuBar()
         m_shortcutManager.rebuildShortcuts(this, shortcutGuard);
     });
 
+    // CW Decoder toggle — reuses the existing CwDecodeOverlay setting (#1727)
+    m_cwDecodeAction = viewMenu->addAction("CW Decoder");
+    m_cwDecodeAction->setCheckable(true);
+    m_cwDecodeAction->setChecked(
+        AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True");
+    connect(m_cwDecodeAction, &QAction::toggled, this, [this](bool on) {
+        AppSettings::instance().setValue("CwDecodeOverlay", on ? "True" : "False");
+        AppSettings::instance().save();
+        // Apply immediately: show/hide CW panel based on current mode
+        auto* s = activeSlice();
+        if (s && m_cwDecoderApplet) {
+            bool isCw = (s->mode() == "CW" || s->mode() == "CWL");
+            m_cwDecoderApplet->setCwPanelVisible(isCw && on);
+            if (isCw && on && !m_cwDecoder.isRunning())
+                m_cwDecoder.start();
+            else if (!on && m_cwDecoder.isRunning())
+                m_cwDecoder.stop();
+        }
+    });
+
     viewMenu->addSeparator();
     auto* heartbeatBlinkAct = viewMenu->addAction("Blink Status Indicator");
     heartbeatBlinkAct->setCheckable(true);
@@ -5643,7 +5663,14 @@ void MainWindow::routeCwDecoderOutput()
         connect(m_cwDecoderApplet, &PanadapterApplet::pitchRangeChanged,
                 &m_cwDecoder, &CwDecoder::setPitchRange);
         connect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
-                &m_cwDecoder, &CwDecoder::stop);
+                this, [this]() {
+            m_cwDecoder.stop();
+            // Persist the preference so the panel stays dismissed across mode switches (#1727)
+            AppSettings::instance().setValue("CwDecodeOverlay", "False");
+            AppSettings::instance().save();
+            if (m_cwDecodeAction)
+                m_cwDecodeAction->setChecked(false);
+        });
     }
 }
 
