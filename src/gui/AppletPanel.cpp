@@ -84,11 +84,19 @@ protected:
         int indicatorY = 0;
         if (idx < m_panel->m_appletOrder.size()) {
             auto* w = m_panel->m_appletOrder[idx].titleBar;
-            if (w) indicatorY = w->mapTo(widget(), QPoint(0, 0)).y();
+            if (w) {
+                auto* cw = qobject_cast<ContainerWidget*>(m_panel->m_appletOrder[idx].widget);
+                if (!cw || !cw->isFloating())
+                    indicatorY = w->mapTo(widget(), QPoint(0, 0)).y();
+            }
         } else if (!m_panel->m_appletOrder.isEmpty()) {
             auto& last = m_panel->m_appletOrder.back();
             auto* w = last.widget;
-            if (w) indicatorY = w->mapTo(widget(), QPoint(0, w->height())).y();
+            if (w) {
+                auto* cw = qobject_cast<ContainerWidget*>(w);
+                if (!cw || !cw->isFloating())
+                    indicatorY = w->mapTo(widget(), QPoint(0, w->height())).y();
+            }
         }
         m_panel->m_dropIndicator->setParent(widget());
         m_panel->m_dropIndicator->setGeometry(4, indicatorY - 1, widget()->width() - 8, 2);
@@ -726,9 +734,12 @@ void AppletPanel::rebuildStackOrder()
         auto* item = m_stack->takeAt(0);
         delete item;  // deletes the layout item, NOT the widget
     }
-    // Re-add in current order
-    for (const auto& entry : m_appletOrder)
+    // Re-add in current order (skip floating containers to avoid stealing them)
+    for (const auto& entry : m_appletOrder) {
+        if (auto* cw = qobject_cast<ContainerWidget*>(entry.widget); cw && cw->isFloating())
+            continue;
         m_stack->addWidget(entry.widget);
+    }
     m_stack->addStretch();
 }
 
@@ -796,6 +807,7 @@ int AppletPanel::dropIndexFromY(int localY) const
     for (int i = 0; i < m_appletOrder.size(); ++i) {
         auto* w = m_appletOrder[i].widget;
         if (!w) continue;
+        if (auto* cw = qobject_cast<ContainerWidget*>(w); cw && cw->isFloating()) continue;
         int mid = w->mapTo(m_scrollArea->widget(), QPoint(0, w->height() / 2)).y();
         if (localY > mid) idx = i + 1;
     }
