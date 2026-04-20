@@ -156,7 +156,7 @@
     {"freq": 10.1001, "label": "CW calling"},
     {"freq": 10.136,  "label": "FT8"},
     {"freq": 10.1387, "label": "WSPR"},
-    {"freq": 14.074,  "label": "FT8"}
+    {"freq": 14.074,  "label": "FT8"},
     {"freq": 14.0956, "label": "WSPR"},
     {"freq": 14.100,  "label": "NCDXF beacons"},
     {"freq": 14.101,  "label": "CW calling"},
