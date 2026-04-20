@@ -4010,6 +4010,10 @@ void MainWindow::buildUI()
             entry.wnbOn = pan->wnbActive();
             entry.wnbLevel = pan->wnbLevel();
         }
+        entry.txFilterLow = m_radioModel.transmitModel().txFilterLow();
+        entry.txFilterHigh = m_radioModel.transmitModel().txFilterHigh();
+        entry.speechProcOn = m_radioModel.transmitModel().speechProcessorEnable();
+        entry.speechProcLevel = m_radioModel.transmitModel().speechProcessorLevel();
 
         QColor color = BandStackPanel::colorForFrequency(entry.frequencyMhz, m_bandPlanMgr);
         BandStackSettings::instance().addEntry(m_radioModel.serial(), entry);
@@ -4074,6 +4078,21 @@ void MainWindow::buildUI()
                 m_radioModel.sendCommand(
                     QString("display pan set %1 wnb_level=%2").arg(pan->panId()).arg(e.wnbLevel));
             }
+        }
+        // TX filter low/high
+        if (e.txFilterLow != m_radioModel.transmitModel().txFilterLow()
+            || e.txFilterHigh != m_radioModel.transmitModel().txFilterHigh()) {
+            m_radioModel.sendCommand(
+                QString("transmit set filter_low=%1 filter_high=%2").arg(e.txFilterLow).arg(e.txFilterHigh));
+        }
+        // Speech processor
+        if (e.speechProcOn != m_radioModel.transmitModel().speechProcessorEnable()) {
+            m_radioModel.sendCommand(
+                QString("transmit set speech_processor_enable=%1").arg(e.speechProcOn ? 1 : 0));
+        }
+        if (e.speechProcLevel != m_radioModel.transmitModel().speechProcessorLevel()) {
+            m_radioModel.sendCommand(
+                QString("transmit set speech_processor_level=%1").arg(e.speechProcLevel));
         }
     });
     connect(m_panStack->bandStackPanel(), &BandStackPanel::removeRequested, this,

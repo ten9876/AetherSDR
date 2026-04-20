@@ -112,6 +112,14 @@ void BandStackSettings::load()
                     currentEntry.wnbOn = text == "True";
                 } else if (name == "WnbLevel") {
                     currentEntry.wnbLevel = text.toInt();
+                } else if (name == "TxFilterLow") {
+                    currentEntry.txFilterLow = text.toInt();
+                } else if (name == "TxFilterHigh") {
+                    currentEntry.txFilterHigh = text.toInt();
+                } else if (name == "SpeechProcOn") {
+                    currentEntry.speechProcOn = text == "True";
+                } else if (name == "SpeechProcLevel") {
+                    currentEntry.speechProcLevel = text.toInt();
                 }
             }
         } else if (xml.isEndElement()) {
@@ -173,6 +181,10 @@ void BandStackSettings::save()
             xml.writeTextElement("NrLevel", QString::number(e.nrLevel));
             xml.writeTextElement("WnbOn", e.wnbOn ? "True" : "False");
             xml.writeTextElement("WnbLevel", QString::number(e.wnbLevel));
+            xml.writeTextElement("TxFilterLow", QString::number(e.txFilterLow));
+            xml.writeTextElement("TxFilterHigh", QString::number(e.txFilterHigh));
+            xml.writeTextElement("SpeechProcOn", e.speechProcOn ? "True" : "False");
+            xml.writeTextElement("SpeechProcLevel", QString::number(e.speechProcLevel));
             xml.writeEndElement();  // Entry_N
         }
         xml.writeEndElement();  // Radio_XXXX

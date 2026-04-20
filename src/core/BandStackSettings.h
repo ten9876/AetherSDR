@@ -22,6 +22,10 @@ struct BandStackEntry {
     int nrLevel{50};
     bool wnbOn{false};
     int wnbLevel{50};
+    int txFilterLow{50};
+    int txFilterHigh{3300};
+    bool speechProcOn{false};
+    int speechProcLevel{0};
 };
 
 // Persistence for user frequency bookmarks, stored per-radio in
