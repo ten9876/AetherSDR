@@ -84,20 +84,31 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
         "QTabBar::tab:selected { background: #0f0f1a; color: #c8d8e8; "
         "border-bottom-color: #0f0f1a; }");
 
+    // Build only the default (Radio) tab eagerly; defer the rest until first
+    // selected.  This avoids hardware-probing calls (QSerialPortInfo,
+    // QMediaDevices) during construction, which crash on some Wayland/Qt 6.11
+    // configurations (#1776).
     tabs->addTab(buildRadioTab(), "Radio");
-    tabs->addTab(buildNetworkTab(), "Network");
-    tabs->addTab(buildGpsTab(), "GPS");
-    tabs->addTab(buildAudioTab(), "Audio");
-    tabs->addTab(buildTxTab(), "TX");
-    tabs->addTab(buildPhoneCwTab(), "Phone/CW");
-    tabs->addTab(buildRxTab(), "RX");
-    tabs->addTab(buildFiltersTab(), "Filters");
-    tabs->addTab(buildXvtrTab(), "XVTR");
-    tabs->addTab(buildUsbCablesTab(), "USB Cables");
-    tabs->addTab(buildPeripheralsTab(), "Peripherals");
+
+    auto addDeferred = [&](const QString& name, std::function<QWidget*()> builder) {
+        int idx = tabs->addTab(new QWidget, name);
+        m_deferredBuilders[idx] = std::move(builder);
+    };
+    addDeferred("Network",     [this] { return buildNetworkTab(); });
+    addDeferred("GPS",         [this] { return buildGpsTab(); });
+    addDeferred("Audio",       [this] { return buildAudioTab(); });
+    addDeferred("TX",          [this] { return buildTxTab(); });
+    addDeferred("Phone/CW",   [this] { return buildPhoneCwTab(); });
+    addDeferred("RX",          [this] { return buildRxTab(); });
+    addDeferred("Filters",     [this] { return buildFiltersTab(); });
+    addDeferred("XVTR",        [this] { return buildXvtrTab(); });
+    addDeferred("USB Cables",  [this] { return buildUsbCablesTab(); });
+    addDeferred("Peripherals", [this] { return buildPeripheralsTab(); });
 #ifdef HAVE_SERIALPORT
-    tabs->addTab(buildSerialTab(), "Serial");
+    addDeferred("Serial",      [this] { return buildSerialTab(); });
 #endif
+
+    connect(tabs, &QTabWidget::currentChanged, this, &RadioSetupDialog::buildDeferredTab);
 
     layout->addWidget(tabs);
 
@@ -3389,6 +3400,20 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
 
     vbox->addStretch();
     return page;
+}
+
+void RadioSetupDialog::buildDeferredTab(int index)
+{
+    auto it = m_deferredBuilders.find(index);
+    if (it == m_deferredBuilders.end())
+        return;                             // already built or out of range
+
+    QWidget* placeholder = m_tabs->widget(index);
+    QWidget* content = it.value()();        // run the real builder
+    auto* lay = new QVBoxLayout(placeholder);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->addWidget(content);
+    m_deferredBuilders.erase(it);           // build only once
 }
 
 void RadioSetupDialog::selectTab(const QString& tabName)
