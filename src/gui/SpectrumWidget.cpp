@@ -992,10 +992,13 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
     // echo from a radio command sent *before* the pan-follow (e.g. a floor-level
     // change whose echo-back includes the pre-animation center).  Accepting it
     // would either reverse the in-flight animation or trigger a false large-shift
-    // that blanks the spectrum, so skip it.
+    // that blanks the spectrum, so skip it — but only when the bandwidth is also
+    // unchanged, so that bandwidth corrections (e.g. after xpixels resize) are
+    // not silently dropped (#1729).
     if (m_panCenterAnim &&
         m_panCenterAnim->state() != QAbstractAnimation::Stopped &&
-        std::abs(centerMhz - m_panCenterStart) < 1e-9) {
+        std::abs(centerMhz - m_panCenterStart) < 1e-9 &&
+        bandwidthMhz == m_bandwidthMhz) {
         return;
     }
 
