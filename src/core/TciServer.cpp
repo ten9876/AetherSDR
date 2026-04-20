@@ -340,6 +340,11 @@ void TciServer::onTextMessage(const QString& msg)
 
     auto& client = m_clients[clientIdx];
 
+    // Raw inbound log — helps diagnose TCI-variant dialects where WSJT-X
+    // forks (Improved, Improved Plus, KN4CRD fork…) send commands our
+    // parser doesn't match.  Truncate long ones to keep logs readable.
+    qCDebug(lcCat) << "TCI rx:" << msg.left(256);
+
     // TCI messages are semicolon-terminated; may contain multiple commands
     const QStringList cmds = msg.split(';', Qt::SkipEmptyParts);
     for (const auto& cmd : cmds) {
@@ -1044,9 +1049,13 @@ void TciServer::startTxChrono(QWebSocket* client, int trx)
     m_txChronoClient = client;
     m_txChronoTrx = trx;
 
-    const bool lowLatencyRoute =
-        AppSettings::instance().value("DaxTxLowLatency", "False").toString() == "True";
-    m_txUseRadioRoute = !lowLatencyRoute;
+    // TCI always uses the radio-native DAX TX route (dax=1, int16 mono).
+    // The legacy DaxTxLowLatency AppSettings key is retired — its only
+    // real consumer was RADE mode, which now controls the route itself
+    // via AudioEngine::setRadeMode().  Leaving TCI's route here unconditional
+    // guarantees every WSJT-X / digital-mode client keeps the path that
+    // works on firmware v4.1.5.
+    m_txUseRadioRoute = true;
     // TCI has its own TX gain (decoupled from DaxTxGain) so users who split
     // DAX and TCI routing get independent slider control.  On first read,
     // copy DaxTxGain into TciTxGain so upgrading users see no behavior
@@ -1071,9 +1080,8 @@ void TciServer::startTxChrono(QWebSocket* client, int trx)
     m_txAudioPeak = 0.0f;
     m_txSawDuplicatedStereo = false;
 
-    // DaxTxLowLatency selects VITA-49 packet format only (PCC 0x03E3 float32
-    // stereo vs PCC 0x0123 int16 mono in feedDaxTxAudio). Both formats require
-    // dax=1 on the radio side — see the sendCmdPublic call below.
+    // TCI always routes through the radio-native DAX stream (int16 mono,
+    // PCC 0x0123) — matches the dax=1 command sent below.
     if (m_audio) {
         m_audio->setDaxTxUseRadioRoute(m_txUseRadioRoute);
         m_audio->setDaxTxMode(true);

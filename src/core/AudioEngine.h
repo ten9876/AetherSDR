@@ -320,6 +320,12 @@ signals:
     void dfnrEnabledChanged(bool on);
     void txRawPcmReady(const QByteArray& pcm);  // raw 24kHz stereo int16 PCM for RADEEngine
     void txPacketReady(const QByteArray& vitaPacket);  // VITA-49 TX packet for PanadapterStream
+
+    // Emitted from setRadeMode() so MainWindow can send the matching
+    // `transmit set dax=N` command to the radio.  Value is 0 when RADE
+    // is enabled (radio uses mic-path routing), 1 when disabled
+    // (radio routes our dax_tx VITA-49 stream to the modulator).
+    void daxRouteRequested(int daxValue);
     void pcMicLevelChanged(float peakDbfs, float avgDbfs);  // client-side PC mic metering
 
 private slots:

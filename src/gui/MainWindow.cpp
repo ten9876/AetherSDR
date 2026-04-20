@@ -824,6 +824,15 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_audio, &AudioEngine::txPacketReady,
             m_radioModel.panStream(), &PanadapterStream::sendToRadio);
 
+    // RADE mode asks for its preferred DAX TX routing on the radio side.
+    // Emitted from AudioEngine::setRadeMode() so toggling the RADE
+    // button does the whole routing consolidation in one place.
+    connect(m_audio, &AudioEngine::daxRouteRequested, this,
+            [this](int daxValue) {
+        m_radioModel.sendCommand(
+            QString("transmit set dax=%1").arg(daxValue));
+    });
+
     connect(&m_radioModel, &RadioModel::txAudioStreamReady,
             this, [this](quint32 streamId) {
         m_audio->setTxStreamId(streamId);
@@ -3809,22 +3818,10 @@ void MainWindow::buildMenuBar()
     });
 #endif
 
-    auto* lowLatencyDaxTxAction =
-        settingsMenu->addAction("Low-Latency DAX (FreeDV)");
-    lowLatencyDaxTxAction->setCheckable(true);
-    lowLatencyDaxTxAction->setChecked(
-        AppSettings::instance().value("DaxTxLowLatency", "False").toString() == "True");
-    connect(lowLatencyDaxTxAction, &QAction::toggled, this, [this](bool on) {
-        auto& s = AppSettings::instance();
-        s.setValue("DaxTxLowLatency", on ? "True" : "False");
-        s.save();
-        m_audio->setDaxTxUseRadioRoute(!on);
-        m_audio->clearTxAccumulators();
-#if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
-        if (m_daxBridge)
-            m_radioModel.sendCommand(QString("transmit set dax=%1").arg(on ? 0 : 1));
-#endif
-    });
+    // "Low-Latency DAX (FreeDV)" menu retired in v0.8.19 — the toggle
+    // it used to drive is now applied automatically by RADE mode, since
+    // RADE was the only consumer that ever actually wanted that route.
+    // See AudioEngine::setRadeMode().
 
     // Connect placeholder items to show "not implemented" message
     for (auto* action : settingsMenu->actions()) {
@@ -3846,7 +3843,7 @@ void MainWindow::buildMenuBar()
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
             && action != autoDaxAction
 #endif
-            && action != lowLatencyDaxTxAction) {
+            ) {
             connect(action, &QAction::triggered, this, [this, action] {
                 statusBar()->showMessage(action->text().remove("...") + " — not yet implemented", 3000);
             });
@@ -8507,9 +8504,10 @@ bool MainWindow::startDax()
     // Save current mic selection before forcing PC audio source.
     m_savedMicSelection = m_radioModel.transmitModel().micSelection();
 
-    const bool lowLatencyRoute =
-        AppSettings::instance().value("DaxTxLowLatency", "False").toString() == "True";
-    m_audio->setDaxTxUseRadioRoute(!lowLatencyRoute);
+    // Default to the radio-native DAX route (dax=1, int16 mono).  RADE
+    // mode overrides this to the low-latency route via setRadeMode()
+    // when the user enters RADE — see AudioEngine::setRadeMode().
+    m_audio->setDaxTxUseRadioRoute(true);
     m_radioModel.sendCommand("transmit set mic_selection=PC");
     // Don't force dax=1 here — radio-side DAX flag follows mode changes
     // via updateDaxTxMode(). Bridge up ≠ DAX TX active. (#534)

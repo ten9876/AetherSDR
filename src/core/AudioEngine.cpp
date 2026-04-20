@@ -2600,6 +2600,7 @@ void AudioEngine::setAllowBluetoothTelephonyOutput(bool on)
 
 void AudioEngine::setRadeMode(bool on)
 {
+    if (m_radeMode == on) return;
     m_radeMode = on;
     // RADE outputs decoded speech — client-side DSP has no effect.
     // Disable any active DSP when entering RADE mode.
@@ -2612,6 +2613,19 @@ void AudioEngine::setRadeMode(bool on)
         if (m_dfnrEnabled) setDfnrEnabled(false);
 #endif
     }
+
+    // RADE wants the low-latency DAX TX route: float32 stereo packet
+    // format via feedDaxTxAudio's non-radio-route branch, and the radio
+    // set to mic-path routing (dax=0) so its own dax_tx demodulation
+    // pipeline doesn't add latency on top of the RADE codec.  On exit,
+    // restore the default radio-native route (dax=1, int16 mono).
+    //
+    // This replaces the retired "Low-Latency DAX (FreeDV)" menu — RADE
+    // mode is the only consumer of that low-latency route, so the
+    // toggle now lives with the RADE on/off state.
+    setDaxTxUseRadioRoute(!on);
+    clearTxAccumulators();
+    emit daxRouteRequested(on ? 0 : 1);
 }
 
 void AudioEngine::sendModemTxAudio(const QByteArray& float32pcm)
