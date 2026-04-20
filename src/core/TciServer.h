@@ -18,6 +18,7 @@ namespace AetherSDR {
 class RadioModel;
 class AudioEngine;
 class SliceModel;
+class TransmitModel;
 class TciProtocol;
 class Resampler;
 
@@ -56,6 +57,7 @@ public:
     // Wire slice signals for state change broadcasts
     void wireSlice(int trx, SliceModel* slice);
     void wireSpotModel();
+    void wireTransmitModel(TransmitModel* txModel);
 
 public slots:
     // RX audio from main audio pipeline (float32 stereo, 24 kHz)

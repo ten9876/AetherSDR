@@ -40,11 +40,11 @@ void TransmitModel::applyTransmitStatus(const QMap<QString, QString>& kvs)
 
     if (kvs.contains("rfpower")) {
         int v = qBound(0, kvs["rfpower"].toInt(), 100);
-        if (m_rfPower != v) { m_rfPower = v; changed = true; }
+        if (m_rfPower != v) { m_rfPower = v; changed = true; emit rfPowerChanged(v); }
     }
     if (kvs.contains("tunepower")) {
         int v = qBound(0, kvs["tunepower"].toInt(), 100);
-        if (m_tunePower != v) { m_tunePower = v; changed = true; }
+        if (m_tunePower != v) { m_tunePower = v; changed = true; emit tunePowerChanged(v); }
     }
     if (kvs.contains("tune")) {
         bool v = kvs["tune"] == "1";

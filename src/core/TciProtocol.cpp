@@ -201,29 +201,29 @@ QString TciProtocol::handleCommand(const QString& cmd)
     if (name == "iq_stop")          return cmdIqStop(args);
     if (name == "iq_samplerate")    return cmdIqSampleRate(args, args.size() >= 1 && !args[0].isEmpty());
     if (name == "keyer")            return cmdKeyer(args);
-    if (name == "cw_keyer_speed")   return cmdCwKeyerSpeed(args, isSet);
-    if (name == "cw_macros_delay")  return cmdCwMacrosDelay(args, isSet);
-    if (name == "cw_terminal")      return cmdCwTerminal(args, isSet);
-    if (name == "dds")              return cmdDds(args, isSet);
-    if (name == "if")               return cmdIf(args, isSet);
-    if (name == "rx_channel_enable") return cmdRxChannelEnable(args, isSet);
-    if (name == "rx_volume")        return cmdRxVolume(args, isSet);
-    if (name == "rx_mute")          return cmdRxMute(args, isSet);
-    if (name == "rx_balance")       return cmdRxBalance(args, isSet);
-    if (name == "mon_enable")       return cmdMonEnable(args, isSet);
-    if (name == "mon_volume")       return cmdMonVolume(args, isSet);
-    if (name == "rx_nb_param")      return cmdRxNbParam(args, isSet);
-    if (name == "rx_bin_enable")    return cmdRxBinEnable(args, isSet);
-    if (name == "rx_anc_enable")    return cmdRxAncEnable(args, isSet);
-    if (name == "rx_dse_enable")    return cmdRxDseEnable(args, isSet);
-    if (name == "rx_nf_enable")     return cmdRxNfEnable(args, isSet);
-    if (name == "digl_offset")      return cmdDiglOffset(args, isSet);
-    if (name == "digu_offset")      return cmdDiguOffset(args, isSet);
+    if (name == "cw_keyer_speed")   return cmdCwKeyerSpeed(args, args.size() >= 2);
+    if (name == "cw_macros_delay")  return cmdCwMacrosDelay(args, args.size() >= 2);
+    if (name == "cw_terminal")      return cmdCwTerminal(args, args.size() >= 2);
+    if (name == "dds")              return cmdDds(args, args.size() >= 2);
+    if (name == "if")               return cmdIf(args, args.size() >= 2);
+    if (name == "rx_channel_enable") return cmdRxChannelEnable(args, args.size() >= 2);
+    if (name == "rx_volume")        return cmdRxVolume(args, args.size() >= 3);
+    if (name == "rx_mute")          return cmdRxMute(args, args.size() >= 2);
+    if (name == "rx_balance")       return cmdRxBalance(args, args.size() >= 2);
+    if (name == "mon_enable")       return cmdMonEnable(args, args.size() >= 2);
+    if (name == "mon_volume")       return cmdMonVolume(args, args.size() >= 2);
+    if (name == "rx_nb_param")      return cmdRxNbParam(args, args.size() >= 2);
+    if (name == "rx_bin_enable")    return cmdRxBinEnable(args, args.size() >= 2);
+    if (name == "rx_anc_enable")    return cmdRxAncEnable(args, args.size() >= 2);
+    if (name == "rx_dse_enable")    return cmdRxDseEnable(args, args.size() >= 2);
+    if (name == "rx_nf_enable")     return cmdRxNfEnable(args, args.size() >= 2);
+    if (name == "digl_offset")      return cmdDiglOffset(args, args.size() >= 2);
+    if (name == "digu_offset")      return cmdDiguOffset(args, args.size() >= 2);
     if (name == "set_in_focus")     return cmdSetInFocus();
     if (name == "tx_frequency")     return cmdTxFrequency();
     if (name == "vfo_limits")       return QStringLiteral("vfo_limits:30000,54000000;");
     if (name == "if_limits")        return QStringLiteral("if_limits:-10000,10000;");
-    if (name == "vfo_lock")         return cmdLock(args, isSet);  // alias
+    if (name == "vfo_lock")         return cmdLock(args, args.size() >= 2);  // alias
 
     // Bidirectional commands: get if 0-1 args, set if 2+
     isSet = (args.size() >= 2);
@@ -421,9 +421,9 @@ QString TciProtocol::cmdDrive(const QStringList& args, bool isSet)
         return QStringLiteral("drive:%1;").arg(pwr);
     }
 
-    if (args.isEmpty()) return {};
+    if (args.size() < 2) return {};
     bool ok;
-    int pwr = args[0].toInt(&ok);
+    int pwr = args[1].toInt(&ok);
     if (!ok) return {};
     QMetaObject::invokeMethod(m_model, [this, pwr]() {
         m_model->transmitModel().setRfPower(pwr);
@@ -442,9 +442,9 @@ QString TciProtocol::cmdTuneDrive(const QStringList& args, bool isSet)
         return QStringLiteral("tune_drive:%1;").arg(pwr);
     }
 
-    if (args.isEmpty()) return {};
+    if (args.size() < 2) return {};
     bool ok;
-    int pwr = args[0].toInt(&ok);
+    int pwr = args[1].toInt(&ok);
     if (!ok) return {};
     QMetaObject::invokeMethod(m_model, [this, pwr]() {
         m_model->transmitModel().setTunePower(pwr);
@@ -572,7 +572,13 @@ QString TciProtocol::cmdSplitEnable(const QStringList& args, bool isSet)
     }
 
     // Set split — not fully controllable from TCI (would need to create a second slice)
-    // Just acknowledge
+    // Echo back current state as acknowledgement
+    bool split = false;
+    for (auto* sl : m_model->slices()) {
+        if (sl->isTxSlice() && sl != s) { split = true; break; }
+    }
+    m_pendingNotification = QStringLiteral("split_enable:%1,%2;")
+                                .arg(trx).arg(split ? "true" : "false");
     return {};
 }
 
@@ -723,17 +729,17 @@ QString TciProtocol::cmdVolume(const QStringList& args, bool isSet)
         return {};
     }
 
-    if (args.isEmpty()) return {};
-    int vol = args[0].toInt();
-    // Apply to the specified trx slice, or first slice as fallback
-    auto* s = sliceForTrx(args.size() > 1 ? args[0].toInt() : 0);
+    if (args.size() < 2) return {};
+    int trx = args[0].toInt();
+    int vol = args[1].toInt();
+    auto* s = sliceForTrx(trx);
     if (s) {
         float gain = static_cast<float>(vol);
         QMetaObject::invokeMethod(s, [s, gain]() { s->setAudioGain(gain); },
                                   Qt::QueuedConnection);
     }
 
-    m_pendingNotification = QStringLiteral("volume:%1;").arg(vol);
+    m_pendingNotification = QStringLiteral("volume:%1,%2;").arg(trx).arg(vol);
     return {};
 }
 
@@ -1196,6 +1202,8 @@ QString TciProtocol::cmdRxChannelEnable(const QStringList& args, bool isSet)
 QString TciProtocol::cmdRxVolume(const QStringList& args, bool isSet)
 {
     // Per-receiver volume — maps to slice audioGain
+    // TCI format: rx_volume:trx,channel,volume (set) / rx_volume:trx,channel (get)
+    // Also accept: rx_volume:trx,volume (set with 2 args)
     if (args.isEmpty()) return {};
     int trx = args[0].toInt();
     auto* s = sliceForTrx(trx);
@@ -1206,8 +1214,8 @@ QString TciProtocol::cmdRxVolume(const QStringList& args, bool isSet)
                    .arg(trx).arg(static_cast<int>(s->audioGain()));
     }
 
-    if (args.size() < 2) return {};
-    float gain = static_cast<float>(args[1].toInt());
+    // Volume is always the last argument
+    float gain = static_cast<float>(args.last().toInt());
     QMetaObject::invokeMethod(s, [s, gain]() { s->setAudioGain(gain); },
                               Qt::QueuedConnection);
     m_pendingNotification = QStringLiteral("rx_volume:%1,%2;")

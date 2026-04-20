@@ -185,6 +185,8 @@ signals:
     void phoneStateChanged();       // VOX or CW property changed
     void apdStateChanged();
     void maxPowerLevelChanged(int maxWatts);
+    void rfPowerChanged(int power);
+    void tunePowerChanged(int power);
     void commandReady(const QString& cmd);
 
 private:

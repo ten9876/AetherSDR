@@ -983,6 +983,30 @@ void TciServer::wireSlice(int trx, SliceModel* slice)
         broadcast(QStringLiteral("lock:%1,%2;")
                       .arg(trx).arg(locked ? "true" : "false"));
     });
+
+    connect(slice, &SliceModel::audioGainChanged, this, [this, trx](float gain) {
+        if (m_clients.isEmpty()) return;
+        int vol = static_cast<int>(gain);
+        broadcast(QStringLiteral("volume:%1,%2;").arg(trx).arg(vol));
+        broadcast(QStringLiteral("rx_volume:%1,%2;").arg(trx).arg(vol));
+    });
+}
+
+// ── Wire transmit model signals for drive broadcasts ────────────────────
+
+void TciServer::wireTransmitModel(TransmitModel* txModel)
+{
+    if (!txModel) return;
+
+    connect(txModel, &TransmitModel::rfPowerChanged, this, [this](int pwr) {
+        if (m_clients.isEmpty()) return;
+        broadcast(QStringLiteral("drive:%1;").arg(pwr));
+    });
+
+    connect(txModel, &TransmitModel::tunePowerChanged, this, [this](int pwr) {
+        if (m_clients.isEmpty()) return;
+        broadcast(QStringLiteral("tune_drive:%1;").arg(pwr));
+    });
 }
 
 // ── Wire spot click notifications ───────────────────────────────────────
