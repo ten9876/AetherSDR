@@ -5689,7 +5689,10 @@ void MainWindow::onSliceAdded(SliceModel* s)
     connect(s, &SliceModel::frequencyChanged, this, [this, s](double mhz) {
         // Don't snap overlay back to stale radio-confirmed freq during active
         // encoder tuning — the optimistic VFO position is already ahead (#1524)
-        bool activeTuning = m_flexCoalesceTimer.isActive();
+        bool activeTuning = false;
+#ifdef HAVE_SERIALPORT
+        activeTuning = activeTuning || m_flexCoalesceTimer.isActive();
+#endif
 #ifdef HAVE_HIDAPI
         activeTuning = activeTuning || m_hidCoalesceTimer.isActive();
 #endif
