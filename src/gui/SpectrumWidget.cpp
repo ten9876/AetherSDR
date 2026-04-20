@@ -227,6 +227,13 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
         reprojectWaterfall(m_centerMhz, m_bandwidthMhz, newCenter, newBw);
         m_centerMhz = newCenter;
         m_bandwidthMhz = newBw;
+
+        // Arm the zoom echo guard (#1722): suppress stale radio echo-backs
+        // that arrive between the bandwidth and center commands.
+        m_zoomPendingCenter = newCenter;
+        m_zoomPendingBw     = newBw;
+        m_zoomEchoTimer.start();
+
         markOverlayDirty();
         emit bandwidthChangeRequested(newBw);
         emit centerChangeRequested(newCenter);
@@ -997,6 +1004,22 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
         m_panCenterAnim->state() != QAbstractAnimation::Stopped &&
         std::abs(centerMhz - m_panCenterStart) < 1e-9) {
         return;
+    }
+
+    // Zoom echo-suppression guard (#1722): after a button/pinch zoom, the radio
+    // processes bandwidth and center as two separate commands.  The bandwidth
+    // echo-back arrives first with the radio's auto-calculated center, which
+    // differs from our intended center.  Suppress this intermediate echo so the
+    // spectrum doesn't jump.  The guard expires after 500 ms (well above typical
+    // radio round-trip) or when our intended center echo arrives.
+    if (m_zoomEchoTimer.isValid() && m_zoomEchoTimer.elapsed() < 500) {
+        if (std::abs(bandwidthMhz - m_zoomPendingBw) < 1e-9 &&
+            std::abs(centerMhz - m_zoomPendingCenter) > 1e-9) {
+            // This is the radio's auto-center from the bandwidth command — ignore it.
+            return;
+        }
+        // Our intended center arrived (or bandwidth differs) — disarm the guard.
+        m_zoomEchoTimer.invalidate();
     }
 
     // Distinguish pan-follow nudges (#989) from large jumps (band change, click-to-tune).
@@ -2467,6 +2490,12 @@ bool SpectrumWidget::event(QEvent* ev)
             reprojectWaterfall(m_centerMhz, m_bandwidthMhz, newCenter, newBw);
             m_bandwidthMhz = newBw;
             m_centerMhz = newCenter;
+
+            // Arm the zoom echo guard (#1722)
+            m_zoomPendingCenter = newCenter;
+            m_zoomPendingBw     = newBw;
+            m_zoomEchoTimer.start();
+
             markOverlayDirty();
             emit bandwidthChangeRequested(newBw);
             emit centerChangeRequested(newCenter);

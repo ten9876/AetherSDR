@@ -431,6 +431,14 @@ private:
     double             m_panCenterTarget{14.225};
     double             m_panCenterStart{14.225}; // m_centerMhz at animation start (stale-echo guard)
 
+    // Zoom echo-suppression guard (#1722): when a button/pinch zoom changes both
+    // bandwidth and center, the radio may echo back an intermediate auto-center
+    // (from the bandwidth command) before processing our center command.  We
+    // suppress that stale center echo for a short window after the zoom.
+    QElapsedTimer      m_zoomEchoTimer;
+    double             m_zoomPendingCenter{0.0};
+    double             m_zoomPendingBw{0.0};
+
     // Multi-slice overlays (replaces single m_vfoFreqMhz / m_filterLowHz / etc.)
     QVector<SliceOverlay> m_sliceOverlays;
 
