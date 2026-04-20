@@ -197,6 +197,7 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     m_zoomInBtn   = makeBtn("+");
 
     // SmartSDR pcap: B sends "band_zoom=1", S sends "segment_zoom=1"
+    // Second click while band-zoomed toggles lock mode (#1766)
     connect(m_zoomBandBtn, &QPushButton::clicked, this, [this]() {
         emit bandZoomRequested();
     });
@@ -287,6 +288,11 @@ void SpectrumWidget::loadSettings()
     m_showTuneGuides  = s.value("ShowTuneGuides", "False").toString() == "True";
     m_extendedFrequencyLine = s.value("ExtendedFrequencyLine", "False").toString() == "True";
 
+    // Band-zoom lock (#1766)
+    bool lockOn = s.value(settingsKey("ZoomToBandLockEnabled"), "False").toString() == "True";
+    if (lockOn)
+        setBandZoomLocked(true);
+
     // Background image — default to bundled logo, "none" = explicitly cleared
     QString bgPath = s.value(settingsKey("BackgroundImage"), ":/bg-default.jpg").toString();
     if (bgPath != "none" && !bgPath.isEmpty())
@@ -334,6 +340,37 @@ void SpectrumWidget::setActiveVfoWidget(int sliceId)
         m_vfoWidget->raise();
         m_overlayMenu->raiseAll();  // keep overlay above VFO
     }
+}
+
+// ── Band-zoom lock (#1766) ───────────────────────────────────────────────────
+
+void SpectrumWidget::setBandZoomLocked(bool on) {
+    if (m_bandZoomLocked == on) return;
+    m_bandZoomLocked = on;
+
+    // Visual feedback: accent highlight when locked
+    if (on) {
+        m_zoomBandBtn->setStyleSheet(
+            "QPushButton { background: #00b4d8; border: 1px solid #00b4d8;"
+            " border-radius: 2px; color: #000; font-size: 11px; font-weight: bold;"
+            " padding: 0; margin: 0; min-width: 0; }"
+            "QPushButton:hover { background: #33c5e2; color: #000; }"
+            "QPushButton:pressed { background: #008ea8; color: #000; }");
+    } else {
+        m_zoomBandBtn->setStyleSheet(
+            "QPushButton { background: rgba(15,15,26,180); border: 1px solid #304050;"
+            " border-radius: 2px; color: #90a0b0; font-size: 11px; font-weight: bold;"
+            " padding: 0; margin: 0; min-width: 0; }"
+            "QPushButton:hover { background: rgba(30,50,70,200); color: #c8d8e8; }"
+            "QPushButton:pressed { background: #00b4d8; color: #000; }");
+    }
+
+    // Persist per-pan
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("ZoomToBandLockEnabled"), on ? "True" : "False");
+    s.save();
+
+    emit bandZoomLockChanged(on);
 }
 
 // ── Display control setters (save to AppSettings on each change) ──────────────

@@ -6109,11 +6109,22 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             QString("display pan set %1 center=%2").arg(applet->panId()).arg(center, 0, 'f', 6));
     });
     connect(sw, &SpectrumWidget::bandZoomRequested,
-            this, [this, applet, bandZoomOn = std::make_shared<bool>(false)]() mutable {
-        *bandZoomOn = !*bandZoomOn;
-        m_radioModel.sendCommand(
-            QString("display pan set %1 band_zoom=%2")
-                .arg(applet->panId()).arg(*bandZoomOn ? 1 : 0));
+            this, [this, applet, sw, bandZoomOn = std::make_shared<bool>(false)]() mutable {
+        if (*bandZoomOn) {
+            // Already band-zoomed — toggle lock mode (#1766)
+            sw->setBandZoomLocked(!sw->bandZoomLocked());
+            if (!sw->bandZoomLocked()) {
+                // Unlocking: turn off band zoom
+                *bandZoomOn = false;
+                m_radioModel.sendCommand(
+                    QString("display pan set %1 band_zoom=0").arg(applet->panId()));
+            }
+        } else {
+            // First click: one-shot band zoom
+            *bandZoomOn = true;
+            m_radioModel.sendCommand(
+                QString("display pan set %1 band_zoom=1").arg(applet->panId()));
+        }
     });
     connect(sw, &SpectrumWidget::segmentZoomRequested,
             this, [this, applet, segZoomOn = std::make_shared<bool>(false)]() mutable {
@@ -6627,7 +6638,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 
     // ── Band selection ───────────────────────────────────────────────────
     connect(menu, &SpectrumOverlayMenu::bandSelected,
-            this, [this, applet](const QString& bandName, double freqMhz, const QString& mode) {
+            this, [this, applet, sw](const QString& bandName, double freqMhz, const QString& mode) {
         qDebug() << "MainWindow: switching to band" << bandName
                  << "freq:" << freqMhz << "mode:" << mode;
 
@@ -6683,6 +6694,12 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         } else {
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
+        }
+
+        // Auto-zoom to band when lock is active (#1766)
+        if (sw->bandZoomLocked()) {
+            m_radioModel.sendCommand(
+                QString("display pan set %1 band_zoom=1").arg(applet->panId()));
         }
     });
 

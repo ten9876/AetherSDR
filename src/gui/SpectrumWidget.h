@@ -185,6 +185,10 @@ public:
     bool showTuneGuides() const { return m_showTuneGuides; }
     void setExtendedFrequencyLine(bool on);
     bool extendedFrequencyLine() const { return m_extendedFrequencyLine; }
+    // Band-zoom lock: auto-zoom to band on every band change (#1766)
+    bool bandZoomLocked() const { return m_bandZoomLocked; }
+    void setBandZoomLocked(bool on);
+
     void setFloating(bool on) { m_isFloating = on; }
     void setBackgroundImage(const QString& path);
     QString backgroundImagePath() const { return m_bgImagePath; }
@@ -328,6 +332,7 @@ signals:
     void bandwidthChangeRequested(double newBandwidthMhz);
     // Band/segment zoom: radio handles center/bandwidth (SmartSDR pcap: "band_zoom=1" / "segment_zoom=1")
     void bandZoomRequested();
+    void bandZoomLockChanged(bool locked);
     void segmentZoomRequested();
     // Emitted when the user drags the waterfall to pan the center frequency.
     void centerChangeRequested(double newCenterMhz);
@@ -656,6 +661,9 @@ private:
     QPushButton* m_zoomBandBtn{nullptr};
     QPushButton* m_zoomOutBtn{nullptr};
     QPushButton* m_zoomInBtn{nullptr};
+
+    // Band-zoom lock mode (#1766): auto-zoom to band on band change
+    bool m_bandZoomLocked{false};
 
 #ifdef AETHER_GPU_SPECTRUM
     bool m_rhiInitialized{false};
