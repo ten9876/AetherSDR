@@ -30,6 +30,20 @@ public:
     // safe — the widget renders the chain grey until bound.
     void setAudioEngine(AudioEngine* engine);
 
+    // Visual indicator for whether the user's TX input is routed to
+    // the client-side DSP chain.  Required for PooDoo Audio to
+    // actually shape what goes out: mic source = PC AND radio DAX
+    // TX is off.  When true, the MIC endpoint box turns green —
+    // matches the SQL-button green in RxApplet — telling the user
+    // "your setup is actually going through PooDoo."
+    void setMicInputReady(bool ready);
+
+    // Pulse the TX endpoint red when we are actively transmitting
+    // on our own slice.  Filtered upstream (TransmitModel only sets
+    // isTransmitting() true when m_txOwnedByUs is true), so MultiFlex
+    // transmissions from other clients don't trigger the pulse.
+    void setTxActive(bool active);
+
 signals:
     // Fired when the user clicks a processor stage.  MainWindow maps
     // the stage to the correct editor and opens it.  Endpoint
@@ -79,6 +93,10 @@ private:
     bool isStageBypassed(AudioEngine::TxChainStage s) const;
 
     AudioEngine* m_audio{nullptr};
+    bool         m_micInputReady{false};
+    bool         m_txActive{false};
+    class QTimer* m_txPulseTimer{nullptr};
+    float        m_txPulsePhase{0.0f};   // seconds since pulse start
 
     // Drag state — tracks the press point and the drag target once
     // the mouse has moved far enough to distinguish click from drag.

@@ -14,6 +14,10 @@
 #include "EqApplet.h"
 #include "ClientEqApplet.h"
 #include "ClientCompApplet.h"
+#include "ClientGateApplet.h"
+#include "ClientDeEssApplet.h"
+#include "ClientTubeApplet.h"
+#include "ClientPuduApplet.h"
 #include "ClientChainApplet.h"
 #include "CatControlApplet.h"
 #include "DaxApplet.h"
@@ -599,6 +603,10 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // wrapper provides the group's drag-handle + tray-toggle).
     m_clientEqApplet    = new ClientEqApplet;
     m_clientCompApplet  = new ClientCompApplet;
+    m_clientGateApplet  = new ClientGateApplet;
+    m_clientDeEssApplet = new ClientDeEssApplet;
+    m_clientTubeApplet  = new ClientTubeApplet;
+    m_clientPuduApplet  = new ClientPuduApplet;
     m_clientChainApplet = new ClientChainApplet;
 
     auto* txDsp = m_containerMgr->createContainer(
@@ -619,8 +627,12 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // pop-outable sub-containers since users commonly want them
     // floating while working on the chain.)
     if (txDsp) txDsp->insertChildWidget(-1, m_clientChainApplet);
-    makeChildContainer("ceq",   "CEQ",   m_clientEqApplet,    -1);
-    makeChildContainer("cmp",   "CMP",   m_clientCompApplet,  -1);
+    makeChildContainer("gate",  "GATE",  m_clientGateApplet,   -1);
+    makeChildContainer("ceq",   "CEQ",   m_clientEqApplet,     -1);
+    makeChildContainer("dess",  "DESS",  m_clientDeEssApplet,  -1);
+    makeChildContainer("cmp",   "CMP",   m_clientCompApplet,   -1);
+    makeChildContainer("tube",  "TUBE",  m_clientTubeApplet,   -1);
+    makeChildContainer("pudu",  "PUDU",  m_clientPuduApplet,   -1);
 
     // One-shot settings migration (#1713 Phase 4b): carry over the
     // legacy Applet_CHAIN visibility to the new Applet_TXDSP key so

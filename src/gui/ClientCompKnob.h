@@ -46,6 +46,13 @@ public:
     using LabelFormat = std::function<QString(float)>;
     void setLabelFormat(LabelFormat fmt);
 
+    // Center-label mode — draws the parameter label INSIDE the knob
+    // ring instead of above it.  Used by the PUDU applet/editor to
+    // fit 6 knobs on one row without the label row above eating
+    // vertical space.  The value readout still lives below.
+    void setCenterLabelMode(bool on);
+    bool isCenterLabelMode() const { return m_centerLabel; }
+
     // Programmatic setter — e.g. loadClientCompSettings on startup.
     void setValue(float physical);
     float value() const { return m_physical; }
@@ -78,6 +85,7 @@ private:
     bool        m_dragging{false};
     int         m_dragStartY{0};
     float       m_dragStartNorm{0.0f};
+    bool        m_centerLabel{false};
 };
 
 } // namespace AetherSDR

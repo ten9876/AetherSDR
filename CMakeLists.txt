@@ -404,6 +404,11 @@ set(CORE_SOURCES
     src/core/AudioEngine.cpp
     src/core/ClientEq.cpp
     src/core/ClientComp.cpp
+    src/core/ClientGate.cpp
+    src/core/ClientDeEss.cpp
+    src/core/ClientTube.cpp
+    src/core/ClientPudu.cpp
+    src/core/ClientPuduMonitor.cpp
     src/core/SpectralNR.cpp
     src/core/PanadapterStream.cpp
     src/core/RigctlProtocol.cpp
@@ -522,6 +527,19 @@ set(GUI_SOURCES
     src/gui/ClientCompApplet.cpp
     src/gui/ClientCompCurveWidget.cpp
     src/gui/ClientCompKnob.cpp
+    src/gui/ClientGateApplet.cpp
+    src/gui/ClientGateCurveWidget.cpp
+    src/gui/ClientGateEditor.cpp
+    src/gui/ClientGateLevelView.cpp
+    src/gui/ClientDeEssApplet.cpp
+    src/gui/ClientDeEssCurveWidget.cpp
+    src/gui/ClientDeEssEditor.cpp
+    src/gui/ClientTubeApplet.cpp
+    src/gui/ClientTubeCurveWidget.cpp
+    src/gui/ClientTubeEditor.cpp
+    src/gui/ClientPuduApplet.cpp
+    src/gui/ClientPuduEditor.cpp
+    src/gui/PooDooLogo.cpp
     src/gui/ClientCompLimiterButton.cpp
     src/gui/ClientCompMeter.cpp
     src/gui/ClientCompThresholdFader.cpp
@@ -1039,6 +1057,30 @@ add_executable(client_comp_test
     src/core/ClientComp.cpp
 )
 target_include_directories(client_comp_test PRIVATE src)
+
+add_executable(client_gate_test
+    tests/client_gate_test.cpp
+    src/core/ClientGate.cpp
+)
+target_include_directories(client_gate_test PRIVATE src)
+
+add_executable(client_deess_test
+    tests/client_deess_test.cpp
+    src/core/ClientDeEss.cpp
+)
+target_include_directories(client_deess_test PRIVATE src)
+
+add_executable(client_tube_test
+    tests/client_tube_test.cpp
+    src/core/ClientTube.cpp
+)
+target_include_directories(client_tube_test PRIVATE src)
+
+add_executable(client_pudu_test
+    tests/client_pudu_test.cpp
+    src/core/ClientPudu.cpp
+)
+target_include_directories(client_pudu_test PRIVATE src)
 
 # Container system Phase 1 tests — needs QApplication + Widgets.
 add_executable(container_widget_test

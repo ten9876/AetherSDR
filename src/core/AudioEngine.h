@@ -33,6 +33,11 @@ class DeepFilterFilter;
 class Resampler;
 class ClientEq;
 class ClientComp;
+class ClientGate;
+class ClientDeEss;
+class ClientTube;
+class ClientPudu;
+class ClientPuduMonitor;
 
 // AudioEngine handles audio playback (RX) and capture (TX).
 //
@@ -166,6 +171,32 @@ public:
     // Execution order is controlled by the TX chain order below.
     ClientComp* clientCompTx() { return m_clientCompTx.get(); }
 
+    // Client-side TX downward expander / noise gate (#1661 Phase 2).
+    // Single DSP module with an Expander ↔ Gate mode toggle that
+    // snaps ratio + floor to known-good presets.
+    ClientGate* clientGateTx() { return m_clientGateTx.get(); }
+
+    // Client-side TX de-esser (#1661 Phase 3).  Sidechain-filtered
+    // dynamics: a user-tunable bandpass feeds the envelope detector,
+    // broadband attenuation (capped at amountDb) is applied when
+    // sibilant energy crosses threshold.
+    ClientDeEss* clientDeEssTx() { return m_clientDeEssTx.get(); }
+
+    // Client-side TX dynamic tube saturator (#1661 Phase 4).  Three
+    // selectable curves, bipolar envelope-driven drive, tilt tone
+    // pre-filter, parallel dry/wet mix.
+    ClientTube* clientTubeTx() { return m_clientTubeTx.get(); }
+
+    // Client-side TX exciter — PUDU (#1661 Phase 5).  Aphex-lineage
+    // vs. Behringer-lineage two-band exciter, the centrepiece of the
+    // PooDoo Audio™ chain.
+    ClientPudu* clientPuduTx() { return m_clientPuduTx.get(); }
+
+    // Register/unregister a monitor that taps the post-DSP TX int16
+    // stream on the audio thread.  Passed pointer must outlive the
+    // registration — clear to nullptr before destroying the monitor.
+    void setTxPostDspMonitor(ClientPuduMonitor* m) noexcept;
+
     // Generalised TX DSP chain — each stage is a separate processing
     // block run in order on the TX audio path.  Only Eq and Comp are
     // implemented today; the remaining stages are placeholders for
@@ -203,6 +234,22 @@ public:
 
     void loadClientCompSettings();
     void saveClientCompSettings() const;
+
+    // Client-side TX gate — persistence mirrors the compressor.
+    void loadClientGateSettings();
+    void saveClientGateSettings() const;
+
+    // Client-side TX de-esser — persistence.
+    void loadClientDeEssSettings();
+    void saveClientDeEssSettings() const;
+
+    // Client-side TX dynamic tube — persistence.
+    void loadClientTubeSettings();
+    void saveClientTubeSettings() const;
+
+    // Client-side TX PUDU exciter — persistence.
+    void loadClientPuduSettings();
+    void saveClientPuduSettings() const;
 
     // Post-Client-EQ audio tap for the editor's FFT analyzer.  Exposes
     // a rolling mono buffer filled on the audio thread; UI thread copies
@@ -276,6 +323,18 @@ private:
     // Apply client-side TX compressor in-place.  No-op if disabled.
     void applyClientCompTxInt16(QByteArray& int16stereo);
     void applyClientCompTxFloat32(QByteArray& float32);
+    // Apply client-side TX gate in-place.  No-op if disabled.
+    void applyClientGateTxInt16(QByteArray& int16stereo);
+    void applyClientGateTxFloat32(QByteArray& float32);
+    // Apply client-side TX de-esser in-place.  No-op if disabled.
+    void applyClientDeEssTxInt16(QByteArray& int16stereo);
+    void applyClientDeEssTxFloat32(QByteArray& float32);
+    // Apply client-side TX tube saturator in-place.  No-op if disabled.
+    void applyClientTubeTxInt16(QByteArray& int16stereo);
+    void applyClientTubeTxFloat32(QByteArray& float32);
+    // Apply client-side TX PUDU exciter in-place.  No-op if disabled.
+    void applyClientPuduTxInt16(QByteArray& int16stereo);
+    void applyClientPuduTxFloat32(QByteArray& float32);
     // Apply the whole TX DSP chain (CMP + EQ) in the configured order.
     void applyClientTxDspInt16(QByteArray& int16stereo);
     void applyClientTxDspFloat32(QByteArray& float32);
@@ -375,6 +434,17 @@ private:
     std::unique_ptr<ClientEq> m_clientEqTx;
     // Client-side TX compressor (Pro-XL-style).
     std::unique_ptr<ClientComp> m_clientCompTx;
+    // Client-side TX downward expander / noise gate.
+    std::unique_ptr<ClientGate> m_clientGateTx;
+    // Client-side TX de-esser.
+    std::unique_ptr<ClientDeEss> m_clientDeEssTx;
+    // Client-side TX tube saturator.
+    std::unique_ptr<ClientTube> m_clientTubeTx;
+    // Client-side TX PUDU exciter.
+    std::unique_ptr<ClientPudu> m_clientPuduTx;
+    // Post-DSP TX monitor — owned by MainWindow; we just hold a
+    // pointer the audio thread can load lock-free per block.
+    std::atomic<ClientPuduMonitor*> m_txPostDspMonitor{nullptr};
     // Generalised TX DSP chain — stages packed one-byte-per-slot into
     // a uint64_t so the audio thread can load the full order in a
     // single atomic read per block.  TxChainStage::None terminates the
@@ -386,6 +456,10 @@ private:
     QByteArray m_clientEqRxScratch;
     QByteArray m_clientEqTxScratch;
     QByteArray m_clientCompTxScratch;
+    QByteArray m_clientGateTxScratch;
+    QByteArray m_clientDeEssTxScratch;
+    QByteArray m_clientTubeTxScratch;
+    QByteArray m_clientPuduTxScratch;
     // Post-EQ analyzer tap. One ring per path, mono (L+R averaged).
     // Audio thread writes via tapClientEqRxStereo() / tapClientEqTxInt16()
     // / tapClientEqTxFloat32(); UI thread snapshots via the public

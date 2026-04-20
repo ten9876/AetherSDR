@@ -365,13 +365,21 @@ float ClientEq::bandMagnitudeDb(const BandParams& p,
     double totalDb = 0.0;
     const int numSections = isSlope ? slopeToSections(p.slopeDbPerOct) : 1;
 
+    // Match computeCoefficients()'s HP/LP behaviour: user Q scales
+    // the family's designed section Q as a resonance multiplier
+    // relative to the 0.707 default.  Without this the curve drawer
+    // would show a static response while the DSP was already
+    // resonating from the user's drag.
+    constexpr double kDefaultQ = 0.707;
+    const double resonanceScale = isSlope ? (userQ / kDefaultQ) : 1.0;
+
     for (int k = 0; k < numSections; ++k) {
         double sectionFreq = f0;
         double sectionQ    = userQ;
         if (isSlope) {
             const SectionDesign d = designSection(family, k, numSections);
             sectionFreq = f0 * static_cast<double>(d.freqScale);
-            sectionQ    = static_cast<double>(d.q);
+            sectionQ    = static_cast<double>(d.q) * resonanceScale;
         }
         const double w0   = static_cast<double>(kTwoPi) * sectionFreq;
         const double w0sq = w0 * w0;
@@ -500,13 +508,19 @@ void ClientEq::computeCoefficients(Runtime& runtime) noexcept
     };
 
     if (isSlope) {
-        // Cascade of N sections — per-section Q comes from the active
-        // filter family's pole layout.  Section freq is nominal cutoff
-        // scaled by the family's per-section multiplier.
+        // Cascade of N sections.  Per-section Q comes from the active
+        // filter family's pole layout (Butterworth/LR/Bessel).  We
+        // still want the user's Q control to have an audible effect
+        // — use it as a RESONANCE MULTIPLIER relative to the 0.707
+        // default so the family's character is preserved when the
+        // user leaves Q at the default, while higher Q adds
+        // resonance at the corner and lower Q over-damps.
+        constexpr float kDefaultQ = 0.707f;
+        const float resonanceScale = userQ / kDefaultQ;
         for (int k = 0; k < runtime.activeSections; ++k) {
             const SectionDesign d = designSection(runtime.cachedFamily,
                                                   k, runtime.activeSections);
-            fillOneSection(k, baseFreq * d.freqScale, d.q);
+            fillOneSection(k, baseFreq * d.freqScale, d.q * resonanceScale);
         }
     } else {
         // Peak and shelf: single native 2nd-order section using user Q.

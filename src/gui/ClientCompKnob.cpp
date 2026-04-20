@@ -1,5 +1,6 @@
 #include "ClientCompKnob.h"
 
+#include <QFontMetrics>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -70,6 +71,13 @@ void ClientCompKnob::setLabelFormat(LabelFormat fmt)
     update();
 }
 
+void ClientCompKnob::setCenterLabelMode(bool on)
+{
+    if (m_centerLabel == on) return;
+    m_centerLabel = on;
+    update();
+}
+
 void ClientCompKnob::setValue(float physical)
 {
     m_physical = std::clamp(physical, m_minPhys, m_maxPhys);
@@ -107,16 +115,42 @@ void ClientCompKnob::paintEvent(QPaintEvent*)
 
     const int w = width();
     const int h = height();
-    const int diameter = std::min(w - 4, h - 24);  // leave room for text rows
-    const QRectF ring((w - diameter) * 0.5f, 12.0f, diameter, diameter);
+    // Center-label mode reclaims the 12-px label row above the ring.
+    // The ring uses almost all remaining height — the 270° arc sweep
+    // (225° → -45°) leaves a 90° gap at the bottom (4:30 → 7:30),
+    // which is where the value readout lives.  Reserving a separate
+    // "row" below the ring creates a visible gap; overlapping the
+    // empty arc sector keeps the readout snug against the knob.
+    const int topRow    = m_centerLabel ?  0 : 12;
+    const int bottomRow = 4;
+    const int diameter  = std::min(w - 4, h - topRow - bottomRow);
+    const QRectF ring((w - diameter) * 0.5f,
+                      static_cast<float>(topRow),
+                      diameter, diameter);
 
-    // Label (above the ring).
+    // Label — above the ring in classic mode, centred inside the
+    // ring in center-label mode.  Centred text is rendered AFTER
+    // the arc + pointer so it reads on top cleanly.
     QFont labelFont = p.font();
     labelFont.setPixelSize(9);
     labelFont.setBold(true);
-    p.setFont(labelFont);
-    p.setPen(kLabelColor);
-    p.drawText(QRectF(0, 0, w, 12), Qt::AlignCenter, m_label);
+    if (!m_centerLabel) {
+        // Shrink-to-fit: longer labels ("Threshold", "Release") on
+        // narrow knobs would otherwise truncate with "..." — scale
+        // the font down in 1-px steps until the rendered width fits
+        // the widget, floor at 7 px.
+        int pixelSize = 9;
+        QFontMetrics fm(labelFont);
+        const float maxWidth = std::max(8.0f, static_cast<float>(w) - 2.0f);
+        while (fm.horizontalAdvance(m_label) > maxWidth && pixelSize > 7) {
+            --pixelSize;
+            labelFont.setPixelSize(pixelSize);
+            fm = QFontMetrics(labelFont);
+        }
+        p.setFont(labelFont);
+        p.setPen(kLabelColor);
+        p.drawText(QRectF(0, 0, w, 12), Qt::AlignCenter, m_label);
+    }
 
     // Background ring.
     const qreal thick = std::max(2.0, diameter * 0.10);
@@ -152,13 +186,48 @@ void ClientCompKnob::paintEvent(QPaintEvent*)
     p.setPen(pointerPen);
     p.drawLine(pIn, pOut);
 
-    // Value text beneath the ring.
+    // Center-label mode: draw the parameter name centred inside the
+    // ring.  Start at 25 % of diameter (good for 3-4 letter labels),
+    // then shrink-to-fit if the word is longer — keeps "Threshold",
+    // "Release" etc. from spilling past the arc on small knobs.
+    if (m_centerLabel && !m_label.isEmpty()) {
+        QFont centerFont = p.font();
+        centerFont.setBold(true);
+        int pixelSize = std::max(8, diameter / 4);
+        centerFont.setPixelSize(pixelSize);
+
+        // Max text width is the knob interior, less a ring-thickness
+        // pad on each side so text never kisses the arc.
+        const float maxTextWidth = std::max(
+            8.0f,
+            static_cast<float>(diameter) - 4.0f * static_cast<float>(thick));
+        QFontMetrics fm(centerFont);
+        while (fm.horizontalAdvance(m_label) > maxTextWidth
+               && pixelSize > 7) {
+            --pixelSize;
+            centerFont.setPixelSize(pixelSize);
+            fm = QFontMetrics(centerFont);
+        }
+
+        p.setFont(centerFont);
+        p.setPen(kLabelColor);
+        p.drawText(ring, Qt::AlignCenter, m_label);
+    }
+
+    // Value text — positioned inside the empty bottom sector of the
+    // 270° arc (between the 4:30 and 7:30 sweep endpoints).  The
+    // sector starts at y = ring_center + arc_radius * sin(45°),
+    // which works out to ~82 % of the diameter from the ring top.
     QFont valFont = p.font();
-    valFont.setPixelSize(9);
+    valFont.setPixelSize(11);
     valFont.setBold(false);
     p.setFont(valFont);
     p.setPen(kValueColor);
-    p.drawText(QRectF(0, h - 12, w, 12), Qt::AlignCenter, formatValue());
+    const int valueY = topRow + static_cast<int>(diameter * 0.82f);
+    const int valueH = std::max(13, h - valueY);
+    p.drawText(QRectF(0, valueY, w, valueH),
+               Qt::AlignHCenter | Qt::AlignTop,
+               formatValue());
 }
 
 void ClientCompKnob::mousePressEvent(QMouseEvent* ev)

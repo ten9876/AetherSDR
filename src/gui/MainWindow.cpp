@@ -28,9 +28,21 @@
 #include "ClientEqEditor.h"
 #include "ClientCompApplet.h"
 #include "ClientCompEditor.h"
+#include "ClientGateApplet.h"
+#include "ClientGateEditor.h"
+#include "ClientDeEssApplet.h"
+#include "ClientDeEssEditor.h"
+#include "ClientTubeApplet.h"
+#include "ClientTubeEditor.h"
+#include "ClientPuduApplet.h"
+#include "ClientPuduEditor.h"
 #include "ClientChainApplet.h"
 #include "core/ClientComp.h"
 #include "core/ClientEq.h"
+#include "core/ClientGate.h"
+#include "core/ClientDeEss.h"
+#include "core/ClientTube.h"
+#include "core/ClientPudu.h"
 #include "CatControlApplet.h"
 #include "DaxApplet.h"
 #include "TciApplet.h"
@@ -297,6 +309,31 @@ MainWindow::MainWindow(QWidget* parent)
                        m_audio, &AudioEngine::feedAudioData);
         } else {
             connect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
+                    m_audio, &AudioEngine::feedAudioData);
+        }
+    });
+
+    // PUDU TX monitor — captures post-PooDoo TX int16 audio, plays
+    // back through the RX sink so the user can hear what their chain
+    // is producing without keying the radio.  Registered with
+    // AudioEngine so its tap hook picks it up on the audio thread.
+    m_puduMonitor = new ClientPuduMonitor(this);
+    m_audio->setTxPostDspMonitor(m_puduMonitor);
+    connect(m_puduMonitor, &ClientPuduMonitor::playbackAudio,
+            m_audio, &AudioEngine::feedDecodedSpeech);
+    // Disconnect live RX audio while the monitor is recording or
+    // playing so the user hears ONLY the captured PooDoo audio.
+    // Mirrors QsoRecorder's muteRxRequested handling — merely setting
+    // the sink volume to 0 would mute our playback too.
+    connect(m_puduMonitor, &ClientPuduMonitor::muteRxRequested,
+            this, [this](bool mute) {
+        if (mute) {
+            disconnect(m_radioModel.panStream(),
+                       &PanadapterStream::audioDataReady,
+                       m_audio, &AudioEngine::feedAudioData);
+        } else {
+            connect(m_radioModel.panStream(),
+                    &PanadapterStream::audioDataReady,
                     m_audio, &AudioEngine::feedAudioData);
         }
     });
@@ -837,6 +874,27 @@ MainWindow::MainWindow(QWidget* parent)
             // Reset to full gain — radio handles hardware mic gain
             m_audio->setPcMicGain(100);
             audioStopTx();
+        }
+        // PooDoo Audio readiness indicator — turn the chain widget's
+        // MIC endpoint green when the TX input is actually flowing
+        // through the client DSP chain: mic source = PC AND radio
+        // DAX TX is off.  Any other combination routes audio around
+        // our DSP, so the green cue would mislead.  The TX pulse
+        // is gated on the same readiness so it only fires when
+        // PooDoo is actually doing something during transmit.
+        if (m_appletPanel && m_appletPanel->clientChainApplet()) {
+            const auto& tx = m_radioModel.transmitModel();
+            const bool ready = (tx.micSelection() == "PC") && !tx.daxOn();
+            m_appletPanel->clientChainApplet()->setMicInputReady(ready);
+            m_appletPanel->clientChainApplet()->setTxActive(
+                ready && tx.isTransmitting());
+
+            // If the user pulls the plug on readiness mid-recording
+            // (mic source away from PC, or DAX back on), stop the
+            // recording — auto-play kicks in via recordingStopped.
+            if (!ready && m_puduMonitor && m_puduMonitor->isRecording()) {
+                m_puduMonitor->stopRecording();
+            }
         }
     });
 #ifdef Q_OS_MAC
@@ -2039,6 +2097,82 @@ MainWindow::MainWindow(QWidget* parent)
         m_clientCompEditor->showForTx();
     });
 
+    // ── Client Gate applet: TX downward expander / noise gate (#1661 Phase 2) ─
+    m_appletPanel->clientGateApplet()->setAudioEngine(m_audio);
+    connect(m_appletPanel->clientGateApplet(), &ClientGateApplet::editRequested,
+            this, [this]() {
+        if (!m_clientGateEditor) {
+            m_clientGateEditor = new ClientGateEditor(m_audio, this);
+            connect(m_clientGateEditor, &ClientGateEditor::bypassToggled,
+                    this, [this](bool bypassed) {
+                if (m_appletPanel && m_appletPanel->clientGateApplet())
+                    m_appletPanel->clientGateApplet()->refreshEnableFromEngine();
+                if (m_appletPanel && m_appletPanel->clientChainApplet())
+                    m_appletPanel->clientChainApplet()->refreshFromEngine();
+                if (m_appletPanel)
+                    m_appletPanel->setAppletVisible("GATE", !bypassed);
+            });
+        }
+        m_clientGateEditor->showForTx();
+    });
+
+    // ── Client De-esser applet: TX sidechain-filtered dynamics (#1661 Phase 3) ─
+    m_appletPanel->clientDeEssApplet()->setAudioEngine(m_audio);
+    connect(m_appletPanel->clientDeEssApplet(), &ClientDeEssApplet::editRequested,
+            this, [this]() {
+        if (!m_clientDeEssEditor) {
+            m_clientDeEssEditor = new ClientDeEssEditor(m_audio, this);
+            connect(m_clientDeEssEditor, &ClientDeEssEditor::bypassToggled,
+                    this, [this](bool bypassed) {
+                if (m_appletPanel && m_appletPanel->clientDeEssApplet())
+                    m_appletPanel->clientDeEssApplet()->refreshEnableFromEngine();
+                if (m_appletPanel && m_appletPanel->clientChainApplet())
+                    m_appletPanel->clientChainApplet()->refreshFromEngine();
+                if (m_appletPanel)
+                    m_appletPanel->setAppletVisible("DESS", !bypassed);
+            });
+        }
+        m_clientDeEssEditor->showForTx();
+    });
+
+    // ── Client Tube applet: TX dynamic tube saturator (#1661 Phase 4) ────────
+    m_appletPanel->clientTubeApplet()->setAudioEngine(m_audio);
+    connect(m_appletPanel->clientTubeApplet(), &ClientTubeApplet::editRequested,
+            this, [this]() {
+        if (!m_clientTubeEditor) {
+            m_clientTubeEditor = new ClientTubeEditor(m_audio, this);
+            connect(m_clientTubeEditor, &ClientTubeEditor::bypassToggled,
+                    this, [this](bool bypassed) {
+                if (m_appletPanel && m_appletPanel->clientTubeApplet())
+                    m_appletPanel->clientTubeApplet()->refreshEnableFromEngine();
+                if (m_appletPanel && m_appletPanel->clientChainApplet())
+                    m_appletPanel->clientChainApplet()->refreshFromEngine();
+                if (m_appletPanel)
+                    m_appletPanel->setAppletVisible("TUBE", !bypassed);
+            });
+        }
+        m_clientTubeEditor->showForTx();
+    });
+
+    // ── Client PUDU applet: TX exciter — PooDoo™ centrepiece (#1661 Phase 5) ─
+    m_appletPanel->clientPuduApplet()->setAudioEngine(m_audio);
+    connect(m_appletPanel->clientPuduApplet(), &ClientPuduApplet::editRequested,
+            this, [this]() {
+        if (!m_clientPuduEditor) {
+            m_clientPuduEditor = new ClientPuduEditor(m_audio, this);
+            connect(m_clientPuduEditor, &ClientPuduEditor::bypassToggled,
+                    this, [this](bool bypassed) {
+                if (m_appletPanel && m_appletPanel->clientPuduApplet())
+                    m_appletPanel->clientPuduApplet()->refreshEnableFromEngine();
+                if (m_appletPanel && m_appletPanel->clientChainApplet())
+                    m_appletPanel->clientChainApplet()->refreshFromEngine();
+                if (m_appletPanel)
+                    m_appletPanel->setAppletVisible("PUDU", !bypassed);
+            });
+        }
+        m_clientPuduEditor->showForTx();
+    });
+
     // ── TX signal-chain applet (#1661) ──────────────────────────────────────
     // Visual strip showing MIC → stages → TX with per-stage bypass +
     // drag-drop reorder.  Clicking a stage opens its floating editor
@@ -2051,6 +2185,82 @@ MainWindow::MainWindow(QWidget* parent)
     // stageEnabledChanged → setAppletVisible here.  Initial state is
     // seeded from the engine below so settings persist across launches.
     m_appletPanel->clientChainApplet()->setAudioEngine(m_audio);
+    // Seed the PooDoo MIC-ready + TX-pulse indicators from current
+    // state — subsequent changes flow through the TransmitModel
+    // signal connections above (micStateChanged + moxChanged).
+    {
+        const auto& tx = m_radioModel.transmitModel();
+        const bool ready = (tx.micSelection() == "PC") && !tx.daxOn();
+        m_appletPanel->clientChainApplet()->setMicInputReady(ready);
+        m_appletPanel->clientChainApplet()->setTxActive(
+            ready && tx.isTransmitting());
+    }
+    // Pulse the TX endpoint red when we're transmitting AND PooDoo
+    // is actually in the signal path (MIC=PC and DAX off).  Otherwise
+    // the pulse would lie about what's being processed.
+    connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
+            this, [this](bool txActive) {
+        if (!m_appletPanel || !m_appletPanel->clientChainApplet()) return;
+        const auto& tx = m_radioModel.transmitModel();
+        const bool ready = (tx.micSelection() == "PC") && !tx.daxOn();
+        m_appletPanel->clientChainApplet()->setTxActive(ready && txActive);
+    });
+
+    // ── PUDU monitor wiring ─────────────────────────────────────
+    auto* chainApplet = m_appletPanel->clientChainApplet();
+    chainApplet->setMonitorHasRecording(m_puduMonitor->hasRecording());
+
+    // User-click → start/stop based on current monitor state.  The
+    // monitor's own signals drive the button visuals back.
+    connect(chainApplet, &ClientChainApplet::monitorRecordClicked,
+            this, [this]() {
+        if (m_puduMonitor->isRecording()) {
+            m_puduMonitor->stopRecording();
+        } else {
+            // Don't record while playing — button shouldn't be
+            // enabled in that state, but guard anyway.
+            if (m_puduMonitor->isPlaying()) m_puduMonitor->stopPlayback();
+            m_puduMonitor->startRecording();
+        }
+    });
+    connect(chainApplet, &ClientChainApplet::monitorPlayClicked,
+            this, [this]() {
+        if (m_puduMonitor->isPlaying()) {
+            m_puduMonitor->stopPlayback();
+        } else {
+            m_puduMonitor->startPlayback();
+        }
+    });
+
+    // Monitor state → UI updates.  RX audio gating is handled
+    // separately via the muteRxRequested wiring above.
+    connect(m_puduMonitor, &ClientPuduMonitor::recordingStarted,
+            this, [this]() {
+        if (m_appletPanel && m_appletPanel->clientChainApplet())
+            m_appletPanel->clientChainApplet()->setMonitorRecording(true);
+    });
+    connect(m_puduMonitor, &ClientPuduMonitor::recordingStopped,
+            this, [this](int /*durationMs*/) {
+        if (m_appletPanel && m_appletPanel->clientChainApplet()) {
+            auto* a = m_appletPanel->clientChainApplet();
+            a->setMonitorRecording(false);
+            a->setMonitorHasRecording(true);
+        }
+        // Auto-start playback — the mute stays installed across the
+        // transition because the monitor only emits muteRxRequested
+        // (false) at stopPlayback().
+        m_puduMonitor->startPlayback();
+    });
+    connect(m_puduMonitor, &ClientPuduMonitor::playbackStarted,
+            this, [this]() {
+        if (m_appletPanel && m_appletPanel->clientChainApplet())
+            m_appletPanel->clientChainApplet()->setMonitorPlaying(true);
+    });
+    connect(m_puduMonitor, &ClientPuduMonitor::playbackStopped,
+            this, [this]() {
+        if (m_appletPanel && m_appletPanel->clientChainApplet())
+            m_appletPanel->clientChainApplet()->setMonitorPlaying(false);
+    });
     if (m_audio && m_audio->clientEqTx()) {
         m_appletPanel->setAppletVisible(
             "CEQ", m_audio->clientEqTx()->isEnabled());
@@ -2058,6 +2268,22 @@ MainWindow::MainWindow(QWidget* parent)
     if (m_audio && m_audio->clientCompTx()) {
         m_appletPanel->setAppletVisible(
             "CMP", m_audio->clientCompTx()->isEnabled());
+    }
+    if (m_audio && m_audio->clientGateTx()) {
+        m_appletPanel->setAppletVisible(
+            "GATE", m_audio->clientGateTx()->isEnabled());
+    }
+    if (m_audio && m_audio->clientDeEssTx()) {
+        m_appletPanel->setAppletVisible(
+            "DESS", m_audio->clientDeEssTx()->isEnabled());
+    }
+    if (m_audio && m_audio->clientTubeTx()) {
+        m_appletPanel->setAppletVisible(
+            "TUBE", m_audio->clientTubeTx()->isEnabled());
+    }
+    if (m_audio && m_audio->clientPuduTx()) {
+        m_appletPanel->setAppletVisible(
+            "PUDU", m_audio->clientPuduTx()->isEnabled());
     }
     connect(m_appletPanel->clientChainApplet(),
             &ClientChainApplet::stageEnabledChanged,
@@ -2070,6 +2296,23 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->setAppletVisible("CMP", enabled);
             if (m_appletPanel->clientCompApplet())
                 m_appletPanel->clientCompApplet()->refreshEnableFromEngine();
+        } else if (stage == AudioEngine::TxChainStage::Gate) {
+            m_appletPanel->setAppletVisible("GATE", enabled);
+            if (m_appletPanel->clientGateApplet())
+                m_appletPanel->clientGateApplet()->refreshEnableFromEngine();
+        } else if (stage == AudioEngine::TxChainStage::DeEss) {
+            m_appletPanel->setAppletVisible("DESS", enabled);
+            if (m_appletPanel->clientDeEssApplet())
+                m_appletPanel->clientDeEssApplet()->refreshEnableFromEngine();
+        } else if (stage == AudioEngine::TxChainStage::Tube) {
+            m_appletPanel->setAppletVisible("TUBE", enabled);
+            if (m_appletPanel->clientTubeApplet())
+                m_appletPanel->clientTubeApplet()->refreshEnableFromEngine();
+        } else if (stage == AudioEngine::TxChainStage::Enh) {
+            // Enh slot hosts the PUDU exciter.
+            m_appletPanel->setAppletVisible("PUDU", enabled);
+            if (m_appletPanel->clientPuduApplet())
+                m_appletPanel->clientPuduApplet()->refreshEnableFromEngine();
         }
     });
     connect(m_appletPanel->clientChainApplet(),
@@ -2109,8 +2352,68 @@ MainWindow::MainWindow(QWidget* parent)
                 }
                 m_clientCompEditor->showForTx();
                 break;
+            case AudioEngine::TxChainStage::Gate:
+                if (!m_clientGateEditor) {
+                    m_clientGateEditor = new ClientGateEditor(m_audio, this);
+                    connect(m_clientGateEditor, &ClientGateEditor::bypassToggled,
+                            this, [this](bool bypassed) {
+                        if (m_appletPanel && m_appletPanel->clientGateApplet())
+                            m_appletPanel->clientGateApplet()->refreshEnableFromEngine();
+                        if (m_appletPanel && m_appletPanel->clientChainApplet())
+                            m_appletPanel->clientChainApplet()->refreshFromEngine();
+                        if (m_appletPanel)
+                            m_appletPanel->setAppletVisible("GATE", !bypassed);
+                    });
+                }
+                m_clientGateEditor->showForTx();
+                break;
+            case AudioEngine::TxChainStage::DeEss:
+                if (!m_clientDeEssEditor) {
+                    m_clientDeEssEditor = new ClientDeEssEditor(m_audio, this);
+                    connect(m_clientDeEssEditor, &ClientDeEssEditor::bypassToggled,
+                            this, [this](bool bypassed) {
+                        if (m_appletPanel && m_appletPanel->clientDeEssApplet())
+                            m_appletPanel->clientDeEssApplet()->refreshEnableFromEngine();
+                        if (m_appletPanel && m_appletPanel->clientChainApplet())
+                            m_appletPanel->clientChainApplet()->refreshFromEngine();
+                        if (m_appletPanel)
+                            m_appletPanel->setAppletVisible("DESS", !bypassed);
+                    });
+                }
+                m_clientDeEssEditor->showForTx();
+                break;
+            case AudioEngine::TxChainStage::Tube:
+                if (!m_clientTubeEditor) {
+                    m_clientTubeEditor = new ClientTubeEditor(m_audio, this);
+                    connect(m_clientTubeEditor, &ClientTubeEditor::bypassToggled,
+                            this, [this](bool bypassed) {
+                        if (m_appletPanel && m_appletPanel->clientTubeApplet())
+                            m_appletPanel->clientTubeApplet()->refreshEnableFromEngine();
+                        if (m_appletPanel && m_appletPanel->clientChainApplet())
+                            m_appletPanel->clientChainApplet()->refreshFromEngine();
+                        if (m_appletPanel)
+                            m_appletPanel->setAppletVisible("TUBE", !bypassed);
+                    });
+                }
+                m_clientTubeEditor->showForTx();
+                break;
+            case AudioEngine::TxChainStage::Enh:
+                // Enh slot hosts PUDU.
+                if (!m_clientPuduEditor) {
+                    m_clientPuduEditor = new ClientPuduEditor(m_audio, this);
+                    connect(m_clientPuduEditor, &ClientPuduEditor::bypassToggled,
+                            this, [this](bool bypassed) {
+                        if (m_appletPanel && m_appletPanel->clientPuduApplet())
+                            m_appletPanel->clientPuduApplet()->refreshEnableFromEngine();
+                        if (m_appletPanel && m_appletPanel->clientChainApplet())
+                            m_appletPanel->clientChainApplet()->refreshFromEngine();
+                        if (m_appletPanel)
+                            m_appletPanel->setAppletVisible("PUDU", !bypassed);
+                    });
+                }
+                m_clientPuduEditor->showForTx();
+                break;
             default:
-                // Gate / DeEss / Tube / Enh — no editor yet.
                 break;
         }
     });

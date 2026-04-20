@@ -1,6 +1,10 @@
 #include "ClientChainWidget.h"
 #include "core/ClientComp.h"
 #include "core/ClientEq.h"
+#include "core/ClientGate.h"
+#include "core/ClientDeEss.h"
+#include "core/ClientTube.h"
+#include "core/ClientPudu.h"
 
 #include <QAction>
 #include <QContextMenuEvent>
@@ -16,6 +20,7 @@
 #include <QPainterPath>
 #include <QPaintEvent>
 #include <QPen>
+#include <QTimer>
 #include <QToolTip>
 #include <algorithm>
 #include <cmath>
@@ -54,6 +59,17 @@ const QColor kBgActive     ("#14253a");
 const QColor kBorderIdle   ("#2a3a4a");
 const QColor kBorderActive ("#4db8d4");
 const QColor kBorderGrey   ("#1e2a38");
+// MIC endpoint "ready" state — matches RxApplet's SQL-button green
+// so users recognise the visual language across the sidebar.
+const QColor kBgMicReady   ("#006040");
+const QColor kBorderMicReady("#00a060");
+const QColor kTextMicReady ("#00ff88");
+// TX endpoint "active" state — red, pulsing via setTxActive().
+// Two shades lerped by the pulse factor give a breathing effect.
+const QColor kBgTxActiveDim ("#3a1010");
+const QColor kBgTxActiveHot ("#c03030");
+const QColor kBorderTxActive("#ff4040");
+const QColor kTextTxActive  ("#ff9090");
 const QColor kConnector    ("#2a3a4a");
 const QColor kTextLabel    ("#c8d8e8");
 const QColor kTextDim      ("#506070");
@@ -71,7 +87,7 @@ QString stageLabel(AudioEngine::TxChainStage s)
         case AudioEngine::TxChainStage::DeEss: return "DESS";
         case AudioEngine::TxChainStage::Comp:  return "COMP";
         case AudioEngine::TxChainStage::Tube:  return "TUBE";
-        case AudioEngine::TxChainStage::Enh:   return "ENH";
+        case AudioEngine::TxChainStage::Enh:   return "PUDU";
         case AudioEngine::TxChainStage::None:  return "";
     }
     return "";
@@ -97,12 +113,47 @@ void ClientChainWidget::setAudioEngine(AudioEngine* engine)
     update();
 }
 
+void ClientChainWidget::setMicInputReady(bool ready)
+{
+    if (m_micInputReady == ready) return;
+    m_micInputReady = ready;
+    update();
+}
+
+void ClientChainWidget::setTxActive(bool active)
+{
+    if (m_txActive == active) return;
+    m_txActive = active;
+    if (active) {
+        // Lazy-create the pulse timer once, then keep it for reuse.
+        if (!m_txPulseTimer) {
+            m_txPulseTimer = new QTimer(this);
+            m_txPulseTimer->setInterval(33);   // ~30 fps
+            m_txPulseTimer->setTimerType(Qt::PreciseTimer);
+            connect(m_txPulseTimer, &QTimer::timeout, this, [this]() {
+                m_txPulsePhase += 0.033f;       // seconds per tick
+                update();
+            });
+        }
+        m_txPulsePhase = 0.0f;
+        m_txPulseTimer->start();
+    } else if (m_txPulseTimer) {
+        m_txPulseTimer->stop();
+    }
+    update();
+}
+
 bool ClientChainWidget::isStageImplemented(AudioEngine::TxChainStage s) const
 {
-    // Only EQ and Comp have DSP today; Gate / DeEss / Tube / Enh are
-    // placeholders (no-op pass-through in applyClientTxDsp).
+    // All six TX DSP stages are now implemented.  The Enh slot hosts
+    // the PUDU exciter (Phase 5) — the enum name is legacy; the
+    // user-facing label is PUDU (see stageLabel above).
     return s == AudioEngine::TxChainStage::Eq
-        || s == AudioEngine::TxChainStage::Comp;
+        || s == AudioEngine::TxChainStage::Comp
+        || s == AudioEngine::TxChainStage::Gate
+        || s == AudioEngine::TxChainStage::DeEss
+        || s == AudioEngine::TxChainStage::Tube
+        || s == AudioEngine::TxChainStage::Enh;
 }
 
 bool ClientChainWidget::isStageBypassed(AudioEngine::TxChainStage s) const
@@ -113,8 +164,16 @@ bool ClientChainWidget::isStageBypassed(AudioEngine::TxChainStage s) const
             return !(m_audio->clientEqTx() && m_audio->clientEqTx()->isEnabled());
         case AudioEngine::TxChainStage::Comp:
             return !(m_audio->clientCompTx() && m_audio->clientCompTx()->isEnabled());
+        case AudioEngine::TxChainStage::Gate:
+            return !(m_audio->clientGateTx() && m_audio->clientGateTx()->isEnabled());
+        case AudioEngine::TxChainStage::DeEss:
+            return !(m_audio->clientDeEssTx() && m_audio->clientDeEssTx()->isEnabled());
+        case AudioEngine::TxChainStage::Tube:
+            return !(m_audio->clientTubeTx() && m_audio->clientTubeTx()->isEnabled());
+        case AudioEngine::TxChainStage::Enh:   // PUDU slot
+            return !(m_audio->clientPuduTx() && m_audio->clientPuduTx()->isEnabled());
         default:
-            return true;   // unimplemented stages read as bypassed
+            return true;
     }
 }
 
@@ -352,11 +411,43 @@ void ClientChainWidget::paintEvent(QPaintEvent*)
         const bool lastEndpoint  = (i == m_boxes.size() - 1);
 
         if (b.isEndpoint) {
-            // MIC / TX sinks.
-            p.setBrush(kBgEndpoint);
-            p.setPen(QPen(kBorderGrey, 1.0));
+            // MIC / TX sinks.  Colour treatment depends on which
+            // endpoint + current state:
+            //   MIC + ready    → SQL-green (routed through PooDoo)
+            //   TX  + tx active → pulsing red (1 Hz sine breathing)
+            //   otherwise      → dim endpoint grey
+            const bool micReady = firstEndpoint && m_micInputReady;
+            const bool txActive = lastEndpoint && m_txActive;
+
+            QBrush bodyBrush(kBgEndpoint);
+            QColor borderCol = kBorderGrey;
+            QColor textCol   = kTextLabel;
+
+            if (micReady) {
+                bodyBrush = kBgMicReady;
+                borderCol = kBorderMicReady;
+                textCol   = kTextMicReady;
+            } else if (txActive) {
+                // Smooth 1 Hz breathing: pulse factor sweeps
+                // sin(2πt) rescaled to 0..1.  Lerp the body fill
+                // between dim-red and hot-red so it "glows."
+                const float pulse = 0.5f + 0.5f *
+                    std::sin(m_txPulsePhase * 2.0f * 3.14159265f);
+                const int r = static_cast<int>(kBgTxActiveDim.red()   +
+                    pulse * (kBgTxActiveHot.red()   - kBgTxActiveDim.red()));
+                const int g = static_cast<int>(kBgTxActiveDim.green() +
+                    pulse * (kBgTxActiveHot.green() - kBgTxActiveDim.green()));
+                const int bl = static_cast<int>(kBgTxActiveDim.blue() +
+                    pulse * (kBgTxActiveHot.blue()  - kBgTxActiveDim.blue()));
+                bodyBrush = QColor(r, g, bl);
+                borderCol = kBorderTxActive;
+                textCol   = kTextTxActive;
+            }
+
+            p.setBrush(bodyBrush);
+            p.setPen(QPen(borderCol, 1.0));
             p.drawRoundedRect(b.rect, kRadius, kRadius);
-            p.setPen(kTextLabel);
+            p.setPen(textCol);
             p.drawText(b.rect, Qt::AlignCenter,
                        firstEndpoint ? "MIC" : (lastEndpoint ? "TX" : ""));
             continue;
@@ -517,6 +608,18 @@ void ClientChainWidget::contextMenuEvent(QContextMenuEvent* ev)
         } else if (stage == AudioEngine::TxChainStage::Comp && m_audio->clientCompTx()) {
             m_audio->clientCompTx()->setEnabled(newEnabled);
             m_audio->saveClientCompSettings();
+        } else if (stage == AudioEngine::TxChainStage::Gate && m_audio->clientGateTx()) {
+            m_audio->clientGateTx()->setEnabled(newEnabled);
+            m_audio->saveClientGateSettings();
+        } else if (stage == AudioEngine::TxChainStage::DeEss && m_audio->clientDeEssTx()) {
+            m_audio->clientDeEssTx()->setEnabled(newEnabled);
+            m_audio->saveClientDeEssSettings();
+        } else if (stage == AudioEngine::TxChainStage::Tube && m_audio->clientTubeTx()) {
+            m_audio->clientTubeTx()->setEnabled(newEnabled);
+            m_audio->saveClientTubeSettings();
+        } else if (stage == AudioEngine::TxChainStage::Enh && m_audio->clientPuduTx()) {
+            m_audio->clientPuduTx()->setEnabled(newEnabled);
+            m_audio->saveClientPuduSettings();
         }
         emit stageEnabledChanged(stage, newEnabled);
         update();

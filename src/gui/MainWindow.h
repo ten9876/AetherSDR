@@ -14,6 +14,7 @@
 #include "core/WanConnection.h"
 #include "core/CwDecoder.h"
 #include "core/QsoRecorder.h"
+#include "core/ClientPuduMonitor.h"
 #include "core/DxClusterClient.h"
 #ifdef HAVE_MQTT
 #include "core/MqttClient.h"
@@ -160,6 +161,7 @@ private:
     AudioEngine*      m_audio{nullptr};
     QThread*          m_audioThread{nullptr};
     QsoRecorder*      m_qsoRecorder{nullptr};
+    ClientPuduMonitor* m_puduMonitor{nullptr};
     BandSettings      m_bandSettings;
     // 8-channel CAT: each channel (A-H) binds to a slice index (0-7)
     static constexpr int kCatChannels = 8;
@@ -306,6 +308,10 @@ private:
     QDialog* m_reconnectDlg{nullptr}; // shown on unexpected disconnect, dismissed on reconnect
     class ClientEqEditor* m_clientEqEditor{nullptr}; // lazy — created on first Edit… click
     class ClientCompEditor* m_clientCompEditor{nullptr}; // lazy — created on first Edit… click
+    class ClientGateEditor* m_clientGateEditor{nullptr}; // lazy — created on first Edit… click
+    class ClientDeEssEditor* m_clientDeEssEditor{nullptr}; // lazy — created on first Edit… click
+    class ClientTubeEditor* m_clientTubeEditor{nullptr}; // lazy — created on first Edit… click
+    class ClientPuduEditor* m_clientPuduEditor{nullptr}; // lazy — created on first Edit… click
 
     // Applet-panel pop-out support (#1713 Phase 6).  When floating,
     // the panel lives inside m_appletPanelFloatWindow and its splitter

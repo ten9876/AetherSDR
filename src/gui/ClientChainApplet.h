@@ -4,38 +4,99 @@
 
 #include <QWidget>
 
+class QLabel;
+class QPushButton;
+
 namespace AetherSDR {
 
 class ClientChainWidget;
 
-// Docked "CHAIN" tile — wraps ClientChainWidget with the applet chrome
-// so the TX DSP chain appears in the applet tray alongside CEQ and
-// CMP.  Clicking a stage opens its editor (signal forwarded to
-// MainWindow); dragging reorders the chain in place.
+// Docked chain tile — header with [TX] [RX] [BYPASS] buttons, the
+// chain strip, and an interaction hint at the bottom.
+//
+// TX and RX buttons form an exclusive pair that selects which chain
+// the widget displays.  TX is the working client-side DSP chain
+// (six stages, all implemented).  RX is reserved for the future
+// client-side RX DSP chain — until then, switching to RX shows a
+// placeholder.
+//
+// BYPASS is a one-click action that disables every stage in the
+// currently-selected chain.  Users re-enable individual stages via
+// the chain widget's right-click menu or the per-stage applet tiles.
 class ClientChainApplet : public QWidget {
     Q_OBJECT
 
 public:
+    enum class ChainMode { Tx, Rx };
+
     explicit ClientChainApplet(QWidget* parent = nullptr);
 
     void setAudioEngine(AudioEngine* engine);
-
-    // Call after any external change to TX DSP state (e.g. the user
-    // toggled bypass from a floating editor) so the chain strip
-    // repaints with the new bypass state.
     void refreshFromEngine();
 
-signals:
-    // Forwarded from the internal widget — MainWindow maps each stage
-    // to the corresponding editor.
-    void editRequested(AudioEngine::TxChainStage stage);
+    // Forwarded to the internal chain widget — see ClientChainWidget::
+    // setMicInputReady.  MainWindow calls this whenever TransmitModel
+    // reports a mic-state change (which covers both mic source and DAX
+    // on/off).  Also drives the record button's enable state — no
+    // audio to capture when the chain isn't in the signal path.
+    void setMicInputReady(bool ready);
 
-    // Forwarded — MainWindow uses this to show / hide the stage's
-    // applet tile in sync with its DSP bypass state.
+    // Forwarded — pulses the TX endpoint red when we're actively
+    // transmitting on our own slice.  Driven by TransmitModel::
+    // moxChanged from MainWindow.
+    void setTxActive(bool active);
+
+    // PUDU monitor state — MainWindow drives these from the monitor's
+    // state signals.  Each toggles button appearance, pulse, and the
+    // mutual-exclusion enable state of the other button.
+    void setMonitorRecording(bool on);
+    void setMonitorPlaying(bool on);
+    void setMonitorHasRecording(bool has);
+
+signals:
+    void editRequested(AudioEngine::TxChainStage stage);
     void stageEnabledChanged(AudioEngine::TxChainStage stage, bool enabled);
 
+    // User clicked the record or play button.  MainWindow decides
+    // whether this is a start or a stop based on current monitor
+    // state (click on a pulsing button = stop).
+    void monitorRecordClicked();
+    void monitorPlayClicked();
+
 private:
+    void setMode(ChainMode m);
+    // Click handler for the BYPASS toggle.  On check: records which
+    // TX stages are currently enabled, disables them all.  On uncheck:
+    // re-enables just the stages that were on before.  Manual changes
+    // between clicks are preserved only for stages not in the snapshot.
+    void onBypassToggled(bool checked);
+
+    // Applies the per-button stylesheet based on role + current state
+    // (idle/active/pulse-bright/pulse-dim/disabled).  Separate method
+    // so the pulse timer can call it cheaply at each tick.
+    void applyRecordButtonStyle();
+    void applyPlayButtonStyle();
+    void updateMonitorButtonEnables();
+
+    AudioEngine*       m_audio{nullptr};
     ClientChainWidget* m_chain{nullptr};
+    QLabel*            m_rxPlaceholder{nullptr};
+    QLabel*            m_hint{nullptr};
+    QPushButton*       m_txBtn{nullptr};
+    QPushButton*       m_rxBtn{nullptr};
+    QPushButton*       m_bypassBtn{nullptr};
+    QPushButton*       m_monRecBtn{nullptr};
+    QPushButton*       m_monPlayBtn{nullptr};
+    class QTimer*      m_monRecPulse{nullptr};
+    class QTimer*      m_monPlayPulse{nullptr};
+    bool               m_monRecPulseDim{false};
+    bool               m_monPlayPulseDim{false};
+    bool               m_monRecording{false};
+    bool               m_monPlaying{false};
+    bool               m_monHasRecording{false};
+    bool               m_micReady{false};
+    ChainMode          m_mode{ChainMode::Tx};
+    QVector<AudioEngine::TxChainStage> m_bypassSnapshot;  // stages that were on before BYPASS
 };
 
 } // namespace AetherSDR

@@ -28,6 +28,10 @@ class PhoneApplet;
 class EqApplet;
 class ClientEqApplet;
 class ClientCompApplet;
+class ClientGateApplet;
+class ClientDeEssApplet;
+class ClientTubeApplet;
+class ClientPuduApplet;
 class ClientChainApplet;
 class CatControlApplet;
 class DaxApplet;
@@ -62,6 +66,10 @@ public:
     EqApplet*       eqApplet()       { return m_eqApplet; }
     ClientEqApplet* clientEqApplet() { return m_clientEqApplet; }
     ClientCompApplet* clientCompApplet() { return m_clientCompApplet; }
+    ClientGateApplet* clientGateApplet() { return m_clientGateApplet; }
+    ClientDeEssApplet* clientDeEssApplet() { return m_clientDeEssApplet; }
+    ClientTubeApplet* clientTubeApplet() { return m_clientTubeApplet; }
+    ClientPuduApplet* clientPuduApplet() { return m_clientPuduApplet; }
     ClientChainApplet* clientChainApplet() { return m_clientChainApplet; }
     CatControlApplet* catControlApplet() { return m_catControlApplet; }
     DaxApplet*      daxApplet()      { return m_daxApplet; }
@@ -144,6 +152,10 @@ private:
     EqApplet*      m_eqApplet{nullptr};
     ClientEqApplet* m_clientEqApplet{nullptr};
     ClientCompApplet* m_clientCompApplet{nullptr};
+    ClientGateApplet* m_clientGateApplet{nullptr};
+    ClientDeEssApplet* m_clientDeEssApplet{nullptr};
+    ClientTubeApplet* m_clientTubeApplet{nullptr};
+    ClientPuduApplet* m_clientPuduApplet{nullptr};
     ClientChainApplet* m_clientChainApplet{nullptr};
     CatControlApplet* m_catControlApplet{nullptr};
     DaxApplet*     m_daxApplet{nullptr};
