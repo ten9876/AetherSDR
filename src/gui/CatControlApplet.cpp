@@ -69,7 +69,11 @@ void CatControlApplet::buildUI()
     m_tcpEnable->setFixedSize(76, 22);
     enableRow->addWidget(m_tcpEnable);
 
+#ifdef _WIN32
+    m_ptyEnable = new QPushButton("Enable Pipe");
+#else
     m_ptyEnable = new QPushButton("Enable TTY");
+#endif
     m_ptyEnable->setCheckable(true);
     m_ptyEnable->setStyleSheet(kGreenToggle);
     m_ptyEnable->setFixedSize(76, 22);
@@ -167,9 +171,14 @@ void CatControlApplet::buildUI()
         m_rows[i].tcpStatus->setFixedWidth(100);
         row->addWidget(m_rows[i].tcpStatus);
 
-        // PTY path
+        // PTY / named pipe path
+#ifdef _WIN32
+        m_rows[i].ptyPath = new QLabel(
+            QStringLiteral("\\\\.\\pipe\\AetherSDR-CAT-%1").arg(kLetters[i]));
+#else
         m_rows[i].ptyPath = new QLabel(
             QStringLiteral("/tmp/AetherSDR-CAT-%1").arg(kLetters[i]));
+#endif
         m_rows[i].ptyPath->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
         row->addWidget(m_rows[i].ptyPath, 1);
 
@@ -213,8 +222,13 @@ void CatControlApplet::setRigctlPtys(RigctlPty** ptys, int count)
             connect(ptys[i], &RigctlPty::stopped, this,
                     [this, i]() {
                         static const char kLetters[] = "ABCD";
+#ifdef _WIN32
+                        m_rows[i].ptyPath->setText(
+                            QStringLiteral("\\\\.\\pipe\\AetherSDR-CAT-%1").arg(kLetters[i]));
+#else
                         m_rows[i].ptyPath->setText(
                             QStringLiteral("/tmp/AetherSDR-CAT-%1").arg(kLetters[i]));
+#endif
                     });
         }
     }

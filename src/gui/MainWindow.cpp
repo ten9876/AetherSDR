@@ -2128,8 +2128,13 @@ MainWindow::MainWindow(QWidget* parent)
             m_rigctlServers[i]->setSliceIndex(i);
             m_rigctlPtys[i] = new RigctlPty(&m_radioModel, this);
             m_rigctlPtys[i]->setSliceIndex(i);
+#ifdef _WIN32
             m_rigctlPtys[i]->setSymlinkPath(
-                QString("/tmp/AetherSDR-CAT-%1").arg(kLetters[i]));
+                QStringLiteral("\\\\.\\pipe\\AetherSDR-CAT-%1").arg(kLetters[i]));
+#else
+            m_rigctlPtys[i]->setSymlinkPath(
+                QStringLiteral("/tmp/AetherSDR-CAT-%1").arg(kLetters[i]));
+#endif
         }
     }
     m_appletPanel->catControlApplet()->setRadioModel(&m_radioModel);
