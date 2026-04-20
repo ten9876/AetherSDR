@@ -58,7 +58,7 @@
     {"low": 24.920,   "high": 24.925,   "label": "DIG",       "license": "", "color": "#8bd9f7"},
     {"low": 24.925,   "high": 24.940,   "label": "CW/DIG",    "license": "", "color": "#2f2ce8"},
     {"low": 24.940,   "high": 24.975,   "label": "PHONE",     "license": "", "color": "#abdb55"},
-    {"low": 21.975,   "high": 21.978,   "label": "SSTV",      "license": "", "color": "#eb018d"},
+    {"low": 24.975,   "high": 24.978,   "label": "SSTV",      "license": "", "color": "#eb018d"},
     {"low": 24.978,   "high": 24.990,   "label": "PHONE",     "license": "", "color": "#abdb55"},
 
     {"low": 28.000,   "high": 28.070,   "label": "CW",        "license": "", "color": "#ed1621"},
@@ -149,7 +149,6 @@
     {"freq": 7.0386,  "label": "WSPR"},
     {"freq": 7.040,   "label": "CW QRP calling"},
     {"freq": 7.074,   "label": "FT8"},
-    {"freq": 7.0386,  "label": "WSPR"},
     {"freq": 7.080,   "label": "RTTY"},
     {"freq": 7.110,   "label": "CW calling"},
     {"freq": 7.177,   "label": "FreeDV Primary - LSB"},
@@ -157,6 +156,7 @@
     {"freq": 10.1001, "label": "CW calling"},
     {"freq": 10.136,  "label": "FT8"},
     {"freq": 10.1387, "label": "WSPR"},
+    {"freq": 14.074, "label": "FT8"}
     {"freq": 14.0956, "label": "WSPR"},
     {"freq": 14.100,  "label": "NCDXF beacons"},
     {"freq": 14.101,  "label": "CW calling"},
