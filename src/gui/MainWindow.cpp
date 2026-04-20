@@ -322,8 +322,10 @@ MainWindow::MainWindow(QWidget* parent)
     // AudioEngine so its tap hook picks it up on the audio thread.
     m_puduMonitor = new ClientPuduMonitor(this);
     m_audio->setTxPostDspMonitor(m_puduMonitor);
-    connect(m_puduMonitor, &ClientPuduMonitor::playbackAudio,
-            m_audio, &AudioEngine::feedDecodedSpeech);
+    // Monitor owns a dedicated QAudioSink in pull mode — no
+    // feedDecodedSpeech routing, no timer pacing.  Keeps playback
+    // glitch-free on macOS/Windows where QTimer jitter was starving
+    // the shared RX sink.
     // Disconnect live RX audio while the monitor is recording or
     // playing so the user hears ONLY the captured PooDoo audio.
     // Mirrors QsoRecorder's muteRxRequested handling — merely setting

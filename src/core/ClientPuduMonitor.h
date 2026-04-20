@@ -1,12 +1,17 @@
 #pragma once
 
+#include <QAudio>
+#include <QBuffer>
 #include <QByteArray>
 #include <QElapsedTimer>
 #include <QObject>
+#include <QPointer>
 #include <QTimer>
 
 #include <atomic>
 #include <cstdint>
+
+class QAudioSink;
 
 namespace AetherSDR {
 
@@ -62,10 +67,6 @@ signals:
     void recordingStopped(int durationMs);
     void playbackStarted();
     void playbackStopped();
-    // Playback tick payload — chunked float32 stereo 24 kHz (same
-    // format QsoRecorder feeds so it flows cleanly into
-    // AudioEngine::feedDecodedSpeech).
-    void playbackAudio(const QByteArray& float32stereo);
     // Ask MainWindow to toggle the live RX audio feed off/on.  True
     // = disconnect live RX (so we don't hear over our capture or
     // playback), false = restore.  Held from recordingStarted
@@ -75,11 +76,15 @@ signals:
 private slots:
     // Posted from the audio thread when the 30-s buffer fills.
     void onAutoStop();
-    // Playback QTimer tick — emits the next 20 ms chunk.
-    void onPlaybackTick();
+    // Fires when the dedicated playback sink finishes draining.
+    void onPlaybackSinkState(QAudio::State state);
 
 private:
     void writeWavFile();
+    // Materialise the captured buffer at the sink's native rate so
+    // QAudioSink's pull-mode can consume it directly.  Returns true
+    // on success with m_playPcm populated.
+    bool preparePlaybackPcm(int sinkRateHz);
 
     // ── Audio-thread-visible state ──────────────────────────────────
     std::atomic<bool>     m_recording{false};
@@ -93,9 +98,18 @@ private:
     int                   m_recordedBytes{0};     // snapshot of m_writeBytes after stop
     int                   m_recordedMs{0};
     bool                  m_playing{false};
-    int                   m_playPos{0};
-    QTimer*               m_playTimer{nullptr};
     QElapsedTimer         m_recElapsed;
+
+    // Dedicated playback pipeline.  Owns its own QAudioSink so the
+    // monitor is fully decoupled from the RX sink's resample path and
+    // timer cadence — sink's pull-mode consumes at its native rate,
+    // which means macOS/Windows CoreAudio/WASAPI glitches from
+    // timer jitter go away.  m_playPcm holds the full captured
+    // buffer pre-converted to the sink's preferred rate.
+    QAudioSink*            m_playSink{nullptr};
+    QPointer<QIODevice>    m_playSource;
+    QByteArray             m_playPcm;
+    QBuffer                m_playBuffer;
 };
 
 } // namespace AetherSDR
