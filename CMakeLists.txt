@@ -505,6 +505,7 @@ set(GUI_SOURCES
     src/gui/AppletPanel.cpp
     src/gui/RxApplet.cpp
     src/gui/FilterPassbandWidget.cpp
+    src/gui/CustomFilterDialog.cpp
     src/gui/SMeterWidget.cpp
     src/gui/TunerApplet.cpp
     src/gui/TxApplet.cpp

@@ -1,6 +1,7 @@
 #include "VfoWidget.h"
 #include "PhaseKnob.h"
 #include "ComboStyle.h"
+#include "CustomFilterDialog.h"
 #include "GuardedSlider.h"
 #include "SliceColors.h"
 #include "models/SliceModel.h"
@@ -2913,10 +2914,25 @@ void VfoWidget::updateFreqLabel()
 void VfoWidget::updateFilterLabel()
 {
     if (!m_slice) return;
-    // Always show the filter width (hi - lo), matching the filter preset
-    // buttons. Previously showed the edge value for USB/LSB, which
-    // disagreed with the highlighted button by ~100 Hz (#1225).
-    int w = m_slice->filterHigh() - m_slice->filterLow();
+    int lo = m_slice->filterLow();
+    int hi = m_slice->filterHigh();
+    int w = hi - lo;
+
+    // Detect asymmetric CW/CWL filters (not centered on carrier)
+    const QString& mode = m_slice->mode();
+    if ((mode == "CW" || mode == "CWL") && (lo + hi != 0)) {
+        auto fmtK = [](int hz) -> QString {
+            if (std::abs(hz) >= 1000)
+                return QString::number(hz / 1000.0, 'f', 1) + "K";
+            return QString::number(hz);
+        };
+        QString totalStr = (w >= 1000) ? QString("%1K").arg(w / 1000.0, 0, 'f', 1)
+                                       : QString::number(w);
+        m_filterWidthLbl->setText(
+            QString("%1 (%2/%3)").arg(totalStr, fmtK(lo), QString("+") + fmtK(hi)));
+        return;
+    }
+
     if (w >= 1000)
         m_filterWidthLbl->setText(QString("%1K").arg(w / 1000.0, 0, 'f', 1));
     else
@@ -3092,6 +3108,13 @@ void VfoWidget::rebuildFilterButtons()
                 saveFilterPresets();
                 rebuildFilterButtons();
                 applyFilterPreset(hz);
+            });
+            menu.addAction("Custom Asymmetric Filter...", [this] {
+                if (!m_slice) return;
+                CustomFilterDialog dlg(m_slice->filterLow(), m_slice->filterHigh(),
+                                       m_slice->mode(), this);
+                if (dlg.exec() == QDialog::Accepted)
+                    m_slice->setFilterWidth(dlg.filterLow(), dlg.filterHigh());
             });
             menu.addAction("Reset to Defaults", [this] {
                 if (!m_slice) return;

@@ -1,5 +1,6 @@
 #include "RxApplet.h"
 #include "FilterPassbandWidget.h"
+#include "CustomFilterDialog.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "SliceColors.h"
@@ -1456,6 +1457,19 @@ QString RxApplet::formatFilterWidth(int lo, int hi, const QString& mode)
     else
         w = hi - lo;
     if (w <= 0) return "?";
+
+    // Detect asymmetric CW/CWL filters (not centered on carrier)
+    if ((mode == "CW" || mode == "CWL") && (lo + hi != 0)) {
+        auto fmtK = [](int hz) -> QString {
+            if (std::abs(hz) >= 1000)
+                return QString::number(hz / 1000.0, 'f', 1) + "K";
+            return QString::number(hz);
+        };
+        QString totalStr = (w >= 1000) ? QString::number(w / 1000.0, 'f', 1) + "K"
+                                       : QString::number(w);
+        return QString("%1 (%2/%3)").arg(totalStr, fmtK(lo), QString("+") + fmtK(hi));
+    }
+
     if (w >= 1000) return QString::number(w / 1000.0, 'f', 1) + "K";
     return QString::number(w);
 }
@@ -1661,6 +1675,13 @@ void RxApplet::rebuildFilterButtons()
                 saveFilterPresets();
                 rebuildFilterButtons();
                 applyFilterPreset(hz);
+            });
+            menu.addAction("Custom Asymmetric Filter...", [this] {
+                if (!m_slice) return;
+                CustomFilterDialog dlg(m_slice->filterLow(), m_slice->filterHigh(),
+                                       m_slice->mode(), this);
+                if (dlg.exec() == QDialog::Accepted)
+                    m_slice->setFilterWidth(dlg.filterLow(), dlg.filterHigh());
             });
             menu.addAction("Reset to Defaults", [this] {
                 if (!m_slice) return;
