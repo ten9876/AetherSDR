@@ -3,11 +3,103 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [v0.8.18] — 2026-04-19
+## [v0.8.18] — 2026-04-20
 
-### TX Signal Chain applet, unified TX DSP container, sidebar pop-out
+### PooDoo™ TX Audio — complete six-stage DSP chain, click-bypass, reverb
 
 ### Features
+
+**PooDoo™ Audio: Gate, DeEss, Tube, PUDU DSPs + editors (#1661 phases 2-5, #1734)**
+- Four new client-side TX DSP stages complete the chain started in v0.8.17:
+  - **ClientGate** — downward expander / noise gate with Expander↔Gate
+    mode toggle, threshold/ratio/attack/hold/release/floor/return/look-ahead
+    parameters, Ableton-style level view with two-threshold hysteresis band.
+  - **ClientDeEss** — sidechain-filtered de-esser.  Tunable bandpass
+    (1-12 kHz log sweep, Q 0.5-5) feeds the envelope detector; threshold +
+    amount parameters control broadband attenuation on sibilance.
+  - **ClientTube** — dynamic tube saturator with three models (A: soft
+    tanh, B: hard-clip + tanh hybrid, C: asymmetric) + bipolar envelope-
+    driven drive, tilt pre-filter, parallel dry/wet mix.
+  - **ClientPudu** — exciter modelled on Aphex Aural Exciter + Big Bottom
+    (Even mode — asymmetric harmonics + LF saturation) and Behringer
+    SX 3040 (Odd mode — symmetric tanh + feed-forward LF compressor).
+    Six-knob Poo/Doo layout with glowing PooDoo™ wordmark driven by wet
+    RMS level.
+- Every stage has a full-featured floating editor with Ableton-style
+  visualisations: level histograms, curve overlays, live envelope
+  balls.  Editors run lock-free atomic parameter updates with a version
+  counter so audio-thread `process()` never locks or allocates.
+- Consistent visual language across all editors: uniform 76×76 knobs
+  with in-ring labels that auto-shrink to fit, right-aligned Bypass
+  buttons, and uniform "Thresh" / "Freq" naming conventions.
+- Per-stage test harnesses in `tests/client_*_test.cpp` covering DSP
+  invariants (impulse response, ratio curves, mix laws, stereo
+  linkage, finite output under extreme params).
+
+**PUDU Monitor — post-chain record + playback (#1734)**
+- Two icon buttons in the CHAIN header (⏺ record, ▶ play) capture up to
+  30 seconds of **post-PUDU TX audio** without transmitting.  Recording
+  writes an int16 stereo 24 kHz WAV to `/tmp/pudu_monitor.wav` for
+  offline inspection; playback streams from an in-memory buffer through
+  the existing RX sink path.
+- Record button is only enabled when MIC=PC and DAX=off — same
+  condition that turns the `[MIC]` endpoint green in the CHAIN widget.
+  Transitioning out of that state mid-record auto-stops.
+- During recording and playback the RX panadapter stream is
+  disconnected from the audio sink (same pattern as QsoRecorder) so
+  live band audio doesn't bleed under the preview.
+
+**Reverb (Freeverb) stage + CHAIN integration (#1741)**
+- New **ClientReverb** DSP — Jezar's canonical Freeverb algorithm: 8
+  parallel lowpass-feedback comb filters summed through 4 series
+  allpass filters, stereo-spread by 23 samples between channels.
+  Pre-delay ring buffer in front of the reverb core.  Sample-rate-
+  scaled for 24 kHz native processing; CPU cost under 1 % of one core.
+- Five-knob control set: **Size** (0-100 %), **Decay** (0.3-5 s
+  exponential), **Damping** (0-100 %), **Pre-delay** (0-100 ms),
+  **Mix** (0-100 %).
+- Ships **disabled by default** and positioned as the final stage
+  (`[MIC]→[GATE]→[EQ]→[DESS]→[COMP]→[TUBE]→[PUDU]→[VERB]→[TX]`) — reverb
+  on ham TX is unusual and trades intelligibility for "bigness".  Users
+  opt in by single-clicking `[VERB]` in CHAIN.
+- Settings persisted as `ClientReverbTx*` in `AppSettings`.  9-case
+  test harness covers impulse tail, decay monotonicity, dry/wet laws,
+  pre-delay timing, mono/stereo processing.
+
+**CHAIN gesture set — single-click bypass, double-click edit (#1739)**
+- CHAIN widget rewires the click gestures:
+  - **Single-click** a stage → toggle bypass.
+  - **Double-click** a stage → open its floating editor.
+  - **Drag** a stage → reorder the chain.
+  - **Right-click** → context menu (Edit… / Bypass).
+- Deferred single-click timer (at the OS double-click interval) lets a
+  genuine double-click cancel the pending bypass toggle so the gestures
+  don't fight.
+- **Bypass buttons removed from every node editor** — bypass now lives
+  exclusively on the CHAIN widget.  Enable / Edit buttons removed from
+  every applet tile (GATE, CEQ, DESS, CMP, TUBE, PUDU) since the CHAIN
+  is now the single source of truth.
+
+**Applet-tile knob rows (#1739)**
+- Every DSP node's applet tile grows a compact 4-5 knob tuning row at
+  PUDU-style 38×48 px so common parameters can be tweaked without
+  opening the full editor:
+  - **GATE**: Thresh · Ratio · Attack · Release · Floor
+  - **DESS**: Freq · Q · Thresh · Amount
+  - **CMP**: Thresh · Ratio · Attack · Release · Makeup
+  - **TUBE**: Drive · Tone · Bias · Output · Mix
+  - **PUDU**: Drive · Tune · Mix | Tune · Air · Mix (Poo/Doo groups)
+  - **VERB**: Size · Decay · Damp · Pre · Mix
+- 30 Hz two-way sync (QSignalBlocker-guarded) keeps applet and editor
+  knobs in lock-step when values change in either surface.
+
+**Applet-stack order mirrors CHAIN order (#1739)**
+- Dragging a stage to a new position in CHAIN automatically reorders
+  the sub-container tiles inside the PooDoo™ Audio group to match.
+  On startup the persisted chain order drives the initial tile order.
+- CEQ titlebar shows "COMPRESSOR" (was "CMP"); TXDSP group button bar
+  label renamed "VUDU" → "PUDU" to match the exciter node; Settings
+  key stays `Applet_TXDSP` for migration.
 
 **Visual TX signal chain applet (#1661)**
 - New CHAIN tile renders the full TX DSP path as a row of labelled
@@ -110,6 +202,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   Future features needing grouped dockable tiles (RX DSP cluster,
   meter groups, macro panels) build on the same foundation without
   re-litigating the architecture.
+
+**ClientCompKnob refinements**
+- Shared rotary knob widget gains a **center-label mode** (draws the
+  parameter name inside the ring instead of above) used by every new
+  editor so the 270° arc, the label, and the value readout live in a
+  tight 76×76 footprint.  Label font auto-shrinks to `diameter / 6`
+  so "Thresh" / "Release" render at the same size as "Hold" across a
+  knob row.
+- Value readout now sits in the empty 90° sector at the bottom of the
+  arc instead of below the widget — no gap between ring and value.
+
+### Fixes
+
+**CEQ cascade Q honouring (#1739)**
+- Fix regression where HP/LP bands ignored the user-set Q on cascade
+  slopes.  Cascade-slope refactor had hardcoded the family Q; new
+  `resonanceScale = userQ / 0.707` multiplier restores user control
+  of resonance for slopes above 12 dB/oct.
+
+**PUDU monitor audio routing (#1734)**
+- Earlier implementation mixed recorded int16 directly into the sink
+  (wrong format, blew out speakers) and interleaved playback with
+  live RX audio.  Fixed: convert int16→float32 before enqueueing at
+  10 ms cadence; mute RX by disconnecting the pan stream ↔ AudioEngine
+  signal rather than calling `setMuted()` (which silenced our own
+  playback too).
 
 ## [v0.8.17] — 2026-04-19
 
