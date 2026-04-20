@@ -194,7 +194,7 @@ ClientChainApplet::ClientChainApplet(QWidget* parent) : QWidget(parent)
 
     // ── Hint (below the chain) ──────────────────────────────────
     m_hint = new QLabel(
-        "Click to edit · drag to reorder · right-click to bypass");
+        "Click to bypass · Double click to edit · Drag to reorder");
     m_hint->setStyleSheet(
         "QLabel { color: #607888; font-size: 9px;"
         " background: transparent; border: none; }");

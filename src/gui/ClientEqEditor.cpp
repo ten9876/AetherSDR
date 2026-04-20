@@ -76,7 +76,7 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
             "QLabel { color: #d7e7f2; font-size: 12px; font-weight: bold; }");
         row->addWidget(m_pathLabel);
         auto* hint = new QLabel(
-            "Double-click to add · drag peak/shelf = freq + gain · "
+            "Drag peak/shelf = freq + gain · "
             "drag HP/LP = freq + Q · Shift + drag for Q · "
             "click icon to cycle type");
         hint->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
