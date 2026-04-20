@@ -6643,8 +6643,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         //   - WWV / GEN: send numeric band-stack slot 33 / 34 (per pcap)
         //   - Anything else: fall back to tuning the slice directly
         static const QSet<QString> kPassThroughBands = {
-            "160", "80", "60", "40", "30", "20", "17", "15", "12", "10", "6",
-            "2200", "630"
+            "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m",
+            "2200m", "630m"
         };
         static const QMap<QString, int> kNumericBandSlots = {
             { QStringLiteral("WWV"), 33 },
