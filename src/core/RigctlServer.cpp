@@ -23,7 +23,7 @@ bool RigctlServer::start(quint16 port)
     m_server = new QTcpServer(this);
     connect(m_server, &QTcpServer::newConnection, this, &RigctlServer::onNewConnection);
 
-    if (!m_server->listen(QHostAddress::Any, port)) {
+    if (!m_server->listen(QHostAddress::AnyIPv4, port)) {
         qCWarning(lcCat) << "RigctlServer: failed to listen on port" << port
                     << m_server->errorString();
         delete m_server;
