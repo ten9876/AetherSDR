@@ -54,6 +54,10 @@ public:
     int  qsoCount()    const { return m_workedStatus.totalQsos(); }
     int  entityCount() const { return m_workedStatus.entityCount(); }
 
+    // Forward to CtyDatParser for callsign → DXCC entity resolution (#1759)
+    QString resolvePrimaryPrefix(const QString& callsign) const { return m_ctyParser.resolvePrimaryPrefix(callsign); }
+    const DxccEntity* entityByPrefix(const QString& prefix) const { return m_ctyParser.entityByPrefix(prefix); }
+
     // Configurable colors (loaded/saved via AppSettings externally)
     QColor colorNewDxcc{0xFF, 0x30, 0x30};   // bright red
     QColor colorNewBand{0xFF, 0x8C, 0x00};   // orange

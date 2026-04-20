@@ -1,6 +1,8 @@
 #include "DxClusterDialog.h"
 #include "GuardedSlider.h"
 #include "core/DxClusterClient.h"
+#include "core/DxccColorProvider.h"
+#include "core/CtyDatParser.h"
 #include "core/AppSettings.h"
 #include "models/RadioModel.h"
 
@@ -177,6 +179,13 @@ double SpotTableModel::freqAtRow(int row) const
     if (row >= 0 && row < m_spots.size())
         return m_spots[row].freqMhz;
     return 0.0;
+}
+
+QString SpotTableModel::dxCallAtRow(int row) const
+{
+    if (row >= 0 && row < m_spots.size())
+        return m_spots[row].dxCall;
+    return {};
 }
 
 void SpotTableModel::clear()
@@ -1684,12 +1693,69 @@ void DxClusterDialog::buildSpotListTab(QTabWidget* tabs)
     // No default sort — insertion order is newest-first
     m_spotTable->horizontalHeader()->setSortIndicatorShown(false);
 
-    // Double-click to tune
+    // Double-click to tune (and optionally command rotator)
     connect(m_spotTable, &QTableView::doubleClicked, this, [this](const QModelIndex& idx) {
         auto srcIdx = m_proxyModel->mapToSource(idx);
         double freq = m_spotModel->freqAtRow(srcIdx.row());
         if (freq > 0.0)
             emit tuneRequested(freq);
+
+        // Compute bearing to DX entity for rotator control (#1759)
+        QString dxCall = m_spotModel->dxCallAtRow(srcIdx.row());
+        if (!dxCall.isEmpty() && m_dxccProvider && m_radioModel) {
+            auto& s = AppSettings::instance();
+            QString grid = s.value("StationGrid", "").toString();
+
+            // Operator location: prefer StationGrid setting, fall back to radio GPS
+            double opLat = 0.0, opLon = 0.0;
+            bool haveOp = false;
+
+            if (grid.length() >= 4) {
+                // Maidenhead grid to lat/lon (center of grid square)
+                double lonBase = (grid[0].toUpper().unicode() - 'A') * 20.0 - 180.0;
+                double latBase = (grid[1].toUpper().unicode() - 'A') * 10.0 - 90.0;
+                double lonSub  = (grid[2].unicode() - '0') * 2.0;
+                double latSub  = (grid[3].unicode() - '0') * 1.0;
+                opLon = lonBase + lonSub + 1.0;  // center of 2-degree cell
+                opLat = latBase + latSub + 0.5;   // center of 1-degree cell
+                if (grid.length() >= 6) {
+                    double lonSS = (grid[4].toLower().unicode() - 'a') * (2.0 / 24.0);
+                    double latSS = (grid[5].toLower().unicode() - 'a') * (1.0 / 24.0);
+                    opLon = lonBase + lonSub + lonSS + (1.0 / 24.0);
+                    opLat = latBase + latSub + latSS + (0.5 / 24.0);
+                }
+                haveOp = true;
+            } else {
+                // Try radio GPS
+                QString gpsLatStr = m_radioModel->gpsLat();
+                QString gpsLonStr = m_radioModel->gpsLon();
+                if (!gpsLatStr.isEmpty() && !gpsLonStr.isEmpty()) {
+                    bool okLat = false, okLon = false;
+                    opLat = gpsLatStr.toDouble(&okLat);
+                    opLon = gpsLonStr.toDouble(&okLon);
+                    haveOp = okLat && okLon;
+                }
+            }
+
+            if (!haveOp) {
+                return;
+            }
+
+            // Look up the DX call's DXCC entity to get target lat/lon
+            // Access the CtyDatParser through the DxccColorProvider's public interface
+            QString prefix = m_dxccProvider->resolvePrimaryPrefix(dxCall);
+            if (prefix.isEmpty()) {
+                return;
+            }
+            const DxccEntity* entity = m_dxccProvider->entityByPrefix(prefix);
+            if (!entity) {
+                return;
+            }
+
+            int azimuth = CtyDatParser::greatCircleBearing(
+                opLat, opLon, entity->latitude, entity->longitude);
+            emit rotatorBearingRequested(azimuth, dxCall);
+        }
     });
 
     layout->addWidget(m_spotTable, 1);

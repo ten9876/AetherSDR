@@ -49,6 +49,7 @@ public:
     void clear();
     void setMaxSpots(int max) { m_maxSpots = max; }
     double freqAtRow(int row) const;
+    QString dxCallAtRow(int row) const;
 
 private:
     static QString bandForFreq(double mhz);
@@ -110,6 +111,7 @@ signals:
 #endif
     void wsjtxSpotFiltered(const DxSpot& spot);  // WSJT-X spot after filter+color
     void tuneRequested(double freqMhz);
+    void rotatorBearingRequested(int azimuth, const QString& dxCall);
     void settingsChanged();
     void spotsClearedAll();
 

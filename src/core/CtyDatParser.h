@@ -12,6 +12,8 @@ struct DxccEntity {
     QString continent;       // e.g. "EU"
     int     cqZone{0};
     int     ituZone{0};
+    double  latitude{0.0};   // degrees, positive = North
+    double  longitude{0.0};  // degrees, positive = East (converted from cty.dat West-positive)
 };
 
 // ---------------------------------------------------------------------------
@@ -32,6 +34,10 @@ public:
 
     // Look up entity details by primary prefix.
     const DxccEntity* entityByPrefix(const QString& primaryPrefix) const;
+
+    // Compute great-circle bearing (degrees, 0=N, 90=E) from (lat1,lon1) to (lat2,lon2).
+    // All coordinates in degrees, positive = North/East.
+    static int greatCircleBearing(double lat1, double lon1, double lat2, double lon2);
 
     int entityCount() const { return m_entityByPrefix.size(); }
     bool isLoaded()   const { return !m_entityByPrefix.isEmpty(); }

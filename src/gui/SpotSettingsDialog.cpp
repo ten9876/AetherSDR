@@ -6,6 +6,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
+#include <QLineEdit>
 #include <QColorDialog>
 
 namespace AetherSDR {
@@ -176,6 +177,35 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
         save("DxClusterSpotLifetimeSec", QString::number(secs));
     });
     grid->addLayout(lifeRow, row++, 1);
+
+    // ── Station Grid (for rotator bearing) (#1759) ─────────────────────
+    grid->addWidget(new QLabel("Station Grid:"), row, 0);
+    auto* stationGridEdit = new QLineEdit(s.value("StationGrid", "").toString());
+    stationGridEdit->setPlaceholderText("e.g. CN87 or CN87tn");
+    stationGridEdit->setMaxLength(6);
+    stationGridEdit->setFixedWidth(120);
+    stationGridEdit->setToolTip(
+        "Your Maidenhead grid square (4 or 6 char).\n"
+        "Used for rotator bearing when clicking spots.\n"
+        "Falls back to radio GPS if empty.");
+    connect(stationGridEdit, &QLineEdit::editingFinished, this, [stationGridEdit, save] {
+        save("StationGrid", stationGridEdit->text().trimmed());
+    });
+    grid->addWidget(stationGridEdit, row++, 1, Qt::AlignLeft);
+
+    // ── Rotator MQTT Topic (#1759) ─────────────────────────────────────
+    grid->addWidget(new QLabel("Rotator MQTT:"), row, 0);
+    auto* rotatorTopicEdit = new QLineEdit(s.value("RotatorMqttTopic", "").toString());
+    rotatorTopicEdit->setPlaceholderText("e.g. rotator/cmd");
+    rotatorTopicEdit->setFixedWidth(200);
+    rotatorTopicEdit->setToolTip(
+        "MQTT topic to publish bearing (degrees) when a spot is clicked.\n"
+        "Leave empty to disable. Requires MQTT connected in the MQTT applet.\n"
+        "See Help → MQTT for Node-RED rotator control setup.");
+    connect(rotatorTopicEdit, &QLineEdit::editingFinished, this, [rotatorTopicEdit, save] {
+        save("RotatorMqttTopic", rotatorTopicEdit->text().trimmed());
+    });
+    grid->addWidget(rotatorTopicEdit, row++, 1, Qt::AlignLeft);
 
     // ── Override Colors + color picker ──────────────────────────────────
     grid->addWidget(new QLabel("Override Colors:"), row, 0);

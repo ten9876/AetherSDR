@@ -4,6 +4,7 @@
 #include <QTextStream>
 #include <QRegularExpression>
 #include <algorithm>
+#include <cmath>
 
 namespace AetherSDR {
 
@@ -116,7 +117,7 @@ void CtyDatParser::parse(const QStringList& lines)
     // Regex for header line: "Entity Name:  CQ:  ITU:  Cont:  lat:  lon:  tz:  Prefix:"
     // Fields are colon-separated on the first line.
     static const QRegularExpression headerRe(
-        R"(^([^:]+):\s*(\d+):\s*(\d+):\s*(\w+):\s*[\d\.\-]+:\s*[\d\.\-]+:\s*[\d\.\-]+:\s*([^:]+):)");
+        R"(^([^:]+):\s*(\d+):\s*(\d+):\s*(\w+):\s*([\d\.\-]+):\s*([\d\.\-]+):\s*[\d\.\-]+:\s*([^:]+):)");
 
     for (const QString& line : lines) {
         // Header line — doesn't start with whitespace
@@ -135,7 +136,10 @@ void CtyDatParser::parse(const QStringList& lines)
             current.cqZone       = m.captured(2).toInt();
             current.ituZone      = m.captured(3).toInt();
             current.continent    = m.captured(4).trimmed();
-            current.primaryPrefix = m.captured(5).trimmed().toUpper();
+            current.latitude     = m.captured(5).toDouble();
+            // cty.dat longitude is West-positive; negate to get standard East-positive
+            current.longitude    = -m.captured(6).toDouble();
+            current.primaryPrefix = m.captured(7).trimmed().toUpper();
             // Remove trailing slash variants like "3D2/c" -> use as-is (sub-entities get own primary prefix)
             inEntity = true;
             aliasBuffer.clear();
@@ -199,6 +203,29 @@ const DxccEntity* CtyDatParser::entityByPrefix(const QString& primaryPrefix) con
     auto it = m_entityByPrefix.find(primaryPrefix.toUpper());
     if (it == m_entityByPrefix.end()) return nullptr;
     return &it.value();
+}
+
+// ---------------------------------------------------------------------------
+// Great-circle bearing (initial heading) from point 1 to point 2.
+// Uses the forward azimuth formula from the Haversine / spherical trig.
+// Returns integer degrees [0..359], 0 = North, 90 = East.
+// ---------------------------------------------------------------------------
+int CtyDatParser::greatCircleBearing(double lat1, double lon1,
+                                     double lat2, double lon2)
+{
+    static constexpr double kDeg2Rad = M_PI / 180.0;
+    const double phi1   = lat1 * kDeg2Rad;
+    const double phi2   = lat2 * kDeg2Rad;
+    const double dLam   = (lon2 - lon1) * kDeg2Rad;
+
+    const double y = std::sin(dLam) * std::cos(phi2);
+    const double x = std::cos(phi1) * std::sin(phi2)
+                   - std::sin(phi1) * std::cos(phi2) * std::cos(dLam);
+
+    double bearing = std::atan2(y, x) * (180.0 / M_PI);
+    // Normalise to [0, 360)
+    bearing = std::fmod(bearing + 360.0, 360.0);
+    return static_cast<int>(std::round(bearing)) % 360;
 }
 
 } // namespace AetherSDR

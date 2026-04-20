@@ -3411,6 +3411,16 @@ void MainWindow::buildMenuBar()
             if (auto* sl = activeSlice())
                 sl->tuneAndRecenter(freqMhz);
         });
+        // Rotator bearing from spot double-click (#1759)
+#ifdef HAVE_MQTT
+        connect(dlg, &DxClusterDialog::rotatorBearingRequested,
+                this, [this](int azimuth, const QString& /*dxCall*/) {
+            QString topic = AppSettings::instance().value("RotatorMqttTopic", "").toString();
+            if (!topic.isEmpty() && m_mqttClient && m_mqttClient->isConnected()) {
+                m_mqttClient->publish(topic, QByteArray::number(azimuth));
+            }
+        });
+#endif
         connect(dlg, &QDialog::finished, this, refreshSpots);  // refresh on close
         dlg->show();
     });
