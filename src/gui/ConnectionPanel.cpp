@@ -1107,7 +1107,10 @@ void ConnectionPanel::probeRadio(const QString& ip)
 
     sock->connectToHost(trimmedIp, 4992);
 
-    QTimer::singleShot(3000, sock, [this, sock, trimmedIp] {
+    // 8 s timeout — generous for VPN paths (SoftEther, WireGuard, etc.)
+    // where the initial TCP handshake can be slower than on a local LAN.
+    static constexpr int kProbeTimeoutMs = 8000;
+    QTimer::singleShot(kProbeTimeoutMs, sock, [this, sock, trimmedIp] {
         if (sock->state() != QAbstractSocket::ConnectedState) {
             sock->abort();
             sock->deleteLater();
