@@ -62,6 +62,10 @@ private:
     // Refresh bypass-button state from the bound ClientEq's enabled flag.
     void syncBypassFromEq();
 
+    // Reset all bands to factory defaults, master gain to unity, and
+    // filter family to Butterworth.  Prompts for confirmation first.
+    void resetAll();
+
     // Pull latest post-EQ samples from AudioEngine, run the FFT, push
     // the smoothed bins into the curve widget. Called by m_fftTimer.
     void tickFftAnalyzer();

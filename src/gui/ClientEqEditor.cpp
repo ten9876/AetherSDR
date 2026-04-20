@@ -13,6 +13,7 @@
 #include <QHBoxLayout>
 #include <QHideEvent>
 #include <QLabel>
+#include <QMessageBox>
 #include <QMoveEvent>
 #include <QPushButton>
 #include <QResizeEvent>
@@ -53,6 +54,19 @@ const QString kBypassStyle = QStringLiteral(
     "  border: 1px solid #f2c14e;"
     "}"
     "QPushButton:checked:hover { background: #4a3a1e; }");
+
+const QString kResetAllStyle = QStringLiteral(
+    "QPushButton {"
+    "  background: #0e1b28;"
+    "  color: #8aa8c0;"
+    "  border: 1px solid #243a4e;"
+    "  border-radius: 3px;"
+    "  font-size: 11px;"
+    "  font-weight: bold;"
+    "  padding: 3px 12px;"
+    "}"
+    "QPushButton:hover { background: #2a1a1a; color: #e08080; "
+    "  border: 1px solid #e08080; }");
 
 } // namespace
 
@@ -142,6 +156,16 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
             emit bypassToggled(m_path, bypassed);
         });
         row->addWidget(m_bypass);
+
+        auto* resetAll = new QPushButton("RESET ALL");
+        resetAll->setStyleSheet(kResetAllStyle);
+        resetAll->setFixedHeight(24);
+        resetAll->setToolTip(
+            "Reset all EQ bands, master gain, and filter family\n"
+            "back to factory defaults.");
+        connect(resetAll, &QPushButton::clicked,
+                this, &ClientEqEditor::resetAll);
+        row->addWidget(resetAll);
 
         root->addLayout(row);
     }
@@ -282,6 +306,50 @@ void ClientEqEditor::syncSelection(int idx)
     // Param row values also move under drags / type cycles, so refresh
     // display text whenever anything gets selected.
     if (m_paramRow) m_paramRow->refreshValues();
+}
+
+void ClientEqEditor::resetAll()
+{
+    if (!m_audio) return;
+
+    ClientEq* eq = (m_path == ClientEqApplet::Path::Rx)
+        ? m_audio->clientEqRx() : m_audio->clientEqTx();
+    if (!eq) return;
+
+    if (QMessageBox::question(this, "Reset All",
+            "Reset all EQ bands, master gain, and filter family\n"
+            "to factory defaults?",
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel) != QMessageBox::Yes) {
+        return;
+    }
+
+    // Restore every band to its default parameters (all disabled).
+    for (int i = 0; i < ClientEq::kDefaultBandCount; ++i)
+        eq->setBand(i, ClientEq::defaultBand(i));
+
+    // Reset master output gain to unity (0 dB).
+    eq->setMasterGain(1.0f);
+
+    // Reset filter family to Butterworth.
+    eq->setFilterFamily(ClientEq::FilterFamily::Butterworth);
+
+    // Persist and refresh all UI elements.
+    m_audio->saveClientEqSettings();
+
+    if (m_familyCombo) {
+        QSignalBlocker b(m_familyCombo);
+        m_familyCombo->setCurrentIndex(
+            static_cast<int>(ClientEq::FilterFamily::Butterworth));
+    }
+    if (m_outFader) m_outFader->setGainLinear(1.0f);
+    if (m_iconRow)  m_iconRow->refresh();
+    if (m_canvas)   m_canvas->update();
+    if (m_paramRow) {
+        m_paramRow->refresh();
+        m_paramRow->setSelectedBand(-1);
+    }
+    syncSelection(-1);
 }
 
 void ClientEqEditor::showForPath(ClientEqApplet::Path path)
