@@ -287,6 +287,9 @@ MainWindow::MainWindow(QWidget* parent)
     setMinimumSize(1024, 600);
     resize(1400, 800);
 
+    // Load persisted band memory from previous sessions (#1743)
+    m_bandSettings.loadFromFile();
+
     applyDarkTheme();
 
     // Audio worker thread (#502) — AudioEngine runs on its own thread so
@@ -6631,9 +6634,32 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         qDebug() << "MainWindow: switching to band" << bandName
                  << "freq:" << freqMhz << "mode:" << mode;
 
-        // Radio-authoritative band change: the radio manages its own band
-        // stack (frequency, mode, filters, pan center, bandwidth, antennas).
-        // One command handles everything.
+        // ── Save current band state before switching (#1743) ────────────
+        const QString oldBand = m_bandSettings.currentBand();
+        if (!oldBand.isEmpty()) {
+            SliceModel* curSlice = nullptr;
+            for (auto* sl : m_radioModel.slices()) {
+                if (sl->panId() == applet->panId()) { curSlice = sl; break; }
+            }
+            if (!curSlice) curSlice = activeSlice();
+            if (curSlice) {
+                BandSnapshot snap;
+                snap.frequencyMhz = curSlice->frequency();
+                snap.mode         = curSlice->mode();
+                snap.rxAntenna    = curSlice->rxAntenna();
+                snap.filterLow    = curSlice->filterLow();
+                snap.filterHigh   = curSlice->filterHigh();
+                snap.agcMode      = curSlice->agcMode();
+                snap.agcThreshold = curSlice->agcThreshold();
+                if (auto* pan = m_radioModel.panadapter(applet->panId())) {
+                    snap.bandwidthMhz = pan->bandwidthMhz();
+                    snap.centerMhz    = pan->centerMhz();
+                }
+                m_bandSettings.saveBandState(oldBand, snap);
+                m_bandSettings.saveToFile();
+            }
+        }
+
         m_bandSettings.setCurrentBand(bandName);
 
         // Translate the UI band label to the radio's band-stack key. Mapping
@@ -6683,6 +6709,42 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         } else {
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
+
+            // ── Restore saved band state after radio processes the change (#1743)
+            // Use a short delay to let the radio's band-stack status arrive first.
+            if (m_bandSettings.hasSavedState(bandName)) {
+                const QString panId = applet->panId();
+                QTimer::singleShot(350, this, [this, bandName, panId]() {
+                    if (!m_bandSettings.hasSavedState(bandName)) return;
+                    const BandSnapshot snap = m_bandSettings.loadBandState(bandName);
+
+                    SliceModel* s = nullptr;
+                    for (auto* sl : m_radioModel.slices()) {
+                        if (sl->panId() == panId) { s = sl; break; }
+                    }
+                    if (!s) s = activeSlice();
+                    if (!s) return;
+
+                    qDebug() << "BandMemory: restoring" << bandName
+                             << "freq:" << snap.frequencyMhz << "mode:" << snap.mode;
+
+                    if (!snap.mode.isEmpty() && s->mode() != snap.mode)
+                        s->setMode(snap.mode);
+                    s->tuneAndRecenter(snap.frequencyMhz);
+
+                    // Restore panadapter bandwidth and center
+                    if (snap.bandwidthMhz > 0.0) {
+                        m_radioModel.sendCommand(
+                            QString("display pan set %1 bandwidth=%2")
+                                .arg(panId).arg(snap.bandwidthMhz, 0, 'f', 6));
+                    }
+                    if (snap.centerMhz > 0.0) {
+                        m_radioModel.sendCommand(
+                            QString("display pan set %1 center=%2")
+                                .arg(panId).arg(snap.centerMhz, 0, 'f', 6));
+                    }
+                });
+            }
         }
     });
 

@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QMap>
 #include <QString>
+#include <QJsonObject>
 
 namespace AetherSDR {
 
@@ -19,8 +20,9 @@ struct BandSnapshot {
     QString agcMode;
     int     agcThreshold{0};
 
-    // Panadapter/display settings (client-side only — bandwidth and center
-    // are radio-authoritative and must NOT be saved/restored here)
+    // Panadapter/display settings (client-side band memory — #1743)
+    double  bandwidthMhz{0.0};
+    double  centerMhz{0.0};
     int    rfGain{0};
     bool   wnbOn{false};
     int    wnbLevel{50};
@@ -29,6 +31,9 @@ struct BandSnapshot {
     float  spectrumFrac{0.40f};
 
     bool isValid() const { return frequencyMhz > 0.0; }
+
+    QJsonObject toJson() const;
+    static BandSnapshot fromJson(const QJsonObject& obj);
 };
 
 // Manages per-band settings persistence.
@@ -51,9 +56,9 @@ public:
     BandSnapshot loadBandState(const QString& bandName) const;
     bool hasSavedState(const QString& bandName) const;
 
-    // Persist all in-memory state to disk (deprecated — see issue #9).
+    // Persist all in-memory band state to disk (#1743).
     void saveToFile() const;
-    // Load from disk into memory.
+    // Load band memory from disk into memory.
     void loadFromFile();
 
     // Current band tracking.
