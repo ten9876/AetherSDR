@@ -7,6 +7,7 @@
 #include "ClientTube.h"
 #include "ClientPudu.h"
 #include "ClientPuduMonitor.h"
+#include "ClientReverb.h"
 #include "LogManager.h"
 #include "OpusCodec.h"
 #include "SpectralNR.h"
@@ -61,6 +62,7 @@ AudioEngine::AudioEngine(QObject* parent)
     , m_clientDeEssTx(std::make_unique<ClientDeEss>())
     , m_clientTubeTx(std::make_unique<ClientTube>())
     , m_clientPuduTx(std::make_unique<ClientPudu>())
+    , m_clientReverbTx(std::make_unique<ClientReverb>())
 {
     // Prepare client DSP at the native 24 kHz rate. Sink resampling is
     // handled separately after EQ — EQ always runs at radio-native rate.
@@ -71,12 +73,14 @@ AudioEngine::AudioEngine(QObject* parent)
     m_clientDeEssTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientTubeTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientPuduTx->prepare(DEFAULT_SAMPLE_RATE);
-    loadClientEqSettings();    // restore persisted bands before first audio
-    loadClientCompSettings();  // restore persisted comp params + chain order
-    loadClientGateSettings();  // restore persisted gate params
-    loadClientDeEssSettings(); // restore persisted de-esser params
-    loadClientTubeSettings();  // restore persisted tube params
-    loadClientPuduSettings();  // restore persisted PUDU params
+    m_clientReverbTx->prepare(DEFAULT_SAMPLE_RATE);
+    loadClientEqSettings();      // restore persisted bands before first audio
+    loadClientCompSettings();    // restore persisted comp params + chain order
+    loadClientGateSettings();    // restore persisted gate params
+    loadClientDeEssSettings();   // restore persisted de-esser params
+    loadClientTubeSettings();    // restore persisted tube params
+    loadClientPuduSettings();    // restore persisted PUDU params
+    loadClientReverbSettings();  // restore persisted reverb params
 
     // Restore saved audio device selections
     auto& s = AppSettings::instance();
@@ -995,6 +999,40 @@ void AudioEngine::applyClientPuduTxFloat32(QByteArray& float32)
                             frames, channels);
 }
 
+void AudioEngine::applyClientReverbTxInt16(QByteArray& int16stereo)
+{
+    if (!m_clientReverbTx || !m_clientReverbTx->isEnabled()) return;
+    if (int16stereo.isEmpty()) return;
+
+    const int samples = int16stereo.size() / static_cast<int>(sizeof(int16_t));
+    if ((samples & 1) != 0) return;
+    const int frames = samples / 2;
+
+    m_clientReverbTxScratch.resize(samples * static_cast<int>(sizeof(float)));
+    auto* f32 = reinterpret_cast<float*>(m_clientReverbTxScratch.data());
+    const auto* i16 = reinterpret_cast<const int16_t*>(int16stereo.constData());
+    for (int i = 0; i < samples; ++i) f32[i] = i16[i] / 32768.0f;
+
+    m_clientReverbTx->process(f32, frames, 2);
+
+    auto* out = reinterpret_cast<int16_t*>(int16stereo.data());
+    for (int i = 0; i < samples; ++i) {
+        out[i] = static_cast<int16_t>(
+            std::clamp(f32[i] * 32768.0f, -32768.0f, 32767.0f));
+    }
+}
+
+void AudioEngine::applyClientReverbTxFloat32(QByteArray& float32)
+{
+    if (!m_clientReverbTx || !m_clientReverbTx->isEnabled()) return;
+    if (float32.isEmpty()) return;
+    const int samples  = float32.size() / static_cast<int>(sizeof(float));
+    const int channels = (samples % 2 == 0) ? 2 : 1;
+    const int frames   = samples / channels;
+    m_clientReverbTx->process(reinterpret_cast<float*>(float32.data()),
+                              frames, channels);
+}
+
 void AudioEngine::applyClientTxDspInt16(QByteArray& int16stereo)
 {
     // Order determines whether the compressor colours the raw mic signal
@@ -1018,6 +1056,7 @@ void AudioEngine::applyClientTxDspInt16(QByteArray& int16stereo)
             // "Enh" is the legacy enum name; the user-facing label is
             // PUDU (Phase 5 exciter, Aphex/Behringer-modelled).
             case TxChainStage::Enh:    applyClientPuduTxInt16(int16stereo);  break;
+            case TxChainStage::Reverb: applyClientReverbTxInt16(int16stereo); break;
         }
     }
 }
@@ -1035,6 +1074,7 @@ void AudioEngine::applyClientTxDspFloat32(QByteArray& float32)
             case TxChainStage::DeEss:  applyClientDeEssTxFloat32(float32); break;
             case TxChainStage::Tube:   applyClientTubeTxFloat32(float32);  break;
             case TxChainStage::Enh:    applyClientPuduTxFloat32(float32);  break;
+            case TxChainStage::Reverb: applyClientReverbTxFloat32(float32); break;
         }
     }
 }
@@ -1072,25 +1112,27 @@ QVector<AudioEngine::TxChainStage> unpackChain(uint64_t v)
 QString stageName(AudioEngine::TxChainStage s)
 {
     switch (s) {
-        case AudioEngine::TxChainStage::Gate:  return "Gate";
-        case AudioEngine::TxChainStage::Eq:    return "Eq";
-        case AudioEngine::TxChainStage::DeEss: return "DeEss";
-        case AudioEngine::TxChainStage::Comp:  return "Comp";
-        case AudioEngine::TxChainStage::Tube:  return "Tube";
-        case AudioEngine::TxChainStage::Enh:   return "Enh";
-        case AudioEngine::TxChainStage::None:  return "";
+        case AudioEngine::TxChainStage::Gate:   return "Gate";
+        case AudioEngine::TxChainStage::Eq:     return "Eq";
+        case AudioEngine::TxChainStage::DeEss:  return "DeEss";
+        case AudioEngine::TxChainStage::Comp:   return "Comp";
+        case AudioEngine::TxChainStage::Tube:   return "Tube";
+        case AudioEngine::TxChainStage::Enh:    return "Enh";
+        case AudioEngine::TxChainStage::Reverb: return "Reverb";
+        case AudioEngine::TxChainStage::None:   return "";
     }
     return "";
 }
 
 AudioEngine::TxChainStage stageFromName(const QString& name)
 {
-    if (name == "Gate")  return AudioEngine::TxChainStage::Gate;
-    if (name == "Eq")    return AudioEngine::TxChainStage::Eq;
-    if (name == "DeEss") return AudioEngine::TxChainStage::DeEss;
-    if (name == "Comp")  return AudioEngine::TxChainStage::Comp;
-    if (name == "Tube")  return AudioEngine::TxChainStage::Tube;
-    if (name == "Enh")   return AudioEngine::TxChainStage::Enh;
+    if (name == "Gate")   return AudioEngine::TxChainStage::Gate;
+    if (name == "Eq")     return AudioEngine::TxChainStage::Eq;
+    if (name == "DeEss")  return AudioEngine::TxChainStage::DeEss;
+    if (name == "Comp")   return AudioEngine::TxChainStage::Comp;
+    if (name == "Tube")   return AudioEngine::TxChainStage::Tube;
+    if (name == "Enh")    return AudioEngine::TxChainStage::Enh;
+    if (name == "Reverb") return AudioEngine::TxChainStage::Reverb;
     return AudioEngine::TxChainStage::None;
 }
 
@@ -1106,6 +1148,7 @@ QVector<AudioEngine::TxChainStage> defaultChain()
         AudioEngine::TxChainStage::Comp,
         AudioEngine::TxChainStage::Tube,
         AudioEngine::TxChainStage::Enh,
+        AudioEngine::TxChainStage::Reverb,
     };
 }
 
@@ -1449,6 +1492,42 @@ void AudioEngine::saveClientPuduSettings() const
         QString::number(m_clientPuduTx->dooHarmonicsDb()));
     s.setValue("ClientPuduTxDooMix",
         QString::number(m_clientPuduTx->dooMix()));
+}
+
+void AudioEngine::loadClientReverbSettings()
+{
+    if (!m_clientReverbTx) return;
+    auto& s = AppSettings::instance();
+    m_clientReverbTx->setEnabled(
+        s.value("ClientReverbTxEnabled", "False").toString() == "True");
+    m_clientReverbTx->setSize(
+        s.value("ClientReverbTxSize", "0.5").toFloat());
+    m_clientReverbTx->setDecayS(
+        s.value("ClientReverbTxDecayS", "1.2").toFloat());
+    m_clientReverbTx->setDamping(
+        s.value("ClientReverbTxDamping", "0.5").toFloat());
+    m_clientReverbTx->setPreDelayMs(
+        s.value("ClientReverbTxPreDelayMs", "20.0").toFloat());
+    m_clientReverbTx->setMix(
+        s.value("ClientReverbTxMix", "0.15").toFloat());
+}
+
+void AudioEngine::saveClientReverbSettings() const
+{
+    if (!m_clientReverbTx) return;
+    auto& s = AppSettings::instance();
+    auto toBool = [](bool on) { return on ? QString("True") : QString("False"); };
+    s.setValue("ClientReverbTxEnabled",    toBool(m_clientReverbTx->isEnabled()));
+    s.setValue("ClientReverbTxSize",
+        QString::number(m_clientReverbTx->size()));
+    s.setValue("ClientReverbTxDecayS",
+        QString::number(m_clientReverbTx->decayS()));
+    s.setValue("ClientReverbTxDamping",
+        QString::number(m_clientReverbTx->damping()));
+    s.setValue("ClientReverbTxPreDelayMs",
+        QString::number(m_clientReverbTx->preDelayMs()));
+    s.setValue("ClientReverbTxMix",
+        QString::number(m_clientReverbTx->mix()));
 }
 
 static QString wisdomDir()

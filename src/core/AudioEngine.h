@@ -38,6 +38,7 @@ class ClientDeEss;
 class ClientTube;
 class ClientPudu;
 class ClientPuduMonitor;
+class ClientReverb;
 
 // AudioEngine handles audio playback (RX) and capture (TX).
 //
@@ -192,6 +193,10 @@ public:
     // PooDoo Audio™ chain.
     ClientPudu* clientPuduTx() { return m_clientPuduTx.get(); }
 
+    // Client-side TX reverb — Freeverb-based room/hall effect, final
+    // optional stage in the PooDoo™ chain.
+    ClientReverb* clientReverbTx() { return m_clientReverbTx.get(); }
+
     // Register/unregister a monitor that taps the post-DSP TX int16
     // stream on the audio thread.  Passed pointer must outlive the
     // registration — clear to nullptr before destroying the monitor.
@@ -203,13 +208,14 @@ public:
     // Phase 2+ work (Gate, DeEss, Tube, Enh from #1661) and are no-ops
     // until their DSP classes ship.
     enum class TxChainStage : uint8_t {
-        None  = 0,   // sentinel / end-of-list marker
-        Gate  = 1,
-        Eq    = 2,
-        DeEss = 3,
-        Comp  = 4,
-        Tube  = 5,
-        Enh   = 6,
+        None   = 0,   // sentinel / end-of-list marker
+        Gate   = 1,
+        Eq     = 2,
+        DeEss  = 3,
+        Comp   = 4,
+        Tube   = 5,
+        Enh    = 6,   // PUDU slot
+        Reverb = 7,
     };
     static constexpr int kMaxTxChainStages = 8;  // packs into uint64_t
 
@@ -250,6 +256,10 @@ public:
     // Client-side TX PUDU exciter — persistence.
     void loadClientPuduSettings();
     void saveClientPuduSettings() const;
+
+    // Client-side TX reverb (Freeverb) — persistence.
+    void loadClientReverbSettings();
+    void saveClientReverbSettings() const;
 
     // Post-Client-EQ audio tap for the editor's FFT analyzer.  Exposes
     // a rolling mono buffer filled on the audio thread; UI thread copies
@@ -335,6 +345,9 @@ private:
     // Apply client-side TX PUDU exciter in-place.  No-op if disabled.
     void applyClientPuduTxInt16(QByteArray& int16stereo);
     void applyClientPuduTxFloat32(QByteArray& float32);
+    // Apply client-side TX reverb in-place.  No-op if disabled.
+    void applyClientReverbTxInt16(QByteArray& int16stereo);
+    void applyClientReverbTxFloat32(QByteArray& float32);
     // Apply the whole TX DSP chain (CMP + EQ) in the configured order.
     void applyClientTxDspInt16(QByteArray& int16stereo);
     void applyClientTxDspFloat32(QByteArray& float32);
@@ -442,6 +455,8 @@ private:
     std::unique_ptr<ClientTube> m_clientTubeTx;
     // Client-side TX PUDU exciter.
     std::unique_ptr<ClientPudu> m_clientPuduTx;
+    // Client-side TX reverb.
+    std::unique_ptr<ClientReverb> m_clientReverbTx;
     // Post-DSP TX monitor — owned by MainWindow; we just hold a
     // pointer the audio thread can load lock-free per block.
     std::atomic<ClientPuduMonitor*> m_txPostDspMonitor{nullptr};
@@ -460,6 +475,7 @@ private:
     QByteArray m_clientDeEssTxScratch;
     QByteArray m_clientTubeTxScratch;
     QByteArray m_clientPuduTxScratch;
+    QByteArray m_clientReverbTxScratch;
     // Post-EQ analyzer tap. One ring per path, mono (L+R averaged).
     // Audio thread writes via tapClientEqRxStereo() / tapClientEqTxInt16()
     // / tapClientEqTxFloat32(); UI thread snapshots via the public

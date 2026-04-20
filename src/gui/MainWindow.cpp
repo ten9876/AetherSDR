@@ -36,6 +36,8 @@
 #include "ClientTubeEditor.h"
 #include "ClientPuduApplet.h"
 #include "ClientPuduEditor.h"
+#include "ClientReverbApplet.h"
+#include "ClientReverbEditor.h"
 #include "ClientChainApplet.h"
 #include "core/ClientComp.h"
 #include "core/ClientEq.h"
@@ -43,6 +45,7 @@
 #include "core/ClientDeEss.h"
 #include "core/ClientTube.h"
 #include "core/ClientPudu.h"
+#include "core/ClientReverb.h"
 #include "CatControlApplet.h"
 #include "DaxApplet.h"
 #include "TciApplet.h"
@@ -2154,6 +2157,9 @@ MainWindow::MainWindow(QWidget* parent)
         m_clientTubeEditor->showForTx();
     });
 
+    // ── Client Reverb applet: TX reverb (Freeverb) ─
+    m_appletPanel->clientReverbApplet()->setAudioEngine(m_audio);
+
     // ── Client PUDU applet: TX exciter — PooDoo™ centrepiece (#1661 Phase 5) ─
     m_appletPanel->clientPuduApplet()->setAudioEngine(m_audio);
     connect(m_appletPanel->clientPuduApplet(), &ClientPuduApplet::editRequested,
@@ -2285,6 +2291,10 @@ MainWindow::MainWindow(QWidget* parent)
         m_appletPanel->setAppletVisible(
             "PUDU", m_audio->clientPuduTx()->isEnabled());
     }
+    if (m_audio && m_audio->clientReverbTx()) {
+        m_appletPanel->setAppletVisible(
+            "REVERB", m_audio->clientReverbTx()->isEnabled());
+    }
 
     // Initial applet-stack order mirrors the persisted chain order, and
     // stays in sync on every subsequent drag-reorder.
@@ -2326,6 +2336,10 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->setAppletVisible("PUDU", enabled);
             if (m_appletPanel->clientPuduApplet())
                 m_appletPanel->clientPuduApplet()->refreshEnableFromEngine();
+        } else if (stage == AudioEngine::TxChainStage::Reverb) {
+            m_appletPanel->setAppletVisible("REVERB", enabled);
+            if (m_appletPanel->clientReverbApplet())
+                m_appletPanel->clientReverbApplet()->refreshEnableFromEngine();
         }
     });
     connect(m_appletPanel->clientChainApplet(),
@@ -2425,6 +2439,21 @@ MainWindow::MainWindow(QWidget* parent)
                     });
                 }
                 m_clientPuduEditor->showForTx();
+                break;
+            case AudioEngine::TxChainStage::Reverb:
+                if (!m_clientReverbEditor) {
+                    m_clientReverbEditor = new ClientReverbEditor(m_audio, this);
+                    connect(m_clientReverbEditor, &ClientReverbEditor::bypassToggled,
+                            this, [this](bool bypassed) {
+                        if (m_appletPanel && m_appletPanel->clientReverbApplet())
+                            m_appletPanel->clientReverbApplet()->refreshEnableFromEngine();
+                        if (m_appletPanel && m_appletPanel->clientChainApplet())
+                            m_appletPanel->clientChainApplet()->refreshFromEngine();
+                        if (m_appletPanel)
+                            m_appletPanel->setAppletVisible("REVERB", !bypassed);
+                    });
+                }
+                m_clientReverbEditor->showForTx();
                 break;
             default:
                 break;

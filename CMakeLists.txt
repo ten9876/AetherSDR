@@ -409,6 +409,7 @@ set(CORE_SOURCES
     src/core/ClientTube.cpp
     src/core/ClientPudu.cpp
     src/core/ClientPuduMonitor.cpp
+    src/core/ClientReverb.cpp
     src/core/SpectralNR.cpp
     src/core/PanadapterStream.cpp
     src/core/RigctlProtocol.cpp
@@ -539,6 +540,8 @@ set(GUI_SOURCES
     src/gui/ClientTubeEditor.cpp
     src/gui/ClientPuduApplet.cpp
     src/gui/ClientPuduEditor.cpp
+    src/gui/ClientReverbApplet.cpp
+    src/gui/ClientReverbEditor.cpp
     src/gui/PooDooLogo.cpp
     src/gui/ClientCompLimiterButton.cpp
     src/gui/ClientCompMeter.cpp
@@ -1081,6 +1084,12 @@ add_executable(client_pudu_test
     src/core/ClientPudu.cpp
 )
 target_include_directories(client_pudu_test PRIVATE src)
+
+add_executable(client_reverb_test
+    tests/client_reverb_test.cpp
+    src/core/ClientReverb.cpp
+)
+target_include_directories(client_reverb_test PRIVATE src)
 
 # Container system Phase 1 tests — needs QApplication + Widgets.
 add_executable(container_widget_test

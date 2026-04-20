@@ -5,6 +5,7 @@
 #include "core/ClientEq.h"
 #include "core/ClientGate.h"
 #include "core/ClientPudu.h"
+#include "core/ClientReverb.h"
 #include "core/ClientTube.h"
 
 #include <QButtonGroup>
@@ -387,6 +388,12 @@ void ClientChainApplet::onBypassToggled(bool checked)
                     m_audio->saveClientPuduSettings();
                 }
                 break;
+            case AudioEngine::TxChainStage::Reverb:
+                if (auto* d = m_audio->clientReverbTx()) {
+                    d->setEnabled(on);
+                    m_audio->saveClientReverbSettings();
+                }
+                break;
             case AudioEngine::TxChainStage::None:
                 break;
         }
@@ -407,6 +414,8 @@ void ClientChainApplet::onBypassToggled(bool checked)
                 return m_audio->clientTubeTx() && m_audio->clientTubeTx()->isEnabled();
             case AudioEngine::TxChainStage::Enh:
                 return m_audio->clientPuduTx() && m_audio->clientPuduTx()->isEnabled();
+            case AudioEngine::TxChainStage::Reverb:
+                return m_audio->clientReverbTx() && m_audio->clientReverbTx()->isEnabled();
             case AudioEngine::TxChainStage::None:
                 return false;
         }
@@ -420,6 +429,7 @@ void ClientChainApplet::onBypassToggled(bool checked)
         AudioEngine::TxChainStage::DeEss,
         AudioEngine::TxChainStage::Tube,
         AudioEngine::TxChainStage::Enh,
+        AudioEngine::TxChainStage::Reverb,
     };
 
     if (checked) {

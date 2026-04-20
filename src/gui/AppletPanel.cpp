@@ -18,6 +18,7 @@
 #include "ClientDeEssApplet.h"
 #include "ClientTubeApplet.h"
 #include "ClientPuduApplet.h"
+#include "ClientReverbApplet.h"
 #include "ClientChainApplet.h"
 #include "CatControlApplet.h"
 #include "DaxApplet.h"
@@ -607,6 +608,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_clientDeEssApplet = new ClientDeEssApplet;
     m_clientTubeApplet  = new ClientTubeApplet;
     m_clientPuduApplet  = new ClientPuduApplet;
+    m_clientReverbApplet = new ClientReverbApplet;
     m_clientChainApplet = new ClientChainApplet;
 
     auto* txDsp = m_containerMgr->createContainer(
@@ -633,6 +635,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     makeChildContainer("cmp",   "COMPRESSOR",   m_clientCompApplet,   -1);
     makeChildContainer("tube",  "TUBE",  m_clientTubeApplet,   -1);
     makeChildContainer("pudu",  "PUDU",  m_clientPuduApplet,   -1);
+    makeChildContainer("reverb","REVERB",m_clientReverbApplet, -1);
 
     // One-shot settings migration (#1713 Phase 4b): carry over the
     // legacy Applet_CHAIN visibility to the new Applet_TXDSP key so
@@ -888,13 +891,14 @@ void AppletPanel::setTxDspChainOrder(
     // should have been hidden via stageEnabledChanged anyway).
     auto idFor = [](AudioEngine::TxChainStage s) -> QString {
         switch (s) {
-            case AudioEngine::TxChainStage::Gate:  return "gate";
-            case AudioEngine::TxChainStage::Eq:    return "ceq";
-            case AudioEngine::TxChainStage::DeEss: return "dess";
-            case AudioEngine::TxChainStage::Comp:  return "cmp";
-            case AudioEngine::TxChainStage::Tube:  return "tube";
-            case AudioEngine::TxChainStage::Enh:   return "pudu";
-            case AudioEngine::TxChainStage::None:  return {};
+            case AudioEngine::TxChainStage::Gate:   return "gate";
+            case AudioEngine::TxChainStage::Eq:     return "ceq";
+            case AudioEngine::TxChainStage::DeEss:  return "dess";
+            case AudioEngine::TxChainStage::Comp:   return "cmp";
+            case AudioEngine::TxChainStage::Tube:   return "tube";
+            case AudioEngine::TxChainStage::Enh:    return "pudu";
+            case AudioEngine::TxChainStage::Reverb: return "reverb";
+            case AudioEngine::TxChainStage::None:   return {};
         }
         return {};
     };

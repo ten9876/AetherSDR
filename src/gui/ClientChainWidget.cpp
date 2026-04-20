@@ -5,6 +5,7 @@
 #include "core/ClientDeEss.h"
 #include "core/ClientTube.h"
 #include "core/ClientPudu.h"
+#include "core/ClientReverb.h"
 
 #include <QAction>
 #include <QApplication>
@@ -83,13 +84,14 @@ const QColor kDropIndicator("#4db8d4");
 QString stageLabel(AudioEngine::TxChainStage s)
 {
     switch (s) {
-        case AudioEngine::TxChainStage::Gate:  return "GATE";
-        case AudioEngine::TxChainStage::Eq:    return "EQ";
-        case AudioEngine::TxChainStage::DeEss: return "DESS";
-        case AudioEngine::TxChainStage::Comp:  return "COMP";
-        case AudioEngine::TxChainStage::Tube:  return "TUBE";
-        case AudioEngine::TxChainStage::Enh:   return "PUDU";
-        case AudioEngine::TxChainStage::None:  return "";
+        case AudioEngine::TxChainStage::Gate:   return "GATE";
+        case AudioEngine::TxChainStage::Eq:     return "EQ";
+        case AudioEngine::TxChainStage::DeEss:  return "DESS";
+        case AudioEngine::TxChainStage::Comp:   return "COMP";
+        case AudioEngine::TxChainStage::Tube:   return "TUBE";
+        case AudioEngine::TxChainStage::Enh:    return "PUDU";
+        case AudioEngine::TxChainStage::Reverb: return "VERB";
+        case AudioEngine::TxChainStage::None:   return "";
     }
     return "";
 }
@@ -166,7 +168,8 @@ bool ClientChainWidget::isStageImplemented(AudioEngine::TxChainStage s) const
         || s == AudioEngine::TxChainStage::Gate
         || s == AudioEngine::TxChainStage::DeEss
         || s == AudioEngine::TxChainStage::Tube
-        || s == AudioEngine::TxChainStage::Enh;
+        || s == AudioEngine::TxChainStage::Enh
+        || s == AudioEngine::TxChainStage::Reverb;
 }
 
 bool ClientChainWidget::isStageBypassed(AudioEngine::TxChainStage s) const
@@ -185,6 +188,8 @@ bool ClientChainWidget::isStageBypassed(AudioEngine::TxChainStage s) const
             return !(m_audio->clientTubeTx() && m_audio->clientTubeTx()->isEnabled());
         case AudioEngine::TxChainStage::Enh:   // PUDU slot
             return !(m_audio->clientPuduTx() && m_audio->clientPuduTx()->isEnabled());
+        case AudioEngine::TxChainStage::Reverb:
+            return !(m_audio->clientReverbTx() && m_audio->clientReverbTx()->isEnabled());
         default:
             return true;
     }
@@ -653,6 +658,12 @@ void ClientChainWidget::toggleStageBypass(int boxIdx)
                 m_audio->saveClientPuduSettings();
             }
             break;
+        case AudioEngine::TxChainStage::Reverb:
+            if (m_audio->clientReverbTx()) {
+                m_audio->clientReverbTx()->setEnabled(newEnabled);
+                m_audio->saveClientReverbSettings();
+            }
+            break;
         default:
             return;
     }
@@ -708,6 +719,9 @@ void ClientChainWidget::contextMenuEvent(QContextMenuEvent* ev)
         } else if (stage == AudioEngine::TxChainStage::Enh && m_audio->clientPuduTx()) {
             m_audio->clientPuduTx()->setEnabled(newEnabled);
             m_audio->saveClientPuduSettings();
+        } else if (stage == AudioEngine::TxChainStage::Reverb && m_audio->clientReverbTx()) {
+            m_audio->clientReverbTx()->setEnabled(newEnabled);
+            m_audio->saveClientReverbSettings();
         }
         emit stageEnabledChanged(stage, newEnabled);
         update();
