@@ -196,6 +196,7 @@
     {"freq": 50.400,  "label": "AM calling"},
     {"freq": 50.700,  "label": "RTTY/AMTOR calling"},
     {"freq": 52.525,  "label": "FM calling"},
+    {"freq": 144.060, "label": "CW calling"},
     {"freq": 144.174, "label": "FT8"},
     {"freq": 144.200, "label": "SSB/CW calling"},
     {"freq": 144.390, "label": "APRS"},
