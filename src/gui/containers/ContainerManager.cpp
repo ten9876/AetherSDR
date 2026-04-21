@@ -56,6 +56,16 @@ ContainerManager::~ContainerManager()
     m_floatingWindows.clear();
 }
 
+void ContainerManager::closeAllFloating()
+{
+    // Close every floating container window so they don't keep the
+    // process alive after MainWindow exits.  Mirrors the cleanup in
+    // the destructor but called explicitly during shutdown.
+    for (auto* w : m_floatingWindows) {
+        if (w) { w->close(); }
+    }
+}
+
 void ContainerManager::registerContent(const QString& typeId,
                                        ContentFactory factory)
 {

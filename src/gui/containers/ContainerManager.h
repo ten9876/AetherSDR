@@ -85,6 +85,7 @@ public:
     // Dock: close window, reparent back to original.
     void floatContainer(const QString& id);
     void dockContainer(const QString& id);
+    void closeAllFloating();
 
     // ── Persistence ──────────────────────────────────────────────
     //

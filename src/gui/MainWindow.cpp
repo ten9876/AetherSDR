@@ -17,6 +17,7 @@
 #include "SpectrumOverlayMenu.h"
 #include "VfoWidget.h"
 #include "AppletPanel.h"
+#include "containers/ContainerManager.h"
 #include "RxApplet.h"
 #include "SMeterWidget.h"
 #include "TunerApplet.h"
@@ -2809,6 +2810,12 @@ void MainWindow::closeEvent(QCloseEvent* event)
     // AppletPanelFloating stays True for restart persistence.
     if (m_appletPanelFloatWindow) {
         m_appletPanelFloatWindow->close();
+    }
+
+    // Close all floating container windows (S-Meter, Meters, EQ, etc.)
+    // so they don't keep the process alive after MainWindow exits (#1804).
+    if (m_appletPanel && m_appletPanel->containerManager()) {
+        m_appletPanel->containerManager()->closeAllFloating();
     }
     // SplitterState no longer saved (2-pane layout uses stretch factors)
     // ConnPanelCollapsed removed — panel is now a popup dialog
