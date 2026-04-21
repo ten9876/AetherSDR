@@ -67,6 +67,7 @@ signals:
 
 private slots:
     void onParseFinished(QVector<QsoRecord> records);
+    void onParseFailed(const QString& path);
 
 private:
     // Band/mode helpers (same logic as AdifParser, but for live spot data)

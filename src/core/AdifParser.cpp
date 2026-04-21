@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QRegularExpression>
+#include <QThread>
 #include <QtAlgorithms>
 
 namespace AetherSDR {
@@ -150,7 +151,25 @@ QVector<QsoRecord> AdifParser::parseFile(const QString& path)
 
 void AdifParser::parseFileAsync(const QString& path)
 {
-    emit finished(parseFile(path));
+    // If the file is held open by an external logger (common on Windows),
+    // QFile::open() will fail.  Retry a few times before giving up so that
+    // a brief write-lock doesn't wipe every spot colour.
+    constexpr int kMaxAttempts  = 3;
+    constexpr int kRetryDelayMs = 500;
+
+    for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+        QFile f(path);
+        if (f.open(QIODevice::ReadOnly)) {
+            emit finished(parse(f.readAll()));
+            return;
+        }
+        if (attempt + 1 < kMaxAttempts)
+            QThread::msleep(kRetryDelayMs);
+    }
+
+    // All attempts failed — tell the caller so it can keep its existing
+    // worked status rather than replacing it with an empty result set.
+    emit openFailed(path);
 }
 
 } // namespace AetherSDR

@@ -34,6 +34,10 @@ public:
 
 signals:
     void finished(QVector<QsoRecord> records);
+    // Emitted when the file cannot be opened after all retry attempts
+    // (e.g. locked by an external logger).  The existing worked status
+    // should be preserved and the caller may schedule a later retry.
+    void openFailed(QString path);
 
 private:
     static QVector<QsoRecord> parse(const QByteArray& data);
