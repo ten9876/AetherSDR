@@ -17,8 +17,49 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QMenu>
+#include <QJsonValue>
 
 namespace AetherSDR {
+
+// Match an MQTT subscription pattern (may contain + and # wildcards) against
+// a concrete topic string.  Follows the MQTT v3.1.1 spec §4.7.
+static bool mqttTopicMatches(const QString& subscription, const QString& topic)
+{
+    if (subscription == topic) return true;
+    if (!subscription.contains('+') && !subscription.contains('#'))
+        return false;
+
+    const QStringList subParts = subscription.split('/');
+    const QStringList topParts = topic.split('/');
+    for (int i = 0; i < subParts.size(); ++i) {
+        if (subParts[i] == QStringLiteral("#"))
+            return true;                       // # matches everything below
+        if (i >= topParts.size())
+            return false;
+        if (subParts[i] != QStringLiteral("+") && subParts[i] != topParts[i])
+            return false;
+    }
+    return subParts.size() == topParts.size();
+}
+
+// Try to pull a clean display value out of a JSON payload.
+// Handles common patterns:  {"value": X}, {"payload": X}, or single-key objects.
+static QString extractJsonValue(const QByteArray& payload)
+{
+    QJsonParseError err;
+    QJsonDocument doc = QJsonDocument::fromJson(payload, &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject())
+        return {};
+
+    QJsonObject obj = doc.object();
+    if (obj.contains(QStringLiteral("value")))
+        return obj.value(QStringLiteral("value")).toVariant().toString();
+    if (obj.contains(QStringLiteral("payload")))
+        return obj.value(QStringLiteral("payload")).toVariant().toString();
+    if (obj.size() == 1)
+        return obj.begin().value().toVariant().toString();
+    return {};
+}
 
 static const QString kLabelStyle =
     "QLabel { color: #8090a0; font-size: 10px; background: transparent; }";
@@ -91,6 +132,8 @@ void MqttApplet::buildUI()
                              "Prefix with * to display on panadapter overlay.\n"
                              "Example: *rotator/pos, *ant/selected, station/log");
     grid->addWidget(m_topicsEdit, 4, 1);
+    connect(m_topicsEdit, &QLineEdit::textChanged,
+            this, &MqttApplet::reparseTopicDisplayFlags);
 
     // TLS row
     auto* tlsLbl = new QLabel("TLS:");
@@ -202,16 +245,10 @@ void MqttApplet::buildUI()
             ss.save();
 
             // Parse topics — * prefix means display on panadapter
-            m_topicDefs.clear();
+            reparseTopicDisplayFlags();
             QStringList topicNames;
-            for (const QString& raw : m_topicsEdit->text().split(',', Qt::SkipEmptyParts)) {
-                QString t = raw.trimmed();
-                bool display = t.startsWith('*');
-                if (display) { t = t.mid(1).trimmed(); }
-                if (!t.isEmpty()) {
-                    m_topicDefs.append({t, display});
-                    topicNames.append(t);
-                }
+            for (const auto& td : m_topicDefs) {
+                topicNames.append(td.topic);
             }
 
             emit connectRequested(
@@ -257,11 +294,29 @@ void MqttApplet::updateStatus(const QString& text, bool ok)
            : "QLabel { color: #8aa8c0; font-size: 10px; }");
 }
 
+void MqttApplet::reparseTopicDisplayFlags()
+{
+    m_topicDefs.clear();
+    for (const QString& raw : m_topicsEdit->text().split(',', Qt::SkipEmptyParts)) {
+        QString t = raw.trimmed();
+        bool display = t.startsWith('*');
+        if (display) { t = t.mid(1).trimmed(); }
+        if (!t.isEmpty()) {
+            m_topicDefs.append({t, display});
+        }
+    }
+}
+
 void MqttApplet::onMessageReceived(const QString& topic, const QByteArray& payload)
 {
     QString shortTopic = topic.section('/', -1);
     if (shortTopic.isEmpty()) { shortTopic = topic; }
-    QString value = QString::fromUtf8(payload).left(80);
+
+    // Extract a clean display value: try JSON first, fall back to raw string
+    QString value = extractJsonValue(payload);
+    if (value.isEmpty()) {
+        value = QString::fromUtf8(payload).trimmed().left(80);
+    }
 
     QString line = QString("%1: %2").arg(shortTopic, value);
     m_messageLog->append(line);
@@ -276,7 +331,7 @@ void MqttApplet::onMessageReceived(const QString& topic, const QByteArray& paylo
 
     // Update panadapter overlay for display-enabled topics
     for (const auto& td : m_topicDefs) {
-        if (td.displayOnPan && td.topic == topic) {
+        if (td.displayOnPan && mqttTopicMatches(td.topic, topic)) {
             emit displayValueChanged(shortTopic, value);
             break;
         }

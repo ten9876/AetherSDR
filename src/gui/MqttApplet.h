@@ -50,6 +50,7 @@ private:
     void buildUI();
     void updateStatus(const QString& text, bool ok);
     void onMessageReceived(const QString& topic, const QByteArray& payload);
+    void reparseTopicDisplayFlags();
     void rebuildButtons();
     void saveButtons();
     void loadButtons();
