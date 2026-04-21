@@ -28,7 +28,7 @@ PanadapterStack::PanadapterStack(QWidget* parent)
     hbox->setContentsMargins(0, 0, 0, 0);
     hbox->setSpacing(0);
 
-    // Left-side band stack drawer (hidden by default, left of panadapter)
+    // Band stack panel (hidden by default, left of panadapter)
     m_bandStackPanel = new BandStackPanel(this);
     m_bandStackPanel->setVisible(false);
     hbox->addWidget(m_bandStackPanel);
