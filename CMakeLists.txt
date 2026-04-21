@@ -487,6 +487,8 @@ set(GUI_SOURCES
     src/gui/RadioSetupDialog.cpp
     src/gui/NetworkDiagnosticsDialog.cpp
     src/gui/PropDashboardDialog.cpp
+    src/gui/MemoryCommands.cpp
+    src/gui/MemoryBrowsePanel.cpp
     src/gui/MemoryDialog.cpp
     src/gui/SpotSettingsDialog.cpp
     src/gui/AetherDspDialog.cpp

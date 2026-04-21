@@ -1,4 +1,5 @@
 #include "MemoryDialog.h"
+#include "MemoryCommands.h"
 #include "core/AppSettings.h"
 #include "core/MemoryCsvCompat.h"
 #include "models/RadioModel.h"
@@ -53,11 +54,6 @@ public:
     }
 };
 
-QString encodeMemoryText(const QString& value)
-{
-    return QString(value).replace(' ', QChar(0x7f));
-}
-
 bool buildMemoryFieldUpdate(int col, const QTableWidgetItem* item,
                             QString& commandSuffix, QMap<QString, QString>& kvs)
 {
@@ -67,13 +63,13 @@ bool buildMemoryFieldUpdate(int col, const QTableWidgetItem* item,
     const QString value = item->text();
     switch (col) {
     case 0: {
-        const QString encoded = encodeMemoryText(value);
+        const QString encoded = AetherSDR::encodeMemoryText(value);
         commandSuffix = "group=" + encoded;
         kvs["group"] = encoded;
         return true;
     }
     case 1: {
-        const QString encoded = encodeMemoryText(value);
+        const QString encoded = AetherSDR::encodeMemoryText(value);
         commandSuffix = "owner=" + encoded;
         kvs["owner"] = encoded;
         return true;
@@ -83,7 +79,7 @@ bool buildMemoryFieldUpdate(int col, const QTableWidgetItem* item,
         kvs["freq"] = value;
         return true;
     case 3: {
-        const QString encoded = encodeMemoryText(value);
+        const QString encoded = AetherSDR::encodeMemoryText(value);
         commandSuffix = "name=" + encoded;
         kvs["name"] = encoded;
         return true;
@@ -214,44 +210,6 @@ QString formatImportIssue(const QString& rowLabel,
     return normalizedDetail.isEmpty()
         ? QString("%1: %2").arg(rowLabel, message)
         : QString("%1: %2 (%3)").arg(rowLabel, message, normalizedDetail);
-}
-
-struct MemoryUpdateData {
-    QString commandSuffix;
-    QMap<QString, QString> kvs;
-};
-
-MemoryUpdateData buildMemoryUpdateData(const MemoryEntry& memory)
-{
-    MemoryUpdateData update;
-
-    auto appendField = [&update](const QString& key, const QString& value) {
-        if (!update.commandSuffix.isEmpty())
-            update.commandSuffix += ' ';
-        update.commandSuffix += key + '=' + value;
-        update.kvs[key] = value;
-    };
-
-    appendField("group", encodeMemoryText(memory.group));
-    appendField("owner", encodeMemoryText(memory.owner));
-    appendField("freq", QString::number(memory.freq, 'f', 6));
-    appendField("name", encodeMemoryText(memory.name));
-    appendField("mode", memory.mode);
-    appendField("step", QString::number(memory.step));
-    appendField("repeater", memory.offsetDir);
-    appendField("repeater_offset", QString::number(memory.repeaterOffset, 'f', 6));
-    appendField("tone_mode", memory.toneMode);
-    appendField("tone_value", QString::number(memory.toneValue, 'f', 1));
-    appendField("squelch", memory.squelch ? "1" : "0");
-    appendField("squelch_level", QString::number(memory.squelchLevel));
-    appendField("rx_filter_low", QString::number(memory.rxFilterLow));
-    appendField("rx_filter_high", QString::number(memory.rxFilterHigh));
-    appendField("rtty_mark", QString::number(memory.rttyMark));
-    appendField("rtty_shift", QString::number(memory.rttyShift));
-    appendField("digl_offset", QString::number(memory.diglOffset));
-    appendField("digu_offset", QString::number(memory.diguOffset));
-
-    return update;
 }
 
 } // namespace
@@ -758,106 +716,30 @@ void MemoryDialog::submitCellEdit(int row, int col)
 
 void MemoryDialog::onAdd()
 {
-    // memory create returns the new index in the response body.
-    // We then populate it from the current active slice state.
-    RadioModel* const model = m_model;
-    const QPointer<MemoryDialog> dialogGuard(this);
-    m_model->sendCmdPublic("memory create",
-        [model, dialogGuard](int code, const QString& body) {
-        if (code != 0) return;
-        bool ok;
-        int idx = body.trimmed().toInt(&ok);
-        if (!ok) return;
+    const auto slices = m_model->slices();
+    if (slices.isEmpty())
+        return;
 
-        // The radio created the memory but won't push status.
-        // We need to set each field from the active slice.
-        const auto slices = model->slices();
-        if (slices.isEmpty()) return;
-        SliceModel* s = nullptr;
-        for (auto* candidate : slices) {
-            if (candidate && candidate->isActive()) {
-                s = candidate;
-                break;
-            }
+    SliceModel* active = nullptr;
+    for (auto* candidate : slices) {
+        if (candidate && candidate->isActive()) {
+            active = candidate;
+            break;
         }
-        if (!s)
-            s = slices.first();
+    }
+    if (!active)
+        active = slices.first();
+    if (!active)
+        return;
 
-        // Set memory fields from current slice
-        auto send = [model](const QString& cmd) { model->sendCommand(cmd); };
-        QString base = QString("memory set %1 ").arg(idx);
-        send(base + QString("freq=%1").arg(s->frequency(), 0, 'f', 6));
-        send(base + QString("mode=%1").arg(s->mode()));
-        send(base + QString("owner=%1").arg(encodeMemoryText(model->callsign())));
+    createMemoryFromSlice(m_model, active, QString(), this,
+        [this](int code, const QString&, int memoryIndex) {
+        if (code != 0 || memoryIndex < 0)
+            return;
 
-        // Tag the memory with the active global profile name for filtering
-        const QString activeProfile = model->activeGlobalProfile();
-        if (!activeProfile.isEmpty()) {
-            send(base + QString("group=%1").arg(encodeMemoryText(activeProfile)));
-        }
-        send(base + QString("step=%1").arg(s->stepHz()));
-        send(base + QString("rx_filter_low=%1").arg(s->filterLow()));
-        send(base + QString("rx_filter_high=%1").arg(s->filterHigh()));
-        send(base + QString("squelch=%1").arg(s->squelchOn() ? 1 : 0));
-        send(base + QString("squelch_level=%1").arg(s->squelchLevel()));
-        send(base + QString("repeater=%1").arg(s->repeaterOffsetDir()));
-        send(base + QString("repeater_offset=%1").arg(s->fmRepeaterOffsetFreq(), 0, 'f', 6));
-        send(base + QString("tone_mode=%1").arg(s->fmToneMode()));
-        send(base + QString("tone_value=%1").arg(s->fmToneValue()));
-        send(base + QString("rtty_mark=%1").arg(s->rttyMark()));
-        send(base + QString("rtty_shift=%1").arg(s->rttyShift()));
-        send(base + QString("digl_offset=%1").arg(s->diglOffset()));
-        send(base + QString("digu_offset=%1").arg(s->diguOffset()));
-
-        // Create a local cache entry immediately for the table
-        MemoryEntry m;
-        m.index = idx;
-        m.freq = s->frequency();
-        m.mode = s->mode();
-        m.owner = model->callsign();
-        m.group = activeProfile;
-        m.step = s->stepHz();
-        m.rxFilterLow = s->filterLow();
-        m.rxFilterHigh = s->filterHigh();
-        m.squelch = s->squelchOn();
-        m.squelchLevel = s->squelchLevel();
-        m.offsetDir = s->repeaterOffsetDir();
-        m.repeaterOffset = s->fmRepeaterOffsetFreq();
-        m.toneMode = s->fmToneMode();
-        m.toneValue = s->fmToneValue().toDouble();
-        m.rttyMark = s->rttyMark();
-        m.rttyShift = s->rttyShift();
-        m.diglOffset = s->diglOffset();
-        m.diguOffset = s->diguOffset();
-
-        // Insert into RadioModel's cache via handleMemoryStatus
-        QMap<QString, QString> kvs;
-        kvs["freq"] = QString::number(m.freq, 'f', 6);
-        kvs["mode"] = m.mode;
-        kvs["owner"] = encodeMemoryText(m.owner);
-        if (!activeProfile.isEmpty()) {
-            kvs["group"] = encodeMemoryText(activeProfile);
-        }
-        kvs["step"] = QString::number(m.step);
-        kvs["rx_filter_low"] = QString::number(m.rxFilterLow);
-        kvs["rx_filter_high"] = QString::number(m.rxFilterHigh);
-        kvs["squelch"] = m.squelch ? "1" : "0";
-        kvs["squelch_level"] = QString::number(m.squelchLevel);
-        kvs["repeater"] = m.offsetDir;
-        kvs["repeater_offset"] = QString::number(m.repeaterOffset, 'f', 6);
-        kvs["tone_mode"] = m.toneMode;
-        kvs["tone_value"] = QString::number(m.toneValue, 'f', 1);
-        kvs["rtty_mark"] = QString::number(m.rttyMark);
-        kvs["rtty_shift"] = QString::number(m.rttyShift);
-        kvs["digl_offset"] = QString::number(m.diglOffset);
-        kvs["digu_offset"] = QString::number(m.diguOffset);
-        model->handleMemoryStatus(idx, kvs);
-
-        if (dialogGuard) {
-            dialogGuard->m_pendingEditMemoryIndex = idx;
-            dialogGuard->m_pendingEditRetries = 3;
-            dialogGuard->populateTable();
-        }
+        m_pendingEditMemoryIndex = memoryIndex;
+        m_pendingEditRetries = 3;
+        populateTable();
     });
 }
 

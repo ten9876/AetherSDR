@@ -132,6 +132,7 @@ private:
     void stepUiScale(int direction);  // +1 = zoom in, -1 = zoom out
     void toggleMinimalMode(bool on);
     void showMemoryDialog();
+    void showQuickAddMemoryDialog(const QString& preferredPanId = {});
     void updateKeyerAvailability(const QString& mode);
     void showNr2ParamPopup(const QPoint& globalPos);
     void showNr4ParamPopup(const QPoint& globalPos);
@@ -149,7 +150,10 @@ private:
     void removeMemorySpot(int memoryIndex);
     void clearMemorySpotFeed();
     void rebuildMemorySpotFeed();
-    void activateMemorySpot(int memoryIndex);
+    void refreshMemoryBrowsePanel();
+    void updateBandStackIndicator();
+    SliceModel* preferredMemorySlice(const QString& preferredPanId) const;
+    bool activateMemorySpot(int memoryIndex, const QString& preferredPanId = {});
 
     BandSnapshot captureCurrentBandState() const;
     void restoreBandState(const BandSnapshot& snap);

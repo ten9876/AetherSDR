@@ -54,6 +54,7 @@
 #include "RadioSetupDialog.h"
 #include "NetworkDiagnosticsDialog.h"
 #include "PropDashboardDialog.h"
+#include "MemoryCommands.h"
 #include "MemoryDialog.h"
 #include "DxClusterDialog.h"
 #include "CwxPanel.h"
@@ -264,6 +265,21 @@ static QString memorySpotComment(const MemoryEntry& memory)
                     .arg(memory.rxFilterHigh);
     }
     return parts.join(" | ");
+}
+
+static QPixmap buildBandStackIndicatorPixmap(bool active)
+{
+    QPixmap pixmap(10, 22);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(active ? QColor(0x00, 0xb4, 0xd8) : QColor(0x40, 0x48, 0x58));
+    painter.drawEllipse(2, 1, 6, 6);
+    painter.drawEllipse(2, 8, 6, 6);
+    painter.drawEllipse(2, 15, 6, 6);
+    return pixmap;
 }
 
 static bool isTextInputFocused()
@@ -800,6 +816,12 @@ MainWindow::MainWindow(QWidget* parent)
             this, &MainWindow::removeMemorySpot);
     connect(&m_radioModel, &RadioModel::memoriesCleared,
             this, &MainWindow::clearMemorySpotFeed);
+    connect(&m_radioModel, &RadioModel::memoryChanged,
+            this, [this](int) { refreshMemoryBrowsePanel(); });
+    connect(&m_radioModel, &RadioModel::memoryRemoved,
+            this, [this](int) { refreshMemoryBrowsePanel(); });
+    connect(&m_radioModel, &RadioModel::memoriesCleared,
+            this, [this]() { refreshMemoryBrowsePanel(); });
     connect(&m_radioModel, &RadioModel::panadapterLimitReached,
             this, [this](int limit, const QString& model) {
         statusBar()->showMessage(
@@ -3012,17 +3034,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
     if (obj == m_bandStackIndicator && event->type() == QEvent::MouseButtonPress) {
         bool show = !m_panStack->bandStackPanel()->isVisible();
         m_panStack->setBandStackVisible(show);
-        QPixmap bsPm(10, 22);
-        bsPm.fill(Qt::transparent);
-        QPainter bsPainter(&bsPm);
-        bsPainter.setRenderHint(QPainter::Antialiasing);
-        bsPainter.setPen(Qt::NoPen);
-        bsPainter.setBrush(show ? QColor(0, 180, 216) : QColor(64, 72, 88));
-        bsPainter.drawEllipse(2, 1, 6, 6);
-        bsPainter.drawEllipse(2, 8, 6, 6);
-        bsPainter.drawEllipse(2, 15, 6, 6);
-        bsPainter.end();
-        m_bandStackIndicator->setPixmap(bsPm);
+        updateBandStackIndicator();
         return true;
     }
     if (obj == m_tgxlIndicator && event->type() == QEvent::MouseButtonPress) {
@@ -3134,6 +3146,131 @@ void MainWindow::showMemoryDialog()
     });
     m_memoryDialog = dlg;
     dlg->show();
+}
+
+SliceModel* MainWindow::preferredMemorySlice(const QString& preferredPanId) const
+{
+    if (preferredPanId.isEmpty())
+        return activeSlice();
+
+    if (auto* slice = activeSlice(); slice && slice->panId() == preferredPanId)
+        return slice;
+
+    for (auto* slice : m_radioModel.slices()) {
+        if (slice && slice->panId() == preferredPanId)
+            return slice;
+    }
+
+    return nullptr;
+}
+
+void MainWindow::showQuickAddMemoryDialog(const QString& preferredPanId)
+{
+    auto* slice = preferredMemorySlice(preferredPanId);
+    if (!slice) {
+        statusBar()->showMessage(
+            preferredPanId.isEmpty()
+                ? "Open a slice before saving a memory."
+                : "Open a slice on this pan before saving a memory.",
+            3000);
+        return;
+    }
+
+    const int sliceId = slice->sliceId();
+    const QString frequencyText = QString::number(slice->frequency(), 'f', 6);
+    const QString summaryText = QString("%1  |  Filter %2 to %3 Hz")
+        .arg(slice->mode())
+        .arg(slice->filterLow())
+        .arg(slice->filterHigh());
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("Save Memory");
+    dialog.setModal(true);
+    dialog.setMinimumWidth(360);
+
+    auto* root = new QVBoxLayout(&dialog);
+    root->setContentsMargins(14, 14, 14, 14);
+    root->setSpacing(10);
+
+    auto* nameLabel = new QLabel("Name:", &dialog);
+    root->addWidget(nameLabel);
+
+    auto* nameEdit = new QLineEdit(&dialog);
+    nameEdit->setPlaceholderText("Enter a memory name");
+    root->addWidget(nameEdit);
+
+    auto* freqLabel = new QLabel(QString("Current Frequency: %1 MHz").arg(frequencyText), &dialog);
+    freqLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 12px; }");
+    root->addWidget(freqLabel);
+
+    auto* summaryLabel = new QLabel(summaryText, &dialog);
+    summaryLabel->setStyleSheet("QLabel { color: #70879b; font-size: 11px; }");
+    root->addWidget(summaryLabel);
+
+    auto* buttonRow = new QHBoxLayout;
+    buttonRow->addStretch(1);
+
+    auto* cancelButton = new QPushButton("Cancel", &dialog);
+    cancelButton->setAutoDefault(false);
+    buttonRow->addWidget(cancelButton);
+
+    auto* saveButton = new QPushButton("Save", &dialog);
+    saveButton->setDefault(true);
+    saveButton->setEnabled(false);
+    buttonRow->addWidget(saveButton);
+    root->addLayout(buttonRow);
+
+    connect(cancelButton, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(nameEdit, &QLineEdit::textChanged, &dialog, [saveButton](const QString& text) {
+        saveButton->setEnabled(!text.trimmed().isEmpty());
+    });
+
+    const QPointer<QDialog> dialogGuard(&dialog);
+    connect(saveButton, &QPushButton::clicked, &dialog, [this,
+                                                         sliceId,
+                                                         dialogGuard,
+                                                         nameEdit,
+                                                         saveButton,
+                                                         cancelButton]() {
+        auto* currentSlice = m_radioModel.slice(sliceId);
+        if (!currentSlice) {
+            QMessageBox::warning(this, "Save Memory",
+                                 "That slice is no longer available.");
+            return;
+        }
+
+        saveButton->setEnabled(false);
+        cancelButton->setEnabled(false);
+        nameEdit->setEnabled(false);
+
+        const QString name = nameEdit->text().trimmed();
+        createMemoryFromSlice(&m_radioModel, currentSlice, name, dialogGuard.data(),
+            [this, dialogGuard, nameEdit, saveButton, cancelButton, name](int code, const QString& body, int) {
+            if (!dialogGuard)
+                return;
+
+            if (code == 0) {
+                statusBar()->showMessage(
+                    QString("Saved \"%1\" to memories.").arg(name),
+                    3000);
+                dialogGuard->accept();
+                return;
+            }
+
+            QMessageBox::warning(dialogGuard, "Save Memory",
+                                 body.isEmpty()
+                                     ? "Couldn't save the current slice to memory."
+                                     : body);
+            nameEdit->setEnabled(true);
+            saveButton->setEnabled(!nameEdit->text().trimmed().isEmpty());
+            cancelButton->setEnabled(true);
+            nameEdit->setFocus(Qt::OtherFocusReason);
+            nameEdit->selectAll();
+        });
+    });
+
+    nameEdit->setFocus(Qt::OtherFocusReason);
+    dialog.exec();
 }
 
 void MainWindow::updatePaTempLabel()
@@ -4429,6 +4566,7 @@ void MainWindow::buildUI()
         BandStackSettings::instance().save();
         m_panStack->bandStackPanel()->removeBookmark(index);
     });
+    refreshMemoryBrowsePanel();
 
     // Sync RadioModel's active pan/wf IDs when PanadapterStack focus changes.
     // This ensures display setting commands (fps, average, black_level, etc.)
@@ -4535,18 +4673,8 @@ void MainWindow::buildUI()
         pp.end();
         // Band stack toggle: 3 vertically stacked circles
         {
-            QPixmap bsPm(10, 22);
-            bsPm.fill(Qt::transparent);
-            QPainter bsPainter(&bsPm);
-            bsPainter.setRenderHint(QPainter::Antialiasing);
-            bsPainter.setPen(Qt::NoPen);
-            bsPainter.setBrush(QColor(64, 72, 88));  // grey, matches inactive indicators
-            bsPainter.drawEllipse(2, 1, 6, 6);
-            bsPainter.drawEllipse(2, 8, 6, 6);
-            bsPainter.drawEllipse(2, 15, 6, 6);
-            bsPainter.end();
             m_bandStackIndicator = new QLabel;
-            m_bandStackIndicator->setPixmap(bsPm);
+            m_bandStackIndicator->setPixmap(buildBandStackIndicatorPixmap(false));
             m_bandStackIndicator->setCursor(Qt::PointingHandCursor);
             m_bandStackIndicator->setToolTip("Open band stack panel");
             m_bandStackIndicator->installEventFilter(this);
@@ -4856,6 +4984,7 @@ void MainWindow::buildUI()
     hbox->addWidget(timeStack);
 
     statusBar()->addWidget(container, 1);
+    updateBandStackIndicator();
 }
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
@@ -4977,6 +5106,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
         BandStackSettings::instance().load();
         m_panStack->bandStackPanel()->loadBookmarks(
             m_radioModel.serial(), m_bandPlanMgr);
+        refreshMemoryBrowsePanel();
+        updateBandStackIndicator();
 
         // Auto-start 4-channel rigctld TCP servers if enabled
         auto& as = AppSettings::instance();
@@ -5131,6 +5262,9 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_stationLabel->setText("N0CALL");
         m_tnfIndicator->setStyleSheet("QLabel { color: #404858; font-weight: bold; font-size: 24px; }");
         m_panStack->bandStackPanel()->clear();
+        m_panStack->setBandStackVisible(false);
+        refreshMemoryBrowsePanel();
+        updateBandStackIndicator();
         m_tgxlIndicator->setVisible(false);
         m_tgxlConn.disconnect();
         m_pgxlConn.disconnect();
@@ -5281,22 +5415,66 @@ void MainWindow::rebuildMemorySpotFeed()
         syncMemorySpot(it.key());
 }
 
-void MainWindow::activateMemorySpot(int memoryIndex)
+void MainWindow::refreshMemoryBrowsePanel()
 {
-    if (auto* slice = activeSlice(); !slice || slice->isLocked())
+    if (!m_panStack)
         return;
+    for (auto* applet : m_panStack->allApplets()) {
+        if (!applet)
+            continue;
+        if (auto* menu = applet->spectrumWidget()->overlayMenu())
+            menu->setMemories(m_radioModel.memories());
+    }
+}
+
+void MainWindow::updateBandStackIndicator()
+{
+    if (!m_bandStackIndicator || !m_panStack)
+        return;
+
+    const bool visible = m_panStack->bandStackPanel()->isVisible();
+    m_bandStackIndicator->setPixmap(buildBandStackIndicatorPixmap(visible));
+    m_bandStackIndicator->setToolTip(visible ? "Close band stack panel"
+                                             : "Open band stack panel");
+}
+
+bool MainWindow::activateMemorySpot(int memoryIndex, const QString& preferredPanId)
+{
+    auto* slice = preferredMemorySlice(preferredPanId);
+    if (!slice) {
+        statusBar()->showMessage(
+            preferredPanId.isEmpty()
+                ? "Open a slice before recalling a memory."
+                : "Open a slice on this pan before recalling a memory.",
+            3000);
+        return false;
+    }
+    if (slice->isLocked()) {
+        statusBar()->showMessage("Unlock the target slice before recalling a memory.", 3000);
+        return false;
+    }
 
     const auto it = m_radioModel.memories().constFind(memoryIndex);
     if (it == m_radioModel.memories().constEnd())
-        return;
+        return false;
+
+    const int sliceId = slice->sliceId();
+    if (!activeSlice() || activeSlice()->sliceId() != sliceId)
+        setActiveSlice(sliceId);
+
+    slice = m_radioModel.slice(sliceId);
+    if (!slice)
+        return false;
 
     m_radioModel.sendCommand(QString("memory apply %1").arg(memoryIndex));
+    m_radioModel.setPanCenter(it->freq);
 
     // The radio should push the rest of the applied memory state, but keep the
     // local tuning step in sync immediately so wheel/click snap follows along.
-    if (it->step > 0 && activeSlice())
+    if (it->step > 0)
         m_radioModel.sendCommand(QString("slice set %1 step=%2")
-            .arg(activeSlice()->sliceId()).arg(it->step));
+            .arg(slice->sliceId()).arg(it->step));
+    return true;
 }
 
 void MainWindow::onSliceAdded(SliceModel* s)
@@ -6018,6 +6196,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 
     // Set panId on the overlay menu so +RX routes to the correct pan
     menu->setPanId(applet->panId());
+    menu->setMemories(m_radioModel.memories());
 
     // Antenna list → this overlay menu (per-pan, mirrors VfoWidget pattern) (#1260)
     connect(&m_radioModel, &RadioModel::antListChanged,
@@ -6466,7 +6645,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     });
 
     // ── Spot trigger — notify the radio when a spot label is clicked (#341)
-    connect(sw, &SpectrumWidget::spotTriggered, this, [this](int spotIndex) {
+    connect(sw, &SpectrumWidget::spotTriggered, this, [this, applet](int spotIndex) {
         const auto& spots = m_radioModel.spotModel().spots();
         auto it = spots.find(spotIndex);
         if (it == spots.end()) return;
@@ -6474,7 +6653,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         if (it->source == "Memory") {
             int memoryIndex = memoryIndexFromSpotId(spotIndex);
             if (memoryIndex >= 0)
-                activateMemorySpot(memoryIndex);
+                activateMemorySpot(memoryIndex, applet->panId());
             return;
         }
 
@@ -6606,6 +6785,14 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         double tnfFreq = s->frequency()
             + (s->filterLow() + s->filterHigh()) / 2.0 / 1.0e6;
         m_radioModel.tnfModel().createTnf(tnfFreq);
+    });
+    connect(menu, &SpectrumOverlayMenu::memoryActivated,
+            this, [this](int memoryIndex, const QString& panId) {
+        activateMemorySpot(memoryIndex, panId);
+    });
+    connect(menu, &SpectrumOverlayMenu::quickAddMemoryRequested,
+            this, [this](const QString& panId) {
+        showQuickAddMemoryDialog(panId);
     });
 
     // ── Slice marker clicks ──────────────────────────────────────────────
