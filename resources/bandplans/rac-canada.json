@@ -3,7 +3,7 @@
   "description": "Radio Amateurs of Canada band plan. Sources: rac.ca/operating/bandplans/, rac.ca/60metres/, rac.ca/50-mhz-6m-page/, rac.ca/144-mhz-2m-page/, rac.ca/220-mhz-135-cm-page/, rac.ca/432-mhz-70-cm-page/. No license-class sub-segmentation (RAC does not define class-based sub-segments).",
   "version": 1,
   "segments": [
-    {"low": 1.800,    "high": 1.810,    "label": "DIG",       "license": "", "color": "#8bd9f7"},
+    {"low": 1.800,    "high": 1.810,    "label": "CW/DIG",    "license": "", "color": "#2f2ce8"},
     {"low": 1.810,    "high": 1.840,    "label": "CW",        "license": "", "color": "#ed1621"},
     {"low": 1.840,    "high": 2.000,    "label": "PHONE",     "license": "", "color": "#abdb55"},
 
