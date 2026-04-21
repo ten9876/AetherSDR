@@ -429,6 +429,8 @@ private:
 
     QVector<float> m_bins;       // raw FFT frame (dBm)
     QVector<float> m_smoothed;   // exponential-smoothed for visual stability
+    double m_smoothedCenterMhz{14.225};  // center freq when m_smoothed was captured (#1791)
+    double m_smoothedBwMhz{0.200};       // bandwidth when m_smoothed was captured (#1791)
 
     double m_centerMhz{14.225};
     double m_bandwidthMhz{0.200};

@@ -1278,6 +1278,9 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
             m_smoothed[i] = SMOOTH_ALPHA * binsDbm[i] + (1.0f - SMOOTH_ALPHA) * m_smoothed[i];
     }
     m_bins = binsDbm;
+    // Record the frequency range these bins represent (#1791)
+    m_smoothedCenterMhz = m_centerMhz;
+    m_smoothedBwMhz = m_bandwidthMhz;
 
     // Noise floor auto-adjust: every 10 frames, measure noise floor and
     // adjust min_dbm so it sits at the user's chosen position.
@@ -4107,12 +4110,17 @@ void SpectrumWidget::drawSpectrum(QPainter& p, const QRect& r)
     };
 
     // Pre-compute positions and normalized levels
+    // Use frequency-aware x mapping so spectrum aligns with waterfall during
+    // band changes and pan-follow nudges (#1791).
+    const double panStartMhz = m_centerMhz - m_bandwidthMhz / 2.0;
+    const double smoothedStartMhz = m_smoothedCenterMhz - m_smoothedBwMhz / 2.0;
     struct Pt { int x, y; float t; };
     QVector<Pt> pts(n);
     for (int i = 0; i < n; ++i) {
         const float dbm  = m_smoothed[i];
         const float norm = qBound(0.0f, (m_refLevel - dbm) / m_dynamicRange, 1.0f);
-        pts[i].x = r.left() + static_cast<int>(static_cast<float>(i) / n * w);
+        const double binFreq = smoothedStartMhz + (static_cast<double>(i) / n) * m_smoothedBwMhz;
+        pts[i].x = r.left() + static_cast<int>((binFreq - panStartMhz) / m_bandwidthMhz * w);
         pts[i].y = r.top()  + qMin(static_cast<int>(norm * h), h - 1);
         pts[i].t = 1.0f - norm;  // 0=noise floor, 1=strong signal
     }
