@@ -822,6 +822,15 @@ MainWindow::MainWindow(QWidget* parent)
             this, [this](int) { refreshMemoryBrowsePanel(); });
     connect(&m_radioModel, &RadioModel::memoriesCleared,
             this, [this]() { refreshMemoryBrowsePanel(); });
+    // Keep the MEM button target-slice badge in sync with slice topology
+    // changes so the displayed letter always matches which slice a
+    // save/recall will route to (#1781).  Active-slice changes are
+    // handled inside setActiveSlice() itself since RadioModel has no
+    // activeSliceChanged signal.
+    connect(&m_radioModel, &RadioModel::sliceAdded,
+            this, [this](SliceModel*) { refreshMemoryBrowsePanel(); });
+    connect(&m_radioModel, &RadioModel::sliceRemoved,
+            this, [this](int) { refreshMemoryBrowsePanel(); });
     connect(&m_radioModel, &RadioModel::panadapterLimitReached,
             this, [this](int limit, const QString& model) {
         statusBar()->showMessage(
@@ -5454,8 +5463,15 @@ void MainWindow::refreshMemoryBrowsePanel()
     for (auto* applet : m_panStack->allApplets()) {
         if (!applet)
             continue;
-        if (auto* menu = applet->spectrumWidget()->overlayMenu())
+        if (auto* menu = applet->spectrumWidget()->overlayMenu()) {
             menu->setMemories(m_radioModel.memories());
+            // Update the MEM button badge showing which slice save/recall
+            // will target on this pan — makes the fallback slice visible
+            // when the active slice is on a different pan (#1781).
+            auto* target = preferredMemorySlice(menu->panId());
+            menu->setMemoryTargetSliceLetter(
+                target ? QChar('A' + (target->sliceId() & 3)) : QChar());
+        }
     }
 }
 
@@ -6072,6 +6088,9 @@ void MainWindow::setActiveSlice(int sliceId)
         && AppSettings::instance().value("TxFollowsActiveSlice", "False").toString() == "True") {
         s->setTxSlice(true);
     }
+
+    // Update MEM button target-slice badge on every overlay (#1781)
+    refreshMemoryBrowsePanel();
 
     qDebug() << "MainWindow: active slice set to" << sliceId;
 }

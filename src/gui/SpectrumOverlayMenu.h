@@ -71,6 +71,11 @@ public:
     QPushButton* dspMnrButton() const;
     QPushButton* dspDfnrButton() const;
 
+    // Show the target slice letter ('A'-'D') on the MEM buttons so users
+    // know which slice will be saved/recalled.  Pass a null QChar to clear
+    // the badge (no slice on this pan).
+    void setMemoryTargetSliceLetter(QChar letter);
+
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
     void wheelEvent(QWheelEvent* event) override { event->accept(); }

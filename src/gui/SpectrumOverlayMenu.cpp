@@ -194,6 +194,17 @@ void SpectrumOverlayMenu::setMemories(const QMap<int, MemoryEntry>& memories)
         m_memoryPanel->setMemories(memories);
 }
 
+void SpectrumOverlayMenu::setMemoryTargetSliceLetter(QChar letter)
+{
+    if (m_menuBtns.size() <= kBtnMemoryAdd) return;
+    const QString browseBase = QStringLiteral("MEM\u25b8");
+    const QString addBase    = QStringLiteral("MEM+");
+    const bool hasTarget = letter.isLetter();
+    const QString suffix = hasTarget ? QString(QChar(' ')) + letter.toUpper() : QString();
+    m_menuBtns[kBtnMemoryBrowse]->setText(browseBase + suffix);
+    m_menuBtns[kBtnMemoryAdd]->setText(addBase + suffix);
+}
+
 // ── Band sub-panel ────────────────────────────────────────────────────────────
 
 void SpectrumOverlayMenu::buildBandPanel()
