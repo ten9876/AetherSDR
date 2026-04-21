@@ -98,7 +98,11 @@ private:
         int          audioSampleRate{48000}; // requested output rate (48kHz for WSJT-X compat)
         int          audioChannels{2};       // 1=mono, 2=stereo
         int          audioFormat{3};         // 0=int16, 3=float32
-        Resampler*   resampler{nullptr};    // null if rate == 24000 (native)
+        // Per-channel resamplers keyed by audio source: 0 = main RX,
+        // 1–4 = DAX channels.  Each r8brain instance is stateful (internal
+        // delay line), so sharing one across channels causes inter-channel
+        // crosstalk that raises the noise floor (#1788).
+        QHash<int, Resampler*> resamplers;
         // Per-DAX-channel accumulation buffers. Concatenating multi-channel
         // packets into a shared buffer would interleave audio from different
         // slices and destroy the resampler output, so each channel maintains

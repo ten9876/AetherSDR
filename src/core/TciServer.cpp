@@ -193,7 +193,7 @@ void TciServer::stop()
         cs.socket->close();
         cs.socket->deleteLater();
         delete cs.protocol;
-        delete cs.resampler;
+        qDeleteAll(cs.resamplers);
     }
     m_clients.clear();
     releaseDaxForTci();
@@ -253,8 +253,9 @@ void TciServer::onNewConnection()
         ClientState cs;
         cs.socket = ws;
         cs.protocol = protocol;
-        // Default 48kHz — create 24→48kHz resampler for RX audio
-        cs.resampler = new Resampler(24000.0, 48000.0, 4096);
+        // Default 48kHz — resamplers are created lazily per-channel in
+        // onRxAudioReady / onDaxAudioReady to avoid inter-channel crosstalk
+        // through r8brain's stateful delay line (#1788).
         m_clients.append(cs);
 
         connect(ws, &QWebSocket::textMessageReceived,
@@ -307,7 +308,7 @@ void TciServer::onClientDisconnected()
                 }
             }
             delete m_clients[i].protocol;
-            delete m_clients[i].resampler;
+            qDeleteAll(m_clients[i].resamplers);
             m_clients.removeAt(i);
 
             // Release DAX if no remaining clients want audio (#1331)
@@ -382,12 +383,10 @@ void TciServer::onTextMessage(const QString& msg)
             int rate = trimmed.mid(colonIdx2 + 1).toInt();
             if (rate == 8000 || rate == 12000 || rate == 24000 || rate == 48000) {
                 client.audioSampleRate = rate;
-                // Create or destroy resampler as needed
-                delete client.resampler;
-                if (rate != 24000)
-                    client.resampler = new Resampler(24000.0, rate, 4096);
-                else
-                    client.resampler = nullptr;
+                // Destroy all per-channel resamplers — they will be lazily
+                // recreated at the new rate on the next audio packet (#1788).
+                qDeleteAll(client.resamplers);
+                client.resamplers.clear();
                 qCInfo(lcCat) << "TCI: audio sample rate set to" << rate
                               << "for" << ws->peerAddress().toString();
             }
@@ -716,9 +715,13 @@ void TciServer::onRxAudioReady(const QByteArray& pcm)
         int audioFrames = stereoFrames;
         QByteArray resampledBuf;
 
-        // Resample if client wants a different rate (float32 I/O)
-        if (cs.resampler) {
-            resampledBuf = cs.resampler->processStereoToStereo(src, stereoFrames);
+        // Resample if client wants a different rate (float32 I/O).
+        // Channel key 0 = main RX path; per-channel to avoid crosstalk (#1788).
+        if (cs.audioSampleRate != 24000) {
+            Resampler*& rsp = cs.resamplers[0];
+            if (!rsp)
+                rsp = new Resampler(24000.0, cs.audioSampleRate, 4096);
+            resampledBuf = rsp->processStereoToStereo(src, stereoFrames);
             audioSrc = reinterpret_cast<const float*>(resampledBuf.constData());
             audioFrames = resampledBuf.size() / (2 * static_cast<int>(sizeof(float)));
         }
@@ -830,9 +833,10 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
 
         int accumFrames = accumBuf.size() / (2 * static_cast<int>(sizeof(float)));
 
-        // If no resampler, flush immediately (native 24kHz pass-through)
-        // If resampling, wait for enough data to feed r8brain cleanly
-        if (cs.resampler && accumFrames < kAccumMinFrames) {
+        // If resampling, wait for enough data to feed r8brain cleanly.
+        // If native 24kHz, flush immediately (no resampler needed).
+        bool needsResample = (cs.audioSampleRate != 24000);
+        if (needsResample && accumFrames < kAccumMinFrames) {
             continue;
         }
 
@@ -840,8 +844,13 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
         int audioFrames = accumFrames;
         QByteArray resampledBuf;
 
-        if (cs.resampler) {
-            resampledBuf = cs.resampler->processStereoToStereo(audioSrc, audioFrames);
+        if (needsResample) {
+            // Per-channel resampler keyed by DAX channel to prevent
+            // inter-channel crosstalk through r8brain's delay line (#1788).
+            Resampler*& rsp = cs.resamplers[channel];
+            if (!rsp)
+                rsp = new Resampler(24000.0, cs.audioSampleRate, 4096);
+            resampledBuf = rsp->processStereoToStereo(audioSrc, audioFrames);
             audioSrc = reinterpret_cast<const float*>(resampledBuf.constData());
             audioFrames = resampledBuf.size() / (2 * static_cast<int>(sizeof(float)));
         }
