@@ -300,7 +300,7 @@ MainWindow::MainWindow(QWidget* parent)
 {
     setWindowTitle(QString("AetherSDR v%1").arg(QCoreApplication::applicationVersion()));
     setWindowIcon(QIcon(":/icon.png"));
-    setMinimumSize(1024, 600);
+    setMinimumSize(1024, 400);
     resize(1400, 800);
 
     // Apply frameless flag before first show() so the window is created
@@ -7539,7 +7539,7 @@ void MainWindow::toggleMinimalMode(bool on)
 
         // Release fixed width and restore minimum size
         setFixedWidth(QWIDGETSIZE_MAX);
-        setMinimumSize(1024, 600);
+        setMinimumSize(1024, 400);
 
         // Restore title bar and status bar
         m_titleBar->setMinimalMode(false);

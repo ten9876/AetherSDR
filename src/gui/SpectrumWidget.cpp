@@ -134,7 +134,7 @@ static QRgb interpolateGradient(float t, const WfGradientStop* stops, int n)
 SpectrumWidget::SpectrumWidget(QWidget* parent)
     : SPECTRUM_BASE_CLASS(parent)
 {
-    setMinimumHeight(150);
+    setMinimumHeight(100);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setAutoFillBackground(false);
 #ifdef AETHER_GPU_SPECTRUM
