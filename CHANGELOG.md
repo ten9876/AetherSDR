@@ -3,6 +3,233 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.19] — 2026-04-20
+
+### Community contributions landfest + macOS MNR + quick memory actions
+
+This release is mostly community work.  Ten community PRs landed, plus an
+AetherClaude-draft fix batch covering bandwidth-correction echoes, stale
+slice-click tuning, Windows rigctld IPv4, serial port persistence, DX
+cluster reconnect, compression-meter gain reduction, and macOS audio
+device override.
+
+### Features
+
+**macOS MMSE-Wiener spectral noise reduction (MNR) (#1672, Chaosuk97)**
+- New macOS-exclusive client-side NR mode accelerated via Apple
+  Accelerate (vDSP / AMX on Apple Silicon).  Decision-directed
+  MMSE-Wiener filter with 25-frame minimum-statistics noise-floor
+  tracking.  512-point real FFT at 24 kHz, 50% overlap-add with
+  sqrt-Hann window, per-bin gain with temporal smoothing to suppress
+  musical noise.  ~0.3 ms per hop on M-series chips, one-hop startup
+  latency (≈10.7 ms).
+- MNR button appears in both the VFO DSP tab and the spectrum overlay
+  DSP panel.  DSP Settings dialog gains a new MNR tab with a strength
+  slider (0-100).  Mutually exclusive with NR2/RN2/NR4/BNR/DFNR.
+  Persists enable state + strength across restart.
+- Non-Apple builds: `#ifdef __APPLE__` gated throughout — zero MNR
+  overhead, buttons hidden.
+
+**PooDoo™ TX Reverb (#1741) — carried forward, chain now complete**
+- Already shipped in v0.8.18 final release notes; listed here for
+  completeness since it rolls into the 0.8.19 post-release chain view.
+
+**Quick memory browse + save on slice overlays (#1781, jensenpat)**
+- Two new actions in the slice overlay rail between Display and DAX:
+  - **MEM▸** opens a compact 252×430 browser drawer, frequency-sorted,
+    pre-scrolled to the active slice's nearest memory.  Click-to-recall.
+  - **MEM+** opens a small save dialog for the current slice on that
+    panadapter.  Captures mode, filter, step, repeater offset, tone,
+    squelch, RTTY/DIGL offsets — same field set as the main Memory
+    dialog via the new shared `MemoryCommands` helper module.
+- Pan-aware routing: save/recall targets the active slice if it lives
+  on this pan, otherwise the first slice found on the pan.  The MEM
+  buttons now show the target slice letter (e.g. `MEM▸ A`) so users
+  can see which slice will be hit before clicking — makes the
+  multi-slice fallback visible.
+
+**Improved TNF notch interaction (#1547, rfoust)**
+- TNF markers no longer extend into the waterfall — they stop at the
+  bottom of the spectrum pane so the waterfall stays a historical
+  signal record.
+- Depth visualisation via hatching (12/8/5 px spacing for depth 1/2/3).
+- Floating "RF Tracking Notch" popup on hover shows frequency + width.
+- Width/depth submenu items show a checkmark on the currently-active
+  value.
+- Bidirectional TNF drag: horizontal tunes, vertical resizes via
+  `2^(-dy/48)` octaves, clamped 10-12 000 Hz.
+- Preferred-TNF hit-testing for overlapping notches — dragging a TNF
+  preserves the target across its sibling's overlap zone.
+- Tune guides suppressed while a TNF is hovered or dragged.
+- `TnfModel`: optimistic local updates in setters so UI responds
+  without waiting for radio echo; width parser tolerates both Hz
+  ("width=100") and fractional-MHz forms for firmware-version variance.
+
+**RAC Canada Band Plan corrected + expanded (#1709, VE3NEM)**
+- VHF / UHF bands added (6 m, 2 m, 1.25 m, 70 cm) — prior file was
+  HF-only, so 4 new ham-band coverage tiers arrive in this update.
+- 60 m channels updated to match the Feb 2026 ISED regulation change
+  (new 5.3570-5.3598 channel).
+- 12 m frequencies corrected.
+- FT8 spot at 14.074 added back, one duplicate spot removed.
+
+**Frameless Window toggle (View menu, Ctrl+Shift+F)**
+- View → Frameless Window applies Qt's `FramelessWindowHint` so users
+  gain ~32 px of vertical screen space at the cost of the OS title bar.
+  Works cross-platform (X11, Wayland, Windows, macOS) — KDE window
+  rules don't strip Qt's client-side decorations reliably on Wayland,
+  so we drop the frame in code.  Move/close via WM shortcuts or
+  taskbar.  Persists across restart; applied before first `show()` so
+  there's no flash-of-chrome on startup.
+
+**CHAIN-driven TX DSP (v0.8.18 rebase — carried forward)**
+- Already in v0.8.18 release notes; called out here because subsequent
+  releases continue to build on the CHAIN ordering.
+
+### Bug fixes
+
+**NR2 crackling on strong signals (#1696, Chaosuk97)**
+- Cap `gainMax` default 1.5 → 1.0.  The MMSE-LSA estimator is a noise
+  *reducer* — the old 1.5 default allowed 50% amplification on strong
+  signals, which pushed output past ±1.0 float32 full scale and caused
+  QAudioSink digital-clipping crackle.
+- Belt-and-suspenders `std::clamp(sample, -1.0f, 1.0f)` in
+  `processNr2()`.  A separate Bessel overflow (issue #1507) can still
+  produce NaN-burst crackle on Gamma-method NR2 under strong-signal
+  conditions — tracked for follow-up, not in this release.
+
+**Audio pan broken with client NR active (#1685, Chaosuk97) + per-slice AF mute persistence (#1560)**
+- Client-side NR (NR2 / RN2 / NR4 / DFNR) mono-mixes L+R before
+  processing, destroying the radio-applied pan.  New
+  `AudioEngine::setRxPan` atomic + static `applyRxPanInPlace` helper
+  re-applies a linear pan law to the NR output so the pan slider
+  continues to work while client NR is active.  No-op at pan 50
+  (centre) — zero overhead when user hasn't panned.
+- Per-slice AF mute now persists across sessions.  VFO widget emits
+  `audioMuteToggled`; MainWindow saves `SliceAudioMuted_{A,B,C,D}` to
+  AppSettings on every user toggle, restores on reconnect.  Uses the
+  slice letter (not numeric id) for the settings key so state survives
+  sessions where the radio assigns a different numeric id.
+
+**VFO / TNF / filter-edge ±1 px jitter during tuning (#1703, Chaosuk97) + cursor-snap-to-VFO (#1369)**
+- `mhzToX()` switched from integer truncation to `std::round` so the
+  same frequency always maps to the same pixel column regardless of
+  pan-center fractional drift during continuous tune.  One-line fix
+  that ripples through every vertical marker — VFO, TNF, filter edges,
+  RIT/XIT, band plan, spots, grid.
+- Cursor frequency readout snaps to the exact VFO frequency when
+  within 8 px of a slice marker (GPU path already had this; software
+  `paintEvent` path added for symmetry).
+- `setSliceOverlayFreq()` now calls `markOverlayDirty()` and
+  early-exits on unchanged value.
+
+**Zoom +/- can't reach full panadapter bandwidth (#1697, Chaosuk97)**
+- Replace early-return guard in `emitZoom` / keyboard zoom with
+  `std::clamp(newBw, minBwMhz, maxBwMhz)` so the final click/keypress
+  snaps to exactly the radio's min/max — matching the mouse-drag
+  behaviour which already used clamp.
+
+**PC Audio button shows wrong state on connect (#1695, Chaosuk97)**
+- `onConnectionStateChanged` now reads `PcAudioEnabled` once and calls
+  both `m_titleBar->setPcAudioEnabled(...)` (sync button, with
+  QSignalBlocker) and `audioStartRx()` from the same decision.
+  Previously the sink and button could diverge after a profile import.
+
+**Waterfall filter-passband fill removed (#1701, Chaosuk97)**
+- The coloured filter-passband fill in the waterfall was only rendered
+  by the software-fallback paintEvent path — the GPU renderer already
+  skipped it.  Dropping the software `fillRect` brings the two render
+  paths into agreement.  Filter edge lines still render in both panes.
+
+**TCI DAX duplicate stream causing 2× audio speed (#1679 / #1678)**
+- Two code paths both subscribing to `dax_rx` for the same channel
+  made `daxAudioReady` fire twice per period, doubling WSJT-X's
+  apparent sample rate and killing FT8 decode.  Registration now
+  evicts stale subscribers and TCI uses a borrow protocol.
+
+**TCI TX no RF output (#1680)**
+- Always emit `transmit set dax=1` on PTT regardless of the previous
+  Low-Latency DAX menu toggle.  The `dax=0` path was advertised for
+  external FreeDV over virtual audio cable but never actually worked
+  because that route silently drops `dax_tx` VITA-49 packets.  The
+  Low-Latency DAX menu has since been retired (#1780).
+
+**Low-Latency DAX consolidated into RADE mode (#1780)**
+- The "Low-Latency DAX (FreeDV)" menu item was removed.  RADE mode's
+  activation now emits a `daxRouteRequested` signal that MainWindow
+  routes to `transmit set dax=N`, flipping the route atomically with
+  the RADE button.  One control, one place.  Stale
+  `DaxTxLowLatency` AppSettings value is no longer read.
+
+**Bandwidth corrections silently dropped during pan-follow (#1729)**
+- The stale-echo guard in `setFrequencyRange` bypassed *any* echo
+  during an in-flight pan-center animation when the center matched.
+  If the echo also carried a bandwidth correction (e.g. post-resize
+  `xpixels` re-sync), it was thrown away.  Guard now also checks the
+  bandwidth field so legitimate corrections pass through.
+
+**Pan-follow VFO edge-tracking after manual drag (#1643)**
+- After a manual spectrum drag, `PanadapterModel::centerMhz` lagged
+  the visible pan center by up to one frame.  `panFollowVfo` now
+  reads the live center from the spectrum widget instead of the
+  model, so edge-fence checks fire against the user's actual view.
+
+**Propagation overlay click tunes VFO by accident (#1647)**
+- Clicking the K/SFI propagation overlay was also triggering the
+  release-to-tune path.  Set `m_spotClickConsumed = true` after the
+  `propForecastClicked` emission so the subsequent release event
+  can short-circuit.
+
+**Off-screen slice click tunes wrong frequency (#1772)**
+- Same pattern as the prop-overlay fix: clicking an off-screen slice
+  indicator now suppresses release-to-tune so the tuning action
+  doesn't pile on top of the slice-activate.
+
+**rigctld TCP server not accepting IPv4 on Windows (#1737)**
+- `QHostAddress::Any` sometimes binds IPv6-only on Windows, leaving
+  IPv4 clients unable to connect.  Use `QHostAddress::AnyIPv4`
+  explicitly.
+
+**Serial port parameters (data bits, parity, stop bits) not persisted (#1610)**
+- RadioSetupDialog's serial tab built the combos with defaults but
+  never read from AppSettings or connected the save handler.  Added
+  both.
+
+**Compression meter shows raw dBFS instead of gain reduction (#1682)**
+- COMPPEAK is the compressor *output* level; AFTEREQ is the *input*.
+  Meter was displaying raw COMPPEAK, which just shows "how loud is
+  the output" instead of "how much is the compressor reducing".  Now
+  shows `output - input` (gain reduction, 0 = no reduction, negative
+  = compressing).
+
+**macOS audio output device silently overridden (#1705)**
+- On macOS, AudioEngine replaced the user's chosen output device with
+  `QMediaDevices::defaultAudioOutput()` whenever Qt reported 48 kHz
+  as unsupported — but that happens on some normal CoreAudio outputs
+  with newer Qt, not just Bluetooth telephony routes.  Narrow the
+  override to devices that genuinely can't handle the native 24 kHz
+  format.
+
+### Internal
+
+**Issue template tightened**
+- Bug-report reproduction steps are now required.  AetherSDR version,
+  radio model+firmware, and OS are required fields with platform-
+  specific guidance (Linux distro + Qt / macOS version + chip /
+  Windows edition).  Improves triage quality on incoming reports.
+
+**Contributors**
+- Added VE3NEM, Ian M7HNF (Chaosuk97), and jensenpat to the About
+  dialog contributors list.
+
+### Reverted
+
+- The spectrum/waterfall alignment tweak from #1694 was landed as a
+  partial fix (alignment math only, skipping an unrelated
+  SMOOTH_ALPHA tuning change) then reverted when the trimmed fix
+  introduced misalignment rather than correcting it.  Issue #1690
+  closed — the originally-reported bug did not reproduce on main.
+
 ## [v0.8.18] — 2026-04-20
 
 ### PooDoo™ TX Audio — complete six-stage DSP chain, click-bypass, reverb

@@ -64,7 +64,7 @@ cmake --build build -j$(nproc)
 
 Full dependency list is in `README.md` — don't duplicate it here.
 
-Current version: **0.8.18** (set in both `CMakeLists.txt` and `README.md`).
+Current version: **0.8.19** (set in both `CMakeLists.txt` and `README.md`).
 
 ---
 
