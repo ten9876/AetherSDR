@@ -11,6 +11,26 @@
 
 namespace AetherSDR {
 
+namespace {
+
+constexpr uint32_t kSamplesPerStereoFrame = 2;
+constexpr uint32_t kRxTargetBacklogFrames = 960;   // ~40 ms @ 24 kHz
+constexpr uint32_t kRxMaxBacklogFrames = 4800;     // ~200 ms @ 24 kHz
+constexpr uint32_t kRxTargetBacklogSamples = kRxTargetBacklogFrames * kSamplesPerStereoFrame;
+constexpr uint32_t kRxMaxBacklogSamples = kRxMaxBacklogFrames * kSamplesPerStereoFrame;
+
+double samplesToMs(uint32_t samples)
+{
+    return static_cast<double>(samples) * 1000.0 / (24000.0 * kSamplesPerStereoFrame);
+}
+
+double samplesToMs(uint64_t samples)
+{
+    return static_cast<double>(samples) * 1000.0 / (24000.0 * kSamplesPerStereoFrame);
+}
+
+} // namespace
+
 VirtualAudioBridge::VirtualAudioBridge(QObject* parent)
     : QObject(parent)
 {}
@@ -255,6 +275,10 @@ void VirtualAudioBridge::feedDaxAudio(int channel, const QByteArray& pcm)
     const int numSamples = pcm.size() / static_cast<int>(sizeof(float));  // total float count (L,R,L,R,...)
 
     const float chGain = m_channelGain[channel - 1];
+    auto& stats = m_rxTiming[channel - 1];
+    if (!stats.windowElapsed.isValid())
+        stats.windowElapsed.start();
+
     uint32_t wp = block->writePos.load(std::memory_order_relaxed);
 
     for (int i = 0; i < numSamples; ++i) {
@@ -263,6 +287,38 @@ void VirtualAudioBridge::feedDaxAudio(int channel, const QByteArray& pcm)
     }
 
     block->writePos.store(wp, std::memory_order_release);
+    stats.writtenSamples += static_cast<uint64_t>(numSamples);
+
+    uint32_t currentRp = block->readPos.load(std::memory_order_acquire);
+    uint32_t backlogSamples = wp - currentRp;
+    stats.peakBacklogSamples = std::max(stats.peakBacklogSamples, backlogSamples);
+
+    if (backlogSamples > DaxShmBlock::RING_SIZE)
+        ++stats.overrunEvents;
+
+    if (backlogSamples > kRxMaxBacklogSamples) {
+        const uint32_t newRp = wp - kRxTargetBacklogSamples;
+        if (newRp > currentRp) {
+            const uint32_t trimmedSamples = newRp - currentRp;
+            block->readPos.store(newRp, std::memory_order_release);
+            currentRp = newRp;
+            backlogSamples = wp - currentRp;
+
+            stats.trimmedSamples += trimmedSamples;
+            ++stats.trimEvents;
+
+            if (lcDax().isInfoEnabled()) {
+                qCInfo(lcDax).noquote()
+                    << QStringLiteral("DAX RX ch %1 live-edge clamp: backlog_ms=%2 -> %3 trimmed_ms=%4")
+                          .arg(channel)
+                          .arg(samplesToMs(backlogSamples + trimmedSamples), 0, 'f', 1)
+                          .arg(samplesToMs(backlogSamples), 0, 'f', 1)
+                          .arg(samplesToMs(trimmedSamples), 0, 'f', 1);
+            }
+        }
+    }
+
+    logRxTimingSummary(channel, block, stats);
 
     // RX level meter (every ~100ms)
     static int meterCount[NUM_CHANNELS]{};
@@ -273,6 +329,38 @@ void VirtualAudioBridge::feedDaxAudio(int channel, const QByteArray& pcm)
         float rms = std::sqrt(sum / std::max(1, numSamples / 2));
         emit daxRxLevel(channel, rms);
     }
+}
+
+void VirtualAudioBridge::logRxTimingSummary(int channel, DaxShmBlock* block, RxTimingStats& stats)
+{
+    if (!stats.windowElapsed.isValid() || !lcDax().isDebugEnabled())
+        return;
+
+    const qint64 elapsedMs = stats.windowElapsed.elapsed();
+    if (elapsedMs < 1000)
+        return;
+
+    const uint32_t rp = block->readPos.load(std::memory_order_acquire);
+    const uint32_t wp = block->writePos.load(std::memory_order_acquire);
+    const uint32_t backlogSamples = wp - rp;
+
+    qCDebug(lcDax).noquote()
+        << QStringLiteral("DAX RX ch %1 summary: interval_ms=%2 written_ms=%3 backlog_ms=%4 peak_backlog_ms=%5 trim_events=%6 trimmed_ms=%7 overruns=%8")
+              .arg(channel)
+              .arg(elapsedMs)
+              .arg(samplesToMs(stats.writtenSamples), 0, 'f', 1)
+              .arg(samplesToMs(backlogSamples), 0, 'f', 1)
+              .arg(samplesToMs(stats.peakBacklogSamples), 0, 'f', 1)
+              .arg(stats.trimEvents)
+              .arg(samplesToMs(stats.trimmedSamples), 0, 'f', 1)
+              .arg(stats.overrunEvents);
+
+    stats.windowElapsed.restart();
+    stats.writtenSamples = 0;
+    stats.trimmedSamples = 0;
+    stats.trimEvents = 0;
+    stats.overrunEvents = 0;
+    stats.peakBacklogSamples = backlogSamples;
 }
 
 QByteArray VirtualAudioBridge::readTxAudio(int maxFrames)

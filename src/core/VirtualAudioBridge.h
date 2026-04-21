@@ -71,6 +71,15 @@ signals:
     void daxTxLevel(float rms);
 
 private:
+    struct RxTimingStats {
+        QElapsedTimer windowElapsed;
+        uint64_t writtenSamples{0};
+        uint64_t trimmedSamples{0};
+        uint32_t trimEvents{0};
+        uint32_t overrunEvents{0};
+        uint32_t peakBacklogSamples{0};
+    };
+
     bool m_open{false};
     float m_gain{0.5f};  // -6 dB default
     float m_channelGain[NUM_CHANNELS]{0.5f, 0.5f, 0.5f, 0.5f};
@@ -87,10 +96,12 @@ private:
 
     void feedSilenceToAllChannels();
     static QString shmName(int channel);
+    void logRxTimingSummary(int channel, DaxShmBlock* block, RxTimingStats& stats);
 
     bool     m_transmitting{false};
     QTimer*  m_silenceTimer{nullptr};
     QElapsedTimer m_silenceElapsed;   // tracks wall-clock time for accurate silence fill
+    RxTimingStats m_rxTiming[NUM_CHANNELS];
 };
 
 } // namespace AetherSDR
