@@ -139,7 +139,6 @@
     {"freq": 3.625,   "label": "FreeDV Primary - LSB"},
     {"freq": 3.693,   "label": "FreeDV Alternate - LSB"},
     {"freq": 3.697,   "label": "FreeDV Alternate - LSB"},
-    {"freq": 3.710,   "label": "CW calling"},
     {"freq": 3.803,   "label": "FreeDV Alternate - LSB"},
     {"freq": 3.850,   "label": "FreeDV Alternate, Region 2 - LSB"},
     {"freq": 5.4035,  "label": "FreeDV - USB"},
