@@ -287,6 +287,7 @@ void SpectrumWidget::loadSettings()
     m_wfColorGain    = s.value(settingsKey("DisplayWfColorGain"), "50").toInt();
     m_wfBlackLevel   = s.value(settingsKey("DisplayWfBlackLevel"), "15").toInt();
     m_wfAutoBlack    = s.value(settingsKey("DisplayWfAutoBlack"), "True").toString() == "True";
+    m_autoBlackOffset = std::clamp(s.value(settingsKey("DisplayAutoBlackOffset"), "3").toInt(), 0, 10);
     m_wfLineDuration = s.value(settingsKey("DisplayWfLineDuration"), "100").toInt();
     // NB Waterfall Blanker (#277)
     m_wfBlankerEnabled   = s.value(settingsKey("WaterfallBlankingEnabled"), "False").toString() == "True";
@@ -324,7 +325,8 @@ void SpectrumWidget::loadSettings()
             75, false, m_fftHeatMap, static_cast<int>(m_wfColorScheme), m_showGrid,
             m_fftLineWidth);
         m_overlayMenu->syncExtraDisplaySettings(m_wfBlankerEnabled,
-            m_wfBlankerThreshold, m_bgOpacity, m_freqGridSpacingKhz);
+            m_wfBlankerThreshold, m_bgOpacity, m_freqGridSpacingKhz,
+            m_autoBlackOffset);
     }
 }
 
@@ -494,6 +496,16 @@ void SpectrumWidget::setWfAutoBlack(bool on) {
     auto& s = AppSettings::instance();
     s.setValue(settingsKey("DisplayWfAutoBlack"), on ? "True" : "False");
     s.save();
+}
+void SpectrumWidget::setAutoBlackOffset(int offset) {
+    int clamped = std::clamp(offset, 0, 10);
+    if (clamped != m_autoBlackOffset) {
+        m_autoBlackOffset = clamped;
+        auto& s = AppSettings::instance();
+        s.setValue(settingsKey("DisplayAutoBlackOffset"), QString::number(m_autoBlackOffset));
+        s.save();
+    }
+    update();
 }
 void SpectrumWidget::setWfLineDuration(int ms) {
     m_wfLineDuration = std::clamp(ms, 50, 500);
@@ -1407,9 +1419,9 @@ void SpectrumWidget::updateWaterfallRow(const QVector<float>& binsIntensity,
                 }
             }
             const float noiseFloor = (noiseCount > 0) ? (noiseSum / noiseCount) : mean;
-            // Use noise floor directly as threshold — noise maps to black,
-            // signals above stand out with better contrast.
-            const float target = noiseFloor;
+            // Pull the black point below the noise floor so weak signals
+            // get more room in the color gradient (#1828).
+            const float target = noiseFloor - static_cast<float>(m_autoBlackOffset);
             // Smooth to prevent jitter
             m_autoBlackThresh = 0.95f * m_autoBlackThresh + 0.05f * target;
         }

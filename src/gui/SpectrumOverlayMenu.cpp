@@ -1176,6 +1176,13 @@ void SpectrumOverlayMenu::buildDisplayPanel()
             emit wfBlackLevelChanged(m_blackSlider->value());
     });
 
+    // Auto Black Offset (#1828)
+    makeRow("AB Offset:", 0, 10, 3, m_autoBlackOffsetSlider, m_autoBlackOffsetLabel);
+    connect(m_autoBlackOffsetSlider, &QSlider::valueChanged, this, [this](int v) {
+        m_autoBlackOffsetLabel->setText(QString::number(v));
+        emit autoBlackOffsetChanged(v);
+    });
+
     // NB Blank + Off/On
     makeRowWithBtn("NB Blank:", 5, 95, 15, m_wfBlankerThreshSlider, m_wfBlankerThreshLabel,
                    m_wfBlankerBtn, "Off");
@@ -1326,6 +1333,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
     m_gainSlider->setToolTip("Waterfall color gain. Higher values brighten weak signals.");
     m_blackSlider->setToolTip("Waterfall black level. Decrease to darken the noise floor.");
     if (m_autoBlackBtn) m_autoBlackBtn->setToolTip("Automatically adjusts the waterfall black level to match the current noise floor.");
+    if (m_autoBlackOffsetSlider) m_autoBlackOffsetSlider->setToolTip("How far below the noise floor the auto-black threshold sits (dB). Higher values reveal weaker signals.");
     m_rateSlider->setToolTip("Waterfall line duration. Higher values scroll faster.");
     if (m_wfBlankerThreshSlider) m_wfBlankerThreshSlider->setToolTip("Waterfall noise blanking threshold. Higher values blank more aggressively.");
     if (m_freqGridSpacingCmb) m_freqGridSpacingCmb->setToolTip("Frequency grid line spacing. Auto adapts to the current span.");
@@ -1401,7 +1409,8 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
 
 void SpectrumOverlayMenu::syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
                                                     int bgOpacity,
-                                                    int freqGridSpacingKhz)
+                                                    int freqGridSpacingKhz,
+                                                    int autoBlackOffset)
 {
     if (m_freqGridSpacingCmb) {
         QSignalBlocker b(m_freqGridSpacingCmb);
@@ -1426,6 +1435,12 @@ void SpectrumOverlayMenu::syncExtraDisplaySettings(bool blankerOn, float blanker
         m_bgOpacitySlider->setValue(bgOpacity);
         if (m_bgOpacityLabel)
             m_bgOpacityLabel->setText(QString::number(bgOpacity));
+    }
+    if (m_autoBlackOffsetSlider) {
+        QSignalBlocker b(m_autoBlackOffsetSlider);
+        m_autoBlackOffsetSlider->setValue(autoBlackOffset);
+        if (m_autoBlackOffsetLabel)
+            m_autoBlackOffsetLabel->setText(QString::number(autoBlackOffset));
     }
 }
 

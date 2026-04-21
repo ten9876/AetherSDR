@@ -48,7 +48,8 @@ public:
     // Sync blanker/cursor/opacity controls not covered by syncDisplaySettings.
     void syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
                                   int bgOpacity,
-                                  int freqGridSpacingKhz = 0);
+                                  int freqGridSpacingKhz = 0,
+                                  int autoBlackOffset = 3);
 
     // Set the panadapter ID this overlay belongs to (for +RX routing).
     void setPanId(const QString& id) { m_panId = id; }
@@ -114,6 +115,7 @@ signals:
     void wfColorGainChanged(int gain);
     void wfBlackLevelChanged(int level);
     void wfAutoBlackChanged(bool on);
+    void autoBlackOffsetChanged(int offset);
     void wfLineDurationChanged(int ms);
     void wfColorSchemeChanged(int scheme);
     void noiseFloorPositionChanged(int pos);
@@ -229,6 +231,8 @@ private:
     QSlider*     m_blackSlider{nullptr};
     QLabel*      m_blackLabel{nullptr};
     QPushButton* m_autoBlackBtn{nullptr};
+    QSlider*     m_autoBlackOffsetSlider{nullptr};
+    QLabel*      m_autoBlackOffsetLabel{nullptr};
     QComboBox*   m_colorSchemeCmb{nullptr};
     QSlider*     m_rateSlider{nullptr};
     QLabel*      m_rateLabel{nullptr};

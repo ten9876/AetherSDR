@@ -6566,6 +6566,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             this, [this, sw](bool on) {
         sw->setWfAutoBlack(on);
     });
+    connect(menu, &SpectrumOverlayMenu::autoBlackOffsetChanged,
+            this, [sw](int offset) {
+        sw->setAutoBlackOffset(offset);
+    });
     connect(menu, &SpectrumOverlayMenu::wfLineDurationChanged,
             this, [this, applet, sw](int ms) {
         sw->setWfLineDuration(ms);
