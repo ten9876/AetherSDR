@@ -8670,6 +8670,48 @@ void MainWindow::activateRADE(int sliceId)
     connect(m_radeEngine, &RADEEngine::rxSpeechReady,
             m_audio, &AudioEngine::feedDecodedSpeech, Qt::QueuedConnection);
 
+    // On platforms without a DAX audio bridge (Windows, Linux without PipeWire),
+    // startDax() is not compiled in so no dax_rx stream is ever created. RADE
+    // needs those VITA-49 IF audio packets regardless of whether a DAX bridge
+    // is in use — create the stream directly so feedRxAudio() gets called.
+    // If TCI already created a stream for this channel, reuse it rather than
+    // creating a duplicate (which would cause RADEEngine to receive double audio).
+#if !defined(Q_OS_MAC) && !defined(HAVE_PIPEWIRE)
+    {
+        SliceModel* radeSlice = m_radioModel.slice(sliceId);
+        int daxCh = radeSlice ? radeSlice->daxChannel() : 0;
+        if (daxCh >= 1 && daxCh <= 4) {
+            quint32 existing = m_radioModel.panStream()->daxStreamIdForChannel(daxCh);
+            if (existing) {
+                // TCI or another path already registered a stream — RADE rides it.
+                qDebug() << "MainWindow: RADE reusing existing dax_rx ch" << daxCh
+                         << "stream" << Qt::hex << existing;
+            } else {
+                m_radeDaxStreamConn = connect(
+                    &m_radioModel, &RadioModel::statusReceived,
+                    this, [this, daxCh](const QString& obj, const QMap<QString,QString>& kvs) {
+                        if (!obj.startsWith("stream ")) return;
+                        if (kvs.value("type") != "dax_rx") return;
+                        quint32 streamId = obj.mid(7).toUInt(nullptr, 16);
+                        int ch = kvs.value("dax_channel").toInt();
+                        if (streamId && ch == daxCh) {
+                            m_radioModel.panStream()->registerDaxStream(streamId, ch);
+                            m_radeDaxStreamId = streamId;
+                            disconnect(m_radeDaxStreamConn);
+                            qDebug() << "MainWindow: RADE registered dax_rx ch" << ch
+                                     << "stream" << Qt::hex << streamId;
+                        }
+                    });
+                m_radioModel.sendCommand(
+                    QString("stream create type=dax_rx dax_channel=%1").arg(daxCh));
+            }
+        } else {
+            qWarning() << "MainWindow: RADE slice" << sliceId
+                       << "has no DAX channel assigned — RX audio will not flow";
+        }
+    }
+#endif
+
     // Start mic capture if not already running
     if (!m_audio->isTxStreaming()) {
         audioStartTx(m_radioModel.radioAddress(), 4991);
@@ -8722,6 +8764,26 @@ void MainWindow::deactivateRADE()
                    m_radeEngine, nullptr);
         disconnect(m_radeEngine, &RADEEngine::rxSpeechReady,
                    m_audio, nullptr);
+#if !defined(Q_OS_MAC) && !defined(HAVE_PIPEWIRE)
+        if (m_radeDaxStreamId) {
+            // Only send stream remove if TCI has no active clients. If TCI is
+            // connected it may have borrowed this stream — removing it would
+            // silently kill TCI audio. Leave TCI responsible for cleanup in
+            // that case. TODO: replace with proper ref-counting in PanadapterStream
+            // so any creator/borrower can safely release independently (#stream-lifecycle).
+            bool tciActive = m_tciServer && m_tciServer->clientCount() > 0;
+            if (!tciActive) {
+                m_radioModel.panStream()->unregisterDaxStream(m_radeDaxStreamId);
+                if (m_radioModel.isConnected()) {
+                    m_radioModel.sendCommand(
+                        QString("stream remove 0x%1")
+                            .arg(m_radeDaxStreamId, 8, 16, QChar('0')));
+                }
+            }
+            m_radeDaxStreamId = 0;
+        }
+        disconnect(m_radeDaxStreamConn);
+#endif
         // Stop on the worker thread, then shut down the thread
         QMetaObject::invokeMethod(m_radeEngine, &RADEEngine::stop,
                                   Qt::BlockingQueuedConnection);

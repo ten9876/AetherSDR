@@ -349,6 +349,8 @@ private:
     QThread*    m_radeThread{nullptr};
     int  m_radeSliceId{-1};
     bool m_radePrevMute{false};
+    quint32 m_radeDaxStreamId{0};
+    QMetaObject::Connection m_radeDaxStreamConn;
     void activateRADE(int sliceId);
     void deactivateRADE();
 #endif
