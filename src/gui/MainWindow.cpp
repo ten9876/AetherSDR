@@ -8891,11 +8891,13 @@ void MainWindow::stopDax()
     disconnect(m_daxBridge, &DaxBridge::txAudioReady,
                this, nullptr);
 
-    // Remove DAX RX streams from radio and unregister from PanadapterStream
+    // Decrement ref counts for DAX RX streams; only send "stream remove" to
+    // the radio when no other consumer holds a reference (#1821).
     const auto daxIds = m_radioModel.panStream()->daxStreamIds();
     for (quint32 id : daxIds) {
-        m_radioModel.sendCommand(QString("stream remove 0x%1").arg(id, 0, 16));
         m_radioModel.panStream()->unregisterDaxStream(id);
+        if (m_radioModel.panStream()->daxStreamRefCount(id) == 0)
+            m_radioModel.sendCommand(QString("stream remove 0x%1").arg(id, 0, 16));
     }
 
     // Restore original mic selection

@@ -78,11 +78,12 @@ public:
     void unregisterWfStream(quint32 streamId);
     void clearRegisteredStreams();
 
-    // DAX stream routing
+    // DAX stream routing (reference-counted — see #1821)
     void registerDaxStream(quint32 streamId, int channel);
     void unregisterDaxStream(quint32 streamId);
     QList<quint32> daxStreamIds() const;
     quint32 daxStreamIdForChannel(int channel) const;
+    int daxStreamRefCount(quint32 streamId) const;
 
     // DAX IQ stream routing
     void registerIqStream(quint32 streamId, int channel);
@@ -228,6 +229,8 @@ private:
 
     // DAX stream routing: stream ID → DAX channel (1-4)
     QMap<quint32, int> m_daxStreamIds;
+    // DAX stream reference counts: stream ID → number of active registrations (#1821)
+    QMap<quint32, int> m_daxStreamRefCounts;
     // DAX IQ stream routing: stream ID → IQ channel (1-4)
     QMap<quint32, int> m_iqStreamIds;
     QHostAddress m_radioAddress;

@@ -1343,8 +1343,12 @@ void TciServer::ensureDaxForTci()
         if (existingId != 0) {
             m_tciDaxStreamIds[ch] = existingId;
             m_tciDaxBorrowedChannels.insert(ch);
+            // Bump refcount so the creator can't pull the stream out from
+            // under us (#1821).
+            if (m_model->panStream())
+                m_model->panStream()->registerDaxStream(existingId, ch);
             qCInfo(lcCat) << "TCI: reusing existing DAX RX stream" << Qt::hex << existingId
-                          << "for channel" << ch << "(#1331)";
+                          << "for channel" << ch << "(#1821, #1331)";
         } else {
             m_tciDaxStreamIds[ch] = 0;
             m_model->sendCommand(QString("stream create type=dax_rx dax_channel=%1").arg(ch));
@@ -1370,22 +1374,25 @@ void TciServer::releaseDaxForTci()
 {
     if (!m_model) return;
 
-    // Remove DAX RX streams we created (skip borrowed streams — owned by DaxBridge
-    // or pre-existing; removing them would break other audio consumers).
+    // Decrement ref counts for all DAX RX streams (both created and borrowed).
+    // Only send "stream remove" when the refcount drops to zero (#1821).
     for (auto it = m_tciDaxStreamIds.begin(); it != m_tciDaxStreamIds.end(); ++it) {
         int ch = it.key();
         quint32 streamId = it.value();
-        if (m_tciDaxBorrowedChannels.contains(ch)) continue;
         if (streamId != 0) {
-            if (m_model->panStream()) {
+            if (m_model->panStream())
                 m_model->panStream()->unregisterDaxStream(streamId);
-            }
-            if (m_model->isConnected()) {
+            // Only remove from radio if no other consumer holds a reference
+            if (m_model->panStream()
+                && m_model->panStream()->daxStreamRefCount(streamId) == 0
+                && m_model->isConnected()) {
                 m_model->sendCommand(QString("stream remove 0x%1")
                     .arg(streamId, 8, 16, QChar('0')));
             }
-            qCInfo(lcCat) << "TCI: removed DAX RX stream" << Qt::hex << streamId
-                          << "channel" << ch << "(#1331)";
+            qCInfo(lcCat) << "TCI: released DAX RX stream" << Qt::hex << streamId
+                          << "channel" << ch
+                          << (m_tciDaxBorrowedChannels.contains(ch) ? "(borrowed)" : "(owned)")
+                          << "(#1821)";
         }
     }
     m_tciDaxStreamIds.clear();
