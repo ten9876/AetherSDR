@@ -8693,6 +8693,53 @@ void MainWindow::activateRADE(int sliceId)
         }
     }
 
+    // On platforms without a DAX bridge (Windows, Linux w/o PipeWire),
+    // we must explicitly create the dax_rx stream so the radio starts
+    // sending VITA-49 audio packets for the RADE slice's DAX channel.
+    // Without this, daxAudioReady never fires and RX decode is silent. (#1819)
+#if !defined(Q_OS_MAC) && !defined(HAVE_PIPEWIRE)
+    {
+        int ch = s->daxChannel();
+        if (ch >= 1 && ch <= 4) {
+            quint32 existingId = m_radioModel.panStream()
+                               ? m_radioModel.panStream()->daxStreamIdForChannel(ch)
+                               : 0;
+            if (existingId != 0) {
+                m_radeDaxStreamId = existingId;
+                m_radeDaxBorrowed = true;
+                qInfo() << "MainWindow: RADE reusing existing dax_rx stream"
+                        << Qt::hex << existingId << "ch" << ch << "(#1819)";
+            } else {
+                m_radeDaxBorrowed = false;
+                m_radeDaxStreamId = 0;  // will be set by statusReceived handler
+                // Listen for the stream status response to register the stream ID
+                auto conn = std::make_shared<QMetaObject::Connection>();
+                *conn = connect(&m_radioModel, &RadioModel::statusReceived,
+                        this, [this, ch, conn](const QString& obj, const QMap<QString,QString>& kvs) {
+                    if (!obj.startsWith("stream ")) return;
+                    if (kvs.value("type") != "dax_rx") return;
+                    int respCh = kvs.value("dax_channel").toInt();
+                    if (respCh != ch) return;
+                    quint32 streamId = obj.mid(7).toUInt(nullptr, 16);
+                    if (streamId && m_radioModel.panStream()) {
+                        m_radioModel.panStream()->registerDaxStream(streamId, ch);
+                        m_radeDaxStreamId = streamId;
+                        qInfo() << "MainWindow: RADE registered dax_rx ch" << ch
+                                << "stream" << Qt::hex << streamId << "(#1819)";
+                    }
+                    disconnect(*conn);
+                });
+                m_radioModel.sendCommand(
+                    QString("stream create type=dax_rx dax_channel=%1").arg(ch));
+                qInfo() << "MainWindow: RADE creating dax_rx stream ch" << ch << "(#1819)";
+            }
+        } else {
+            qWarning() << "MainWindow: RADE slice" << sliceId
+                       << "has no DAX channel assigned — dax_rx stream not created (#1819)";
+        }
+    }
+#endif
+
     qInfo() << "MainWindow: RADE mode activated on slice" << sliceId;
 }
 
@@ -8733,6 +8780,31 @@ void MainWindow::deactivateRADE()
         }
         m_radeEngine = nullptr;  // deleteLater handles actual deletion
     }
+
+    // On non-bridge platforms, clean up the dax_rx stream we created. (#1819)
+    // If we borrowed an existing stream (e.g. from TCI), leave it alone.
+    // If we created it, only remove if TCI has no active clients that may
+    // be using it — removing a stream TCI borrowed would silently kill TCI audio.
+#if !defined(Q_OS_MAC) && !defined(HAVE_PIPEWIRE)
+    if (m_radeDaxStreamId != 0 && !m_radeDaxBorrowed) {
+        bool tciActive = m_tciServer && m_tciServer->clientCount() > 0;
+        if (!tciActive) {
+            if (m_radioModel.panStream())
+                m_radioModel.panStream()->unregisterDaxStream(m_radeDaxStreamId);
+            if (m_radioModel.isConnected())
+                m_radioModel.sendCommand(
+                    QString("stream remove 0x%1").arg(m_radeDaxStreamId, 0, 16));
+            qInfo() << "MainWindow: RADE removed dax_rx stream"
+                    << Qt::hex << m_radeDaxStreamId << "(#1819)";
+        } else {
+            qInfo() << "MainWindow: RADE keeping dax_rx stream"
+                    << Qt::hex << m_radeDaxStreamId
+                    << "— TCI clients still active (#1819)";
+        }
+    }
+    m_radeDaxStreamId = 0;
+    m_radeDaxBorrowed = false;
+#endif
 
     qInfo() << "MainWindow: RADE mode deactivated";
 }

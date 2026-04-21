@@ -349,6 +349,10 @@ private:
     QThread*    m_radeThread{nullptr};
     int  m_radeSliceId{-1};
     bool m_radePrevMute{false};
+#if !defined(Q_OS_MAC) && !defined(HAVE_PIPEWIRE)
+    quint32 m_radeDaxStreamId{0};
+    bool    m_radeDaxBorrowed{false};
+#endif
     void activateRADE(int sliceId);
     void deactivateRADE();
 #endif
