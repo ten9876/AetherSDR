@@ -99,9 +99,34 @@ void ClientEqApplet::buildUI()
     m_curve->setMinimumHeight(110);
     outer->addWidget(m_curve, 1);
 
-    // Enable / Edit buttons removed — CHAIN widget handles bypass
-    // (single-click) and editor-open (double-click).  RX vs TX path
-    // selection still lives in the tab row above.
+    // Enable / Edit row — needed for RX path which has no CHAIN widget.
+    // TX users can also use these, but typically use the CHAIN widget's
+    // single-click (bypass) and double-click (editor) instead.
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(4);
+
+        m_enable = new QPushButton("Enable");
+        m_enable->setCheckable(true);
+        m_enable->setStyleSheet(kEnableStyle);
+        m_enable->setFixedHeight(22);
+        m_enable->setToolTip("Enable / disable the client-side parametric EQ for the selected path");
+        connect(m_enable, &QPushButton::toggled, this, &ClientEqApplet::onEnableToggled);
+        row->addWidget(m_enable);
+
+        row->addStretch();
+
+        m_edit = new QPushButton("Edit\xe2\x80\xa6");
+        m_edit->setStyleSheet(kEditStyle);
+        m_edit->setFixedHeight(22);
+        m_edit->setToolTip("Open the full parametric EQ editor window");
+        connect(m_edit, &QPushButton::clicked, this, [this]() {
+            emit editRequested(m_currentPath);
+        });
+        row->addWidget(m_edit);
+
+        outer->addLayout(row);
+    }
 }
 
 void ClientEqApplet::setAudioEngine(AudioEngine* engine)
@@ -132,6 +157,14 @@ void ClientEqApplet::setPath(Path p)
 
 void ClientEqApplet::syncEnableFromEngine()
 {
+    if (m_enable && m_audio) {
+        ClientEq* eq = (m_currentPath == Path::Rx)
+            ? m_audio->clientEqRx() : m_audio->clientEqTx();
+        if (eq) {
+            QSignalBlocker b(m_enable);
+            m_enable->setChecked(eq->isEnabled());
+        }
+    }
     if (m_curve) m_curve->update();
 }
 
