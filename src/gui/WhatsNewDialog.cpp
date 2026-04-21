@@ -192,6 +192,7 @@ QString WhatsNewDialog::renderHtml(const std::vector<ReleaseEntry>& entries,
             ".item { margin-bottom: 10px; padding-left: 4px; }"
             ".item-title { font-weight: bold; font-size: 12px; color: #c8d8e8; }"
             ".item-desc { color: #8898a8; font-size: 11px; margin-top: 2px; }"
+            ".release-date { color:#8aa8c0; font-size:11px; margin-top:2px; margin-bottom:4px; }"
             ".dot { font-size: 14px; }"
             "</style>";
 
@@ -202,7 +203,7 @@ QString WhatsNewDialog::renderHtml(const std::vector<ReleaseEntry>& entries,
         if (!isWelcome || entries.size() > 1) {
             html += QString("<div class='release-header'>v%1</div>").arg(entry.version);
             if (!entry.date.isEmpty())
-                html += QString("<div style='color:#8aa8c0; font-size:10px; margin-bottom:4px;'>%1</div>")
+                html += QString("<div class='release-date'>%1</div>")
                     .arg(entry.date);
         }
 
