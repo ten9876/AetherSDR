@@ -20,7 +20,7 @@
     {"low": 5.4035,   "high": 5.4063,    "label": "CW/SSB",   "license": "", "color": "#9d9e47"},
 
     {"low": 7.000,    "high": 7.035,    "label": "CW",        "license": "", "color": "#ed1621"},
-    {"low": 7.035,    "high": 7.040,    "label": "DIG",       "license": "", "color": "#8bd9f7"},
+    {"low": 7.035,    "high": 7.040,    "label": "CW/DIG",    "license": "", "color": "#2f2ce8"},
     {"low": 7.040,    "high": 7.070,    "label": "PHONE",     "license": "", "color": "#abdb55"},
     {"low": 7.070,    "high": 7.125,    "label": "DIG",       "license": "", "color": "#8bd9f7"},
     {"low": 7.125,    "high": 7.165,    "label": "PHONE",     "license": "", "color": "#abdb55"},
