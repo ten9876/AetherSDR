@@ -197,6 +197,8 @@
     {"freq": 144.489, "label": "WSPR"},
     {"freq": 146.520, "label": "FM national calling"},
     {"freq": 222.065, "label": "FT8"},
+    {"freq": 222.100, "label": "CW calling"},
+    {"freq": 222.200, "label": "SSB Calling"},
     {"freq": 432.065, "label": "FT8"},
     {"freq": 432.100, "label": "CW calling"},
     {"freq": 432.174, "label": "FT8"},
