@@ -15,20 +15,27 @@ DxccColorProvider::DxccColorProvider(QObject* parent)
             Qt::QueuedConnection);
     m_parseThread.start();
 
-    // Debounce timer: fires 2 seconds after the last file-changed notification
+    // Debounce timer: fires 2 seconds after the last file-changed notification.
+    // Re-adding the path here (rather than in fileChanged) ensures we register
+    // the *new* inode when a logger atomically replaces the file via rename —
+    // by the time the 2-second window expires the replacement file is present.
     m_debounceTimer.setSingleShot(true);
     m_debounceTimer.setInterval(2000);
     connect(&m_debounceTimer, &QTimer::timeout, this, [this]() {
-        if (!m_watchedPath.isEmpty())
-            importAdifFile(m_watchedPath);
+        if (m_watchedPath.isEmpty()) return;
+        // Re-arm: atomic file replacement (temp→final rename) changes the inode
+        // so the watcher loses the file.  Add the path again before importing
+        // so subsequent changes to the newly-written file are also caught.
+        if (!m_fileWatcher.files().contains(m_watchedPath))
+            m_fileWatcher.addPath(m_watchedPath);
+        importAdifFile(m_watchedPath);
     });
 
     connect(&m_fileWatcher, &QFileSystemWatcher::fileChanged,
             this, [this](const QString&) {
-        // Re-add the path: some editors replace the file (inode changes)
-        if (!m_watchedPath.isEmpty() && !m_fileWatcher.files().contains(m_watchedPath))
-            m_fileWatcher.addPath(m_watchedPath);
-        m_debounceTimer.start();  // restart the 2-second window
+        // Just (re)start the debounce window.  Path re-registration happens in
+        // the timeout handler once the replacement file is guaranteed present.
+        m_debounceTimer.start();
     });
 }
 
@@ -46,6 +53,7 @@ bool DxccColorProvider::loadCtyDat(const QString& resourcePath)
 
 void DxccColorProvider::importAdifFile(const QString& path)
 {
+    emit importStarted();
     QMetaObject::invokeMethod(m_parser, "parseFileAsync",
                               Qt::QueuedConnection,
                               Q_ARG(QString, path));

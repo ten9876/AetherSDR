@@ -2077,26 +2077,8 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
 
         layout->addLayout(dxccGrid);
 
-        // Auto-reload toggle
-        bool autoReloadEnabled = AppSettings::instance().value("DxccAutoReloadAdif", "False").toString() == "True";
-        auto* autoReloadToggle = new QPushButton(autoReloadEnabled ? "Enabled" : "Disabled");
-        autoReloadToggle->setCheckable(true);
-        autoReloadToggle->setChecked(autoReloadEnabled);
-        autoReloadToggle->setFixedWidth(80);
-        autoReloadToggle->setStyleSheet(
-            "QPushButton:checked { background: #2a6a2a; } QPushButton:!checked { background: #5a2a2a; }");
-        connect(autoReloadToggle, &QPushButton::toggled, this, [this, autoReloadToggle, save](bool on) {
-            autoReloadToggle->setText(on ? "Enabled" : "Disabled");
-            save("DxccAutoReloadAdif", on ? "True" : "False");
-            if (m_dxccProvider) {
-                const QString path = AppSettings::instance().value("DxccAdifFilePath", "").toString();
-                m_dxccProvider->setAutoReload(on, path);
-            }
-        });
-        dxccGrid->addWidget(new QLabel("Auto-Reload Log:"), drow, 0);
-        dxccGrid->addWidget(autoReloadToggle, drow++, 1, Qt::AlignLeft);
-
-        // Wire browse button
+        // Wire browse button — always arms the file watcher automatically so
+        // spot colours update whenever the user exports a new log (#logbook-autoreload).
         connect(browseBtn, &QPushButton::clicked, this, [this, adifPathLabel, save](bool) {
             const QString path = QFileDialog::getOpenFileName(
                 this, "Select ADIF Log File", QDir::homePath(),
@@ -2105,15 +2087,18 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
             adifPathLabel->setText(QFileInfo(path).fileName());
             save("DxccAdifFilePath", path);
             if (m_dxccProvider) {
-                if (m_dxccStatsLabel) m_dxccStatsLabel->setText("Importing\xe2\x80\xa6");
-                m_dxccProvider->importAdifFile(path);
-                const bool autoReload = AppSettings::instance().value("DxccAutoReloadAdif","False").toString() == "True";
-                m_dxccProvider->setAutoReload(autoReload, path);
+                m_dxccProvider->importAdifFile(path);   // importStarted → "Updating…" via signal below
+                m_dxccProvider->setAutoReload(true, path);  // always watch after selection
             }
         });
 
-        // Update stats when import finishes
+        // importStarted → "Updating…", importFinished → live stats
         if (m_dxccProvider) {
+            connect(m_dxccProvider, &DxccColorProvider::importStarted,
+                    this, [this]() {
+                if (m_dxccStatsLabel)
+                    m_dxccStatsLabel->setText("Updating\xe2\x80\xa6");
+            });
             connect(m_dxccProvider, &DxccColorProvider::importFinished,
                     this, [this](int qsos, int entities) {
                 if (m_dxccStatsLabel)

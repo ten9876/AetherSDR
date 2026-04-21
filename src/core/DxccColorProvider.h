@@ -61,6 +61,8 @@ public:
     QColor colorWorked {0x60, 0x60, 0x60};   // dim grey
 
 signals:
+    // Emitted just before async parsing begins (used to show "Updating…" in UI).
+    void importStarted();
     void importFinished(int qsoCount, int entityCount);
 
 private slots:

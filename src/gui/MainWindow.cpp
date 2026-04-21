@@ -388,8 +388,9 @@ MainWindow::MainWindow(QWidget* parent)
         const QString adifPath = s.value("DxccAdifFilePath", "").toString();
         if (!adifPath.isEmpty()) {
             m_dxccProvider.importAdifFile(adifPath);
-            if (s.value("DxccAutoReloadAdif", "False").toString() == "True")
-                m_dxccProvider.setAutoReload(true, adifPath);
+            // Always watch the file so spot colours update automatically when
+            // the user exports a new log — no manual reload step needed.
+            m_dxccProvider.setAutoReload(true, adifPath);
         }
     }
     connect(&m_dxccProvider, &DxccColorProvider::importFinished,
