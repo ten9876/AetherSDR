@@ -99,9 +99,32 @@ void ClientEqApplet::buildUI()
     m_curve->setMinimumHeight(110);
     outer->addWidget(m_curve, 1);
 
-    // Enable / Edit buttons removed — CHAIN widget handles bypass
-    // (single-click) and editor-open (double-click).  RX vs TX path
-    // selection still lives in the tab row above.
+    // Button row — Enable toggle + Edit button.
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(4);
+
+        m_enable = new QPushButton("Enable");
+        m_enable->setCheckable(true);
+        m_enable->setStyleSheet(kEnableStyle);
+        m_enable->setFixedHeight(22);
+        row->addWidget(m_enable);
+
+        m_edit = new QPushButton("Edit\u2026");
+        m_edit->setStyleSheet(kEditStyle);
+        m_edit->setFixedHeight(22);
+        row->addWidget(m_edit);
+
+        row->addStretch();
+
+        connect(m_enable, &QPushButton::toggled,
+                this, &ClientEqApplet::onEnableToggled);
+        connect(m_edit, &QPushButton::clicked, this, [this]() {
+            emit editRequested(m_currentPath);
+        });
+
+        outer->addLayout(row);
+    }
 }
 
 void ClientEqApplet::setAudioEngine(AudioEngine* engine)
@@ -132,6 +155,14 @@ void ClientEqApplet::setPath(Path p)
 
 void ClientEqApplet::syncEnableFromEngine()
 {
+    if (m_enable && m_audio) {
+        ClientEq* eq = (m_currentPath == Path::Rx)
+            ? m_audio->clientEqRx() : m_audio->clientEqTx();
+        if (eq) {
+            QSignalBlocker blk(m_enable);
+            m_enable->setChecked(eq->isEnabled());
+        }
+    }
     if (m_curve) m_curve->update();
 }
 
