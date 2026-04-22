@@ -136,7 +136,7 @@ private:
     int m_swrIdx{-1};        // "SWR"
     int m_micPeakIdx{-1};    // "COD-" / "MICPEAK" (hardware mic)
     int m_compPeakIdx{-1};   // "TX" / "COMPPEAK"
-    int m_afterEqIdx{-1};    // "TX" / "AFTEREQ" (compressor input)
+    int m_afterEqIdx{-1};    // "TX" / "COMPEA" or "AFTEREQ" (compressor input)
     int m_micLevelIdx{-1};   // "COD-" / "MIC" (hardware mic RX level)
     int m_compLevelIdx{-1};  // "TX" / "COMP" (instantaneous)
     int m_alcIdx{-1};        // "TX" / "HWALC"
@@ -159,7 +159,7 @@ private:
     float m_micPeak{-50.0f};
     float m_compPeak{0.0f};      // computed gain reduction (displayed)
     float m_compPeakRaw{-150.0f}; // smoothed COMPPEAK value
-    float m_afterEq{-150.0f};    // smoothed AFTEREQ (compressor input)
+    float m_afterEq{-150.0f};    // smoothed COMPEA/AFTEREQ (compressor input)
     float m_micLevel{-50.0f};
     float m_compLevel{0.0f};
     float m_alc{0.0f};

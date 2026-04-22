@@ -80,7 +80,7 @@ void MeterModel::defineMeter(const MeterDef& def)
         m_micPeakIdx = def.index;
     else if (def.name == "COMPPEAK")
         m_compPeakIdx = def.index;
-    else if (def.name == "AFTEREQ")
+    else if (def.name == "COMPEA" || def.name == "AFTEREQ")
         m_afterEqIdx = def.index;
     else if (def.name == "MIC")
         m_micLevelIdx = def.index;
@@ -232,7 +232,7 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             m_micPeak = v;
             micChanged = true;
         } else if (idx == m_afterEqIdx) {
-            // Smooth AFTEREQ to reduce async timing noise with COMPPEAK
+            // Smooth COMPEA/AFTEREQ to reduce async timing noise with COMPPEAK
             constexpr float kEqAlpha = 0.3f;
             m_afterEq = (m_afterEq < -140.0f) ? v : kEqAlpha * v + (1.0f - kEqAlpha) * m_afterEq;
         } else if (idx == m_compPeakIdx) {
@@ -245,6 +245,8 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             // Both must be valid (> -140 dBFS) for a meaningful result.
             if (m_afterEq > -140.0f && m_compPeakRaw > -140.0f) {
                 m_compPeak = m_compPeakRaw - m_afterEq;  // 0 = no reduction, negative = compressing
+            } else if (m_compPeakRaw > -140.0f) {
+                m_compPeak = m_compPeakRaw;  // input meter unavailable — show raw compressor output
             } else {
                 m_compPeak = 0.0f;  // silence — no meaningful reduction to display
             }

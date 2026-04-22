@@ -721,8 +721,8 @@ void PhoneCwApplet::updateMeters(float micLevel, float compLevel,
 
 void PhoneCwApplet::updateCompression(float compPeak)
 {
-    // compPeak is raw dBFS from COMPPEAK meter.
-    // Silence (-150) → 0. Speech (-10..+14) → clamp to -25..0 range.
+    // compPeak is gain reduction in dB (0 = none, negative = compressing),
+    // or raw dBFS if the compressor-input meter is unavailable. Clamp to -25..0 range.
     float gauge = (compPeak > -30.0f) ? qBound(-25.0f, compPeak, 0.0f) : 0.0f;
     m_compGauge->setValue(gauge);
 }
