@@ -6895,9 +6895,14 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         qDebug() << "MainWindow: switching to band" << bandName
                  << "freq:" << freqMhz << "mode:" << mode;
 
-        // Radio-authoritative band change: the radio manages its own band
-        // stack (frequency, mode, filters, pan center, bandwidth, antennas).
-        // One command handles everything.
+        // Save the current band's state before switching (#1852).
+        // This preserves the user's span (bandwidth), mode, frequency, etc.
+        // so they are restored when returning to this band.
+        const QString oldBand = m_bandSettings.currentBand();
+        if (!oldBand.isEmpty()) {
+            m_bandSettings.saveBandState(oldBand, captureCurrentBandState());
+        }
+
         m_bandSettings.setCurrentBand(bandName);
 
         // Translate the UI band label to the radio's band-stack key. Mapping
@@ -6947,6 +6952,18 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         } else {
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
+
+            // Restore saved state for the new band after the radio's band-stack
+            // status messages settle. The radio sends center/bandwidth/mode/freq
+            // in rapid succession after the band= command; a 300 ms delay lets
+            // those arrive before we override with the user's saved preferences (#1852).
+            if (m_bandSettings.hasSavedState(bandName)) {
+                QTimer::singleShot(300, this, [this, bandName]() {
+                    if (m_bandSettings.currentBand() != bandName)
+                        return;  // user switched again before timer fired
+                    restoreBandState(m_bandSettings.loadBandState(bandName));
+                });
+            }
         }
     });
 
@@ -8503,7 +8520,8 @@ BandSnapshot MainWindow::captureCurrentBandState() const
         snap.agcMode       = s->agcMode();
         snap.agcThreshold  = s->agcThreshold();
     }
-    // Center and bandwidth are radio-authoritative — don't capture.
+    if (auto* pan = m_radioModel.activePanadapter())
+        snap.bandwidthMhz = pan->bandwidthMhz();
     if (auto* sw = spectrum()) {
         snap.minDbm          = sw->refLevel() - sw->dynamicRange();
         snap.maxDbm          = sw->refLevel();
@@ -8528,14 +8546,17 @@ void MainWindow::restoreBandState(const BandSnapshot& snap)
         s->setAgcThreshold(snap.agcThreshold);
     }
     if (auto* pan = m_radioModel.activePanadapter()) {
-        // Don't push center or bandwidth — slice tune recenters the pan and
-        // the radio determines bandwidth. Pushing stale saved values causes
-        // FFT/waterfall misalignment during the transition (#279, #291).
-        // Only restore dBm scale (client-side display preference).
+        // Restore dBm scale (client-side display preference).
         m_radioModel.sendCommand(
             QString("display pan set %1 min_dbm=%2 max_dbm=%3").arg(pan->panId())
                 .arg(static_cast<double>(snap.minDbm), 0, 'f', 2)
                 .arg(static_cast<double>(snap.maxDbm), 0, 'f', 2));
+        // Restore user's preferred span (bandwidth) if one was saved (#1852).
+        if (snap.bandwidthMhz > 0.0) {
+            m_radioModel.sendCommand(
+                QString("display pan set %1 bandwidth=%2")
+                    .arg(pan->panId()).arg(snap.bandwidthMhz, 0, 'f', 6));
+        }
     }
     m_radioModel.setPanRfGain(snap.rfGain);
     m_radioModel.setPanWnb(snap.wnbOn);
