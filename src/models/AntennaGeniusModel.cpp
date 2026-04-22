@@ -143,8 +143,19 @@ void AntennaGeniusModel::onDiscoveryDatagram()
 
 void AntennaGeniusModel::connectToDevice(const AgDeviceInfo& info)
 {
-    if (m_connected)
-        disconnectFromDevice();
+    // Always clean up any existing socket — connected or still pending.
+    // Multiple auto-connect triggers can fire in quick succession; without
+    // this the device accepts the first socket while AetherSDR's active
+    // socket is a later one.
+    if (m_tcpSocket) {
+        m_tcpSocket->abort();
+        m_tcpSocket->deleteLater();
+        m_tcpSocket = nullptr;
+    }
+    if (m_connected) {
+        m_connected = false;
+        emit disconnected();
+    }
 
     m_device = info;
     m_gotPrologue = false;
@@ -212,6 +223,18 @@ void AntennaGeniusModel::disconnectFromDevice()
 void AntennaGeniusModel::onTcpConnected()
 {
     qCDebug(lcTuner) << "AntennaGenius: TCP connected to" << m_device.ip.toString();
+
+    // Arduino WiFiServer::available() only returns a client once it has sent data.
+    // For ShackSwitch (R4) the server speaks first ("V1.0 AG"), so we send an
+    // empty line to trigger available() on the R4 side without affecting the
+    // protocol (the R4 discards empty lines before the greeting is sent).
+    const bool isShackSwitch = m_device.serial.startsWith("G0JKN") ||
+                               m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
+    if (isShackSwitch && m_tcpSocket) {
+        m_tcpSocket->write("\r\n");
+        m_tcpSocket->flush();
+    }
+
     // Wait for prologue line ("V<version> AG") before sending commands.
 }
 

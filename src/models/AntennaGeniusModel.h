@@ -91,6 +91,7 @@ public:
 
     // Getters
     bool isConnected()   const { return m_connected; }
+    bool isConnecting()  const { return m_tcpSocket != nullptr && !m_connected; }
     bool isPresent()     const { return !m_discoveredDevices.isEmpty(); }
     QString peerAddress() const;
     quint16 peerPort() const;
