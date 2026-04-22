@@ -381,28 +381,36 @@ bool AudioEngine::startRxStream()
     emit rxStarted();
     return true;
 #else
+#ifdef Q_OS_MAC
+    // macOS / CoreAudio: try opening the sink directly at each sample rate
+    // instead of relying on isFormatSupported(), which can return false for
+    // formats that CoreAudio actually handles fine (observed with Qt 6.11.0
+    // on macOS 26.x). This mirrors the Windows try-then-fallback approach.
+    // Prefer 48 kHz so A2DP-capable Bluetooth devices stay on the normal
+    // output profile instead of falling back to HFP/telephony. (#1855)
+    m_resampleTo48k = true;
+    fmt.setSampleRate(48000);
+    m_audioSink = new QAudioSink(dev, fmt, this);
+    m_audioSink->setVolume(m_muted.load() ? 0.0f : m_rxVolume.load());
+    m_audioDevice = m_audioSink->start();
+    if (!m_audioDevice) {
+        qCWarning(lcAudio) << "AudioEngine: 48kHz sink failed to open, trying 24kHz";
+        delete m_audioSink;
+        fmt.setSampleRate(DEFAULT_SAMPLE_RATE);
+        m_resampleTo48k = false;
+        m_audioSink = new QAudioSink(dev, fmt, this);
+        m_audioSink->setVolume(m_muted.load() ? 0.0f : m_rxVolume.load());
+        m_audioDevice = m_audioSink->start();
+        if (!m_audioDevice) {
+            qCWarning(lcAudio) << "AudioEngine: 24kHz sink also failed";
+            delete m_audioSink;
+            m_audioSink = nullptr;
+            return false;
+        }
+    }
+#else
     auto configureOutputFormat = [this, &dev](QAudioFormat& candidateFmt) {
         candidateFmt = makeFormat();
-#ifdef Q_OS_MAC
-        // CoreAudio can route Bluetooth headsets onto the HFP/telephony
-        // transport when opened directly at 24 kHz. Prefer 48 kHz on macOS
-        // so A2DP-capable devices stay on the normal output profile.
-        candidateFmt.setSampleRate(48000);
-        if (dev.isFormatSupported(candidateFmt)) {
-            m_resampleTo48k = true;
-            return true;
-        }
-
-        qCWarning(lcAudio) << "AudioEngine: output device does not support 48kHz stereo float, trying 24kHz";
-        candidateFmt.setSampleRate(DEFAULT_SAMPLE_RATE);
-        if (dev.isFormatSupported(candidateFmt)) {
-            m_resampleTo48k = false;
-            return true;
-        }
-
-        qCWarning(lcAudio) << "AudioEngine: output device does not support 24kHz stereo float either";
-        return false;
-#else
         if (dev.isFormatSupported(candidateFmt)) {
             m_resampleTo48k = false;
             return true;
@@ -417,14 +425,12 @@ bool AudioEngine::startRxStream()
 
         qCWarning(lcAudio) << "AudioEngine: output device does not support 48kHz stereo Int16 either";
         return false;
-#endif
     };
 
     if (!configureOutputFormat(fmt)) {
         qCWarning(lcAudio) << "No audio device detected";
         return false;
     }
-#endif
 
     m_audioSink   = new QAudioSink(dev, fmt, this);
     m_audioSink->setVolume(m_muted.load() ? 0.0f : m_rxVolume.load());
@@ -436,6 +442,8 @@ bool AudioEngine::startRxStream()
         m_audioSink = nullptr;
         return false;
     }
+#endif  // Q_OS_MAC
+#endif  // Q_OS_WIN
 
     // Guard against the audio backend silently stopping the sink after idle/sleep.
     // Detect the silent stop and restart cleanly, mirroring the TX-side
@@ -465,7 +473,8 @@ bool AudioEngine::startRxStream()
             startRxStream();
         }, Qt::QueuedConnection);
     });
-    qCDebug(lcAudio) << "AudioEngine: RX stream started";
+    qCWarning(lcAudio) << "AudioEngine: RX stream started at" << fmt.sampleRate() << "Hz"
+                       << "device:" << dev.description();
     m_rxBufferSampleRate.store(fmt.sampleRate());
     m_rxStreamStarted = true;
     emit rxStarted();
