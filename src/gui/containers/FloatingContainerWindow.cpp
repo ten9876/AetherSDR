@@ -23,6 +23,7 @@ FloatingContainerWindow::FloatingContainerWindow(QWidget* parent)
     : QWidget(parent, Qt::Window)
 {
     setAttribute(Qt::WA_DeleteOnClose, false);
+    setAttribute(Qt::WA_QuitOnClose, false);
     setStyleSheet("QWidget { background: #08121d; }");
     m_layout = new QVBoxLayout(this);
     m_layout->setContentsMargins(0, 0, 0, 0);
