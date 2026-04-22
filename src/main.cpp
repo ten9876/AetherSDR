@@ -18,15 +18,17 @@
 #include <dlfcn.h>
 
 // Minimal forward declarations matching the Xlib error-handler ABI.
-// Using our own names avoids requiring X11 development headers at build time.
+// Field order must match X11/Xlib.h's XErrorEvent exactly — otherwise
+// ev->error_code etc. read the wrong bytes.
 struct AetherX11Display;
 struct AetherX11ErrorEvent {
-    int          type;
-    unsigned long serial;
-    unsigned char error_code;   // BadAccess == 10
-    unsigned char request_code;
-    unsigned char minor_code;
-    unsigned long resourceid;
+    int               type;
+    AetherX11Display* display;      // Display the event was read from
+    unsigned long     resourceid;   // XID of failed resource
+    unsigned long     serial;       // serial of failed request
+    unsigned char     error_code;   // BadAccess == 10
+    unsigned char     request_code; // major opcode
+    unsigned char     minor_code;
 };
 
 // Tolerant X11 error handler — logs errors instead of aborting.
