@@ -1789,7 +1789,7 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
 
     // ── Auto-switch mode on spot click (#424) ───────────────────────────
     grid->addWidget(new QLabel("Auto Mode:"), row, 0);
-    bool autoMode = s.value("SpotAutoSwitchMode", "False").toString() == "True";
+    bool autoMode = s.value("SpotAutoSwitchMode", "True").toString() == "True";
     auto* autoModeToggle = new QPushButton(autoMode ? "Enabled" : "Disabled");
     autoModeToggle->setCheckable(true);
     autoModeToggle->setChecked(autoMode);

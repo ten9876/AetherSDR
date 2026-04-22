@@ -6732,77 +6732,80 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             return;
         }
 
+        // Auto-switch mode from spot metadata before trigger (#424, #1846)
+        // Resolve and set the correct slice mode BEFORE sending spot trigger,
+        // so the radio doesn't race with the trigger's raw mode string.
+        if (AppSettings::instance().value("SpotAutoSwitchMode", "True").toString() == "True") {
+            auto* s = activeSlice();
+            if (s) {
+                // Extract mode: prefer explicit mode field, fall back to comment text
+                QString spotMode = it->mode.toUpper().trimmed();
+                if (spotMode.isEmpty() && !it->comment.isEmpty()) {
+                    // RBN: mode is first word ("CW  6 dB 28 WPM CQ")
+                    // POTA/Cluster: mode is often last word ("JP-1277 Higashimurayama CW")
+                    static const QSet<QString> knownModes = {
+                        "CW", "SSB", "USB", "LSB", "AM", "FM", "FT8", "FT4",
+                        "JS8", "RTTY", "PSK31", "PSK63", "PSK", "OLIVIA",
+                        "JT65", "JT9", "SAM", "NFM", "DIGU", "DIGL"
+                    };
+                    QStringList words = it->comment.split(' ', Qt::SkipEmptyParts);
+                    // Check first word (RBN format)
+                    if (!words.isEmpty() && knownModes.contains(words.first().toUpper()))
+                        spotMode = words.first().toUpper();
+                    // Check last word (POTA/Cluster format)
+                    else if (!words.isEmpty() && knownModes.contains(words.last().toUpper()))
+                        spotMode = words.last().toUpper();
+                }
+                // Fallback: infer mode from frequency using band plan
+                if (spotMode.isEmpty()) {
+                    double f = it->rxFreqMhz;
+                    // CW sub-bands (bottom of each HF band)
+                    if ((f >= 1.800 && f < 1.850) || (f >= 3.500 && f < 3.600) ||
+                        (f >= 7.000 && f < 7.050) || (f >= 10.100 && f < 10.140) ||
+                        (f >= 14.000 && f < 14.070) || (f >= 18.068 && f < 18.095) ||
+                        (f >= 21.000 && f < 21.070) || (f >= 24.890 && f < 24.920) ||
+                        (f >= 28.000 && f < 28.070) || (f >= 50.000 && f < 50.100))
+                        spotMode = "CW";
+                    // Digital sub-bands
+                    else if ((f >= 1.840 && f < 1.850) || (f >= 3.570 && f < 3.600) ||
+                             (f >= 7.040 && f < 7.050) || (f >= 10.130 && f < 10.150) ||
+                             (f >= 14.070 && f < 14.100) || (f >= 18.095 && f < 18.110) ||
+                             (f >= 21.070 && f < 21.100) || (f >= 24.915 && f < 24.930) ||
+                             (f >= 28.070 && f < 28.150))
+                        spotMode = "DIGU";
+                    // Phone — default by convention
+                    else if (f >= 10.0)
+                        spotMode = "USB";
+                    else if (f >= 1.8)
+                        spotMode = "LSB";
+                }
+
+                if (!spotMode.isEmpty()) {
+                    // Map spot mode string → radio mode
+                    static const QMap<QString, QString> modeMap = {
+                        {"CW", "CW"}, {"CWL", "CW"}, {"CWU", "CW"},
+                        {"USB", "USB"}, {"LSB", "LSB"},
+                        {"FT8", "DIGU"}, {"FT4", "DIGU"}, {"JS8", "DIGU"},
+                        {"PSK31", "DIGU"}, {"PSK63", "DIGU"}, {"PSK", "DIGU"},
+                        {"OLIVIA", "DIGU"}, {"JT65", "DIGU"}, {"JT9", "DIGU"},
+                        {"RTTY", "DIGL"},
+                        {"AM", "AM"}, {"SAM", "SAM"},
+                        {"FM", "FM"}, {"NFM", "NFM"},
+                    };
+                    QString radioMode;
+                    if (modeMap.contains(spotMode)) {
+                        radioMode = modeMap[spotMode];
+                    } else if (spotMode == "SSB") {
+                        // SSB without sideband: ≥10 MHz → USB, <10 MHz → LSB
+                        radioMode = (it->rxFreqMhz >= 10.0) ? "USB" : "LSB";
+                    }
+                    if (!radioMode.isEmpty() && radioMode != s->mode())
+                        s->setMode(radioMode);
+                }
+            }
+        }
+
         m_radioModel.sendCommand(QString("spot trigger %1").arg(spotIndex));
-
-        // Auto-switch mode from spot metadata (#424)
-        if (AppSettings::instance().value("SpotAutoSwitchMode", "False").toString() != "True")
-            return;
-        auto* s = activeSlice();
-        if (!s) return;
-
-        // Extract mode: prefer explicit mode field, fall back to comment text
-        QString spotMode = it->mode.toUpper().trimmed();
-        if (spotMode.isEmpty() && !it->comment.isEmpty()) {
-            // RBN: mode is first word ("CW  6 dB 28 WPM CQ")
-            // POTA/Cluster: mode is often last word ("JP-1277 Higashimurayama CW")
-            static const QSet<QString> knownModes = {
-                "CW", "SSB", "USB", "LSB", "AM", "FM", "FT8", "FT4",
-                "JS8", "RTTY", "PSK31", "PSK63", "PSK", "OLIVIA",
-                "JT65", "JT9", "SAM", "NFM", "DIGU", "DIGL"
-            };
-            QStringList words = it->comment.split(' ', Qt::SkipEmptyParts);
-            // Check first word (RBN format)
-            if (!words.isEmpty() && knownModes.contains(words.first().toUpper()))
-                spotMode = words.first().toUpper();
-            // Check last word (POTA/Cluster format)
-            else if (!words.isEmpty() && knownModes.contains(words.last().toUpper()))
-                spotMode = words.last().toUpper();
-        }
-        // Fallback: infer mode from frequency using band plan
-        if (spotMode.isEmpty()) {
-            double f = it->rxFreqMhz;
-            // CW sub-bands (bottom of each HF band)
-            if ((f >= 1.800 && f < 1.850) || (f >= 3.500 && f < 3.600) ||
-                (f >= 7.000 && f < 7.050) || (f >= 10.100 && f < 10.140) ||
-                (f >= 14.000 && f < 14.070) || (f >= 18.068 && f < 18.095) ||
-                (f >= 21.000 && f < 21.070) || (f >= 24.890 && f < 24.920) ||
-                (f >= 28.000 && f < 28.070) || (f >= 50.000 && f < 50.100))
-                spotMode = "CW";
-            // Digital sub-bands
-            else if ((f >= 1.840 && f < 1.850) || (f >= 3.570 && f < 3.600) ||
-                     (f >= 7.040 && f < 7.050) || (f >= 10.130 && f < 10.150) ||
-                     (f >= 14.070 && f < 14.100) || (f >= 18.095 && f < 18.110) ||
-                     (f >= 21.070 && f < 21.100) || (f >= 24.915 && f < 24.930) ||
-                     (f >= 28.070 && f < 28.150))
-                spotMode = "DIGU";
-            // Phone — default by convention
-            else if (f >= 10.0)
-                spotMode = "USB";
-            else if (f >= 1.8)
-                spotMode = "LSB";
-        }
-        if (spotMode.isEmpty()) return;
-
-        // Map spot mode string → radio mode
-        static const QMap<QString, QString> modeMap = {
-            {"CW", "CW"}, {"CWL", "CW"}, {"CWU", "CW"},
-            {"USB", "USB"}, {"LSB", "LSB"},
-            {"FT8", "DIGU"}, {"FT4", "DIGU"}, {"JS8", "DIGU"},
-            {"PSK31", "DIGU"}, {"PSK63", "DIGU"}, {"PSK", "DIGU"},
-            {"OLIVIA", "DIGU"}, {"JT65", "DIGU"}, {"JT9", "DIGU"},
-            {"RTTY", "DIGL"},
-            {"AM", "AM"}, {"SAM", "SAM"},
-            {"FM", "FM"}, {"NFM", "NFM"},
-        };
-        QString radioMode;
-        if (modeMap.contains(spotMode)) {
-            radioMode = modeMap[spotMode];
-        } else if (spotMode == "SSB") {
-            // SSB without sideband: ≥10 MHz → USB, <10 MHz → LSB
-            radioMode = (it->rxFreqMhz >= 10.0) ? "USB" : "LSB";
-        }
-        if (!radioMode.isEmpty() && radioMode != s->mode())
-            s->setMode(radioMode);
     });
 
     // ── Manual spot add/remove (#36)
