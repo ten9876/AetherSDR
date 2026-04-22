@@ -15,7 +15,6 @@ class PanFloatingWindow : public QWidget {
 
 public:
     explicit PanFloatingWindow(QWidget* parent = nullptr);
-    PanFloatingWindow(PanadapterApplet* applet, QWidget* parent = nullptr);
 
     void adoptApplet(PanadapterApplet* applet);
     PanadapterApplet* takeApplet();
