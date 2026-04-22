@@ -700,6 +700,7 @@ target_link_libraries(AetherSDR PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::Multimedia
+    ${CMAKE_DL_LIBS}   # dlopen/dlsym for tolerant X11 error handler (#1839)
 )
 
 if(Qt6SerialPort_FOUND)
