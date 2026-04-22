@@ -3,6 +3,152 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.20] — 2026-04-22
+
+### Community regression round-up + crash batch
+
+Eight community contributions plus three AetherClaude crash fixes.
+The community batch covers real-world regressions found on Windows,
+macOS and Linux: RADE RX on Windows, macOS FT8 DT bias, TCI DAX
+crosstalk, RX applet pan-with-NR, gain defaults, a Windows build
+break, a Canadian band plan refresh, and seamless ADIF logbook
+auto-reload.  Three crash fixes address applet reorder, Wayland
+Radio Setup dialog, and popped-out panadapter freeze.
+
+### Bug fixes
+
+**Fix RADE RX not decoding on Windows (#1820, NF0T)**
+- On platforms without a DAX audio bridge (Windows, Linux without
+  PipeWire), `startDax()` is compiled out so `stream create dax_rx`
+  is never sent.  RADE mode showed "activated" but produced no
+  decoded audio because `feedRxAudio()` never got called.
+- `activateRADE()` now creates the `dax_rx` stream directly on
+  non-bridge platforms and registers its stream ID with
+  PanadapterStream.  TCI borrow-safe cleanup on deactivate — won't
+  tear down a stream another client is reading.
+- Verified end-to-end on Windows 11 + FLEX-8400.
+
+**Clamp stale DAX RX backlog on macOS (#1822, jensenpat)**
+- FT8 decodes in WSJT-X / JTDX showed a consistent +1.5 s to +1.6 s
+  `DT` offset on macOS even with healthy LAN latency — severe enough
+  to cause missed QSOs.
+- Root cause: macOS `VirtualAudioBridge` writes DAX RX audio into a
+  POSIX shared-memory ring large enough for ~2 s of audio.  The TX
+  path had live-edge backlog protection; the RX path did not.  If
+  the CoreAudio reader fell behind the ring accumulated stale audio
+  and served it as if current.
+- New live-edge clamp advances the reader when backlog exceeds
+  ~200 ms, keeping a ~40 ms target.  Per-channel timing counters
+  behind the existing `aether.dax` debug category.  Scoped to macOS
+  only — Linux uses `O_NONBLOCK` named pipes (drops at syscall),
+  Windows has no in-process buffer.
+
+**Fix TCI DAX audio crosstalk between slices (#1815, Chaosuk97)**
+- Two simultaneous DAX channels (dual-band WSJT-X, satellite
+  full-duplex RX) caused audio from slice A to bleed into slice B.
+- Root cause: `r8brain CDSPResampler` is stateful.  `ClientState`
+  held a single shared resampler reused across channels, so filter
+  state from channel 1 carried over into channel 2.  The
+  accumulation buffer was already per-channel; the resampler wasn't.
+- Replaced the shared `Resampler*` with
+  `QHash<int, Resampler*> resamplers` keyed by DAX channel.  Lazy
+  per-channel creation, `qDeleteAll()` on rate change / disconnect.
+
+**Fix RX applet pan slider broken with NR active (#1799, Chaosuk97)**
+- PR #1460 re-applied pan after client NR mono-mix but only tracked
+  pan changes from the VFO panel slider.  The RX applet, MIDI, and
+  keyboard shortcuts call `SliceModel::setAudioPan()` directly —
+  `AudioEngine::m_rxPan` stayed at 50, making the RX applet pan
+  slider a no-op when NR was active.
+- Listen to `SliceModel::audioPanChanged` instead — one connection
+  now covers VFO panel, RX applet, MIDI, and radio echo-back on
+  connect.
+
+**Fix TCI RX gain default fallback: 1.0 → 0.5 (#1811, NF0T)**
+- `TciServer` fallback for a missing `TciRxGain<n>` key was "1.0"
+  while `TciApplet` used "0.5".  Fresh install or post-migration
+  without the key ran the server at full gain while the slider
+  showed half — TCI RX audio 2× louder than DAX at equal positions.
+
+**Fix missing HAVE_SERIALPORT guard on m_flexCoalesceTimer (#1812, NF0T)**
+- PR #1606 guarded `m_hidCoalesceTimer` behind `HAVE_HIDAPI` but
+  left `m_flexCoalesceTimer` unguarded on the line above — broke
+  Windows builds without `Qt6::SerialPort`.  Wrapped the reference
+  in `HAVE_SERIALPORT` to match the member declaration.
+
+**Seamless ADIF logbook auto-reload for DXCC spot colouring (#1801, Chaosuk97)**
+- Spot colours only updated when the user manually clicked Browse
+  and re-selected the log file.  The "Auto-Reload Log" toggle
+  defaulted off and broke in edge cases: atomic rename (N1MM,
+  Log4OM), Windows write-lock during export, delete-then-recreate.
+- Toggle removed — Browse now always arms the watcher.  2-second
+  debounce coalesces rapid change notifications; watcher re-arms
+  after debounce so atomic rename (new inode) is caught.  Directory
+  watcher on the parent folder catches delete-then-recreate.  Open
+  retries 3× at 500 ms intervals for write-locks.  Worked status
+  preserved on open failure — colours don't flash empty during
+  export.  "Updating…" shown during async parse.
+
+**Fix crash when reordering applets with floating containers (#1745 → #1746)**
+- Dragging an applet title bar to reorder crashed AetherSDR when
+  any other applet was popped out into a floating window.
+- Root cause: `QWidget::mapTo()` traverses the parent chain looking
+  for a common ancestor.  When a container is floating (reparented
+  to `FloatingContainerWindow` — a separate top-level window), there
+  is no common ancestor with the scroll area's content widget and
+  `mapTo()` dereferences `nullptr`.
+- `dragMoveEvent()`, `dropIndexFromY()` and `rebuildStackOrder()`
+  now skip entries whose `ContainerWidget::isFloating()` is true.
+  Follow-up filed as #1836 for the separate TXDSP ID-mismatch that
+  makes that container silently un-reorderable.
+
+**Lazy-build RadioSetupDialog tabs (#1776 → #1777)**
+- Opening Settings → Radio Setup / FlexControl / USB Cables crashed
+  on some Wayland / Qt 6.11 configurations (openSUSE Tumbleweed with
+  Packman non-free FFmpeg 8.1).  Real crash cause is
+  `libvdpau_va_gl` trying to create a VDPAU device via X11/GLX on a
+  native Wayland session — an upstream Qt Multimedia backend /
+  distro packaging problem, not an AetherSDR bug.
+- Converted the dialog from eager to lazy tab construction — only
+  the Radio tab builds on open; the other ten tabs get placeholder
+  widgets and deferred builders triggered on first tab-switch.
+  Dialog opens without crashing (and faster on every platform).
+  Users on the affected config will still hit the VDPAU crash if
+  they click the Audio tab; the real fix is to switch
+  `QT_MEDIA_BACKEND=gstreamer` or use stock Mesa FFmpeg.
+
+**Fix UI freeze when PanAdapter is popped out (#1668 → #1669)**
+- Content inside a popped-out panadapter froze — waterfall stopped
+  scrolling, spectrum stopped updating — while the main window
+  remained fully responsive.  Re-docking restored normal operation.
+- Two problems in `PanadapterStack::floatPanadapter()`: the
+  SpectrumWidget was shown immediately after reparenting, before
+  `refreshAfterReparent()` rebound the Metal render target to the
+  new NSView, so the first frame rendered on a stale/transitional
+  surface.  And the reparent went through `setParent(nullptr)` —
+  on macOS with `WA_NativeWindow`, that creates a transient
+  top-level NSWindow before the floating window adopts it, a second
+  lesser problem addressed by #1344 for the dock path but never the
+  float path.
+- New `PanFloatingWindow::adoptApplet()` method reparents directly
+  via `m_layout->addWidget()` — single splitter→floating-window
+  step, no nullptr intermediate.  `sw->show()` moved into the
+  deferred callback after `refreshAfterReparent()` so Metal binds
+  to the final NSView before the first render.
+
+**Minor Canadian band-plan corrections (#1817, VE3NEM)**
+- RAC band plan updates from a Canadian ham: label corrections on
+  overlapping CW/DIG segments (1.800, 7.035), WSPR 80 m frequency
+  corrected (3.5926 → 3.5686 MHz), obsolete CW calling frequencies
+  removed and standard international QRP calling frequencies added
+  (14.060, 21.060, 28.060, etc.), missing SSB calling frequencies
+  added on 17 m / 15 m / 12 m / 10 m / 1.25 m.
+
+### Contributors
+
+Community: NF0T (Ryan Butler), Chaosuk97 (Ian M7HNF), jensenpat, VE3NEM.
+AetherClaude bug fixes on #1745 / #1776 / #1668.
+
 ## [v0.8.19] — 2026-04-20
 
 ### Community contributions landfest + macOS MNR + quick memory actions
