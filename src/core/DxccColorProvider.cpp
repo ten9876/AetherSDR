@@ -10,6 +10,7 @@ DxccColorProvider::DxccColorProvider(QObject* parent)
     : QObject(parent)
 {
     m_parser = new AdifParser;
+    m_parser->setCtyParser(&m_ctyParser);
     m_parser->moveToThread(&m_parseThread);
     connect(m_parser, &AdifParser::finished,
             this,     &DxccColorProvider::onParseFinished,
@@ -108,10 +109,8 @@ void DxccColorProvider::setAutoReload(bool on, const QString& path)
 
 void DxccColorProvider::onParseFinished(QVector<QsoRecord> records)
 {
-    // Resolve DXCC prefix for every record (runs on GUI thread after queued signal)
-    for (auto& r : records)
-        r.dxccPrefix = m_ctyParser.resolvePrimaryPrefix(r.callsign);
-
+    // DXCC prefixes are now pre-resolved on the worker thread by
+    // parseFileAsync(), so we only need the cheap hash-insert pass.
     m_workedStatus.load(records);
     emit importFinished(m_workedStatus.totalQsos(), m_workedStatus.entityCount());
 }

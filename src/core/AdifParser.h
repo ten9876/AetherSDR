@@ -6,6 +6,8 @@
 
 namespace AetherSDR {
 
+class CtyDatParser;  // forward declaration for optional DXCC resolution
+
 struct QsoRecord {
     QString callsign;
     QString band;       // "80m", "40m", etc. (normalised)
@@ -32,6 +34,12 @@ public:
     // thread).  Emits finished() when done.
     Q_INVOKABLE void parseFileAsync(const QString& path);
 
+    // Set the CtyDatParser used for DXCC prefix resolution on the worker
+    // thread.  Must be called before parseFileAsync() and must outlive this
+    // object.  The parser is read-only after loadCtyDat() so cross-thread
+    // access is safe.
+    void setCtyParser(const CtyDatParser* ctyParser) { m_ctyParser = ctyParser; }
+
 signals:
     void finished(QVector<QsoRecord> records);
     // Emitted when the file cannot be opened after all retry attempts
@@ -43,6 +51,8 @@ private:
     static QVector<QsoRecord> parse(const QByteArray& data);
     static QString normaliseMode(const QString& mode, const QString& submode);
     static QString freqToBand(double mhz);
+
+    const CtyDatParser* m_ctyParser{nullptr};
 };
 
 } // namespace AetherSDR

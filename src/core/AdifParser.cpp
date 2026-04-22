@@ -1,4 +1,5 @@
 #include "AdifParser.h"
+#include "CtyDatParser.h"
 
 #include <QFile>
 #include <QRegularExpression>
@@ -160,7 +161,15 @@ void AdifParser::parseFileAsync(const QString& path)
     for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
         QFile f(path);
         if (f.open(QIODevice::ReadOnly)) {
-            emit finished(parse(f.readAll()));
+            auto records = parse(f.readAll());
+            // If a CtyDatParser was provided, resolve DXCC prefixes here on the
+            // worker thread instead of on the GUI thread.  This avoids
+            // multi-hundred-ms stalls for large logs (e.g. 125k QSOs).
+            if (m_ctyParser) {
+                for (auto& r : records)
+                    r.dxccPrefix = m_ctyParser->resolvePrimaryPrefix(r.callsign);
+            }
+            emit finished(records);
             return;
         }
         if (attempt + 1 < kMaxAttempts)
