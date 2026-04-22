@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QTimer>
 #include <QWidget>
 
 class QVBoxLayout;
@@ -67,6 +68,7 @@ private:
     QVBoxLayout*     m_layout{nullptr};
     QString          m_geometryKey;
     bool             m_restoring{false};
+    QTimer           m_saveTimer;
 };
 
 } // namespace AetherSDR

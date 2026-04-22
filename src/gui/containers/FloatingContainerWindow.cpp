@@ -27,6 +27,11 @@ FloatingContainerWindow::FloatingContainerWindow(QWidget* parent)
     m_layout = new QVBoxLayout(this);
     m_layout->setContentsMargins(0, 0, 0, 0);
     m_layout->setSpacing(0);
+
+    m_saveTimer.setSingleShot(true);
+    m_saveTimer.setInterval(400);
+    connect(&m_saveTimer, &QTimer::timeout, this,
+            &FloatingContainerWindow::saveGeometryToKey);
 }
 
 FloatingContainerWindow::~FloatingContainerWindow() = default;
@@ -131,13 +136,13 @@ void FloatingContainerWindow::closeEvent(QCloseEvent* ev)
 void FloatingContainerWindow::moveEvent(QMoveEvent* ev)
 {
     QWidget::moveEvent(ev);
-    if (!m_restoring) saveGeometryToKey();
+    if (!m_restoring) m_saveTimer.start();
 }
 
 void FloatingContainerWindow::resizeEvent(QResizeEvent* ev)
 {
     QWidget::resizeEvent(ev);
-    if (!m_restoring) saveGeometryToKey();
+    if (!m_restoring) m_saveTimer.start();
 }
 
 } // namespace AetherSDR
