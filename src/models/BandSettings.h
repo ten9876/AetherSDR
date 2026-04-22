@@ -56,6 +56,11 @@ public:
     // Load from disk into memory.
     void loadFromFile();
 
+    // Persist a single band's snapshot to AppSettings.
+    void persistToAppSettings(const QString& band, const BandSnapshot& snap);
+    // Load a single band's snapshot from AppSettings.
+    BandSnapshot loadFromAppSettings(const QString& band) const;
+
     // Current band tracking.
     QString currentBand() const { return m_currentBand; }
     void setCurrentBand(const QString& band) { m_currentBand = band; }
