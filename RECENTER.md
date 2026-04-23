@@ -162,8 +162,8 @@ Current behavior:
 
 Current constants in `MainWindow.cpp`:
 
-- incremental trigger edge margin: `0.12`
-- incremental settle edge margin: `0.18`
+- incremental trigger edge margin: `0.05`
+- incremental settle edge margin: `0.06`
 - small follow animation target: `110 ms`
 
 Operationally:
@@ -171,6 +171,7 @@ Operationally:
 - if the tuned frequency remains inside the trigger window, no recenter happens
 - once it crosses the trigger fence, pan follow uses the configured step size as its nudge quantum when that step is available
 - the center moves in step-sized increments only far enough to bring the slice back to the trigger boundary, instead of jumping straight to the settle boundary
+- the narrow `5% -> 6%` trigger/settle gap keeps nearly all of the spectrum usable while still adding a small hysteresis band for coarse or bursty inputs
 - the older settle target is still used as a safety cap and as the fallback when no step size is available
 
 ### 2. `AbsoluteJump`
