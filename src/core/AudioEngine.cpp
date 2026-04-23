@@ -2431,7 +2431,7 @@ void AudioEngine::onTxAudioReady()
 
     // ── Apply client-side PC mic gain (int16) ───────────────────────────
     const float gain = m_pcMicGain.load();
-    if (gain < 0.999f) {
+    if (gain < 0.999f || gain > 1.001f) {
         auto* pcm = reinterpret_cast<int16_t*>(data.data());
         int sampleCount = data.size() / static_cast<int>(sizeof(int16_t));
         for (int i = 0; i < sampleCount; ++i)

@@ -99,8 +99,8 @@ public:
     void setMuted(bool m);
     bool isTxStreaming() const { return m_audioSource != nullptr; }
 
-    // Client-side PC mic gain (0-100 → 0.0-1.0, applied before Opus encoding)
-    void setPcMicGain(int level) { m_pcMicGain.store(qBound(0, level, 100) / 100.0f); }
+    // Client-side PC mic gain (0-150 → 0.0-1.5, applied before Opus encoding)
+    void setPcMicGain(int level) { m_pcMicGain.store(qBound(0, level, 150) / 100.0f); }
 
     // Opus TX encoding for SmartLink compressed audio
     void setOpusTxEnabled(bool on) { m_opusTxEnabled.store(on); }
@@ -392,7 +392,7 @@ private:
     QByteArray    m_txFloatAccumulator;  // accumulate float32 PCM for RADE modem TX
     QByteArray    m_daxPreTxBuffer;      // short rolling pre-TX buffer for low-latency DAX mode
     std::atomic<bool> m_radeMode{false}; // RADE digital voice mode active (atomic: cross-thread)
-    std::atomic<float> m_pcMicGain{1.0f};     // client-side PC mic gain (0.0-1.0)
+    std::atomic<float> m_pcMicGain{1.0f};     // client-side PC mic gain (0.0-1.5)
     std::atomic<bool>  m_daxTxMode{false};    // DAX TX mode: VirtualAudioBridge handles TX
     QElapsedTimer      m_txSourceStartTime;
     quint64            m_txLifecycleGeneration{0};

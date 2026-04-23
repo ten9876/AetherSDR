@@ -187,7 +187,7 @@ void PhoneCwApplet::buildPhonePanel()
 
         m_micLevelLabel = new QLabel("50");
         m_micLevelLabel->setStyleSheet(kLabelStyle);
-        m_micLevelLabel->setFixedWidth(22);
+        m_micLevelLabel->setFixedWidth(28);
         m_micLevelLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         row->addWidget(m_micLevelLabel);
 
@@ -202,6 +202,11 @@ void PhoneCwApplet::buildPhonePanel()
 
         connect(m_micLevelSlider, &QSlider::valueChanged, this, [this](int v) {
             m_micLevelLabel->setText(QString::number(v));
+            if (m_micLevelSlider->maximum() > 100) {
+                m_micLevelLabel->setStyleSheet(v > 100
+                    ? QStringLiteral("color: #e0a020; font-size: 10px;")
+                    : kLabelStyle);
+            }
             if (!m_updatingFromModel && m_model)
                 m_model->setMicLevel(v);
             emit micLevelChanged(v);
@@ -644,12 +649,18 @@ void PhoneCwApplet::syncPhoneFromModel()
 
     // PC mic gain is client-authoritative (radio always returns mic_level=0 for PC)
     if (m_model->micSelection() == "PC") {
+        m_micLevelSlider->setRange(0, 150);
         int pcGain = AppSettings::instance().value("PcMicGain", 100).toInt();
         m_micLevelSlider->setValue(pcGain);
         m_micLevelLabel->setText(QString::number(pcGain));
+        m_micLevelLabel->setStyleSheet(pcGain > 100
+            ? QStringLiteral("color: #e0a020; font-size: 10px;")
+            : kLabelStyle);
     } else {
+        m_micLevelSlider->setRange(0, 100);
         m_micLevelSlider->setValue(m_model->micLevel());
         m_micLevelLabel->setText(QString::number(m_model->micLevel()));
+        m_micLevelLabel->setStyleSheet(kLabelStyle);
     }
     m_accBtn->setChecked(m_model->micAcc());
     m_procBtn->setChecked(m_model->speechProcessorEnable());
