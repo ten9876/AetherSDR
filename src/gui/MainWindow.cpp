@@ -7189,9 +7189,19 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             { QStringLiteral("GEN"), 34 },
         };
 
+        // bandName from the UI carries an "m" suffix (e.g. "20m") but the
+        // radio's band-stack key is the bare number (e.g. "20").  Strip the
+        // suffix before matching so the radio-authoritative path is taken.
+        QString radioKey = bandName;
+        if (radioKey.endsWith('m') && radioKey.length() > 1) {
+            QString stripped = radioKey.chopped(1);
+            if (kPassThroughBands.contains(stripped))
+                radioKey = stripped;
+        }
+
         QString stackKey;
-        if (kPassThroughBands.contains(bandName)) {
-            stackKey = bandName;
+        if (kPassThroughBands.contains(radioKey)) {
+            stackKey = radioKey;
         } else if (kNumericBandSlots.contains(bandName)) {
             stackKey = QString::number(kNumericBandSlots.value(bandName));
             qDebug() << "  ↳ numeric band slot:" << bandName << "->" << stackKey;
