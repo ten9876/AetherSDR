@@ -547,9 +547,9 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
 {
     if (!m_audioSink) return;  // PC audio disabled
     m_lastAudioFeedTime.start();  // reset liveness watchdog (#1411)
-    // Note: m_radeMode no longer blocks feedAudioData globally.
-    // The RADE slice's raw OFDM noise is muted at the slice level (audio_mute=1)
-    // so it doesn't reach the speaker. Other slices' audio plays normally.
+    // m_radeMode does NOT block feedAudioData — the RADE slice's raw OFDM
+    // noise is muted at the slice level (audio_mute=1) so it never arrives
+    // here. Decoded RADE speech uses feedDecodedSpeech() instead.
 
     auto writeAudio = [this](const QByteArray& data) {
         if (!m_audioDevice || !m_audioDevice->isOpen()) return;
@@ -650,7 +650,11 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
         } else if (m_bnrEnabled && m_bnr && m_bnr->isConnected()) {
             processBnr(pcm);
             // processBnr writes audio and emits level internally
-        } else if (!m_radeMode) {
+        } else {
+            // No client-side DSP active — write PCM directly.
+            // m_radeMode does NOT gate this path: RADE's raw OFDM noise is
+            // muted at the slice level (audio_mute=1) so it never reaches
+            // feedAudioData, and decoded RADE speech uses feedDecodedSpeech().
             writeAudio(pcm);
             emit levelChanged(computeRMS(pcm));
         }
