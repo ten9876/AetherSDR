@@ -7880,15 +7880,12 @@ void MainWindow::registerShortcutActions()
 
         double newCenter = sw->centerMhz();
 
-        // When zooming in, shift center toward the active slice frequency
-        // so it stays visible (mirrors Flex SDR behavior)
+        // When zooming in, progressively pull the center toward the active slice
+        // frequency so the signal of interest converges to the middle (#1866)
         if (factor < 1.0) {
             const double vfoMhz = s->frequency();
-            const double halfBw = newBw / 2.0;
-            if (vfoMhz > newCenter + halfBw)
-                newCenter = vfoMhz - halfBw * 0.8;
-            else if (vfoMhz < newCenter - halfBw)
-                newCenter = vfoMhz + halfBw * 0.8;
+            const double blend = 0.5;
+            newCenter = newCenter + blend * (vfoMhz - newCenter);
         }
 
         sw->setFrequencyRange(newCenter, newBw);
