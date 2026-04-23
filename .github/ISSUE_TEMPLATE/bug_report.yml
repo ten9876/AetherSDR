@@ -53,20 +53,45 @@ body:
         2. Select ...
         3. Click ...
     validations:
-      required: false
+      required: true
+
+  - type: input
+    id: aethersdr_version
+    attributes:
+      label: AetherSDR version
+      description: "Shown in Help → About (e.g., 0.8.18)"
+      placeholder: "0.8.18"
+    validations:
+      required: true
 
   - type: input
     id: radio
     attributes:
       label: Radio model & firmware
+      description: "Shown in SmartSDR on the radio's display, or in Help → About on your radio"
       placeholder: "FLEX-6600 v4.1.5"
     validations:
-      required: false
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: true
 
   - type: input
-    id: distro
+    id: os_details
     attributes:
-      label: Linux distro & Qt version
-      placeholder: "Arch Linux, Qt 6.8.2"
+      label: OS version and hardware
+      description: |
+        Linux: distro name, version, Qt version (e.g., "Arch Linux, Qt 6.8.2")
+        macOS: macOS version, chip (e.g., "Sonoma 14.5, Apple Silicon M2")
+        Windows: Windows version and edition (e.g., "Windows 11 24H2 Pro")
+      placeholder: "e.g., Arch Linux 2026.04, Qt 6.8.2"
     validations:
-      required: false
+      required: true

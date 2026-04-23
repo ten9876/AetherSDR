@@ -2,6 +2,8 @@
 #ifdef HAVE_WEBSOCKETS
 
 #include <QObject>
+#include <QElapsedTimer>
+#include <QHash>
 #include <QList>
 #include <QMap>
 #include <QSet>
@@ -38,6 +40,19 @@ public:
 
     void setAudioEngine(AudioEngine* audio) { m_audio = audio; }
 
+    // TCI TX gain (0.0–1.0). Applied to outbound TX audio from WSJT-X/JTDX
+    // before the radio.  Decoupled from DaxTxGain (#1627) — the DAX bridge
+    // and TCI maintain independent gain settings.  Persists to TciTxGain.
+    void setTxGain(float gain);
+    float txGain() const { return m_txGain; }
+
+    // Per-channel TCI RX gain (0.0–1.0), applied to outbound DAX audio before
+    // resampling and sending to TCI clients.  Decoupled from DaxRxGain<n> so
+    // DAX bridge and TCI maintain independent per-channel gains.
+    // Channel is 1-based (1–4).  Persists to TciRxGain<channel>.
+    void setRxChannelGain(int channel, float gain);
+    float rxChannelGain(int channel) const;
+
     // Wire slice signals for state change broadcasts
     void wireSlice(int trx, SliceModel* slice);
     void wireSpotModel();
@@ -52,6 +67,8 @@ public slots:
 
 signals:
     void clientCountChanged(int count);
+    void rxLevel(int channel, float rms);  // 1-based channel, RMS of TCI-gained RX audio
+    void txLevel(float rms);                // RMS of post-gain TCI TX audio
 
 private slots:
     void onNewConnection();
@@ -66,6 +83,8 @@ private:
     void broadcastBinary(const QByteArray& data);
     void startTxChrono(QWebSocket* client, int trx);
     void stopTxChrono();
+    void sendTxChronoFrame(QWebSocket* client);
+    void logTxAudioSummary(const char* reason);
 
     // Build a TCI binary audio frame (64-byte header + float32 samples)
     static QByteArray buildAudioFrame(int receiver, int type,
@@ -79,12 +98,29 @@ private:
         int          audioSampleRate{48000}; // requested output rate (48kHz for WSJT-X compat)
         int          audioChannels{2};       // 1=mono, 2=stereo
         int          audioFormat{3};         // 0=int16, 3=float32
-        Resampler*   resampler{nullptr};    // null if rate == 24000 (native)
+        // Per-DAX-channel resamplers.  A single shared r8brain instance would
+        // carry filter state from slice A into slice B, causing audible
+        // crosstalk (#1806).  Each channel gets its own stateful instance,
+        // lazily created in onDaxAudioReady() and deleted/recreated whenever
+        // the client changes its audio_samplerate.  No entry (or nullptr) for
+        // a channel means 24 kHz pass-through (no resampling needed).
+        QHash<int, Resampler*> resamplers;
+        // Per-DAX-channel accumulation buffers. Concatenating multi-channel
+        // packets into a shared buffer would interleave audio from different
+        // slices and destroy the resampler output, so each channel maintains
+        // its own staging area. QHash over QMap: channel count is tiny (1-4)
+        // and we never iterate in key order.
+        QHash<int, QByteArray> rxAccumBuf;
         bool         rxSensorsEnabled{false};
         bool         txSensorsEnabled{false};
         bool         iqEnabled{false};       // client sent IQ_START
         int          iqChannel{0};           // TCI TRX → DAX IQ channel (0-based)
     };
+
+    // Minimum frames to accumulate before flushing to r8brain.
+    // ~21ms at 24kHz — large enough for clean resampling, small enough
+    // for acceptable latency in digital modes.
+    static constexpr int kAccumMinFrames = 512;
 
     void ensureDaxForTci();
     void releaseDaxForTci();
@@ -94,12 +130,28 @@ private:
     QWebSocketServer* m_server{nullptr};
     QList<ClientState> m_clients;
     QSet<int>         m_tciDaxSlices;   // slice IDs where we auto-assigned DAX (#1331)
-    QMap<int, quint32> m_tciDaxStreamIds; // DAX channel → stream ID created by TCI
+    QMap<int, quint32> m_tciDaxStreamIds;      // DAX channel → stream ID created or borrowed by TCI
+    QSet<int>          m_tciDaxBorrowedChannels; // channels where TCI reused an existing stream
     QTimer*           m_meterTimer{nullptr};  // 200ms status broadcast
     QTimer*           m_txChronoTimer{nullptr}; // TX_CHRONO frame cadence
     QWebSocket*       m_txChronoClient{nullptr};
     int               m_txChronoTrx{0};
     std::unique_ptr<Resampler> m_txResampler; // 48kHz→24kHz TX downsampler
+    QElapsedTimer     m_txChronoClock;
+    QElapsedTimer     m_txChronoSessionClock;
+    qint64            m_txChronoAccumNs{0};
+    qint64            m_txChronoRequestedFrames{0};
+    bool              m_txUseRadioRoute{true};
+    float             m_txGain{1.0f};
+    float             m_rxChannelGain[4]{1.0f, 1.0f, 1.0f, 1.0f};
+    qint64            m_txAudioBlocks{0};
+    qint64            m_txInputFrames{0};
+    qint64            m_txOutputFrames{0};
+    qint64            m_txClipSamples{0};
+    qint64            m_txAudioSampleCount{0};
+    double            m_txAudioSumSq{0.0};
+    float             m_txAudioPeak{0.0f};
+    bool              m_txSawDuplicatedStereo{false};
     bool              m_lastTx{false};
     float             m_cachedSLevel[8]{-130,-130,-130,-130,-130,-130,-130,-130};
     float             m_cachedFwdPower{0};

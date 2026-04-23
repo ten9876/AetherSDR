@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QDialog>
+#include <QHash>
+#include <functional>
 
 class QTabWidget;
 class QLabel;
@@ -86,6 +88,10 @@ private:
     QString       m_fwFilePath;
     FirmwareUploader* m_uploader{nullptr};
     FirmwareStager*   m_stager{nullptr};
+
+    // Lazy tab construction — deferred builders keyed by tab index (#1776)
+    QHash<int, std::function<QWidget*()>> m_deferredBuilders;
+    void buildDeferredTab(int index);
 };
 
 } // namespace AetherSDR

@@ -57,6 +57,7 @@ public:
     QPushButton* rn2Button() const { return m_rn2Btn; }
     QPushButton* bnrButton() const { return m_bnrBtn; }
     QPushButton* nr4Button() const { return m_nr4Btn; }
+    QPushButton* mnrButton() const { return m_mnrBtn; }
     QPushButton* dfnrButton() const { return m_dfnrBtn; }
     void setAfGain(int pct);
     void setEscLevel(float dbm);
@@ -79,6 +80,8 @@ public:
 
 Q_SIGNALS:
     void afGainChanged(int value);
+    void audioMuteToggled(bool on);   // per-slice AF mute changed by user (#1560)
+    void rxPanChanged(int value);     // pan slider moved; AudioEngine re-applies after NR (#1460)
     void closeSliceRequested();
     void lockToggled(bool locked);
     void nr2Toggled(bool on);
@@ -87,6 +90,8 @@ Q_SIGNALS:
     void rn2Toggled(bool on);
     void bnrToggled(bool on);
     void nr4Toggled(bool on);
+    void mnrToggled(bool on);
+    void mnrRightClicked(const QPoint& globalPos);
     void dfnrToggled(bool on);
     void dfnrRightClicked(const QPoint& globalPos);
 #ifdef HAVE_RADE
@@ -104,6 +109,8 @@ Q_SIGNALS:
     // Emitted when the wheel tunes by step (autopan=0 path) — MainWindow uses
     // this to explicitly re-center the pan if the new freq is outside the window.
     void stepTuned(double mhz);
+    // Per-slice VFO marker style changed (#1526)
+    void markerStyleChanged(bool markerThin, bool filterEdgesHidden);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -199,7 +206,22 @@ private:
 public:
     void setDiversityAllowed(bool allowed);
     void setSmartSdrPlus(bool has);
+
+    // Per-slice VFO marker display prefs, persisted by slice ID (#1526)
+    bool markerThin() const { return m_markerThin; }
+    bool filterEdgesHidden() const { return m_filterEdgesHidden; }
+    void setMarkerThin(bool thin);
+    void setFilterEdgesHidden(bool hide);
 private:
+    bool m_markerThin{false};
+    bool m_filterEdgesHidden{false};
+    class QPushButton* m_markerThinBtn{nullptr};
+    class QPushButton* m_markerThickBtn{nullptr};
+    class QPushButton* m_edgesShowBtn{nullptr};
+    class QPushButton* m_edgesHideBtn{nullptr};
+    void loadDisplayPrefs();
+    void saveDisplayPrefs();
+
     QSlider* m_sqlSlider{nullptr};
     QComboBox* m_agcCmb{nullptr};
     QSlider* m_agcTSlider{nullptr};
@@ -215,6 +237,7 @@ private:
     QPushButton* m_rn2Btn{nullptr};
     QPushButton* m_bnrBtn{nullptr};
     QPushButton* m_nr4Btn{nullptr};
+    QPushButton* m_mnrBtn{nullptr};
     QPushButton* m_dfnrBtn{nullptr};
     QPushButton* m_nrfBtn{nullptr};
     QPushButton* m_anflBtn{nullptr};
@@ -252,7 +275,10 @@ private:
     QGridLayout* m_filterGrid{nullptr};
     QVector<QPushButton*> m_filterBtns;
     QVector<int> m_filterWidths;
-    // CW autotune buttons (only visible in CW mode)
+    // CW autotune row (only visible in CW mode). The container holds the
+    // "Autotune:" label + buttons; deleting it on rebuild also removes the
+    // label, which is not tracked as its own member.
+    class QWidget* m_autotuneContainer{nullptr};
     QPushButton* m_autotuneOnceBtn{nullptr};
     QPushButton* m_autotuneLoopBtn{nullptr};
     QPushButton* m_zeroBeatBtn{nullptr};

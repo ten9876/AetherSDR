@@ -1,0 +1,220 @@
+#include "ClientEqParamRow.h"
+#include "ClientEqCurveWidget.h"
+
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QVBoxLayout>
+
+namespace AetherSDR {
+
+namespace {
+
+QString formatFreq(float hz)
+{
+    if (hz >= 1000.0f) {
+        return QString::number(hz / 1000.0f, 'f', 2) + " kHz";
+    }
+    return QString::number(static_cast<int>(std::round(hz))) + " Hz";
+}
+
+QString formatGain(float db)
+{
+    return QString::asprintf("%+.1f dB", db);
+}
+
+QString formatQ(float q)
+{
+    return QString::number(q, 'f', 2);
+}
+
+} // namespace
+
+// A single column: freq / gain / Q labels stacked vertically. The column
+// paints its own outline when selected so we can rely on QLabel's default
+// rendering for the text itself.
+class ClientEqParamRow::Column : public QWidget {
+public:
+    Column(int bandIdx, ClientEq* eq, ClientEqParamRow* row,
+           QWidget* parent = nullptr)
+        : QWidget(parent), m_bandIdx(bandIdx), m_eq(eq), m_row(row)
+    {
+        // Equal-stretch column — width is set by the parent row splitting
+        // its canvas-width across all 8 slots so icon column i aligns
+        // with the param column below it.
+        setMinimumWidth(70);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        setCursor(Qt::PointingHandCursor);
+
+        auto* layout = new QVBoxLayout(this);
+        layout->setContentsMargins(4, 2, 4, 2);
+        layout->setSpacing(0);
+
+        m_freqLbl = new QLabel;
+        m_gainLbl = new QLabel;
+        m_qLbl    = new QLabel;
+        for (auto* lbl : { m_freqLbl, m_gainLbl, m_qLbl }) {
+            lbl->setAlignment(Qt::AlignCenter);
+        }
+        layout->addWidget(m_freqLbl);
+        layout->addWidget(m_gainLbl);
+        layout->addWidget(m_qLbl);
+
+        applyStyle();
+        refreshValues();
+    }
+
+    void setSelected(bool on)
+    {
+        if (m_selected == on) return;
+        m_selected = on;
+        applyStyle();
+        update();
+    }
+
+    void refreshValues()
+    {
+        if (!m_eq) return;
+        const auto bp = m_eq->band(m_bandIdx);
+        m_freqLbl->setText(formatFreq(bp.freqHz));
+        m_gainLbl->setText(formatGain(bp.gainDb));
+        m_qLbl->setText(formatQ(bp.q));
+        // Dim disabled bands via label alpha rather than QWidget::setEnabled
+        // so the column still accepts clicks (letting the user select /
+        // auto-enable it via the canvas or icon).
+        m_bandEnabled = bp.enabled;
+        applyStyle();
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent*) override
+    {
+        if (m_row) emit m_row->bandSelected(m_bandIdx);
+    }
+
+    void paintEvent(QPaintEvent* ev) override
+    {
+        QWidget::paintEvent(ev);
+        if (!m_selected) return;
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        QColor accent = ClientEqCurveWidget::bandColor(m_bandIdx);
+        QPen pen(accent);
+        pen.setWidthF(1.2);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        // Box around the gain (middle) label — the affordance that mirrors
+        // the highlight bar on the curve.
+        const QRect gainRect = m_gainLbl->geometry()
+                                         .adjusted(-2, -1, 2, 1);
+        p.drawRoundedRect(gainRect, 4, 4);
+    }
+
+private:
+    void applyStyle()
+    {
+        QColor accent = ClientEqCurveWidget::bandColor(m_bandIdx);
+        QColor qCol("#7f93a5");
+        if (!m_bandEnabled) {
+            // Dim disabled columns so the "available slot" feel is obvious
+            // without greying out so much the user can't read the values.
+            accent.setAlphaF(0.35f);
+            qCol.setAlphaF(0.35f);
+        }
+        const QString freqStyle = QString(
+            "QLabel { color: %1; font-size: 10px; font-weight: bold;"
+            " background: transparent; border: none; }")
+            .arg(accent.name(QColor::HexArgb));
+        const QString gainStyle = QString(
+            "QLabel { color: %1; font-size: 12px; font-weight: bold;"
+            " background: transparent; border: none; padding: 1px 0px; }")
+            .arg(accent.name(QColor::HexArgb));
+        const QString qStyle = QString(
+            "QLabel { color: %1; font-size: 10px;"
+            " background: transparent; border: none; }")
+            .arg(qCol.name(QColor::HexArgb));
+        m_freqLbl->setStyleSheet(freqStyle);
+        m_gainLbl->setStyleSheet(gainStyle);
+        m_qLbl->setStyleSheet(qStyle);
+    }
+
+    int   m_bandIdx{0};
+    bool  m_selected{false};
+    bool  m_bandEnabled{true};
+    ClientEq* m_eq{nullptr};
+    ClientEqParamRow* m_row{nullptr};
+    QLabel*  m_freqLbl{nullptr};
+    QLabel*  m_gainLbl{nullptr};
+    QLabel*  m_qLbl{nullptr};
+};
+
+ClientEqParamRow::ClientEqParamRow(QWidget* parent) : QWidget(parent)
+{
+    m_layout = new QHBoxLayout(this);
+    m_layout->setContentsMargins(0, 0, 0, 0);
+    // Matches ClientEqIconRow spacing so param column i sits directly
+    // beneath icon column i (a single visual strip across the editor).
+    m_layout->setSpacing(10);
+    setFixedHeight(58);
+}
+
+void ClientEqParamRow::setEq(ClientEq* eq)
+{
+    m_eq = eq;
+    refresh();
+}
+
+void ClientEqParamRow::setSelectedBand(int idx)
+{
+    if (idx == m_selectedBand) return;
+    m_selectedBand = idx;
+    for (int i = 0; i < m_layout->count(); ++i) {
+        auto* col = dynamic_cast<Column*>(m_layout->itemAt(i)->widget());
+        if (col) col->setSelected(false);
+    }
+    if (idx >= 0) {
+        int colIdx = 0;
+        for (int i = 0; i < m_layout->count(); ++i) {
+            auto* col = dynamic_cast<Column*>(m_layout->itemAt(i)->widget());
+            if (!col) continue;
+            if (colIdx == idx) col->setSelected(true);
+            ++colIdx;
+        }
+    }
+}
+
+void ClientEqParamRow::refresh()
+{
+    rebuild();
+    setSelectedBand(m_selectedBand);
+}
+
+void ClientEqParamRow::refreshValues()
+{
+    for (int i = 0; i < m_layout->count(); ++i) {
+        auto* col = dynamic_cast<Column*>(m_layout->itemAt(i)->widget());
+        if (col) col->refreshValues();
+    }
+}
+
+void ClientEqParamRow::rebuild()
+{
+    while (QLayoutItem* it = m_layout->takeAt(0)) {
+        if (auto* w = it->widget()) w->deleteLater();
+        delete it;
+    }
+
+    if (!m_eq) return;
+
+    // Full-width row with N equal-stretch columns — no side stretches.
+    // Column i occupies the same horizontal slot as IconRow icon i so
+    // they read as one visual strip.
+    const int n = m_eq->activeBandCount();
+    for (int i = 0; i < n; ++i) {
+        auto* col = new Column(i, m_eq, this, this);
+        m_layout->addWidget(col, 1);
+    }
+}
+
+} // namespace AetherSDR

@@ -9,6 +9,7 @@
         <file alias="iaru-region1.json">resources/bandplans/iaru-region1.json</file>
         <file alias="iaru-region2.json">resources/bandplans/iaru-region2.json</file>
         <file alias="iaru-region3.json">resources/bandplans/iaru-region3.json</file>
+        <file alias="rac-canada.json">resources/bandplans/rac-canada.json</file>
     </qresource>
     <qresource prefix="/help">
         <file alias="getting-started.md">resources/help/getting-started.md</file>

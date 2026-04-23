@@ -41,7 +41,11 @@ public:
     bool wideActive() const { return m_wideActive; }
     QString preamp() const { return m_preamp; }
     void setPreamp(const QString& pre) {
-        if (m_preamp != pre) { m_preamp = pre; emit rfGainChanged(m_rfGain, m_preamp); }
+        // Preamp is internal state only — no UI listeners. Do not emit
+        // rfGainChanged here; doing so caused a ~33ms echo loop because the
+        // gain display listener would re-assert the current rfgain back to
+        // the radio on every status cycle (#1498).
+        if (m_preamp != pre) { m_preamp = pre; }
     }
     int daxiqChannel() const { return m_daxiqChannel; }
 
@@ -59,7 +63,7 @@ signals:
     void infoChanged(double centerMhz, double bandwidthMhz);
     void levelChanged(float minDbm, float maxDbm);
     void antListChanged(const QStringList& ants);
-    void rfGainChanged(int gain, const QString& preamp);
+    void rfGainChanged(int gain);
     void rfGainInfoChanged(int low, int high, int step);
     void wnbChanged(bool active, int level);
     void wideChanged(bool active);

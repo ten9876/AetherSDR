@@ -1,3 +1,32 @@
+/*  SpectralNR.cpp
+
+This file is part of AetherSDR.
+
+Portions of this file are derived from WDSP (emnr.c):
+  Copyright (C) 2015, 2025 Warren Pratt, NR0V
+  https://github.com/TAPR/OpenHPSDR-wdsp
+
+The WDSP-derived portions are licensed under the GNU General Public License
+as published by the Free Software Foundation; either version 2 of the
+License, or (at your option) any later version.
+
+AetherSDR integration and C++20/Qt6 adaptation:
+  Copyright (C) 2024-2026 AetherSDR Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 #include "SpectralNR.h"
 #include "LogManager.h"
 #include <algorithm>
@@ -789,7 +818,10 @@ void SpectralNR::applyAeFilter()
     }
 }
 
-// ─── Modified Bessel Functions (Abramowitz & Stegun polynomial approx) ────────
+// ─── Modified Bessel Functions ────────────────────────────────────────────────
+// Polynomial approximations of I0(x) and I1(x) from Abramowitz & Stegun,
+// "Handbook of Mathematical Functions" (1964), formulas 9.8.1 and 9.8.2.
+// A&S is a U.S. government work and in the public domain.
 
 double SpectralNR::bessI0(double x)
 {

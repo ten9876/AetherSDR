@@ -1,5 +1,7 @@
 #include "AppletPanel.h"
-#include "FloatingAppletWindow.h"
+#include "containers/ContainerManager.h"
+#include "containers/ContainerTitleBar.h"
+#include "containers/ContainerWidget.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "RxApplet.h"
@@ -10,7 +12,18 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
-#include "CatApplet.h"
+#include "ClientEqApplet.h"
+#include "ClientCompApplet.h"
+#include "ClientGateApplet.h"
+#include "ClientDeEssApplet.h"
+#include "ClientTubeApplet.h"
+#include "ClientPuduApplet.h"
+#include "ClientReverbApplet.h"
+#include "ClientChainApplet.h"
+#include "CatControlApplet.h"
+#include "DaxApplet.h"
+#include "TciApplet.h"
+#include "DaxIqApplet.h"
 #include "AntennaGeniusApplet.h"
 #include "MeterApplet.h"
 #ifdef HAVE_MQTT
@@ -40,100 +53,8 @@
 
 namespace AetherSDR {
 
-// Applet IDs like "P/CW" contain '/' which is invalid in XML element names.
-// Use this when forming AppSettings keys so the key is always safe to write.
-static QString floatKey(const QString& id)
-{
-    return QStringLiteral("FloatingApplet_%1_IsFloating").arg(QString(id).replace('/', '_'));
-}
-
 const QStringList AppletPanel::kDefaultOrder = {
-    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "DIGI", "MTR", "AG"
-};
-
-// ── Drag-handle title bar ───────────────────────────────────────────────────
-
-class AppletTitleBar : public QWidget {
-public:
-    AppletTitleBar(const QString& text, const QString& appletId,
-                   AppletPanel* panel = nullptr, QWidget* parent = nullptr)
-        : QWidget(parent), m_appletId(appletId), m_panel(panel)
-    {
-        setFixedHeight(16);
-        setCursor(Qt::OpenHandCursor);
-        setStyleSheet(
-            "QWidget { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-            "stop:0 #3a4a5a, stop:0.5 #2a3a4a, stop:1 #1a2a38); "
-            "border-bottom: 1px solid #0a1a28; }");
-
-        auto* layout = new QHBoxLayout(this);
-        layout->setContentsMargins(2, 0, 4, 0);
-        layout->setSpacing(4);
-
-        // Drag grip dots
-        auto* grip = new QLabel(QString::fromUtf8("\xe2\x8b\xae\xe2\x8b\xae"));  // ⋮⋮
-        grip->setStyleSheet("QLabel { background: transparent; color: #607080; font-size: 10px; }");
-        layout->addWidget(grip);
-
-        m_label = new QLabel(text);
-        m_label->setStyleSheet("QLabel { background: transparent; color: #8aa8c0; "
-                           "font-size: 10px; font-weight: bold; }");
-        layout->addWidget(m_label);
-        layout->addStretch();
-    }
-
-    const QString& appletId() const { return m_appletId; }
-    void setTitle(const QString& text) { m_label->setText(text); }
-
-protected:
-    void mousePressEvent(QMouseEvent* ev) override {
-        if (ev->button() == Qt::LeftButton)
-            m_dragStartPos = ev->pos();
-        QWidget::mousePressEvent(ev);
-    }
-
-    void mouseMoveEvent(QMouseEvent* ev) override {
-        if (!(ev->buttons() & Qt::LeftButton)) return;
-        if ((ev->pos() - m_dragStartPos).manhattanLength() < 10) return;
-
-        setCursor(Qt::ClosedHandCursor);
-        auto* drag = new QDrag(this);
-        auto* mimeData = new QMimeData;
-        mimeData->setData("application/x-aethersdr-applet", m_appletId.toUtf8());
-        drag->setMimeData(mimeData);
-
-        // Semi-transparent snapshot of this title bar as drag pixmap
-        QPixmap pixmap(size());
-        pixmap.fill(Qt::transparent);
-        render(&pixmap);
-        drag->setPixmap(pixmap);
-        drag->setHotSpot(ev->pos());
-
-        drag->exec(Qt::MoveAction);
-        setCursor(Qt::OpenHandCursor);
-    }
-
-    void contextMenuEvent(QContextMenuEvent* ev) override {
-        if (!m_panel) { return; }
-        bool isFloating = m_panel->isAppletFloating(m_appletId);
-        // Use popup() — no nested event loop
-        QMenu* menu = new QMenu(this);
-        menu->setAttribute(Qt::WA_DeleteOnClose);
-        QAction* act = menu->addAction(isFloating ? "\u21a9 Dock" : "\u2197 Pop out");
-        connect(act, &QAction::triggered, this, [this, isFloating]() {
-            if (isFloating)
-                m_panel->dockApplet(m_appletId);
-            else
-                m_panel->floatApplet(m_appletId);
-        });
-        menu->popup(ev->globalPos());
-    }
-
-private:
-    QString      m_appletId;
-    QPoint       m_dragStartPos;
-    QLabel*      m_label{nullptr};
-    AppletPanel* m_panel{nullptr};
+    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "TXDSP", "CAT", "DAX", "TCI", "IQ", "MTR", "AG"
 };
 
 // ── Drop-aware scroll area ──────────────────────────────────────────────────
@@ -163,11 +84,19 @@ protected:
         int indicatorY = 0;
         if (idx < m_panel->m_appletOrder.size()) {
             auto* w = m_panel->m_appletOrder[idx].titleBar;
-            if (w) indicatorY = w->mapTo(widget(), QPoint(0, 0)).y();
+            if (w) {
+                auto* cw = qobject_cast<ContainerWidget*>(m_panel->m_appletOrder[idx].widget);
+                if (!cw || !cw->isFloating())
+                    indicatorY = w->mapTo(widget(), QPoint(0, 0)).y();
+            }
         } else if (!m_panel->m_appletOrder.isEmpty()) {
             auto& last = m_panel->m_appletOrder.back();
             auto* w = last.widget;
-            if (w) indicatorY = w->mapTo(widget(), QPoint(0, w->height())).y();
+            if (w) {
+                auto* cw = qobject_cast<ContainerWidget*>(w);
+                if (!cw || !cw->isFloating())
+                    indicatorY = w->mapTo(widget(), QPoint(0, w->height())).y();
+            }
         }
         m_panel->m_dropIndicator->setParent(widget());
         m_panel->m_dropIndicator->setGeometry(4, indicatorY - 1, widget()->width() - 8, 2);
@@ -244,30 +173,30 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     btnLayout2->setSpacing(1);
     root->addWidget(btnRow2);
 
-    // ── S-Meter section (with title bar, toggled by ANLG button) ─────────────
-    m_sMeterSection = new QWidget;
-    auto* sMeterLayout = new QVBoxLayout(m_sMeterSection);
-    sMeterLayout->setContentsMargins(0, 0, 0, 0);
-    sMeterLayout->setSpacing(0);
+    // Phase 4a (#1713) — container system groundwork.  Created early
+    // so the S-Meter (and any future root-level containers) can wrap
+    // themselves here.  The root "sidebar" container is a hidden peer
+    // reserved for later phases; existing applets still live in the
+    // legacy m_stack alongside it.
+    m_containerMgr = new ContainerManager(this);
+    m_rootSidebar = m_containerMgr->createContainer("sidebar", "Sidebar");
+    m_rootSidebar->titleBar()->setCloseButtonVisible(false);
+    m_rootSidebar->hide();
 
-    auto* sMeterTitle = new AppletTitleBar("S-Meter", "VU", this);
-    sMeterLayout->addWidget(sMeterTitle);  // index 0
-
-    // Content container — the floatable part; mirrors the wrapper[1] convention
-    // used by all other applets so floatApplet("VU") can extract it the same way.
-    m_sMeterContent = new QWidget(m_sMeterSection);
-    auto* contentLayout = new QVBoxLayout(m_sMeterContent);
+    // ── S-Meter section (wrapped in a ContainerWidget like every
+    //    other applet — #1713 Phase 4d) ─────────────────────────────
+    auto* sMeterContent = new QWidget;
+    auto* contentLayout = new QVBoxLayout(sMeterContent);
     contentLayout->setContentsMargins(0, 0, 0, 0);
     contentLayout->setSpacing(0);
-    sMeterLayout->addWidget(m_sMeterContent);  // index 1
 
-    m_sMeter = new SMeterWidget(m_sMeterContent);
+    m_sMeter = new SMeterWidget(sMeterContent);
     m_sMeter->setAccessibleName("S-Meter");
     m_sMeter->setAccessibleDescription("Signal strength meter, shows S-units or TX power");
     contentLayout->addWidget(m_sMeter);
 
     // ── TX / RX meter select row ──────────────────────────────────────────
-    auto* selectRow = new QWidget(m_sMeterContent);
+    auto* selectRow = new QWidget(sMeterContent);
     auto* selectLayout = new QHBoxLayout(selectRow);
     selectLayout->setContentsMargins(4, 2, 4, 2);
     selectLayout->setSpacing(6);
@@ -333,7 +262,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     });
 
     // ── Peak hold line controls (#840) ────────────────────────────────────
-    auto* peakRow = new QWidget(m_sMeterContent);
+    auto* peakRow = new QWidget(sMeterContent);
     auto* peakLayout = new QHBoxLayout(peakRow);
     peakLayout->setContentsMargins(4, 2, 4, 2);
     peakLayout->setSpacing(6);
@@ -398,7 +327,27 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     });
     connect(resetBtn, &QPushButton::clicked, m_sMeter, &SMeterWidget::resetPeak);
 
-    root->addWidget(m_sMeterSection);
+    // One-shot migration: legacy Applet_ANLG visibility key → Applet_VU.
+    // Run before reading Applet_VU so the first launch after upgrade
+    // picks up the user's prior on/off state.
+    {
+        auto& s = AppSettings::instance();
+        if (!s.contains("Applet_VU") && s.contains("Applet_ANLG")) {
+            s.setValue("Applet_VU", s.value("Applet_ANLG", "True").toString());
+            s.remove("Applet_ANLG");
+        }
+    }
+
+    // Wrap the S-Meter content in a container and park it at the top
+    // of the sidebar (outside the reorderable applet stack).  The
+    // container's own titlebar provides drag/float/close; the VU
+    // tray button toggles its visibility.
+    m_sMeterContainer = m_containerMgr->createContainer("VU", "S-Meter");
+    m_sMeterContainer->setContent(sMeterContent);
+    const bool sMeterOn = AppSettings::instance()
+        .value("Applet_VU", "True").toString() == "True";
+    m_sMeterContainer->setContainerVisible(sMeterOn);
+    root->addWidget(m_sMeterContainer);
 
     // ── Scrollable applet stack (drop-aware) ────────────────────────────────
     m_scrollArea = new AppletDropArea(this);
@@ -421,6 +370,15 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_dropIndicator->hide();
 
     auto& settings = AppSettings::instance();
+
+    // Migrate Applet_DIGI → Applet_CAT on first run after the DIGI split (#1627).
+    // DAX/TCI/IQ default off regardless — only the CAT tile inherits the old
+    // DIGI visibility because the CAT button replaces DIGI's slot in the tray.
+    if (settings.contains("Applet_DIGI") && !settings.contains("Applet_CAT")) {
+        settings.setValue("Applet_CAT", settings.value("Applet_DIGI", "False").toString());
+        settings.remove("Applet_DIGI");
+        settings.save();
+    }
 
     // ── Build all applets with title bars ────────────────────────────────────
 
@@ -465,48 +423,78 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         QPoint m_dragStart;
     };
 
+    // Post-Phase-4c: each applet lives inside a ContainerWidget with
+    // its own ContainerTitleBar (drag handle + float + close buttons).
+    // `contentOrContainer` may be either the raw applet widget (we
+    // wrap it in a new leaf container) or an already-built
+    // ContainerWidget (used by composite tiles like TXDSP whose
+    // structure was built outside this helper) — qobject_cast picks
+    // the right path.
     auto makeEntry = [&](const QString& id, const QString& label,
-                         QWidget* applet, bool defaultOn,
+                         QWidget* contentOrContainer, bool defaultOn,
                          QWidget* rowParent, QHBoxLayout* rowLayout) -> AppletEntry {
-        auto* titleBar = new AppletTitleBar(label, id, this);
-        auto* wrapper = new QWidget;
-        auto* wl = new QVBoxLayout(wrapper);
-        wl->setContentsMargins(0, 0, 0, 0);
-        wl->setSpacing(0);
-        wl->addWidget(titleBar);
-        applet->show();
-        wl->addWidget(applet);
+        ContainerWidget* c =
+            qobject_cast<ContainerWidget*>(contentOrContainer);
+        if (!c) {
+            c = m_containerMgr->createContainer(id, label);
+            c->setContent(contentOrContainer);
+        }
 
-        auto* btn = new QPushButton(id, rowParent);
-        btn->setCheckable(true);
-        rowLayout->addWidget(btn);
+        QPushButton* btn = nullptr;
+        if (rowLayout) {
+            btn = new QPushButton(id, rowParent);
+            btn->setCheckable(true);
+            rowLayout->addWidget(btn);
+        }
 
         const QString key = QStringLiteral("Applet_%1").arg(id);
         bool on = settings.value(key, defaultOn ? "True" : "False").toString() == "True";
-        btn->setChecked(on);
-        wrapper->setVisible(on);
+        if (btn) btn->setChecked(on);
+        c->setContainerVisible(on);
 
-        connect(btn, &QPushButton::toggled, this, [this, id, wrapper, key](bool checked) {
-            // If the applet is floating, the toggle button raises/hides the
-            // floating window rather than showing/hiding the docked wrapper.
-            if (m_floatingWindows.contains(id)) {
-                if (checked) { m_floatingWindows[id]->showAndRestore(); }
-                else         { m_floatingWindows[id]->hideAndSave(); }
-                return;
-            }
-            // Re-float if the applet was floating before being toggled off (#959)
-            if (checked) {
-                const QString floatKey = AetherSDR::floatKey(id);
-                if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                    QTimer::singleShot(0, this, [this, id]() { floatApplet(id); });
+        // One-shot legacy-float migration: if the old
+        // FloatingApplet_<ID>_IsFloating key says this applet was
+        // floating before the container refactor, route it through
+        // the container manager so the float state carries over.
+        // The key is read once; the new ContainerManager persistence
+        // takes over from that point.
+        const QString legacyFloatKey =
+            QStringLiteral("FloatingApplet_%1_IsFloating").arg(id);
+        if (settings.value(legacyFloatKey, "False").toString() == "True" && on) {
+            QTimer::singleShot(0, this, [this, id]() {
+                if (m_containerMgr) m_containerMgr->floatContainer(id);
+            });
+        }
+
+        if (btn) {
+            connect(btn, &QPushButton::toggled, this,
+                    [this, id, c, key](bool checked) {
+                // Floating containers: raising = show the window,
+                // lowering = hide it.  The manager owns the window
+                // so we just toggle the container's visibility.
+                if (c->isFloating()) {
+                    if (auto* w = c->window())
+                        w->setVisible(checked);
                     return;
                 }
+                c->setContainerVisible(checked);
+                AppSettings::instance().setValue(key, checked ? "True" : "False");
+            });
+        }
+
+        // Propagate visibility changes (e.g. driven by the close
+        // button on the ContainerTitleBar) back to the tray toggle
+        // and settings so everything stays in sync.
+        connect(c, &ContainerWidget::visibilityChanged, this,
+                [this, btn, key](bool visible) {
+            if (btn) {
+                QSignalBlocker b(btn);
+                btn->setChecked(visible);
             }
-            wrapper->setVisible(checked);
-            AppSettings::instance().setValue(key, checked ? "True" : "False");
+            AppSettings::instance().setValue(key, visible ? "True" : "False");
         });
 
-        return {id, wrapper, titleBar, btn, false};
+        return {id, c, c->titleBar(), btn};
     };
 
     // Controls lock toggle — disables wheel/mouse on sidebar sliders (#745)
@@ -528,111 +516,76 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         });
     }
 
-    // ANLG / VU button — toggles the S-Meter section (not in the reorderable stack)
+    // VU button — toggles the S-Meter container (not in the
+    // reorderable stack; sits permanently at the top of the sidebar).
     {
-        auto* anlgBtn = new QPushButton("VU", btnRow1);
-        anlgBtn->setCheckable(true);
-        bool anlgOn = settings.value("Applet_ANLG", "True").toString() == "True";
-        anlgBtn->setChecked(anlgOn);
-        m_sMeterSection->setVisible(anlgOn);
-        btnLayout1->addWidget(anlgBtn);
-        connect(anlgBtn, &QPushButton::toggled, this, [this](bool on) {
-            // If currently floating, raise/hide the floating window instead of the panel section.
-            if (m_floatingWindows.contains("VU")) {
-                if (on) { m_floatingWindows["VU"]->showAndRestore(); }
-                else    { m_floatingWindows["VU"]->hideAndSave(); }
-                AppSettings::instance().setValue("Applet_ANLG", on ? "True" : "False");
+        m_vuBtn = new QPushButton("VU", btnRow1);
+        m_vuBtn->setCheckable(true);
+        m_vuBtn->setChecked(sMeterOn);
+        btnLayout1->addWidget(m_vuBtn);
+
+        connect(m_vuBtn, &QPushButton::toggled, this, [this](bool on) {
+            if (!m_sMeterContainer) return;
+            // When floating, toggle the floating window visibility
+            // instead of the (empty) panel slot.
+            if (m_sMeterContainer->isFloating()) {
+                if (auto* w = m_sMeterContainer->window())
+                    w->setVisible(on);
                 return;
             }
-            // If IsFloating is persisted but the window isn't open yet (e.g. toggled off
-            // then back on before the deferred floatApplet timer fired), re-float it.
-            if (on && AppSettings::instance().value(
-                    AetherSDR::floatKey("VU"), "False").toString() == "True") {
-                QTimer::singleShot(0, this, [this]() { floatApplet("VU"); });
-                AppSettings::instance().setValue("Applet_ANLG", "True");
-                return;
-            }
-            m_sMeterSection->setVisible(on);
-            AppSettings::instance().setValue("Applet_ANLG", on ? "True" : "False");
+            m_sMeterContainer->setContainerVisible(on);
+            AppSettings::instance().setValue(
+                "Applet_VU", on ? "True" : "False");
         });
+
+        // Keep the button in sync with close-button / external
+        // visibility changes.
+        connect(m_sMeterContainer, &ContainerWidget::visibilityChanged,
+                this, [this](bool visible) {
+            if (m_vuBtn) {
+                QSignalBlocker b(m_vuBtn);
+                m_vuBtn->setChecked(visible);
+            }
+            AppSettings::instance().setValue(
+                "Applet_VU", visible ? "True" : "False");
+        });
+
+        // Legacy float-state migration: if the user had the S-Meter
+        // popped out under the old FloatingAppletWindow path, carry
+        // that over to the container system on first launch.
+        if (sMeterOn && settings.value(
+                "FloatingApplet_VU_IsFloating", "False").toString() == "True") {
+            QTimer::singleShot(0, this, [this]() {
+                if (m_containerMgr) m_containerMgr->floatContainer("VU");
+            });
+        }
     }
 
     // Create all applets — row 1: core, row 2: accessories/conditional
     m_rxApplet = new RxApplet;
     m_appletOrder.append(makeEntry("RX", "RX Controls", m_rxApplet, true, btnRow1, btnLayout1));
 
+    // Tuner / Amp entries use makeEntry like everything else;
+    // MainWindow toggles tray-button visibility via setTunerVisible /
+    // setAmpVisible once the hardware reports its presence.  Until
+    // then the tray button stays hidden and the container itself
+    // starts hidden (defaultOn = false).
     m_tunerApplet = new TunerApplet;
     {
-        auto* titleBar = new AppletTitleBar("Tuner", "TUN", this);
-        auto* wrapper = new QWidget;
-        auto* wl = new QVBoxLayout(wrapper);
-        wl->setContentsMargins(0, 0, 0, 0);
-        wl->setSpacing(0);
-        wl->addWidget(titleBar);
-        m_tunerApplet->show();
-        wl->addWidget(m_tunerApplet);
-
-        m_tuneBtn = new QPushButton("TUN", btnRow2);
-        m_tuneBtn->setCheckable(true);
-        m_tuneBtn->hide();
-        btnLayout2->addWidget(m_tuneBtn);
-        wrapper->hide();
-        connect(m_tuneBtn, &QPushButton::toggled, this, [this, wrapper](bool checked) {
-            if (m_floatingWindows.contains("TUN")) {
-                if (checked) { m_floatingWindows["TUN"]->showAndRestore(); }
-                else         { m_floatingWindows["TUN"]->hideAndSave(); }
-                AppSettings::instance().setValue("Applet_TUN", checked ? "True" : "False");
-                return;
-            }
-            if (checked) {
-                const QString floatKey = QStringLiteral("FloatingApplet_TUN_IsFloating");
-                if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                    QTimer::singleShot(0, this, [this]() { floatApplet("TUN"); });
-                    AppSettings::instance().setValue("Applet_TUN", "True");
-                    return;
-                }
-            }
-            wrapper->setVisible(checked);
-            AppSettings::instance().setValue("Applet_TUN", checked ? "True" : "False");
-        });
-        m_appletOrder.append({"TUN", wrapper, titleBar, m_tuneBtn});
+        auto entry = makeEntry("TUN", "Tuner", m_tunerApplet, false,
+                               btnRow1, btnLayout1);
+        m_tuneBtn = entry.btn;
+        if (m_tuneBtn) m_tuneBtn->hide();
+        m_appletOrder.append(entry);
     }
 
     m_ampApplet = new AmpApplet;
     {
-        auto* titleBar = new AppletTitleBar("Amplifier", "AMP", this);
-        auto* wrapper = new QWidget;
-        auto* wl = new QVBoxLayout(wrapper);
-        wl->setContentsMargins(0, 0, 0, 0);
-        wl->setSpacing(0);
-        wl->addWidget(titleBar);
-        m_ampApplet->show();
-        wl->addWidget(m_ampApplet);
-
-        m_ampBtn = new QPushButton("AMP", btnRow2);
-        m_ampBtn->setCheckable(true);
-        m_ampBtn->hide();
-        btnLayout2->addWidget(m_ampBtn);
-        wrapper->hide();
-        connect(m_ampBtn, &QPushButton::toggled, this, [this, wrapper](bool checked) {
-            if (m_floatingWindows.contains("AMP")) {
-                if (checked) { m_floatingWindows["AMP"]->showAndRestore(); }
-                else         { m_floatingWindows["AMP"]->hideAndSave(); }
-                AppSettings::instance().setValue("Applet_AMP", checked ? "True" : "False");
-                return;
-            }
-            if (checked) {
-                const QString floatKey = QStringLiteral("FloatingApplet_AMP_IsFloating");
-                if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                    QTimer::singleShot(0, this, [this]() { floatApplet("AMP"); });
-                    AppSettings::instance().setValue("Applet_AMP", "True");
-                    return;
-                }
-            }
-            wrapper->setVisible(checked);
-            AppSettings::instance().setValue("Applet_AMP", checked ? "True" : "False");
-        });
-        m_appletOrder.append({"AMP", wrapper, titleBar, m_ampBtn});
+        auto entry = makeEntry("AMP", "Amplifier", m_ampApplet, false,
+                               btnRow1, btnLayout1);
+        m_ampBtn = entry.btn;
+        if (m_ampBtn) m_ampBtn->hide();
+        m_appletOrder.append(entry);
     }
 
     m_txApplet = new TxApplet;
@@ -647,47 +600,97 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_eqApplet = new EqApplet;
     m_appletOrder.append(makeEntry("EQ", "Equalizer", m_eqApplet, true, btnRow1, btnLayout1));
 
-    m_catApplet = new CatApplet;
-    m_appletOrder.append(makeEntry("DIGI", "Digital Mode Controls", m_catApplet, false, btnRow2, btnLayout2));
+    // CEQ and CMP intentionally have no toggle button in the tray —
+    // their visibility follows DSP bypass state, driven externally
+    // from the CHAIN widget and the respective floating editors.
+    // TX DSP applets — instead of three independent AppletEntries,
+    // we wrap them inside a single nested container (#1713 Phase 5).
+    // Each applet becomes the content of its own sub-ContainerWidget
+    // with a ContainerTitleBar offering per-section float / close;
+    // the three sub-containers live inside a parent "tx_dsp"
+    // container whose own titlebar is hidden (the outer AppletEntry
+    // wrapper provides the group's drag-handle + tray-toggle).
+    m_clientEqApplet    = new ClientEqApplet;
+    m_clientCompApplet  = new ClientCompApplet;
+    m_clientGateApplet  = new ClientGateApplet;
+    m_clientDeEssApplet = new ClientDeEssApplet;
+    m_clientTubeApplet  = new ClientTubeApplet;
+    m_clientPuduApplet  = new ClientPuduApplet;
+    m_clientReverbApplet = new ClientReverbApplet;
+    m_clientChainApplet = new ClientChainApplet;
+
+    auto* txDsp = m_containerMgr->createContainer(
+        "tx_dsp", QString::fromUtf8("PooDoo\xe2\x84\xa2 Audio"));
+
+    auto makeChildContainer = [this, txDsp](const QString& id,
+                                            const QString& title,
+                                            QWidget* applet,
+                                            int index) {
+        auto* child = m_containerMgr->createContainer(
+            id, title, /*contentType=*/{}, /*parentId=*/"tx_dsp", index);
+        if (child) child->setContent(applet);
+        return child;
+    };
+    // CHAIN lives directly inside the TX DSP container body — no
+    // sub-titlebar, no independent pop-out.  Floating the TX DSP
+    // parent carries CHAIN along with it.  (CEQ and CMP remain as
+    // pop-outable sub-containers since users commonly want them
+    // floating while working on the chain.)
+    if (txDsp) txDsp->insertChildWidget(-1, m_clientChainApplet);
+    makeChildContainer("gate",  "GATE",  m_clientGateApplet,   -1);
+    makeChildContainer("ceq",   "CEQ",   m_clientEqApplet,     -1);
+    makeChildContainer("dess",  "DESS",  m_clientDeEssApplet,  -1);
+    makeChildContainer("cmp",   "COMPRESSOR",   m_clientCompApplet,   -1);
+    makeChildContainer("tube",  "TUBE",  m_clientTubeApplet,   -1);
+    makeChildContainer("pudu",  "PUDU",  m_clientPuduApplet,   -1);
+    makeChildContainer("reverb","REVERB",m_clientReverbApplet, -1);
+
+    // One-shot settings migration (#1713 Phase 4b): carry over the
+    // legacy Applet_CHAIN visibility to the new Applet_TXDSP key so
+    // existing users who had the chain tile showing don't have to
+    // re-enable it.  Run once — only fills TXDSP when it's absent.
+    if (!settings.contains("Applet_TXDSP")
+        && settings.contains("Applet_CHAIN")) {
+        settings.setValue(
+            "Applet_TXDSP",
+            settings.value("Applet_CHAIN", "False").toString());
+    }
+
+    // Register the composite tx_dsp container as one tile in the
+    // applet tray — users toggle it, drag it, and pop it out as a
+    // unit.  Individual section pop-outs happen via each sub-
+    // container's own titlebar inside.  Button label is "PUDU" —
+    // matches the exciter stage name and the PooDoo™ Audio brand.
+    // Settings ID stays TXDSP for persistence.
+    {
+        auto entry = makeEntry("TXDSP", "PUDU", txDsp, false,
+                               btnRow2, btnLayout2);
+        if (entry.btn) entry.btn->setText("PUDU");
+        m_appletOrder.append(entry);
+    }
+
+    m_catControlApplet = new CatControlApplet;
+    m_appletOrder.append(makeEntry("CAT", "CAT Control", m_catControlApplet, false, btnRow2, btnLayout2));
+
+    m_daxApplet = new DaxApplet;
+    m_appletOrder.append(makeEntry("DAX", "DAX Audio", m_daxApplet, false, btnRow2, btnLayout2));
+
+    m_tciApplet = new TciApplet;
+    m_appletOrder.append(makeEntry("TCI", "TCI Server", m_tciApplet, false, btnRow2, btnLayout2));
+
+    m_daxIqApplet = new DaxIqApplet;
+    m_appletOrder.append(makeEntry("IQ", "DAX IQ", m_daxIqApplet, false, btnRow2, btnLayout2));
 
     m_meterApplet = new MeterApplet;
     m_appletOrder.append(makeEntry("MTR", "Meters", m_meterApplet, false, btnRow2, btnLayout2));
 
     m_agApplet = new AntennaGeniusApplet;
     {
-        auto* wrapper = new QWidget;
-        auto* wl = new QVBoxLayout(wrapper);
-        wl->setContentsMargins(0, 0, 0, 0);
-        wl->setSpacing(0);
-        auto* titleBar = new AppletTitleBar("Antenna Genius", "AG", this);
-        wl->addWidget(titleBar);
-        m_agApplet->show();
-        wl->addWidget(m_agApplet);
-
-        m_agBtn = new QPushButton("AG", btnRow2);
-        m_agBtn->setCheckable(true);
-        m_agBtn->hide();
-        btnLayout2->addWidget(m_agBtn);
-        wrapper->hide();
-        connect(m_agBtn, &QPushButton::toggled, this, [this, wrapper](bool checked) {
-            if (m_floatingWindows.contains("AG")) {
-                if (checked) { m_floatingWindows["AG"]->showAndRestore(); }
-                else         { m_floatingWindows["AG"]->hideAndSave(); }
-                AppSettings::instance().setValue("Applet_AG", checked ? "True" : "False");
-                return;
-            }
-            if (checked) {
-                const QString floatKey = QStringLiteral("FloatingApplet_AG_IsFloating");
-                if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                    QTimer::singleShot(0, this, [this]() { floatApplet("AG"); });
-                    AppSettings::instance().setValue("Applet_AG", "True");
-                    return;
-                }
-            }
-            wrapper->setVisible(checked);
-            AppSettings::instance().setValue("Applet_AG", checked ? "True" : "False");
-        });
-        m_appletOrder.append({"AG", wrapper, titleBar, m_agBtn});
+        auto entry = makeEntry("AG", "Antenna Genius", m_agApplet, false,
+                               btnRow2, btnLayout2);
+        m_agBtn = entry.btn;
+        if (m_agBtn) m_agBtn->hide();
+        m_appletOrder.append(entry);
     }
 
 #ifdef HAVE_MQTT
@@ -719,20 +722,9 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
     rebuildStackOrder();
 
-    // ── Restore floating state ──────────────────────────────────────────────
-    for (auto& entry : m_appletOrder) {
-        const QString floatKey = AetherSDR::floatKey(entry.id);
-        if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-            // Use QTimer::singleShot so the window system is ready before showing
-            QTimer::singleShot(0, this, [this, id = entry.id]() { floatApplet(id); });
-        }
-    }
-
-    // Restore S-Meter (VU) floating state — not in m_appletOrder, restored separately.
-    if (AppSettings::instance().value(AetherSDR::floatKey("VU"), "False").toString() == "True") {
-        QTimer::singleShot(0, this, [this]() { floatApplet("VU"); });
-    }
-
+    // Float-state restore for individual applets happens per-entry in
+    // makeEntry via the legacy FloatingApplet_<id>_IsFloating migration;
+    // no separate loop needed.
 }
 
 void AppletPanel::rebuildStackOrder()
@@ -742,9 +734,12 @@ void AppletPanel::rebuildStackOrder()
         auto* item = m_stack->takeAt(0);
         delete item;  // deletes the layout item, NOT the widget
     }
-    // Re-add in current order
-    for (const auto& entry : m_appletOrder)
+    // Re-add in current order (skip floating containers to avoid stealing them)
+    for (const auto& entry : m_appletOrder) {
+        if (auto* cw = qobject_cast<ContainerWidget*>(entry.widget); cw && cw->isFloating())
+            continue;
         m_stack->addWidget(entry.widget);
+    }
     m_stack->addStretch();
 }
 
@@ -755,6 +750,35 @@ void AppletPanel::saveOrder()
         ids.append(entry.id);
     AppSettings::instance().setValue("AppletOrder", ids.join(","));
     AppSettings::instance().save();
+}
+
+void AppletPanel::setAppletVisible(const QString& id, bool visible)
+{
+    for (const auto& entry : m_appletOrder) {
+        if (entry.id != id) continue;
+        if (auto* c = qobject_cast<ContainerWidget*>(entry.widget)) {
+            c->setContainerVisible(visible);
+        } else if (entry.widget) {
+            entry.widget->setVisible(visible);
+        }
+        if (entry.btn) {
+            QSignalBlocker b(entry.btn);
+            entry.btn->setChecked(visible);
+        }
+        return;
+    }
+
+    // Fall through to the container manager — some applets
+    // (CEQ, CMP, CHAIN since #1713 Phase 4b) live as sub-containers
+    // inside a composite tile rather than as standalone AppletEntry
+    // instances, so the legacy id lookup misses them.  Try case-
+    // insensitively since MainWindow calls use upper-case while the
+    // container IDs are lower-case.
+    if (m_containerMgr) {
+        if (auto* c = m_containerMgr->container(id.toLower())) {
+            c->setContainerVisible(visible);
+        }
+    }
 }
 
 void AppletPanel::resetOrder()
@@ -783,94 +807,50 @@ int AppletPanel::dropIndexFromY(int localY) const
     for (int i = 0; i < m_appletOrder.size(); ++i) {
         auto* w = m_appletOrder[i].widget;
         if (!w) continue;
+        if (auto* cw = qobject_cast<ContainerWidget*>(w); cw && cw->isFloating()) continue;
         int mid = w->mapTo(m_scrollArea->widget(), QPoint(0, w->height() / 2)).y();
         if (localY > mid) idx = i + 1;
     }
     return idx;
 }
 
+// Conditional-presence setters for hardware-dependent tiles (tuner,
+// amplifier, Antenna Genius).  MainWindow calls these when the
+// corresponding device is discovered / lost; the tray button shows
+// and the container becomes available.  Float state is restored
+// automatically by the one-shot legacy migration in makeEntry.
+
+static void applyConditionalPresence(QPushButton* btn,
+                                     const QString& appletKey,
+                                     bool visible)
+{
+    if (!btn) return;
+    if (visible) {
+        btn->show();
+        const bool savedOn =
+            AppSettings::instance().value(appletKey, "True").toString() == "True";
+        if (savedOn && !btn->isChecked()) btn->setChecked(true);
+    } else {
+        // Preserve the checked state in settings before we flip it off,
+        // so a later reconnect restores the user's preference.
+        btn->setChecked(false);
+        btn->hide();
+    }
+}
+
 void AppletPanel::setTunerVisible(bool visible)
 {
-    if (visible) {
-        m_tuneBtn->show();
-        // Honor the user's saved checked state; default true on first detection.
-        const bool savedOn =
-            AppSettings::instance().value("Applet_TUN", "True").toString() == "True";
-        if (savedOn && !m_tuneBtn->isChecked()) { m_tuneBtn->setChecked(true); }
-        // Device reconnected — re-show floating window if it still exists,
-        // or re-float based on persisted IsFloating flag (#959)
-        if (m_floatingWindows.contains("TUN")) {
-            m_floatingWindows["TUN"]->showAndRestore();
-        } else {
-            const QString floatKey = QStringLiteral("FloatingApplet_TUN_IsFloating");
-            if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                QTimer::singleShot(0, this, [this]() { floatApplet("TUN"); });
-            }
-        }
-    } else {
-        // Device disappeared — hide floating window but preserve IsFloating
-        // so it can be restored on reconnect. Do NOT call dockApplet() here
-        // as that would reset IsFloating = False and lose the float state.
-        if (m_floatingWindows.contains("TUN")) { m_floatingWindows["TUN"]->hideAndSave(); }
-        m_tuneBtn->setChecked(false);
-        m_tuneBtn->hide();
-    }
+    applyConditionalPresence(m_tuneBtn, "Applet_TUN", visible);
 }
 
 void AppletPanel::setAmpVisible(bool visible)
 {
-    if (visible) {
-        m_ampBtn->show();
-        // Honor the user's saved checked state; default true on first detection.
-        const bool savedOn =
-            AppSettings::instance().value("Applet_AMP", "True").toString() == "True";
-        if (savedOn && !m_ampBtn->isChecked()) { m_ampBtn->setChecked(true); }
-        if (m_floatingWindows.contains("AMP")) {
-            m_floatingWindows["AMP"]->showAndRestore();
-        } else {
-            const QString floatKey = QStringLiteral("FloatingApplet_AMP_IsFloating");
-            if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                QTimer::singleShot(0, this, [this]() { floatApplet("AMP"); });
-            }
-        }
-    } else {
-        if (m_floatingWindows.contains("AMP")) { m_floatingWindows["AMP"]->hideAndSave(); }
-        m_ampBtn->setChecked(false);
-        m_ampBtn->hide();
-    }
+    applyConditionalPresence(m_ampBtn, "Applet_AMP", visible);
 }
 
 void AppletPanel::setAgVisible(bool visible)
 {
-    if (visible) {
-        m_agBtn->show();
-        // Honor the user's saved checked state; default true on first detection.
-        const bool savedOn =
-            AppSettings::instance().value("Applet_AG", "True").toString() == "True";
-        if (savedOn && !m_agBtn->isChecked()) { m_agBtn->setChecked(true); }
-        if (m_floatingWindows.contains("AG")) {
-            m_floatingWindows["AG"]->showAndRestore();
-        } else {
-            const QString floatKey = QStringLiteral("FloatingApplet_AG_IsFloating");
-            if (AppSettings::instance().value(floatKey, "False").toString() == "True") {
-                QTimer::singleShot(0, this, [this]() { floatApplet("AG"); });
-            }
-        }
-    } else {
-        if (m_floatingWindows.contains("AG")) { m_floatingWindows["AG"]->hideAndSave(); }
-        m_agBtn->setChecked(false);
-        m_agBtn->hide();
-    }
-}
-
-bool AppletPanel::isAppletFloating(const QString& id) const
-{
-    // VU (S-Meter) is not in m_appletOrder; check the floating windows map directly.
-    if (id == "VU") { return m_floatingWindows.contains("VU"); }
-    for (const AppletEntry& e : m_appletOrder) {
-        if (e.id == id) { return e.floating; }
-    }
-    return false;
+    applyConditionalPresence(m_agBtn, "Applet_AG", visible);
 }
 
 bool AppletPanel::controlsLocked() const
@@ -911,175 +891,44 @@ void AppletPanel::updateSliceButtons(const QList<SliceModel*>& slices, int activ
     m_rxApplet->updateSliceButtons(slices, activeSliceId);
 }
 
-void AppletPanel::floatSMeter()
+void AppletPanel::setTxDspChainOrder(
+    const QVector<AudioEngine::TxChainStage>& stages)
 {
-    if (m_floatingWindows.contains("VU")) { return; }
+    if (!m_containerMgr) return;
+    auto* parent = m_containerMgr->container("tx_dsp");
+    if (!parent) return;
 
-    // Extract content from m_sMeterSection (index 1, after the title bar) — mirrors
-    // the same wrapper[0]=titleBar / wrapper[1]=content convention used by all other applets.
-    QWidget* appletWidget = nullptr;
-    if (auto* wl = qobject_cast<QVBoxLayout*>(m_sMeterSection->layout())) {
-        if (wl->count() >= 2) {
-            if (auto* item = wl->itemAt(1)) appletWidget = item->widget();
+    // Map enum → child-container id.  Stages not present in the chain
+    // are ignored (they stay wherever they currently sit; their tiles
+    // should have been hidden via stageEnabledChanged anyway).
+    auto idFor = [](AudioEngine::TxChainStage s) -> QString {
+        switch (s) {
+            case AudioEngine::TxChainStage::Gate:   return "gate";
+            case AudioEngine::TxChainStage::Eq:     return "ceq";
+            case AudioEngine::TxChainStage::DeEss:  return "dess";
+            case AudioEngine::TxChainStage::Comp:   return "cmp";
+            case AudioEngine::TxChainStage::Tube:   return "tube";
+            case AudioEngine::TxChainStage::Enh:    return "pudu";
+            case AudioEngine::TxChainStage::Reverb: return "reverb";
+            case AudioEngine::TxChainStage::None:   return {};
         }
+        return {};
+    };
+
+    // Pluck each ordered child out of its current position and re-
+    // insert at the end.  Walking the list in chain order rebuilds the
+    // parent body in the desired order without touching CHAIN itself —
+    // CHAIN lives at index 0 and isn't in the ordered set, so it stays
+    // put as the earlier siblings migrate to the end around it.
+    for (auto s : stages) {
+        const QString id = idFor(s);
+        if (id.isEmpty()) continue;
+        auto* child = m_containerMgr->container(id);
+        if (!child) continue;
+        parent->removeChildWidget(child);
+        parent->insertChildWidget(-1, child);
     }
-    if (!appletWidget) { return; }
-
-    appletWidget->setParent(nullptr);
-
-    auto* win = new FloatingAppletWindow("VU", "S-Meter", appletWidget, this);
-    m_floatingWindows["VU"] = win;
-
-    connect(win, &FloatingAppletWindow::dockRequested, this, &AppletPanel::dockApplet);
-
-    win->showAndRestore();
-    m_sMeterSection->hide();
-
-    AppSettings::instance().setValue(AetherSDR::floatKey("VU"), "True");
-    AppSettings::instance().save();
 }
 
-void AppletPanel::dockSMeter()
-{
-    if (!m_floatingWindows.contains("VU")) { return; }
-
-    FloatingAppletWindow* win = m_floatingWindows.take("VU");
-
-    // m_sMeterContent is a named member — use it directly rather than walking
-    // the floating window's internal layout. Reparent before deleteLater() so
-    // Qt's parent-chain destruction cannot reach m_sMeterContent or its children.
-    if (auto* wl = qobject_cast<QVBoxLayout*>(m_sMeterSection->layout())) {
-        m_sMeterContent->setParent(m_sMeterSection);
-        wl->addWidget(m_sMeterContent);
-        m_sMeterContent->show();
-    }
-
-    if (win) { win->hideAndSave(); win->deleteLater(); }
-    m_sMeterSection->show();
-
-    AppSettings::instance().setValue(AetherSDR::floatKey("VU"), "False");
-    AppSettings::instance().save();
-}
-
-void AppletPanel::floatApplet(const QString& id)
-{
-    // S-Meter (VU) is not in m_appletOrder — handle via dedicated method.
-    if (id == "VU") { floatSMeter(); return; }
-
-    // Find the entry
-    int idx = -1;
-    for (int i = 0; i < m_appletOrder.size(); ++i) {
-        if (m_appletOrder[i].id == id) { idx = i; break; }
-    }
-    if (idx < 0 || m_appletOrder[idx].floating) { return; }
-
-    AppletEntry& entry = m_appletOrder[idx];
-
-    // The actual applet widget is the second item in the wrapper's layout
-    // (index 0 = AppletTitleBar, index 1 = applet content)
-    QWidget* appletWidget = nullptr;
-    if (auto* wl = qobject_cast<QVBoxLayout*>(entry.widget->layout())) {
-        if (wl->count() >= 2) {
-            if (auto* item = wl->itemAt(1)) appletWidget = item->widget();
-        }
-    }
-    if (!appletWidget) { return; }
-
-    // Find the human-readable title from the title bar label
-    QString title = id;
-    if (auto* tb = static_cast<AppletTitleBar*>(entry.titleBar))
-        title = tb->findChild<QLabel*>() ? tb->findChildren<QLabel*>().last()->text() : id;
-
-    // Reparent applet out of wrapper into floating window
-    appletWidget->setParent(nullptr);
-
-    // Pass 'this' as parent so Qt treats the window as a tool window owned
-    // by AppletPanel — Qt's shouldQuit() then correctly ignores tool windows
-    // when deciding whether to keep the event loop alive.
-    auto* win = new FloatingAppletWindow(id, title, appletWidget, this);
-    m_floatingWindows[id] = win;
-    entry.floating = true;
-
-    connect(win, &FloatingAppletWindow::dockRequested,
-            this, &AppletPanel::dockApplet);
-
-    // show() first, then restore geometry after a short delay. The window
-    // manager / compositor must map the window before position hints are
-    // respected. QWidget::restoreGeometry() encodes screen identity so the
-    // window returns to the correct monitor on X11 / XCB.
-    // Note: Wayland compositors control window placement and ignore app-set
-    // positions. On WSL2 (WSLg/Wayland), set QT_QPA_PLATFORM=xcb to get
-    // X11 behaviour via XWayland.
-    win->showAndRestore();
-
-    // Hide wrapper in panel (keeps toggle button state as-is)
-    entry.widget->hide();
-
-    // Persist floating state
-    AppSettings::instance().setValue(
-        AetherSDR::floatKey(id), "True");
-    AppSettings::instance().save();
-}
-
-void AppletPanel::dockApplet(const QString& id)
-{
-    // S-Meter (VU) is not in m_appletOrder — handle via dedicated method.
-    if (id == "VU") { dockSMeter(); return; }
-
-    if (!m_floatingWindows.contains(id)) { return; }
-
-    int idx = -1;
-    for (int i = 0; i < m_appletOrder.size(); ++i) {
-        if (m_appletOrder[i].id == id) { idx = i; break; }
-    }
-    if (idx < 0) { return; }
-
-    AppletEntry& entry = m_appletOrder[idx];
-    FloatingAppletWindow* win = m_floatingWindows.value(id);
-
-    // Retrieve the applet widget from the floating window's layout
-    QWidget* appletWidget = nullptr;
-    if (win && win->layout() && win->layout()->count() >= 2) {
-        // root QVBoxLayout: 0=titleBar widget, 1=m_contentLayout (QLayout)
-        if (auto* rootLayout = qobject_cast<QVBoxLayout*>(win->layout())) {
-            if (auto* contentItem = rootLayout->itemAt(1)) {
-                if (auto* contentLayout = contentItem->layout()) {
-                    if (contentLayout->count() > 0) {
-                        if (auto* item = contentLayout->itemAt(0))
-                            appletWidget = item->widget();
-                    }
-                }
-            }
-        }
-    }
-
-    if (appletWidget) {
-        // Re-insert applet widget back into wrapper layout (position 1, after title bar)
-        if (auto* wl = qobject_cast<QVBoxLayout*>(entry.widget->layout())) {
-            appletWidget->setParent(entry.widget);
-            wl->addWidget(appletWidget);
-            appletWidget->show();
-        }
-    }
-
-    // Stop the debounce timer and save geometry before destroying the window.
-    // hideAndSave() does this atomically so a pending timer callback cannot
-    // fire saveGeometry() on the already-hidden window with a stale pos().
-    if (win) {
-        win->hideAndSave();
-        win->deleteLater();
-    }
-    m_floatingWindows.remove(id);
-    entry.floating = false;
-
-    // Show wrapper only if the toggle button is checked
-    if (entry.btn && entry.btn->isChecked())
-        entry.widget->show();
-
-    // Persist floating state
-    AppSettings::instance().setValue(
-        AetherSDR::floatKey(id), "False");
-    AppSettings::instance().save();
-}
 
 } // namespace AetherSDR

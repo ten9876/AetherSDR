@@ -10,12 +10,14 @@
 #include <QComboBox>
 #include <QCheckBox>
 #include <QLineEdit>
-#include <QTcpSocket>
+#include <QButtonGroup>
+#include <QCommandLinkButton>
+#include <QStackedWidget>
+#include <QToolButton>
 
 namespace AetherSDR {
 
-// Floating panel that shows discovered radios, SmartLink, and manual connection.
-// Displayed as a popup anchored to the station label in the status bar.
+// Novice-first dialog for local, SmartLink, and manual/VPN radio connections.
 class ConnectionPanel : public QWidget {
     Q_OBJECT
 
@@ -43,47 +45,88 @@ signals:
     void wanConnectRequested(const WanRadioInfo& radio);
     void disconnectRequested();
     void routedRadioFound(const RadioInfo& radio);
+    void retryDiscoveryRequested();
+    void networkDiagnosticsRequested();
     void smartLinkLoginRequested(const QString& email, const QString& password);
 
 private slots:
-    void onConnectClicked();
+    void onConnectionModeClicked(int id);
     void onListSelectionChanged();
+    void onWanSelectionChanged();
+    void onLocalConnectClicked();
+    void onWanConnectClicked();
     void onManualIpChanged(const QString& ip);
+    void onManualConnectClicked();
+    void onManualAdvancedToggled(bool checked);
 
 private:
+    enum ConnectionMode {
+        LocalMode = 0,
+        SmartLinkMode = 1,
+        ManualMode = 2
+    };
+
+    void setCurrentMode(ConnectionMode mode);
+    void updateLocalPageState();
+    void updateSmartLinkUi();
+    void updateActionState();
+    void updateLowBandwidthVisibility();
+    void updateManualAdvancedVisibility();
     void refreshManualSourceOptions(const RadioBindSettings* selected = nullptr);
     void applySavedSourceSelection(const QString& ip);
     RadioBindSettings currentManualBindSettings(bool* staleSelection = nullptr) const;
     void saveManualProfile(const QString& targetIp,
                            const RadioBindSettings& settings,
                            const QHostAddress& lastSuccessfulLocalIp);
+    void saveLowBandwidthPreference(bool enabled);
+    void setManualMessage(const QString& text, bool error = false);
+    QString formatLocalRadioLabel(const RadioInfo& radio) const;
+    QString formatWanRadioLabel(const WanRadioInfo& radio) const;
 
-    QListWidget* m_radioList;
-    QPushButton* m_connectBtn;
-    QCheckBox*   m_lowBwCheck;
+    QButtonGroup* m_modeButtons{nullptr};
+    QStackedWidget* m_modeStack{nullptr};
+    QCommandLinkButton* m_localModeBtn{nullptr};
+    QCommandLinkButton* m_smartLinkModeBtn{nullptr};
+    QCommandLinkButton* m_manualModeBtn{nullptr};
+
     QLabel*      m_statusLabel;
-    QWidget*     m_radioGroup;       // "Discovered Radios" group box
+    QPushButton* m_disconnectBtn{nullptr};
 
-    QList<RadioInfo> m_radios;   // mirror of what's in the list
+    QListWidget* m_radioList{nullptr};
+    QStackedWidget* m_localStateStack{nullptr};
+    QWidget* m_localEmptyState{nullptr};
+    QPushButton* m_localConnectBtn{nullptr};
+
+    QList<RadioInfo> m_radios;   // LAN radios only
     bool m_connected{false};
 
     // SmartLink UI
     SmartLinkClient* m_smartLink{nullptr};
-    QWidget*     m_smartLinkGroup{nullptr};
     QWidget*     m_loginForm{nullptr};
     QLineEdit*   m_emailEdit{nullptr};
     QLineEdit*   m_passwordEdit{nullptr};
     QPushButton* m_loginBtn{nullptr};
+    QPushButton* m_logoutBtn{nullptr};
     QLabel*      m_slUserLabel{nullptr};
+    QListWidget* m_wanList{nullptr};
+    QLabel*      m_smartLinkEmptyLabel{nullptr};
+    QPushButton* m_wanConnectBtn{nullptr};
     QList<WanRadioInfo> m_wanRadios;
 
-    // Manual (routed) connection
-    QWidget*     m_manualGroup{nullptr};
+    // Manual (VPN / routed) connection
     QLineEdit*   m_manualIpEdit{nullptr};
+    QLabel*      m_manualResultLabel{nullptr};
+    QToolButton* m_manualAdvancedToggle{nullptr};
+    QWidget*     m_manualAdvancedWidget{nullptr};
     QComboBox*   m_manualSourceCombo{nullptr};
     QLabel*      m_manualSourceWarningLabel{nullptr};
-    QPushButton* m_manualProbeBtn{nullptr};
+    QPushButton* m_manualConnectBtn{nullptr};
     QString      m_manualProfileIp;
+    bool         m_manualConnectPending{false};
+
+    QWidget*     m_linkOptionsWidget{nullptr};
+    QLabel*      m_lowBwHintLabel{nullptr};
+    QCheckBox*   m_lowBwCheck{nullptr};
 };
 
 } // namespace AetherSDR

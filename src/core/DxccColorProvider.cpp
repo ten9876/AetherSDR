@@ -1,6 +1,7 @@
 #include "DxccColorProvider.h"
 #include "AdifParser.h"
 
+#include <QFileInfo>
 #include <QMetaObject>
 
 namespace AetherSDR {
@@ -9,26 +10,58 @@ DxccColorProvider::DxccColorProvider(QObject* parent)
     : QObject(parent)
 {
     m_parser = new AdifParser;
+    m_parser->setCtyParser(&m_ctyParser);
     m_parser->moveToThread(&m_parseThread);
     connect(m_parser, &AdifParser::finished,
             this,     &DxccColorProvider::onParseFinished,
             Qt::QueuedConnection);
+    connect(m_parser, &AdifParser::openFailed,
+            this,     &DxccColorProvider::onParseFailed,
+            Qt::QueuedConnection);
     m_parseThread.start();
 
-    // Debounce timer: fires 2 seconds after the last file-changed notification
+    // Debounce timer: fires 2 seconds after the last file-changed notification.
+    // Re-adding the path here (rather than in fileChanged) ensures we register
+    // the *new* inode when a logger atomically replaces the file via rename —
+    // by the time the 2-second window expires the replacement file is present.
     m_debounceTimer.setSingleShot(true);
     m_debounceTimer.setInterval(2000);
     connect(&m_debounceTimer, &QTimer::timeout, this, [this]() {
-        if (!m_watchedPath.isEmpty())
-            importAdifFile(m_watchedPath);
+        if (m_watchedPath.isEmpty()) return;
+        // If the file no longer exists (deleted, not just locked), don't attempt
+        // a parse — the directory watcher will re-arm us when it reappears.
+        if (!QFileInfo::exists(m_watchedPath)) return;
+        // Re-arm: atomic file replacement (temp→final rename) changes the inode
+        // so the watcher loses the file.  Add the path again before importing
+        // so subsequent changes to the newly-written file are also caught.
+        if (!m_fileWatcher.files().contains(m_watchedPath))
+            m_fileWatcher.addPath(m_watchedPath);
+        importAdifFile(m_watchedPath);
     });
 
     connect(&m_fileWatcher, &QFileSystemWatcher::fileChanged,
             this, [this](const QString&) {
-        // Re-add the path: some editors replace the file (inode changes)
-        if (!m_watchedPath.isEmpty() && !m_fileWatcher.files().contains(m_watchedPath))
+        // Just (re)start the debounce window.  Path re-registration happens in
+        // the timeout handler once the replacement file is guaranteed present.
+        m_debounceTimer.start();
+    });
+
+    // Also watch the parent directory so we catch the case where the file is
+    // deleted and a new file is later dropped/exported to the same path.
+    // QFileSystemWatcher can only watch files that exist — once the file is
+    // gone and addPath() fails in the debounce handler, the file watcher goes
+    // dark.  The directory watcher stays alive regardless, and fires whenever
+    // anything in the folder changes (create, rename, delete).  We check
+    // whether our target file has (re)appeared and re-arm the file watcher.
+    connect(&m_fileWatcher, &QFileSystemWatcher::directoryChanged,
+            this, [this](const QString&) {
+        if (m_watchedPath.isEmpty()) return;
+        if (QFileInfo::exists(m_watchedPath) &&
+            !m_fileWatcher.files().contains(m_watchedPath)) {
+            // File has reappeared — start watching it again and reload.
             m_fileWatcher.addPath(m_watchedPath);
-        m_debounceTimer.start();  // restart the 2-second window
+            m_debounceTimer.start();
+        }
     });
 }
 
@@ -46,6 +79,7 @@ bool DxccColorProvider::loadCtyDat(const QString& resourcePath)
 
 void DxccColorProvider::importAdifFile(const QString& path)
 {
+    emit importStarted();
     QMetaObject::invokeMethod(m_parser, "parseFileAsync",
                               Qt::QueuedConnection,
                               Q_ARG(QString, path));
@@ -53,14 +87,21 @@ void DxccColorProvider::importAdifFile(const QString& path)
 
 void DxccColorProvider::setAutoReload(bool on, const QString& path)
 {
-    // Remove any existing watched paths
+    // Remove any existing watched file and directory paths
     if (!m_fileWatcher.files().isEmpty())
         m_fileWatcher.removePaths(m_fileWatcher.files());
+    if (!m_fileWatcher.directories().isEmpty())
+        m_fileWatcher.removePaths(m_fileWatcher.directories());
     m_debounceTimer.stop();
 
     if (on && !path.isEmpty()) {
         m_watchedPath = path;
-        m_fileWatcher.addPath(path);
+        m_fileWatcher.addPath(path);  // watch the file (exists now)
+        // Watch the parent directory so we catch delete-then-recreate:
+        // if the file is removed and a new one dropped in later, the directory
+        // watcher fires and re-arms the file watcher when the file reappears.
+        const QString dir = QFileInfo(path).absolutePath();
+        m_fileWatcher.addPath(dir);
     } else {
         m_watchedPath.clear();
     }
@@ -68,11 +109,27 @@ void DxccColorProvider::setAutoReload(bool on, const QString& path)
 
 void DxccColorProvider::onParseFinished(QVector<QsoRecord> records)
 {
-    // Resolve DXCC prefix for every record (runs on GUI thread after queued signal)
-    for (auto& r : records)
-        r.dxccPrefix = m_ctyParser.resolvePrimaryPrefix(r.callsign);
-
+    // DXCC prefixes are now pre-resolved on the worker thread by
+    // parseFileAsync(), so we only need the cheap hash-insert pass.
     m_workedStatus.load(records);
+    emit importFinished(m_workedStatus.totalQsos(), m_workedStatus.entityCount());
+}
+
+void DxccColorProvider::onParseFailed(const QString& /*path*/)
+{
+    // The file could not be opened — either locked by an external logger or
+    // deleted between the existence check and the open attempt.
+    //
+    // Either way, keep the existing worked status intact.
+    //
+    // Only re-arm the debounce timer if the file still exists (locked case):
+    // we'll retry in 2 s and should succeed once the lock is released.
+    // If the file is gone (deleted case), don't loop — the directory watcher
+    // will fire when the file reappears and re-arm us at that point.
+    if (!m_watchedPath.isEmpty() && QFileInfo::exists(m_watchedPath))
+        m_debounceTimer.start();
+
+    // Emit importFinished so any "Updating…" UI label clears to the current counts.
     emit importFinished(m_workedStatus.totalQsos(), m_workedStatus.entityCount());
 }
 

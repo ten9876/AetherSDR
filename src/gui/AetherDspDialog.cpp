@@ -55,15 +55,27 @@ AetherDspDialog::AetherDspDialog(AudioEngine* audio, QWidget* parent)
     root->addWidget(title);
     root->addSpacing(4);
 
-    auto* tabs = new QTabWidget;
-    buildNr2Tab(tabs);
-    buildNr4Tab(tabs);
-    buildDfnrTab(tabs);
-    buildRn2Tab(tabs);
-    buildBnrTab(tabs);
-    root->addWidget(tabs);
+    m_tabs = new QTabWidget;
+    buildNr2Tab(m_tabs);
+    buildNr4Tab(m_tabs);
+    buildMnrTab(m_tabs);
+    buildDfnrTab(m_tabs);
+    buildRn2Tab(m_tabs);
+    buildBnrTab(m_tabs);
+    root->addWidget(m_tabs);
 
     syncFromEngine();
+}
+
+void AetherDspDialog::selectTab(const QString& name)
+{
+    if (!m_tabs) return;
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        if (m_tabs->tabText(i) == name) {
+            m_tabs->setCurrentIndex(i);
+            return;
+        }
+    }
 }
 
 // ── NR2 Tab ──────────────────────────────────────────────────────────────────
@@ -434,6 +446,69 @@ void AetherDspDialog::buildNr4Tab(QTabWidget* tabs)
     tabs->addTab(page, "NR4");
 }
 
+// ── MNR Tab ──────────────────────────────────────────────────────────────────
+
+void AetherDspDialog::buildMnrTab(QTabWidget* tabs)
+{
+    auto* page = new QWidget;
+    auto* vbox = new QVBoxLayout(page);
+
+    auto labelStyle = QStringLiteral("QLabel { color: #8090a0; font-size: 11px; }");
+    auto valStyle   = QStringLiteral("QLabel { color: #c8d8e8; font-size: 11px; min-width: 40px; }");
+
+    // Enable checkbox
+    m_mnrEnableCheck = new QCheckBox("Enable MNR (macOS only)");
+    m_mnrEnableCheck->setToolTip("MMSE-Wiener spectral noise reduction with asymmetric gain smoothing.\n"
+                                 "Removes consistent background noise while preserving speech quality.");
+    vbox->addWidget(m_mnrEnableCheck);
+    connect(m_mnrEnableCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        auto& s = AppSettings::instance();
+        s.setValue("MnrEnabled", checked ? "True" : "False");
+        s.save();
+        emit mnrEnabledChanged(checked);
+    });
+
+    // Strength slider
+    {
+        auto* row = new QHBoxLayout;
+        auto* lbl = new QLabel("Strength");
+        lbl->setStyleSheet(labelStyle);
+        row->addWidget(lbl);
+
+        m_mnrStrengthSlider = new GuardedSlider(Qt::Horizontal);
+        m_mnrStrengthSlider->setRange(0, 100);
+        m_mnrStrengthSlider->setValue(100);
+        m_mnrStrengthSlider->setStyleSheet(kSliderStyle);
+        m_mnrStrengthSlider->setToolTip("Adjust noise reduction aggressiveness (0 = mild, 100 = maximum)");
+        row->addWidget(m_mnrStrengthSlider, 1);
+
+        m_mnrStrengthLabel = new QLabel("100%");
+        m_mnrStrengthLabel->setStyleSheet(valStyle);
+        row->addWidget(m_mnrStrengthLabel);
+        vbox->addLayout(row);
+
+        connect(m_mnrStrengthSlider, &QSlider::valueChanged, this, [this](int value) {
+            float normalized = value / 100.0f;
+            m_mnrStrengthLabel->setText(QString::number(value) + "%");
+            auto& s = AppSettings::instance();
+            s.setValue("MnrStrength", QString::number(normalized, 'f', 2));
+            s.save();
+            emit mnrStrengthChanged(normalized);
+        });
+    }
+
+    // Info
+    auto* info = new QLabel("Asymmetric temporal smoothing: fast release (~15ms) for quick noise suppression,\n"
+                            "gentle attack (~64ms) to preserve speech transients without artifacts.");
+    info->setWordWrap(true);
+    info->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; }");
+    vbox->addSpacing(8);
+    vbox->addWidget(info);
+
+    vbox->addStretch();
+    tabs->addTab(page, "MNR");
+}
+
 // ── RN2 Tab ─────────────────────────────────────────────────────────────────
 
 void AetherDspDialog::buildRn2Tab(QTabWidget* tabs)
@@ -442,7 +517,7 @@ void AetherDspDialog::buildRn2Tab(QTabWidget* tabs)
     auto* vbox = new QVBoxLayout(page);
     auto* lbl = new QLabel("RN2 (RNNoise) — no adjustable parameters");
     lbl->setAlignment(Qt::AlignCenter);
-    lbl->setStyleSheet("QLabel { color: #506070; font-size: 14px; }");
+    lbl->setStyleSheet("QLabel { color: #8aa8c0; font-size: 14px; }");
     vbox->addWidget(lbl);
     vbox->addStretch();
     tabs->addTab(page, "RN2");
@@ -456,7 +531,7 @@ void AetherDspDialog::buildBnrTab(QTabWidget* tabs)
     auto* vbox = new QVBoxLayout(page);
     auto* lbl = new QLabel("BNR (NVIDIA) — intensity controlled from overlay menu");
     lbl->setAlignment(Qt::AlignCenter);
-    lbl->setStyleSheet("QLabel { color: #506070; font-size: 14px; }");
+    lbl->setStyleSheet("QLabel { color: #8aa8c0; font-size: 14px; }");
     vbox->addWidget(lbl);
     vbox->addStretch();
     tabs->addTab(page, "BNR");
@@ -479,7 +554,7 @@ void AetherDspDialog::buildDfnrTab(QTabWidget* tabs)
     auto* info = new QLabel("AI-powered speech enhancement \u2014 higher fidelity than RNNoise\n"
                             "in high-noise HF environments. CPU-only, 10 ms latency, 48 kHz.");
     info->setWordWrap(true);
-    info->setStyleSheet("QLabel { color: #506070; font-size: 11px; }");
+    info->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; }");
     grid->addWidget(info, 0, 0, 1, 3);
 
     // Attenuation Limit slider
@@ -565,6 +640,18 @@ void AetherDspDialog::syncFromEngine()
     int qspp = static_cast<int>(s.value("NR2Qspp", "0.20").toFloat() * 100);
     m_nr2QsppSlider->setValue(qspp);
     m_nr2QsppLabel->setText(QString::number(qspp / 100.0f, 'f', 2));
+
+    // MNR sync — read live state from AudioEngine, not stale settings;
+    // use QSignalBlocker so restoring the checkbox state doesn't fire
+    // mnrEnabledChanged before MainWindow has wired the dialog signals.
+    if (m_mnrEnableCheck) {
+        { QSignalBlocker sb(m_mnrEnableCheck);
+          m_mnrEnableCheck->setChecked(m_audio->mnrEnabled()); }
+        { QSignalBlocker sb(m_mnrStrengthSlider);
+          int strength = static_cast<int>(m_audio->mnrStrength() * 100.0f);
+          m_mnrStrengthSlider->setValue(strength);
+          m_mnrStrengthLabel->setText(QString::number(strength) + "%"); }
+    }
 
     // NR4 sync
     int noiseMethod = s.value("NR4NoiseEstimationMethod", "0").toInt();

@@ -23,7 +23,7 @@ bool RigctlServer::start(quint16 port)
     m_server = new QTcpServer(this);
     connect(m_server, &QTcpServer::newConnection, this, &RigctlServer::onNewConnection);
 
-    if (!m_server->listen(QHostAddress::Any, port)) {
+    if (!m_server->listen(QHostAddress::AnyIPv4, port)) {
         qCWarning(lcCat) << "RigctlServer: failed to listen on port" << port
                     << m_server->errorString();
         delete m_server;
@@ -39,12 +39,20 @@ void RigctlServer::stop()
 {
     if (!m_server) return;
 
-    for (auto& cs : m_clients) {
-        cs.socket->disconnectFromHost();
+    QList<ClientState> clients;
+    clients.swap(m_clients);
+    emit clientCountChanged(0);
+
+    for (auto& cs : clients) {
+        if (cs.socket) {
+            // Prevent synchronous disconnected() delivery from re-entering
+            // onClientDisconnected() while we're already tearing down clients.
+            cs.socket->disconnect(this);
+            cs.socket->close();
+            cs.socket->deleteLater();
+        }
         delete cs.protocol;
     }
-    m_clients.clear();
-    emit clientCountChanged(0);
 
     m_server->close();
     delete m_server;

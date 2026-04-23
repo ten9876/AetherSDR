@@ -18,6 +18,7 @@ SMeterWidget::SMeterWidget(QWidget* parent)
 
     m_needleFraction = dbmToFraction(m_levelDbm);
     m_targetNeedleFraction = m_needleFraction;
+    m_peakHoldDecayStartDbm = m_peakHoldDbm;
 
     m_needleAnimation.setTimerType(Qt::PreciseTimer);
     m_needleAnimation.setInterval(kNeedleAnimationIntervalMs);
@@ -61,16 +62,11 @@ void SMeterWidget::setLevel(float dbm)
     if (m_peakHoldEnabled) {
         if (dbm > m_peakHoldDbm) {
             m_peakHoldDbm = dbm;
+            m_peakHoldDecayStartDbm = dbm;
             m_peakHoldTimer.start();
             m_peakHoldTimerRunning = true;
-        } else if (m_peakHoldTimerRunning
-                   && m_peakHoldTimer.elapsed() > m_peakHoldTimeMs) {
-            // Decay phase: meter refresh is ~50ms (from m_peakDecay interval)
-            const float dt = 0.05f;
-            m_peakHoldDbm -= m_peakDecayDbPerSec * dt;
-            if (m_peakHoldDbm < m_levelDbm)
-                m_peakHoldDbm = m_levelDbm;
         }
+        updatePeakHoldValue();
     }
 
     updateNeedleTarget();
@@ -149,6 +145,8 @@ void SMeterWidget::setRxMode(const QString& mode)
 
 void SMeterWidget::updateNeedleTarget()
 {
+    updatePeakHoldValue();
+
     if (m_transmitting) {
         m_targetNeedleFraction = txValueToFraction(currentTxValue());
     } else if (m_rxMode == RxMode::SMeterPeak) {
@@ -157,8 +155,17 @@ void SMeterWidget::updateNeedleTarget()
         m_targetNeedleFraction = dbmToFraction(m_levelDbm);
     }
 
-    if (qAbs(m_targetNeedleFraction - m_needleFraction) <= kNeedleSnapEpsilon) {
+    const bool needleAtTarget = qAbs(m_targetNeedleFraction - m_needleFraction) <= kNeedleSnapEpsilon;
+    if (needleAtTarget) {
         m_needleFraction = m_targetNeedleFraction;
+    }
+
+    const bool peakHoldAnimating = m_peakHoldEnabled
+        && m_peakHoldTimerRunning
+        && m_peakHoldTimer.elapsed() > m_peakHoldTimeMs
+        && m_peakHoldDbm > m_levelDbm + 0.01f;
+
+    if (needleAtTarget && !peakHoldAnimating) {
         if (m_needleAnimation.isActive()) {
             m_needleAnimation.stop();
         }
@@ -178,20 +185,49 @@ void SMeterWidget::animateNeedle()
         return;
     }
 
+    updatePeakHoldValue();
+
     const float delta = m_targetNeedleFraction - m_needleFraction;
     const float elapsedSeconds = static_cast<float>(elapsedMs) / 1000.0f;
     const float timeConstant = (delta >= 0.0f) ? kNeedleAttackTimeSeconds
                                                 : kNeedleReleaseTimeSeconds;
     const float alpha = 1.0f - std::exp(-elapsedSeconds / timeConstant);
-
-    if (qAbs(delta) <= kNeedleSnapEpsilon) {
+    const bool needleAtTarget = qAbs(delta) <= kNeedleSnapEpsilon;
+    if (needleAtTarget) {
         m_needleFraction = m_targetNeedleFraction;
-        m_needleAnimation.stop();
     } else {
         m_needleFraction += delta * alpha;
     }
 
+    const bool peakHoldAnimating = m_peakHoldEnabled
+        && m_peakHoldTimerRunning
+        && m_peakHoldTimer.elapsed() > m_peakHoldTimeMs
+        && m_peakHoldDbm > m_levelDbm + 0.01f;
+
+    if (needleAtTarget && !peakHoldAnimating) {
+        m_needleAnimation.stop();
+    }
+
     update();
+}
+
+void SMeterWidget::updatePeakHoldValue()
+{
+    if (!m_peakHoldEnabled || !m_peakHoldTimerRunning) {
+        return;
+    }
+
+    const qint64 elapsedMs = m_peakHoldTimer.elapsed();
+    if (elapsedMs <= m_peakHoldTimeMs) {
+        return;
+    }
+
+    const float decayElapsedSeconds =
+        static_cast<float>(elapsedMs - m_peakHoldTimeMs) / 1000.0f;
+    m_peakHoldDbm = m_peakHoldDecayStartDbm - (m_peakDecayDbPerSec * decayElapsedSeconds);
+    if (m_peakHoldDbm <= m_levelDbm) {
+        m_peakHoldDbm = m_levelDbm;
+    }
 }
 
 QString SMeterWidget::sUnitsText() const
@@ -524,7 +560,12 @@ void SMeterWidget::paintEvent(QPaintEvent*)
     // -- Draw peak hold line (configurable overlay, independent of RX mode) ---
     if (m_peakHoldEnabled && !m_transmitting
         && m_peakHoldDbm > S0_DBM + 1.0f) {
-        const float frac = dbmToFraction(m_peakHoldDbm);
+        float frac = dbmToFraction(m_peakHoldDbm);
+        if (m_peakHoldDbm <= m_levelDbm + 0.01f) {
+            frac = m_needleFraction;
+        } else {
+            frac = qMax(frac, m_needleFraction);
+        }
         const float angle = fractionToAngle(frac);
 
         const float cosA = std::cos(angle);
@@ -619,8 +660,10 @@ void SMeterWidget::setPowerScale(int maxWatts, bool hasAmplifier)
 void SMeterWidget::setPeakHoldEnabled(bool enabled)
 {
     m_peakHoldEnabled = enabled;
-    if (!enabled)
-        m_peakHoldDbm = m_levelDbm;
+    m_peakHoldDbm = m_levelDbm;
+    m_peakHoldDecayStartDbm = m_levelDbm;
+    m_peakHoldTimerRunning = false;
+    updateNeedleTarget();
     update();
 }
 
@@ -648,6 +691,7 @@ void SMeterWidget::setPeakDecayRate(const QString& rate)
 void SMeterWidget::resetPeak()
 {
     m_peakHoldDbm = m_levelDbm;
+    m_peakHoldDecayStartDbm = m_levelDbm;
     m_peakHoldTimerRunning = false;
     updateNeedleTarget();
     update();

@@ -460,16 +460,24 @@ void RadioModel::sendNetCwCommand(const QString& baseCmd)
 
     // Redundant sends via UDP: 0ms, 5ms, 10ms, 15ms
     // Radio deduplicates by index — processes first arrival, ignores repeats
-    m_panStream->sendToRadio(packet);
+    QMetaObject::invokeMethod(m_panStream, [this, packet]() {
+        m_panStream->sendToRadio(packet);
+    }, Qt::QueuedConnection);
 
     QTimer::singleShot(5, this, [this, packet]() {
-        m_panStream->sendToRadio(packet);
+        QMetaObject::invokeMethod(m_panStream, [this, packet]() {
+            m_panStream->sendToRadio(packet);
+        }, Qt::QueuedConnection);
     });
     QTimer::singleShot(10, this, [this, packet]() {
-        m_panStream->sendToRadio(packet);
+        QMetaObject::invokeMethod(m_panStream, [this, packet]() {
+            m_panStream->sendToRadio(packet);
+        }, Qt::QueuedConnection);
     });
     QTimer::singleShot(15, this, [this, packet]() {
-        m_panStream->sendToRadio(packet);
+        QMetaObject::invokeMethod(m_panStream, [this, packet]() {
+            m_panStream->sendToRadio(packet);
+        }, Qt::QueuedConnection);
     });
 
     // TCP fallback — guarantees delivery if all UDP packets are lost
@@ -1221,6 +1229,7 @@ void RadioModel::onDisconnected()
     m_panadapters.clear();
     m_activePanId.clear();
     m_ownedSliceIds.clear();
+    m_tnfModel.clear();
     if (!m_memories.isEmpty()) {
         m_memories.clear();
         emit memoriesCleared();
@@ -2283,7 +2292,7 @@ void RadioModel::handleRadioStatus(const QMap<QString, QString>& kvs)
         changed = true;
     }
     if (kvs.contains("tnf_enabled")) {
-        m_tnfModel.setGlobalEnabled(kvs["tnf_enabled"] == "1");
+        m_tnfModel.applyGlobalEnabled(kvs["tnf_enabled"] == "1");
     }
     // Audio outputs
     bool audioChanged = false;

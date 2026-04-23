@@ -84,20 +84,31 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
         "QTabBar::tab:selected { background: #0f0f1a; color: #c8d8e8; "
         "border-bottom-color: #0f0f1a; }");
 
+    // Build only the default (Radio) tab eagerly; defer the rest until first
+    // selected.  This avoids hardware-probing calls (QSerialPortInfo,
+    // QMediaDevices) during construction, which crash on some Wayland/Qt 6.11
+    // configurations (#1776).
     tabs->addTab(buildRadioTab(), "Radio");
-    tabs->addTab(buildNetworkTab(), "Network");
-    tabs->addTab(buildGpsTab(), "GPS");
-    tabs->addTab(buildAudioTab(), "Audio");
-    tabs->addTab(buildTxTab(), "TX");
-    tabs->addTab(buildPhoneCwTab(), "Phone/CW");
-    tabs->addTab(buildRxTab(), "RX");
-    tabs->addTab(buildFiltersTab(), "Filters");
-    tabs->addTab(buildXvtrTab(), "XVTR");
-    tabs->addTab(buildUsbCablesTab(), "USB Cables");
-    tabs->addTab(buildPeripheralsTab(), "Peripherals");
+
+    auto addDeferred = [&](const QString& name, std::function<QWidget*()> builder) {
+        int idx = tabs->addTab(new QWidget, name);
+        m_deferredBuilders[idx] = std::move(builder);
+    };
+    addDeferred("Network",     [this] { return buildNetworkTab(); });
+    addDeferred("GPS",         [this] { return buildGpsTab(); });
+    addDeferred("Audio",       [this] { return buildAudioTab(); });
+    addDeferred("TX",          [this] { return buildTxTab(); });
+    addDeferred("Phone/CW",   [this] { return buildPhoneCwTab(); });
+    addDeferred("RX",          [this] { return buildRxTab(); });
+    addDeferred("Filters",     [this] { return buildFiltersTab(); });
+    addDeferred("XVTR",        [this] { return buildXvtrTab(); });
+    addDeferred("USB Cables",  [this] { return buildUsbCablesTab(); });
+    addDeferred("Peripherals", [this] { return buildPeripheralsTab(); });
 #ifdef HAVE_SERIALPORT
-    tabs->addTab(buildSerialTab(), "Serial");
+    addDeferred("Serial",      [this] { return buildSerialTab(); });
 #endif
+
+    connect(tabs, &QTabWidget::currentChanged, this, &RadioSetupDialog::buildDeferredTab);
 
     layout->addWidget(tabs);
 
@@ -1621,6 +1632,75 @@ QWidget* RadioSetupDialog::buildAudioTab()
         });
     }
 
+    // Audio Boost toggle
+    {
+        auto* boostRow = new QHBoxLayout;
+        auto* boostLabel = new QLabel("Audio Boost:");
+        boostLabel->setStyleSheet(kLabelStyle);
+        boostLabel->setFixedWidth(90);
+        bool boostOn = AppSettings::instance().value("AudioBoost", "False").toString() == "True";
+        auto* boostBtn = new QPushButton(boostOn ? "Enabled" : "Disabled");
+        boostBtn->setCheckable(true);
+        boostBtn->setChecked(boostOn);
+        boostBtn->setToolTip("Apply 50% software gain boost to PC audio output.\n"
+                             "Compensates for lower levels with AGC-controlled audio.");
+        boostBtn->setStyleSheet(
+            "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
+            "border-radius: 3px; color: #c8d8e8; font-size: 11px; font-weight: bold; "
+            "padding: 3px 10px; }"
+            "QPushButton:checked { background: #1a5030; color: #00e060; "
+            "border: 1px solid #20a040; }");
+        connect(boostBtn, &QPushButton::toggled, this, [this, boostBtn](bool on) {
+            boostBtn->setText(on ? "Enabled" : "Disabled");
+            auto& s = AppSettings::instance();
+            s.setValue("AudioBoost", on ? "True" : "False");
+            s.save();
+            if (m_audio) {
+                QMetaObject::invokeMethod(m_audio, [this, on]() {
+                    m_audio->setRxBoost(on);
+                }, Qt::QueuedConnection);
+            }
+        });
+        boostRow->addWidget(boostLabel);
+        boostRow->addWidget(boostBtn);
+        boostRow->addStretch(1);
+        pcLayout->addLayout(boostRow);
+    }
+
+    // Audio Buffer (ms)
+    {
+        auto* bufRow = new QHBoxLayout;
+        auto* bufLabel = new QLabel("Audio Buffer:");
+        bufLabel->setStyleSheet(kLabelStyle);
+        bufLabel->setFixedWidth(90);
+        int bufMs = AppSettings::instance().value("AudioBufferMs", "200").toInt();
+        auto* bufEdit = new QLineEdit(QString::number(bufMs));
+        bufEdit->setStyleSheet(kEditStyle);
+        bufEdit->setFixedWidth(50);
+        auto* bufUnit = new QLabel("ms");
+        bufUnit->setStyleSheet(kLabelStyle);
+        auto* bufHint = new QLabel("(50–1000, increase for VPN/SmartLink jitter)");
+        bufHint->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
+        connect(bufEdit, &QLineEdit::editingFinished, this, [this, bufEdit] {
+            int val = qBound(50, bufEdit->text().toInt(), 1000);
+            bufEdit->setText(QString::number(val));
+            auto& s = AppSettings::instance();
+            s.setValue("AudioBufferMs", QString::number(val));
+            s.save();
+            if (m_audio) {
+                QMetaObject::invokeMethod(m_audio, [this, val]() {
+                    m_audio->setRxBufferCapMs(val);
+                }, Qt::QueuedConnection);
+            }
+        });
+        bufRow->addWidget(bufLabel);
+        bufRow->addWidget(bufEdit);
+        bufRow->addWidget(bufUnit);
+        bufRow->addWidget(bufHint);
+        bufRow->addStretch(1);
+        pcLayout->addLayout(bufRow);
+    }
+
     vbox->addWidget(pcGroup);
 
     // ── Recording ───────────────────────────────────────────────────────
@@ -2837,6 +2917,8 @@ QWidget* RadioSetupDialog::buildSerialTab()
         auto* dataCombo = new QComboBox;
         dataCombo->addItem("8", 8);
         dataCombo->addItem("7", 7);
+        int savedData = settings.value("SerialDataBits", "8").toInt();
+        dataCombo->setCurrentIndex(dataCombo->findData(savedData));
         grid->addWidget(dataCombo, 2, 3);
 
         // Parity
@@ -2845,6 +2927,8 @@ QWidget* RadioSetupDialog::buildSerialTab()
         parityCombo->addItem("None", 0);
         parityCombo->addItem("Even", 2);
         parityCombo->addItem("Odd", 3);
+        int savedParity = settings.value("SerialParity", "0").toInt();
+        parityCombo->setCurrentIndex(parityCombo->findData(savedParity));
         grid->addWidget(parityCombo, 3, 1);
 
         // Stop bits
@@ -2852,6 +2936,8 @@ QWidget* RadioSetupDialog::buildSerialTab()
         auto* stopCombo = new QComboBox;
         stopCombo->addItem("1", 1);
         stopCombo->addItem("2", 2);
+        int savedStop = settings.value("SerialStopBits", "1").toInt();
+        stopCombo->setCurrentIndex(stopCombo->findData(savedStop));
         grid->addWidget(stopCombo, 3, 3);
 
         vbox->addWidget(group);
@@ -2873,6 +2959,9 @@ QWidget* RadioSetupDialog::buildSerialTab()
         connect(portCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
         connect(customEdit, &QLineEdit::textChanged, this, savePort);
         connect(baudCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
+        connect(dataCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
+        connect(parityCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
+        connect(stopCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, savePort);
     }
 
     // ── Pin Assignment ───────────────────────────────────────────────────
@@ -3320,6 +3409,20 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
 
     vbox->addStretch();
     return page;
+}
+
+void RadioSetupDialog::buildDeferredTab(int index)
+{
+    auto it = m_deferredBuilders.find(index);
+    if (it == m_deferredBuilders.end())
+        return;                             // already built or out of range
+
+    QWidget* placeholder = m_tabs->widget(index);
+    QWidget* content = it.value()();        // run the real builder
+    auto* lay = new QVBoxLayout(placeholder);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->addWidget(content);
+    m_deferredBuilders.erase(it);           // build only once
 }
 
 void RadioSetupDialog::selectTab(const QString& tabName)

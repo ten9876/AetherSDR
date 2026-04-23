@@ -28,7 +28,9 @@ Contributors:
 #  ifdef WIN32
 #    include <winsock2.h>
 #  endif
-#  include <openssl/engine.h>
+#  if !defined(OPENSSL_NO_ENGINE)
+#    include <openssl/engine.h>
+#  endif
 #endif
 
 #include "mosquitto.h"

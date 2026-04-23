@@ -1,7 +1,10 @@
 #pragma once
 
+#include "models/RadioModel.h"
+
 #include <QWidget>
 #include <QVector>
+#include <climits>
 #include <QStringList>
 #include <QPoint>
 #include <QPointer>
@@ -15,6 +18,7 @@ class QLabel;
 
 namespace AetherSDR {
 
+class MemoryBrowsePanel;
 class SliceModel;
 
 // Floating overlay menu anchored to the top-left of the SpectrumWidget.
@@ -28,6 +32,7 @@ public:
 
     // Raise this widget and all floating panels above sibling widgets.
     void raiseAll();
+    void setMemories(const QMap<int, MemoryEntry>& memories);
 
     // Set the antenna list (from RadioModel::antListChanged).
     void setAntennaList(const QStringList& ants);
@@ -63,7 +68,13 @@ public:
     QPushButton* dspRn2Button() const;
     QPushButton* dspBnrButton() const;
     QPushButton* dspNr4Button() const;
+    QPushButton* dspMnrButton() const;
     QPushButton* dspDfnrButton() const;
+
+    // Show the target slice letter ('A'-'D') on the MEM buttons so users
+    // know which slice will be saved/recalled.  Pass a null QChar to clear
+    // the badge (no slice on this pan).
+    void setMemoryTargetSliceLetter(QChar letter);
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -74,6 +85,8 @@ protected:
 signals:
     void addRxClicked(const QString& panId);
     void addTnfClicked();
+    void memoryActivated(int memoryIndex, const QString& panId);
+    void quickAddMemoryRequested(const QString& panId);
     void daxIqChannelChanged(int channel);  // 0=Off, 1-4
     void addPanClicked();
     void daxClicked();
@@ -81,10 +94,12 @@ signals:
     void rn2Toggled(bool on);
     void bnrToggled(bool on);
     void nr4Toggled(bool on);
+    void mnrToggled(bool on);
     void dfnrToggled(bool on);
     void bnrIntensityChanged(float ratio);
     void nr2RightClicked(const QPoint& globalPos);
     void nr4RightClicked(const QPoint& globalPos);
+    void mnrRightClicked(const QPoint& globalPos);
     void dfnrRightClicked(const QPoint& globalPos);
     // Display sub-panel signals
     void fftAverageChanged(int frames);
@@ -137,9 +152,21 @@ private:
     void syncDaxPanel();
     void toggleDisplayPanel();
     void buildDisplayPanel();
+    void toggleMemoryPanel();
+    void buildMemoryPanel();
     void hideAllSubPanels();
     void showBandPanelAt(const QPoint& pos);
     void syncAntPanel();
+
+    static constexpr int kBtnAddRx = 0;
+    static constexpr int kBtnAddTnf = 1;
+    static constexpr int kBtnBand = 2;
+    static constexpr int kBtnAnt = 3;
+    static constexpr int kBtnDsp = 4;
+    static constexpr int kBtnDisplay = 5;
+    static constexpr int kBtnMemoryBrowse = 6;
+    static constexpr int kBtnMemoryAdd = 7;
+    static constexpr int kBtnDax = 8;
 
     QPushButton* m_toggleBtn{nullptr};
     QVector<QPushButton*> m_menuBtns;
@@ -176,6 +203,10 @@ private:
     QWidget*   m_daxPanel{nullptr};
     bool       m_daxPanelVisible{false};
     QComboBox* m_daxIqCmb{nullptr};
+
+    // Memory browse sub-panel
+    MemoryBrowsePanel* m_memoryPanel{nullptr};
+    bool               m_memoryPanelVisible{false};
 
     // Display sub-panel
     QWidget*     m_displayPanel{nullptr};
@@ -216,6 +247,7 @@ private:
     QStringList  m_antList;
     QPointer<SliceModel> m_slice;
     bool         m_updatingFromModel{false};
+    int          m_lastEmittedRfGain{INT_MIN};  // dedupe rfgain emits across drag snap ticks (#1498)
 };
 
 } // namespace AetherSDR

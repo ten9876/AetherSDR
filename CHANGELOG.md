@@ -3,6 +3,807 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.20] — 2026-04-22
+
+### Community regression round-up + crash batch
+
+Eight community contributions plus three AetherClaude crash fixes.
+The community batch covers real-world regressions found on Windows,
+macOS and Linux: RADE RX on Windows, macOS FT8 DT bias, TCI DAX
+crosstalk, RX applet pan-with-NR, gain defaults, a Windows build
+break, a Canadian band plan refresh, and seamless ADIF logbook
+auto-reload.  Three crash fixes address applet reorder, Wayland
+Radio Setup dialog, and popped-out panadapter freeze.
+
+### Bug fixes
+
+**Fix RADE RX not decoding on Windows (#1820, NF0T)**
+- On platforms without a DAX audio bridge (Windows, Linux without
+  PipeWire), `startDax()` is compiled out so `stream create dax_rx`
+  is never sent.  RADE mode showed "activated" but produced no
+  decoded audio because `feedRxAudio()` never got called.
+- `activateRADE()` now creates the `dax_rx` stream directly on
+  non-bridge platforms and registers its stream ID with
+  PanadapterStream.  TCI borrow-safe cleanup on deactivate — won't
+  tear down a stream another client is reading.
+- Verified end-to-end on Windows 11 + FLEX-8400.
+
+**Clamp stale DAX RX backlog on macOS (#1822, jensenpat)**
+- FT8 decodes in WSJT-X / JTDX showed a consistent +1.5 s to +1.6 s
+  `DT` offset on macOS even with healthy LAN latency — severe enough
+  to cause missed QSOs.
+- Root cause: macOS `VirtualAudioBridge` writes DAX RX audio into a
+  POSIX shared-memory ring large enough for ~2 s of audio.  The TX
+  path had live-edge backlog protection; the RX path did not.  If
+  the CoreAudio reader fell behind the ring accumulated stale audio
+  and served it as if current.
+- New live-edge clamp advances the reader when backlog exceeds
+  ~200 ms, keeping a ~40 ms target.  Per-channel timing counters
+  behind the existing `aether.dax` debug category.  Scoped to macOS
+  only — Linux uses `O_NONBLOCK` named pipes (drops at syscall),
+  Windows has no in-process buffer.
+
+**Fix TCI DAX audio crosstalk between slices (#1815, Chaosuk97)**
+- Two simultaneous DAX channels (dual-band WSJT-X, satellite
+  full-duplex RX) caused audio from slice A to bleed into slice B.
+- Root cause: `r8brain CDSPResampler` is stateful.  `ClientState`
+  held a single shared resampler reused across channels, so filter
+  state from channel 1 carried over into channel 2.  The
+  accumulation buffer was already per-channel; the resampler wasn't.
+- Replaced the shared `Resampler*` with
+  `QHash<int, Resampler*> resamplers` keyed by DAX channel.  Lazy
+  per-channel creation, `qDeleteAll()` on rate change / disconnect.
+
+**Fix RX applet pan slider broken with NR active (#1799, Chaosuk97)**
+- PR #1460 re-applied pan after client NR mono-mix but only tracked
+  pan changes from the VFO panel slider.  The RX applet, MIDI, and
+  keyboard shortcuts call `SliceModel::setAudioPan()` directly —
+  `AudioEngine::m_rxPan` stayed at 50, making the RX applet pan
+  slider a no-op when NR was active.
+- Listen to `SliceModel::audioPanChanged` instead — one connection
+  now covers VFO panel, RX applet, MIDI, and radio echo-back on
+  connect.
+
+**Fix TCI RX gain default fallback: 1.0 → 0.5 (#1811, NF0T)**
+- `TciServer` fallback for a missing `TciRxGain<n>` key was "1.0"
+  while `TciApplet` used "0.5".  Fresh install or post-migration
+  without the key ran the server at full gain while the slider
+  showed half — TCI RX audio 2× louder than DAX at equal positions.
+
+**Fix missing HAVE_SERIALPORT guard on m_flexCoalesceTimer (#1812, NF0T)**
+- PR #1606 guarded `m_hidCoalesceTimer` behind `HAVE_HIDAPI` but
+  left `m_flexCoalesceTimer` unguarded on the line above — broke
+  Windows builds without `Qt6::SerialPort`.  Wrapped the reference
+  in `HAVE_SERIALPORT` to match the member declaration.
+
+**Seamless ADIF logbook auto-reload for DXCC spot colouring (#1801, Chaosuk97)**
+- Spot colours only updated when the user manually clicked Browse
+  and re-selected the log file.  The "Auto-Reload Log" toggle
+  defaulted off and broke in edge cases: atomic rename (N1MM,
+  Log4OM), Windows write-lock during export, delete-then-recreate.
+- Toggle removed — Browse now always arms the watcher.  2-second
+  debounce coalesces rapid change notifications; watcher re-arms
+  after debounce so atomic rename (new inode) is caught.  Directory
+  watcher on the parent folder catches delete-then-recreate.  Open
+  retries 3× at 500 ms intervals for write-locks.  Worked status
+  preserved on open failure — colours don't flash empty during
+  export.  "Updating…" shown during async parse.
+
+**Fix crash when reordering applets with floating containers (#1745 → #1746)**
+- Dragging an applet title bar to reorder crashed AetherSDR when
+  any other applet was popped out into a floating window.
+- Root cause: `QWidget::mapTo()` traverses the parent chain looking
+  for a common ancestor.  When a container is floating (reparented
+  to `FloatingContainerWindow` — a separate top-level window), there
+  is no common ancestor with the scroll area's content widget and
+  `mapTo()` dereferences `nullptr`.
+- `dragMoveEvent()`, `dropIndexFromY()` and `rebuildStackOrder()`
+  now skip entries whose `ContainerWidget::isFloating()` is true.
+  Follow-up filed as #1836 for the separate TXDSP ID-mismatch that
+  makes that container silently un-reorderable.
+
+**Lazy-build RadioSetupDialog tabs (#1776 → #1777)**
+- Opening Settings → Radio Setup / FlexControl / USB Cables crashed
+  on some Wayland / Qt 6.11 configurations (openSUSE Tumbleweed with
+  Packman non-free FFmpeg 8.1).  Real crash cause is
+  `libvdpau_va_gl` trying to create a VDPAU device via X11/GLX on a
+  native Wayland session — an upstream Qt Multimedia backend /
+  distro packaging problem, not an AetherSDR bug.
+- Converted the dialog from eager to lazy tab construction — only
+  the Radio tab builds on open; the other ten tabs get placeholder
+  widgets and deferred builders triggered on first tab-switch.
+  Dialog opens without crashing (and faster on every platform).
+  Users on the affected config will still hit the VDPAU crash if
+  they click the Audio tab; the real fix is to switch
+  `QT_MEDIA_BACKEND=gstreamer` or use stock Mesa FFmpeg.
+
+**Fix UI freeze when PanAdapter is popped out (#1668 → #1669)**
+- Content inside a popped-out panadapter froze — waterfall stopped
+  scrolling, spectrum stopped updating — while the main window
+  remained fully responsive.  Re-docking restored normal operation.
+- Two problems in `PanadapterStack::floatPanadapter()`: the
+  SpectrumWidget was shown immediately after reparenting, before
+  `refreshAfterReparent()` rebound the Metal render target to the
+  new NSView, so the first frame rendered on a stale/transitional
+  surface.  And the reparent went through `setParent(nullptr)` —
+  on macOS with `WA_NativeWindow`, that creates a transient
+  top-level NSWindow before the floating window adopts it, a second
+  lesser problem addressed by #1344 for the dock path but never the
+  float path.
+- New `PanFloatingWindow::adoptApplet()` method reparents directly
+  via `m_layout->addWidget()` — single splitter→floating-window
+  step, no nullptr intermediate.  `sw->show()` moved into the
+  deferred callback after `refreshAfterReparent()` so Metal binds
+  to the final NSView before the first render.
+
+**Minor Canadian band-plan corrections (#1817, VE3NEM)**
+- RAC band plan updates from a Canadian ham: label corrections on
+  overlapping CW/DIG segments (1.800, 7.035), WSPR 80 m frequency
+  corrected (3.5926 → 3.5686 MHz), obsolete CW calling frequencies
+  removed and standard international QRP calling frequencies added
+  (14.060, 21.060, 28.060, etc.), missing SSB calling frequencies
+  added on 17 m / 15 m / 12 m / 10 m / 1.25 m.
+
+### Contributors
+
+Community: NF0T (Ryan Butler), Chaosuk97 (Ian M7HNF), jensenpat, VE3NEM.
+AetherClaude bug fixes on #1745 / #1776 / #1668.
+
+## [v0.8.19] — 2026-04-20
+
+### Community contributions landfest + macOS MNR + quick memory actions
+
+This release is mostly community work.  Ten community PRs landed, plus an
+AetherClaude-draft fix batch covering bandwidth-correction echoes, stale
+slice-click tuning, Windows rigctld IPv4, serial port persistence, DX
+cluster reconnect, compression-meter gain reduction, and macOS audio
+device override.
+
+### Features
+
+**macOS MMSE-Wiener spectral noise reduction (MNR) (#1672, Chaosuk97)**
+- New macOS-exclusive client-side NR mode accelerated via Apple
+  Accelerate (vDSP / AMX on Apple Silicon).  Decision-directed
+  MMSE-Wiener filter with 25-frame minimum-statistics noise-floor
+  tracking.  512-point real FFT at 24 kHz, 50% overlap-add with
+  sqrt-Hann window, per-bin gain with temporal smoothing to suppress
+  musical noise.  ~0.3 ms per hop on M-series chips, one-hop startup
+  latency (≈10.7 ms).
+- MNR button appears in both the VFO DSP tab and the spectrum overlay
+  DSP panel.  DSP Settings dialog gains a new MNR tab with a strength
+  slider (0-100).  Mutually exclusive with NR2/RN2/NR4/BNR/DFNR.
+  Persists enable state + strength across restart.
+- Non-Apple builds: `#ifdef __APPLE__` gated throughout — zero MNR
+  overhead, buttons hidden.
+
+**PooDoo™ TX Reverb (#1741) — carried forward, chain now complete**
+- Already shipped in v0.8.18 final release notes; listed here for
+  completeness since it rolls into the 0.8.19 post-release chain view.
+
+**Quick memory browse + save on slice overlays (#1781, jensenpat)**
+- Two new actions in the slice overlay rail between Display and DAX:
+  - **MEM▸** opens a compact 252×430 browser drawer, frequency-sorted,
+    pre-scrolled to the active slice's nearest memory.  Click-to-recall.
+  - **MEM+** opens a small save dialog for the current slice on that
+    panadapter.  Captures mode, filter, step, repeater offset, tone,
+    squelch, RTTY/DIGL offsets — same field set as the main Memory
+    dialog via the new shared `MemoryCommands` helper module.
+- Pan-aware routing: save/recall targets the active slice if it lives
+  on this pan, otherwise the first slice found on the pan.  The MEM
+  buttons now show the target slice letter (e.g. `MEM▸ A`) so users
+  can see which slice will be hit before clicking — makes the
+  multi-slice fallback visible.
+
+**Improved TNF notch interaction (#1547, rfoust)**
+- TNF markers no longer extend into the waterfall — they stop at the
+  bottom of the spectrum pane so the waterfall stays a historical
+  signal record.
+- Depth visualisation via hatching (12/8/5 px spacing for depth 1/2/3).
+- Floating "RF Tracking Notch" popup on hover shows frequency + width.
+- Width/depth submenu items show a checkmark on the currently-active
+  value.
+- Bidirectional TNF drag: horizontal tunes, vertical resizes via
+  `2^(-dy/48)` octaves, clamped 10-12 000 Hz.
+- Preferred-TNF hit-testing for overlapping notches — dragging a TNF
+  preserves the target across its sibling's overlap zone.
+- Tune guides suppressed while a TNF is hovered or dragged.
+- `TnfModel`: optimistic local updates in setters so UI responds
+  without waiting for radio echo; width parser tolerates both Hz
+  ("width=100") and fractional-MHz forms for firmware-version variance.
+
+**RAC Canada Band Plan corrected + expanded (#1709, VE3NEM)**
+- VHF / UHF bands added (6 m, 2 m, 1.25 m, 70 cm) — prior file was
+  HF-only, so 4 new ham-band coverage tiers arrive in this update.
+- 60 m channels updated to match the Feb 2026 ISED regulation change
+  (new 5.3570-5.3598 channel).
+- 12 m frequencies corrected.
+- FT8 spot at 14.074 added back, one duplicate spot removed.
+
+**Frameless Window toggle (View menu, Ctrl+Shift+F)**
+- View → Frameless Window applies Qt's `FramelessWindowHint` so users
+  gain ~32 px of vertical screen space at the cost of the OS title bar.
+  Works cross-platform (X11, Wayland, Windows, macOS) — KDE window
+  rules don't strip Qt's client-side decorations reliably on Wayland,
+  so we drop the frame in code.  Move/close via WM shortcuts or
+  taskbar.  Persists across restart; applied before first `show()` so
+  there's no flash-of-chrome on startup.
+
+**CHAIN-driven TX DSP (v0.8.18 rebase — carried forward)**
+- Already in v0.8.18 release notes; called out here because subsequent
+  releases continue to build on the CHAIN ordering.
+
+### Bug fixes
+
+**NR2 crackling on strong signals (#1696, Chaosuk97)**
+- Cap `gainMax` default 1.5 → 1.0.  The MMSE-LSA estimator is a noise
+  *reducer* — the old 1.5 default allowed 50% amplification on strong
+  signals, which pushed output past ±1.0 float32 full scale and caused
+  QAudioSink digital-clipping crackle.
+- Belt-and-suspenders `std::clamp(sample, -1.0f, 1.0f)` in
+  `processNr2()`.  A separate Bessel overflow (issue #1507) can still
+  produce NaN-burst crackle on Gamma-method NR2 under strong-signal
+  conditions — tracked for follow-up, not in this release.
+
+**Audio pan broken with client NR active (#1685, Chaosuk97) + per-slice AF mute persistence (#1560)**
+- Client-side NR (NR2 / RN2 / NR4 / DFNR) mono-mixes L+R before
+  processing, destroying the radio-applied pan.  New
+  `AudioEngine::setRxPan` atomic + static `applyRxPanInPlace` helper
+  re-applies a linear pan law to the NR output so the pan slider
+  continues to work while client NR is active.  No-op at pan 50
+  (centre) — zero overhead when user hasn't panned.
+- Per-slice AF mute now persists across sessions.  VFO widget emits
+  `audioMuteToggled`; MainWindow saves `SliceAudioMuted_{A,B,C,D}` to
+  AppSettings on every user toggle, restores on reconnect.  Uses the
+  slice letter (not numeric id) for the settings key so state survives
+  sessions where the radio assigns a different numeric id.
+
+**VFO / TNF / filter-edge ±1 px jitter during tuning (#1703, Chaosuk97) + cursor-snap-to-VFO (#1369)**
+- `mhzToX()` switched from integer truncation to `std::round` so the
+  same frequency always maps to the same pixel column regardless of
+  pan-center fractional drift during continuous tune.  One-line fix
+  that ripples through every vertical marker — VFO, TNF, filter edges,
+  RIT/XIT, band plan, spots, grid.
+- Cursor frequency readout snaps to the exact VFO frequency when
+  within 8 px of a slice marker (GPU path already had this; software
+  `paintEvent` path added for symmetry).
+- `setSliceOverlayFreq()` now calls `markOverlayDirty()` and
+  early-exits on unchanged value.
+
+**Zoom +/- can't reach full panadapter bandwidth (#1697, Chaosuk97)**
+- Replace early-return guard in `emitZoom` / keyboard zoom with
+  `std::clamp(newBw, minBwMhz, maxBwMhz)` so the final click/keypress
+  snaps to exactly the radio's min/max — matching the mouse-drag
+  behaviour which already used clamp.
+
+**PC Audio button shows wrong state on connect (#1695, Chaosuk97)**
+- `onConnectionStateChanged` now reads `PcAudioEnabled` once and calls
+  both `m_titleBar->setPcAudioEnabled(...)` (sync button, with
+  QSignalBlocker) and `audioStartRx()` from the same decision.
+  Previously the sink and button could diverge after a profile import.
+
+**Waterfall filter-passband fill removed (#1701, Chaosuk97)**
+- The coloured filter-passband fill in the waterfall was only rendered
+  by the software-fallback paintEvent path — the GPU renderer already
+  skipped it.  Dropping the software `fillRect` brings the two render
+  paths into agreement.  Filter edge lines still render in both panes.
+
+**TCI DAX duplicate stream causing 2× audio speed (#1679 / #1678)**
+- Two code paths both subscribing to `dax_rx` for the same channel
+  made `daxAudioReady` fire twice per period, doubling WSJT-X's
+  apparent sample rate and killing FT8 decode.  Registration now
+  evicts stale subscribers and TCI uses a borrow protocol.
+
+**TCI TX no RF output (#1680)**
+- Always emit `transmit set dax=1` on PTT regardless of the previous
+  Low-Latency DAX menu toggle.  The `dax=0` path was advertised for
+  external FreeDV over virtual audio cable but never actually worked
+  because that route silently drops `dax_tx` VITA-49 packets.  The
+  Low-Latency DAX menu has since been retired (#1780).
+
+**Low-Latency DAX consolidated into RADE mode (#1780)**
+- The "Low-Latency DAX (FreeDV)" menu item was removed.  RADE mode's
+  activation now emits a `daxRouteRequested` signal that MainWindow
+  routes to `transmit set dax=N`, flipping the route atomically with
+  the RADE button.  One control, one place.  Stale
+  `DaxTxLowLatency` AppSettings value is no longer read.
+
+**Bandwidth corrections silently dropped during pan-follow (#1729)**
+- The stale-echo guard in `setFrequencyRange` bypassed *any* echo
+  during an in-flight pan-center animation when the center matched.
+  If the echo also carried a bandwidth correction (e.g. post-resize
+  `xpixels` re-sync), it was thrown away.  Guard now also checks the
+  bandwidth field so legitimate corrections pass through.
+
+**Pan-follow VFO edge-tracking after manual drag (#1643)**
+- After a manual spectrum drag, `PanadapterModel::centerMhz` lagged
+  the visible pan center by up to one frame.  `panFollowVfo` now
+  reads the live center from the spectrum widget instead of the
+  model, so edge-fence checks fire against the user's actual view.
+
+**Propagation overlay click tunes VFO by accident (#1647)**
+- Clicking the K/SFI propagation overlay was also triggering the
+  release-to-tune path.  Set `m_spotClickConsumed = true` after the
+  `propForecastClicked` emission so the subsequent release event
+  can short-circuit.
+
+**Off-screen slice click tunes wrong frequency (#1772)**
+- Same pattern as the prop-overlay fix: clicking an off-screen slice
+  indicator now suppresses release-to-tune so the tuning action
+  doesn't pile on top of the slice-activate.
+
+**rigctld TCP server not accepting IPv4 on Windows (#1737)**
+- `QHostAddress::Any` sometimes binds IPv6-only on Windows, leaving
+  IPv4 clients unable to connect.  Use `QHostAddress::AnyIPv4`
+  explicitly.
+
+**Serial port parameters (data bits, parity, stop bits) not persisted (#1610)**
+- RadioSetupDialog's serial tab built the combos with defaults but
+  never read from AppSettings or connected the save handler.  Added
+  both.
+
+**Compression meter shows raw dBFS instead of gain reduction (#1682)**
+- COMPPEAK is the compressor *output* level; AFTEREQ is the *input*.
+  Meter was displaying raw COMPPEAK, which just shows "how loud is
+  the output" instead of "how much is the compressor reducing".  Now
+  shows `output - input` (gain reduction, 0 = no reduction, negative
+  = compressing).
+
+**macOS audio output device silently overridden (#1705)**
+- On macOS, AudioEngine replaced the user's chosen output device with
+  `QMediaDevices::defaultAudioOutput()` whenever Qt reported 48 kHz
+  as unsupported — but that happens on some normal CoreAudio outputs
+  with newer Qt, not just Bluetooth telephony routes.  Narrow the
+  override to devices that genuinely can't handle the native 24 kHz
+  format.
+
+### Internal
+
+**Issue template tightened**
+- Bug-report reproduction steps are now required.  AetherSDR version,
+  radio model+firmware, and OS are required fields with platform-
+  specific guidance (Linux distro + Qt / macOS version + chip /
+  Windows edition).  Improves triage quality on incoming reports.
+
+**Contributors**
+- Added VE3NEM, Ian M7HNF (Chaosuk97), and jensenpat to the About
+  dialog contributors list.
+
+### Reverted
+
+- The spectrum/waterfall alignment tweak from #1694 was landed as a
+  partial fix (alignment math only, skipping an unrelated
+  SMOOTH_ALPHA tuning change) then reverted when the trimmed fix
+  introduced misalignment rather than correcting it.  Issue #1690
+  closed — the originally-reported bug did not reproduce on main.
+
+## [v0.8.18] — 2026-04-20
+
+### PooDoo™ TX Audio — complete six-stage DSP chain, click-bypass, reverb
+
+### Features
+
+**PooDoo™ Audio: Gate, DeEss, Tube, PUDU DSPs + editors (#1661 phases 2-5, #1734)**
+- Four new client-side TX DSP stages complete the chain started in v0.8.17:
+  - **ClientGate** — downward expander / noise gate with Expander↔Gate
+    mode toggle, threshold/ratio/attack/hold/release/floor/return/look-ahead
+    parameters, Ableton-style level view with two-threshold hysteresis band.
+  - **ClientDeEss** — sidechain-filtered de-esser.  Tunable bandpass
+    (1-12 kHz log sweep, Q 0.5-5) feeds the envelope detector; threshold +
+    amount parameters control broadband attenuation on sibilance.
+  - **ClientTube** — dynamic tube saturator with three models (A: soft
+    tanh, B: hard-clip + tanh hybrid, C: asymmetric) + bipolar envelope-
+    driven drive, tilt pre-filter, parallel dry/wet mix.
+  - **ClientPudu** — exciter modelled on Aphex Aural Exciter + Big Bottom
+    (Even mode — asymmetric harmonics + LF saturation) and Behringer
+    SX 3040 (Odd mode — symmetric tanh + feed-forward LF compressor).
+    Six-knob Poo/Doo layout with glowing PooDoo™ wordmark driven by wet
+    RMS level.
+- Every stage has a full-featured floating editor with Ableton-style
+  visualisations: level histograms, curve overlays, live envelope
+  balls.  Editors run lock-free atomic parameter updates with a version
+  counter so audio-thread `process()` never locks or allocates.
+- Consistent visual language across all editors: uniform 76×76 knobs
+  with in-ring labels that auto-shrink to fit, right-aligned Bypass
+  buttons, and uniform "Thresh" / "Freq" naming conventions.
+- Per-stage test harnesses in `tests/client_*_test.cpp` covering DSP
+  invariants (impulse response, ratio curves, mix laws, stereo
+  linkage, finite output under extreme params).
+
+**PUDU Monitor — post-chain record + playback (#1734)**
+- Two icon buttons in the CHAIN header (⏺ record, ▶ play) capture up to
+  30 seconds of **post-PUDU TX audio** without transmitting.  Recording
+  writes an int16 stereo 24 kHz WAV to `/tmp/pudu_monitor.wav` for
+  offline inspection; playback streams from an in-memory buffer through
+  the existing RX sink path.
+- Record button is only enabled when MIC=PC and DAX=off — same
+  condition that turns the `[MIC]` endpoint green in the CHAIN widget.
+  Transitioning out of that state mid-record auto-stops.
+- During recording and playback the RX panadapter stream is
+  disconnected from the audio sink (same pattern as QsoRecorder) so
+  live band audio doesn't bleed under the preview.
+
+**Reverb (Freeverb) stage + CHAIN integration (#1741)**
+- New **ClientReverb** DSP — Jezar's canonical Freeverb algorithm: 8
+  parallel lowpass-feedback comb filters summed through 4 series
+  allpass filters, stereo-spread by 23 samples between channels.
+  Pre-delay ring buffer in front of the reverb core.  Sample-rate-
+  scaled for 24 kHz native processing; CPU cost under 1 % of one core.
+- Five-knob control set: **Size** (0-100 %), **Decay** (0.3-5 s
+  exponential), **Damping** (0-100 %), **Pre-delay** (0-100 ms),
+  **Mix** (0-100 %).
+- Ships **disabled by default** and positioned as the final stage
+  (`[MIC]→[GATE]→[EQ]→[DESS]→[COMP]→[TUBE]→[PUDU]→[VERB]→[TX]`) — reverb
+  on ham TX is unusual and trades intelligibility for "bigness".  Users
+  opt in by single-clicking `[VERB]` in CHAIN.
+- Settings persisted as `ClientReverbTx*` in `AppSettings`.  9-case
+  test harness covers impulse tail, decay monotonicity, dry/wet laws,
+  pre-delay timing, mono/stereo processing.
+
+**CHAIN gesture set — single-click bypass, double-click edit (#1739)**
+- CHAIN widget rewires the click gestures:
+  - **Single-click** a stage → toggle bypass.
+  - **Double-click** a stage → open its floating editor.
+  - **Drag** a stage → reorder the chain.
+  - **Right-click** → context menu (Edit… / Bypass).
+- Deferred single-click timer (at the OS double-click interval) lets a
+  genuine double-click cancel the pending bypass toggle so the gestures
+  don't fight.
+- **Bypass buttons removed from every node editor** — bypass now lives
+  exclusively on the CHAIN widget.  Enable / Edit buttons removed from
+  every applet tile (GATE, CEQ, DESS, CMP, TUBE, PUDU) since the CHAIN
+  is now the single source of truth.
+
+**Applet-tile knob rows (#1739)**
+- Every DSP node's applet tile grows a compact 4-5 knob tuning row at
+  PUDU-style 38×48 px so common parameters can be tweaked without
+  opening the full editor:
+  - **GATE**: Thresh · Ratio · Attack · Release · Floor
+  - **DESS**: Freq · Q · Thresh · Amount
+  - **CMP**: Thresh · Ratio · Attack · Release · Makeup
+  - **TUBE**: Drive · Tone · Bias · Output · Mix
+  - **PUDU**: Drive · Tune · Mix | Tune · Air · Mix (Poo/Doo groups)
+  - **VERB**: Size · Decay · Damp · Pre · Mix
+- 30 Hz two-way sync (QSignalBlocker-guarded) keeps applet and editor
+  knobs in lock-step when values change in either surface.
+
+**Applet-stack order mirrors CHAIN order (#1739)**
+- Dragging a stage to a new position in CHAIN automatically reorders
+  the sub-container tiles inside the PooDoo™ Audio group to match.
+  On startup the persisted chain order drives the initial tile order.
+- CEQ titlebar shows "COMPRESSOR" (was "CMP"); TXDSP group button bar
+  label renamed "VUDU" → "PUDU" to match the exciter node; Settings
+  key stays `Applet_TXDSP` for migration.
+
+**Visual TX signal chain applet (#1661)**
+- New CHAIN tile renders the full TX DSP path as a row of labelled
+  boxes — MIC → GATE → EQ → DESS → COMP → TUBE → ENH → TX — with
+  live bypass state, drag-drop reordering, per-stage click-to-edit
+  and right-click bypass.  Snake layout wraps to 3-3-2 rows so the
+  full chain fits inside the 260 px applet panel without cramping
+  box labels.
+- DSP: generalised TX chain replaces the previous two-option
+  CMP↔EQ toggle with a generic ordered stage list stored as a
+  packed uint64_t atomic (one byte per slot).  Audio thread loads
+  the whole chain in one acquire-read per block; `applyClientTxDsp`
+  walks the stage list and dispatches to the matching per-stage
+  apply helper.  Gate, DeEss, Tube, Enh are stub slots today —
+  placeholders for Phase 2+ Pro-XL work — and users can drag them
+  into their preferred position now so the layout is ready when
+  their DSP ships.
+- Existing ClientCompTxChainOrder (0/1) settings migrate cleanly:
+  legacy CMP-first / EQ-first positions carry over into the new
+  stage list with the canonical stages (Gate, DeEss, Tube, Enh)
+  appended in sensible slots.
+
+**Unified TX DSP container**
+- CHAIN, CEQ and CMP are now three sections of a single TXDSP tile
+  in the applet tray.  Each section has its own titlebar with its
+  own float / close buttons so individual sections can pop out
+  independently, while the outer tray toggle, drag-handle and
+  settings all treat the group as one coherent unit.
+- CEQ and CMP tile visibility is driven by DSP bypass state — right-
+  clicking a stage in the CHAIN widget or toggling the Bypass button
+  inside an editor hides the corresponding section; enabling it
+  brings the section back.  No separate "show tile" toggle.
+
+**Applet panel pop-out**
+- View → "Pop Out Applet Panel" (Ctrl+Shift+S) floats the entire
+  right-side panel into its own top-level window.  Splitter slot
+  collapses to zero; spectrum takes the reclaimed width.  Close
+  the floating window (or toggle the menu item) to dock back at
+  the remembered width.  Position and size persist across launches.
+
+**Post-fader level meters on DAX / TCI**
+- MeterSlider now multiplies its displayed RMS by the gain thumb
+  before rendering, so moving the fader on a TCI or DAX channel
+  gives immediate visual feedback instead of showing the raw
+  pre-fader level.
+
+**Consistent meter motion — MeterSmoother**
+- Extracted the asymmetric attack/release smoothing pattern used
+  by HGauge into a shared MeterSmoother helper (30 ms attack,
+  180 ms release, polled at 120 Hz).  Applied to HGauge,
+  ClientCompMeter, ClientCompApplet's GR strip and MeterSlider so
+  every metering surface in the app reads with identical ballistics.
+
+### Fixes
+
+**Digital-mode TX routing**
+- AudioEngine bypasses client-side Comp + EQ on the DAX/TCI TX path
+  so WSJT-X and fldigi tones reach the radio unshaped.  Mic voice
+  TX continues to run through the full client-side DSP chain.
+- Fixed limiter envelope that could latch "active" forever after
+  any trigger because the envelope decays asymptotically toward
+  1.0 in float and never reaches it — now uses a 0.005 dB threshold
+  to detect "not firing" which releases the active indicator.
+
+**Compressor editor polish**
+- Threshold fader on the left of the compressor editor replaces
+  the old numeric label + tiny triangle with a combined input-
+  level meter + draggable slider, matching the Client EQ output
+  fader visual language.
+- Threshold chevron on the curve gained a full-height dashed guide
+  line so it reads from across the room; hit-test widened to grab
+  anywhere along the vertical column.
+- Live tooltips on the threshold chevron and ratio handle show the
+  current value and describe the gesture.
+- Limiter visualization: bright amber ceiling line on the Output
+  meter, dim red "no-go zone" above, cyan GR tick showing how much
+  the limiter is reducing, and a three-state LIMIT button
+  (disarmed / armed / firing) that glows red for 500 ms after each
+  clamp event.
+
+### Under the hood
+
+**Container system (#1713, foundation library)**
+- New src/gui/containers/ subsystem: ContainerWidget (generic
+  dockable wrapper), ContainerTitleBar (header with float/close/
+  drag handle), FloatingContainerWindow (top-level host with
+  geometry persistence + screen-visibility safety),
+  ContainerManager (lifecycle + path lookup + content factory +
+  JSON persistence under the ContainerTree settings key).
+- Supports arbitrary nesting — a container's body can hold leaf
+  widgets, other containers, or any mix.  Each container has its
+  own float/dock/visibility state; transitions cascade correctly
+  across parent/child relationships (floated parent takes docked
+  children with it, floated child is independent of its parent's
+  state, etc.).
+- 80-assertion test suite across three harnesses covering
+  lifecycle, manager persistence round-trip, and all eight of the
+  nested-float/dock/hide edge cases called out in the design plan.
+- This release uses the container system for just the TXDSP group.
+  Future features needing grouped dockable tiles (RX DSP cluster,
+  meter groups, macro panels) build on the same foundation without
+  re-litigating the architecture.
+
+**ClientCompKnob refinements**
+- Shared rotary knob widget gains a **center-label mode** (draws the
+  parameter name inside the ring instead of above) used by every new
+  editor so the 270° arc, the label, and the value readout live in a
+  tight 76×76 footprint.  Label font auto-shrinks to `diameter / 6`
+  so "Thresh" / "Release" render at the same size as "Hold" across a
+  knob row.
+- Value readout now sits in the empty 90° sector at the bottom of the
+  arc instead of below the widget — no gap between ring and value.
+
+### Fixes
+
+**CEQ cascade Q honouring (#1739)**
+- Fix regression where HP/LP bands ignored the user-set Q on cascade
+  slopes.  Cascade-slope refactor had hardcoded the family Q; new
+  `resonanceScale = userQ / 0.707` multiplier restores user control
+  of resonance for slopes above 12 dB/oct.
+
+**PUDU monitor audio routing (#1734)**
+- Earlier implementation mixed recorded int16 directly into the sink
+  (wrong format, blew out speakers) and interleaved playback with
+  live RX audio.  Fixed: convert int16→float32 before enqueueing at
+  10 ms cadence; mute RX by disconnecting the pan stream ↔ AudioEngine
+  signal rather than calling `setMuted()` (which silenced our own
+  playback too).
+
+## [v0.8.17] — 2026-04-19
+
+### Client-side TX Compressor (Pro-XL-style, Phase 1) + Fully-interactive 10-band Client EQ
+
+### Features
+
+**Client EQ — 10-band parametric, 4 filter families, output fader (#1650 / #1651 / #1658 / #1660)**
+- Client-side 10-band parametric EQ on both RX (post-NR, pre-sink) and
+  TX (post-mic, pre-VITA-49) paths.  Default layout: HP / Low Shelf /
+  6× Peak / High Shelf / LP, all disabled on first launch
+- Each pass (HP / LP) band cascades up to 4 biquad sections for slopes
+  of 12 / 24 / 36 / 48 dB/oct; peak / shelf bands stay native 2nd-order
+- Global filter-family enum: Butterworth (flat maximal), Chebyshev I
+  (1 dB ripple), Bessel (tabulated pole Q/mag for orders 2-8), Elliptic
+  (Chebyshev-II-ish approximation).  Display path sums section
+  magnitudes in dB from the analog prototype, in double precision, so
+  the curve stays clean at all frequencies
+- Grabbing a handle or clicking an icon auto-enables the band.  Right-
+  click handles for type picker, bypass, reset-to-default; HP / LP also
+  get a Slope submenu
+- Live post-EQ FFT analyzer overlaid on the response curve (2048-point
+  Cooley-Tukey at ~25 Hz, fed from an audio-thread ring buffer with no
+  UI-side mutex).  Gradient terminates at the last valid bin so there's
+  no misleading plateau above Nyquist
+- Combined output-fader widget on the right edge: one custom-painted
+  widget with a vertical peak meter, dB scale (0 / -6 / -12 / -20 / -40)
+  and a horizontal fader handle that overhangs the bar on both sides.
+  Click-drag, wheel for 0.5 dB fine step, double-click resets to 0 dB
+- Settings migrate cleanly — existing users' saved bands map into the
+  new 10-slot layout
+
+**Client-side TX compressor (Pro-XL-style, Phase 1) (#1661)**
+- Feed-forward compressor with soft-knee quadratic interpolation, linear-
+  domain peak envelope detection, stereo-linked gain application, and a
+  brickwall peak limiter on the output
+- Parameters: threshold (-60..0 dB), ratio (1:1..20:1), attack (0.1..300 ms),
+  release (5..2000 ms), knee (0..24 dB), makeup (-12..+24 dB), limiter
+  enable + ceiling (-24..0 dB)
+- Chain-order toggle in the editor: CMP→EQ (default, colour-then-shape)
+  or EQ→CMP (shape-then-tame) — the two client-side TX DSP stages now
+  run in a user-configurable order
+- Atomic parameter handoff from UI to audio thread, lock-free, no alloc
+  in process(), identical pattern to ClientEq
+
+**Docked Compressor applet + floating editor**
+- View-only CMP tile in the applet tray: live transfer curve with a
+  glowing ball that slides along the curve at the current envelope level,
+  horizontal GR strip beneath, Bypass toggle + Edit… button
+- Full floating editor (Ableton-inspired, extended for our limiter and
+  chain order): rotary knobs for Ratio / Attack / Release / Knee /
+  Makeup / Ceiling, interactive transfer curve with draggable threshold
+  handle + ratio handle, vertical Input / GR / Output meters, Limiter
+  enable toggle, chain-order selector, persistent window geometry
+- Meter ballistics match Phone/CW Level (30 ms attack, 180 ms release)
+
+**DSP test harness**
+- tests/client_comp_test.cpp — 11 standalone smoke tests: bypass,
+  below-threshold passthrough, static ratio (4:1 and 20:1), makeup,
+  limiter ceiling, stereo linking, attack timing, soft-knee monotonicity,
+  transient sanity, reset(). Built as `client_comp_test` CMake target.
+
+**Settings**
+- Client EQ: ClientEq{Rx,Tx}_Enabled / ActiveBandCount, per-band
+  ClientEq{Rx,Tx}_Band{N}_* (type, freq, gain, Q, slope, enabled),
+  ClientEq{Rx,Tx}_FilterFamily, ClientEq{Rx,Tx}_MasterGain, plus
+  ClientEqEditorGeometry
+- Client Comp: ClientCompTx* keys (Enabled, ThresholdDb, Ratio,
+  AttackMs, ReleaseMs, KneeDb, MakeupDb, LimEnabled, LimCeilingDb),
+  ClientCompTxChainOrder, ClientCompEditorGeometry
+
+**Docs**
+- docs/tx-audio-signal-path.md — new "Client-side TX DSP" section
+  showing mic → ClientEq + ClientComp → VITA-49 → radio firmware chain
+- docs/architecture-pipelines.md — TX pipeline diagram shows
+  applyClientTxDsp stage inserted between onTxAudioReady and the
+  voice/DAX/RADE fork
+
+Compressor Phase 2+ (expander/gate, de-esser, tube, enhancer, low
+contour, IKA/IRC, lookahead limiter, preset system) tracked in #1661
+for future releases.
+
+## [v0.8.16] — 2026-04-18
+
+### DIGI Applet Split, TCI Audio Reliability, PGXL-Aware S-Meter, Community Contributions
+
+### Features
+
+**DIGI applet split into CAT, DAX, TCI, IQ (#1627)**
+- Four independent applets replace the monolithic DIGI tile
+- Each has its own toggle button, drag-reorder slot, and float/dock affordance
+- TCI gains per-channel RX gain (TciRxGain1-4) and a decoupled TX gain (TciTxGain)
+- DAX and TCI audio gains no longer fight each other
+- Migrates existing Applet_DIGI and DaxRx/TxGain settings on first launch
+
+**PGXL standby-aware S-Meter (#1635)**
+- VU / S-Meter switches between barefoot and PGXL 2kW scales automatically
+- In STANDBY the meter shows exciter FWDPWR on the barefoot scale
+- In OPERATE the meter shows amp output on the 2kW scale
+- Scale and feed flip live on amp state change — no dialog re-open needed
+
+**Refined HF Propagation Dashboard (#1626, community: jensenpat)**
+- Five color-coded metric cards for K, A, SFI, SSN, X-ray with plain-language summaries
+- Teaching panels for Solar/Lunar (VIEW/HF/MOON) and VHF (AURORA/E-SKIP)
+- Cropped lunar bitmap fills the frame; empty-phase caption no longer leaves a blank line
+
+**Pan-follows-VFO with 5% edge threshold (#1476/#1477)**
+- Opt-in toggle; VFO slides freely through the center 90% of the pan
+- Pan only shifts when the VFO crosses the 5% edge on either side
+
+**Memory dialog CSV bulk import (#1529)**
+- Import memory channels from SmartSDR-compatible 22-column CSV with progress feedback
+- Bulk selection and editing flow improvements (#1522)
+
+**RAC (Canada) band plan overlay (#716)**
+
+**Audio Boost toggle (#1445)**
+- Optional gain boost in Radio Setup for low-volume AGC audio
+
+**Configurable audio buffer cap (#1505)**
+- User-tunable RX buffer size; DSP bypass for external TX paths
+
+**Per-slice VFO marker style toggles (#1526/#1614)**
+- Thin / thick / edges / hide choices per slice (restricted to CW/CWL modes)
+
+**Extended frequency line (#1502)**
+
+**rigctl TX PWR / SWR meters for WSJT-X and JTDX (#1594)**
+- Expose transmit power and SWR over rigctld
+
+**StreamController TX audio source selector (#1617)**
+- MOX and PTT actions in the StreamController plugin can pick DAX vs mic source
+
+**Smooth S-meter peak hold animation (#1501)**
+
+### Bug Fixes
+
+**TCI audio reliability for WSJT-X / JTDX**
+- Fix TCI TX timing for WSJT-X (#1624) — 2048/48000 = 21.333ms cadence was rounding to 21ms
+- Fix TCI audio for multi-slice: per-channel accumulation buffers (#1595/#1596)
+- Fix TCI audio for WSJT-X: DAX stream lifecycle and frame format (#1439)
+- Fix TCI trx command ignoring micpc audio source arg (#1534/#1535)
+- Fix TCI server crash on stop due to double-free in client cleanup (#1532)
+- Decouple TciServer TX gain from DaxTxGain (#1628)
+
+**macOS Tahoe pop-out / re-dock UI freeze (#1344/#1345)**
+- Clears stale native window state on reparent
+
+**rigctld shutdown stability**
+- Fix rigctld shutdown crash with active CAT clients (#1601)
+- Schedule rigctld client sockets for deletion on server stop (#1605)
+
+**PC Audio persistence and recovery**
+- Fix PC Audio mute state not persisting across restarts or sleep/wake (#1571/#1572)
+- Fix PC Audio silence after Teams/Zoom reconfigures audio endpoint (#1569/#1570)
+- Keep local audio sink off when PC Audio is disabled but stream alive (#1622)
+- Handle macOS Bluetooth audio hotplug safely (#1602)
+- Fix macOS Bluetooth audio route handling (#1486)
+
+**Panadapter and spectrum**
+- Fix RF Gain echo-driven command loop (#1498/#1612)
+- Fix RF gain / WNB controls affecting wrong panadapter (#1548)
+- Fix VFO disappearing from pan area on startup (#1493/#1495)
+- Preserve waterfall history on width change instead of blanking (#1608)
+- Fix Band Stack Panel expanding main window width (#1487/#1488)
+- Recenter panadapter when activating an off-screen slice (#1554/#1555)
+- Fix noise floor mismatch between slices by syncing yPixels on resize (#1511)
+- Center signal on VFO when zoom-in button/keyboard pushes it offscreen (#1550/#1551)
+- Propagate late-arriving DIV eligibility to all VFOs (#1503/#1613)
+- Fix PanadapterStream thread affinity (#1489)
+- Fix RF Gain slider wiring and keyboard shortcut yield (#1497)
+
+**FlexControl tuning jitter**
+- Resolve optimistic/confirmed frequency race that caused knob jitter (#1524)
+
+**CW**
+- Fix CW macros requiring CWX window open and ESC not stopping TX (#1552/#1553)
+- Fix CW decoder header jitter when WPM changes (#1546)
+- Fix Autotune label leaking to non-CW modes and show marker row always (#1620)
+- Restrict VFO marker-style buttons to CW/CWL modes and clean up on rebuild (#1615)
+
+**Mic and TX**
+- Fix Mic Gain resetting when toggling Processor state (#1573)
+- Disable NR2 when Opus audio compression is active (#1597)
+
+**TGXL and band selection**
+- Fix TGXL showing wrong SWR after tune and meter freeze (#1530/#1531)
+- Map WWV/GEN to their band-stack slot indexes (#1540/#1211 follow-up) (#1616)
+
+**TNF on macOS (#1452)**
+- Split setGlobalEnabled into status and command paths so TNF tracks on macOS
+
+**MQTT TLS with OpenSSL 3.5+ (#1483/#1484)**
+
+**Radio connection UX (#1545)**
+- Better panadapter feedback during connect
+- Larger connection dialog buttons and window
+- Clarify disabled CAT/DAX menu items on unsupported platforms (#1556/#1557)
+
+**Windows build**
+- Guard autoCatAction / autoDaxAction refs in placeholder-action loop (#1618/#1619)
+- Guard m_hidCoalesceTimer reference behind HAVE_HIDAPI (#1606)
+
 ## [v0.8.15] — 2026-04-15
 
 ### Waterfall Scrollback, Pan-Follow Animation, TCI-via-DAX, Community Contributions

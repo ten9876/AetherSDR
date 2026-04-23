@@ -3,10 +3,57 @@
 Documented from FLEX-8600 firmware v4.1.5 meter definitions.
 All meters are source `TX-` unless noted. Units are dBFS unless noted.
 
-## Signal Flow
+## Client-side TX DSP (PooDoo™ Audio, before the radio)
+
+Since v0.8.15 AetherSDR applies its own client-side DSP chain to the
+TX stream between the mic/VirtualAudioBridge and the VITA-49 encoder.
+The radio receives the already-shaped signal and treats it identically
+to any other PC-mic input (enters at SC_MIC, meter 26).
+
+As of v0.8.18 the full **PooDoo™ Audio** chain is in place: seven
+ordered stages, drag-to-reorder inside the CHAIN widget, single-click
+to bypass, double-click to open the floating editor.
 
 ```
-PC Mic Audio (Opus via remote_audio_tx)
+Mic capture (QAudioSource) / DAX TX audio
+  │
+  ▼
+┌───────────────────────────────────────────────────────────────────┐
+│  CHAIN widget — drag-drop ordered TX DSP pipeline                  │
+│                                                                     │
+│  [GATE] → [EQ] → [DESS] → [COMP] → [TUBE] → [PUDU] → [VERB]        │
+│                                                                     │
+│  ClientGate    — downward expander / noise gate                     │
+│  ClientEq      — 10-band parametric, 4 filter families, #1660      │
+│  ClientDeEss   — sidechain-filtered de-esser                        │
+│  ClientComp    — Pro-XL-style compressor + brickwall limiter, #1661 │
+│  ClientTube    — dynamic tube saturator (3 models)                  │
+│  ClientPudu    — exciter (Aphex-even / Behringer-odd harmonics)     │
+│  ClientReverb  — Freeverb (disabled by default)                     │
+│                                                                     │
+│  Audio thread loads the packed chain order once per block and       │
+│  dispatches each stage to its per-stage apply helper.               │
+└─────────┬──────────────────────────────────────────────────────────┘
+          │
+          ▼  (meters: per-stage inputPeak/outputPeak/GR, ClientEq FFT
+          │   tap, ClientPudu wet RMS, ClientReverb wet RMS)
+          │
+          ▼
+     VITA-49 encode → UDP → radio
+```
+
+The chain is bypassed entirely on the DAX/TCI TX path so digital-mode
+tones (WSJT-X, fldigi) reach the radio unshaped.  Mic voice TX runs
+through the full chain.
+
+Post-encoding, the radio sees this stream as any other PC-mic source
+and runs it through the firmware TX chain below.
+
+## Firmware Signal Flow
+
+```
+PC Mic Audio (Opus via remote_audio_tx) — arrives with client-side
+                                          EQ + CMP already applied
   │
   ▼
 ┌─────────────────────────────┐

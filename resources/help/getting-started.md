@@ -25,26 +25,27 @@ Make sure:
 ### Local LAN connection
 
 1. Start AetherSDR.
-2. Wait for the Connection panel to show discovered radios.
-3. If the panel is not visible, open `Settings -> Choose Radio / SmartLink Setup...`.
+2. Wait for the `Connect to Radio` dialog to show radios on the `On This Network` page.
+3. If the dialog is not visible, open `Settings -> Connect to Radio...`.
 4. Select the radio you want.
-5. Leave `Low Bandwidth` off for normal local use unless you are intentionally reducing display traffic.
-6. Click `Connect`.
+5. Click `Connect`.
 
 If nothing appears in the discovered list:
 
 1. Confirm the radio and computer are on the same network segment.
 2. Check that guest Wi-Fi isolation, VPN software, or firewall rules are not blocking discovery.
-3. Try the manual IP field in the `Manual Connection` section if you know the radio's address.
+3. Try `Connect by IP` if you know the radio's address or are reaching it through a VPN.
 4. Open `Settings -> Network...` for diagnostics if discovery still fails.
 
 ### SmartLink remote connection
 
-1. Open `Settings -> Choose Radio / SmartLink Setup...`.
-2. Use the SmartLink section to sign in.
-3. Select the WAN radio or station entry you want to use.
-4. Click `Connect`.
-5. Give the audio and panadapter streams a few extra seconds to settle, especially on slower links.
+1. Open `Settings -> Connect to Radio...`.
+2. Switch to `Remote with SmartLink`.
+3. Sign in to SmartLink.
+4. Select the remote radio you want to use.
+5. Turn on `Low Bandwidth` first if you are on a slower internet path.
+6. Click `Connect`.
+7. Give the audio and panadapter streams a few extra seconds to settle, especially on slower links.
 
 Remote operation depends more heavily on Internet quality, latency, and firewall setup than LAN operation. If the display or audio feels rough, simplify the session first by using fewer panadapters and avoiding unnecessary visual load.
 

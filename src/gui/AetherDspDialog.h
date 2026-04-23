@@ -26,6 +26,9 @@ public:
     // Sync UI from current AudioEngine state
     void syncFromEngine();
 
+    // Jump to a named tab (e.g. "MNR", "NR2", "DFNR")
+    void selectTab(const QString& name);
+
 signals:
     // NR2 parameter changes
     void nr2GainMaxChanged(float value);
@@ -34,6 +37,9 @@ signals:
     void nr2GainMethodChanged(int method);
     void nr2NpeMethodChanged(int method);
     void nr2AeFilterChanged(bool on);
+    // MNR parameter changes
+    void mnrEnabledChanged(bool on);
+    void mnrStrengthChanged(float value);
     // DFNR parameter changes
     void dfnrAttenLimitChanged(float dB);
     void dfnrPostFilterBetaChanged(float beta);
@@ -49,11 +55,13 @@ signals:
 private:
     void buildNr2Tab(QTabWidget* tabs);
     void buildNr4Tab(QTabWidget* tabs);
+    void buildMnrTab(QTabWidget* tabs);
     void buildRn2Tab(QTabWidget* tabs);
     void buildBnrTab(QTabWidget* tabs);
     void buildDfnrTab(QTabWidget* tabs);
 
-    AudioEngine* m_audio;
+    AudioEngine*  m_audio;
+    QTabWidget*   m_tabs{nullptr};
 
     // NR2 controls
     QButtonGroup* m_nr2GainGroup{nullptr};
@@ -65,6 +73,11 @@ private:
     QLabel*       m_nr2SmoothLabel{nullptr};
     QSlider*      m_nr2QsppSlider{nullptr};
     QLabel*       m_nr2QsppLabel{nullptr};
+
+    // MNR controls
+    QCheckBox*    m_mnrEnableCheck{nullptr};
+    QSlider*      m_mnrStrengthSlider{nullptr};
+    QLabel*       m_mnrStrengthLabel{nullptr};
 
     // NR4 controls
     QSlider*      m_nr4ReductionSlider{nullptr};

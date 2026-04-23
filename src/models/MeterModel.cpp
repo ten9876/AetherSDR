@@ -1,6 +1,7 @@
 #include "MeterModel.h"
 #include "core/LogManager.h"
 #include <QDebug>
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <cmath>
@@ -159,6 +160,15 @@ float MeterModel::convertRaw(const MeterDef& def, qint16 raw) const
     return static_cast<float>(raw);
 }
 
+bool MeterModel::hasRecentTxMeters(qint64 maxAgeMs) const
+{
+    if (m_lastTxMeterUpdateMs <= 0 || maxAgeMs < 0)
+        return false;
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    return now - m_lastTxMeterUpdateMs <= maxAgeMs;
+}
+
 void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>& vals)
 {
     const int n = qMin(ids.size(), vals.size());
@@ -200,6 +210,7 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         if (isSliceLevel) {
             // no-op, already emitted
         } else if (idx == m_fwdPwrIdx) {
+            m_lastTxMeterUpdateMs = QDateTime::currentMSecsSinceEpoch();
             // FWDPWR meter reports in dBm — convert to watts for display.
             // watts = 10^(dBm/10) / 1000
             // e.g. 50 dBm = 100 W, 47 dBm ≈ 50 W, 40 dBm = 10 W
@@ -214,6 +225,7 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             }
             txChanged = true;
         } else if (idx == m_swrIdx) {
+            m_lastTxMeterUpdateMs = QDateTime::currentMSecsSinceEpoch();
             m_swr = v;
             txChanged = true;
         } else if (idx == m_micPeakIdx) {
@@ -224,9 +236,18 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             constexpr float kEqAlpha = 0.3f;
             m_afterEq = (m_afterEq < -140.0f) ? v : kEqAlpha * v + (1.0f - kEqAlpha) * m_afterEq;
         } else if (idx == m_compPeakIdx) {
-            // COMPPEAK: raw dBFS from radio. Just smooth and pass through.
+            // COMPPEAK: raw dBFS output level from the radio's compressor.
+            // Smooth it, then compute gain reduction = output - input (negative when compressing).
             constexpr float kAlpha = 0.3f;
-            m_compPeak = (m_compPeak < -140.0f) ? v : kAlpha * v + (1.0f - kAlpha) * m_compPeak;
+            m_compPeakRaw = (m_compPeakRaw < -140.0f) ? v : kAlpha * v + (1.0f - kAlpha) * m_compPeakRaw;
+
+            // Gain reduction = compressor output - compressor input.
+            // Both must be valid (> -140 dBFS) for a meaningful result.
+            if (m_afterEq > -140.0f && m_compPeakRaw > -140.0f) {
+                m_compPeak = m_compPeakRaw - m_afterEq;  // 0 = no reduction, negative = compressing
+            } else {
+                m_compPeak = 0.0f;  // silence — no meaningful reduction to display
+            }
             micChanged = true;
         } else if (idx == m_micLevelIdx) {
             m_micLevel = v;

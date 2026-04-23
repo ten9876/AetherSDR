@@ -7,7 +7,9 @@
 #include <QImage>
 #include <QColor>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QTimer>
+#include <QLabel>
 
 class QVariantAnimation;
 
@@ -75,6 +77,7 @@ public:
     void setFrequencyRange(double centerMhz, double bandwidthMhz);
     void clearDisplay();  // blank spectrum and waterfall on disconnect
     void resetGpuResources();  // tear down GPU pipelines for reparenting (#1240)
+    void setConnectionAnimationVisible(bool on, const QString& label = {});
 
     // Feed a new FFT frame. bins are scaled dBm values.
     void updateSpectrum(const QVector<float>& binsDbm);
@@ -181,6 +184,8 @@ public:
     bool showCursorFreq() const { return m_showCursorFreq; }
     void setShowTuneGuides(bool on);
     bool showTuneGuides() const { return m_showTuneGuides; }
+    void setExtendedFrequencyLine(bool on);
+    bool extendedFrequencyLine() const { return m_extendedFrequencyLine; }
     void setFloating(bool on) { m_isFloating = on; }
     void setBackgroundImage(const QString& path);
     QString backgroundImagePath() const { return m_bgImagePath; }
@@ -242,6 +247,9 @@ public:
         int    ritFreq{0};          // Hz offset
         bool   xitOn{false};
         int    xitFreq{0};          // Hz offset
+        // Per-slice VFO marker display preferences (#1526)
+        bool   markerThin{false};         // 1px center line instead of 2px
+        bool   filterEdgesHidden{false};  // skip drawing filter-edge vertical lines
     };
 
     // Add or update a slice overlay (called per-slice on any state change).
@@ -253,6 +261,8 @@ public:
                          bool xitOn = false, int xitFreq = 0);
     // Update just the frequency on an existing overlay (for optimistic scroll-to-tune)
     void setSliceOverlayFreq(int sliceId, double freqMhz);
+    // Update per-slice marker display style (#1526)
+    void setSliceOverlayMarkerStyle(int sliceId, bool markerThin, bool filterEdgesHidden);
     // Remove a slice overlay.
     void removeSliceOverlay(int sliceId);
 
@@ -338,6 +348,8 @@ signals:
     void sliceTuneRequested(int sliceId, double freqMhz);
     void popOutRequested(bool popOut);  // true=float, false=dock
     void sliceTxRequested(int sliceId);
+    // Emitted on resize so MainWindow can re-push xpixels/ypixels to the radio (#1511)
+    void dimensionsChanged(int w, int h);
     // Spot signals
     void spotAddRequested(double freqMhz, const QString& callsign,
                           const QString& comment, int lifetimeSec,
@@ -371,15 +383,22 @@ private:
     void drawSliceMarkers(QPainter& p, const QRect& specRect, const QRect& wfRect);
     void drawOffScreenSlices(QPainter& p, const QRect& specRect);
     void drawBandPlan(QPainter& p, const QRect& specRect);
-    void drawTnfMarkers(QPainter& p, const QRect& specRect, const QRect& wfRect);
+    void drawTnfMarkers(QPainter& p, const QRect& specRect);
     void drawSpotMarkers(QPainter& p, const QRect& specRect);
     void showSpotClusterPopup(const SpotCluster& cluster, const QPoint& globalPos);
-    int  tnfAtPixel(int x) const;
+    const TnfMarker* tnfMarkerById(int id) const;
+    QColor tnfColor(const TnfMarker& tnf) const;
+    QColor tnfFillColor(const TnfMarker& tnf) const;
+    QColor tnfLineColor(const TnfMarker& tnf) const;
+    int  tnfAtPixel(int x, int preferredId = -1) const;
+    void updateTrackedCursorState(const QPoint& localPos, bool insideWidget);
+    void updateTnfHoverPopup();
     void drawWaterfall(QPainter& p, const QRect& r);
     void positionZoomButtons();
     void drawFreqScale(QPainter& p, const QRect& r);
     void drawDbmScale(QPainter& p, const QRect& specRect);
     void drawTimeScale(QPainter& p, const QRect& wfRect);
+    void drawConnectionAnimation(QPainter& p, const QRect& contentRect);
     int waterfallStripWidth() const;
     QRect waterfallLiveButtonRect(const QRect& wfRect) const;
     QRect waterfallTimeScaleRect(const QRect& wfRect) const;
@@ -553,9 +572,14 @@ private:
 
     // Tune guide overlay (vertical line + freq label, auto-hides after 4s)
     bool    m_showTuneGuides{false};
+    bool    m_extendedFrequencyLine{false};
     bool    m_isFloating{false};
     bool    m_tuneGuideVisible{false};
     QTimer* m_tuneGuideTimer{nullptr};
+    bool    m_connectionAnimationVisible{false};
+    QString m_connectionAnimationLabel;
+    QTimer* m_connectionAnimationTimer{nullptr};
+    QElapsedTimer m_connectionAnimationClock;
 
     // State change detector cache (per-instance, NOT static — multiple
     // panadapters have different values and static vars cause an infinite
@@ -626,7 +650,12 @@ private:
     QColor m_spotBgColor{Qt::black};
     int    m_spotBgOpacity{48};
     int  m_draggingTnfId{-1};
-    double m_dragTnfOrigFreq{0.0};
+    int  m_hoveredTnfId{-1};
+    int    m_dragTnfOrigWidthHz{100};
+    double m_dragTnfLastFreq{0.0};
+    int    m_dragTnfLastWidthHz{100};
+    QPoint m_tnfDragStartPos;
+    QLabel* m_tnfHoverPopup{nullptr};
 
     // Floating overlay menu (child widget, anchored top-left)
     SpectrumOverlayMenu* m_overlayMenu{nullptr};

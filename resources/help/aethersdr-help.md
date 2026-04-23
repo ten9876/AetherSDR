@@ -46,7 +46,7 @@ This is the best place to look when you want to answer, "Is this a station probl
 This is the operational configuration menu. It contains most dialogs that affect station behavior, radio setup, control surfaces, and external integrations.
 
 - `Radio Setup...`: the main multi-tab radio configuration dialog.
-- `Choose Radio / SmartLink Setup...`: opens the floating Connection panel.
+- `Connect to Radio...`: opens the radio connection dialog.
 - `FlexControl...`: jumps directly into the serial and FlexControl setup area when serial support is available.
 - `Network...`: opens network diagnostics.
 - `Memory...`: opens the memory channel manager.
@@ -357,15 +357,15 @@ If you are operating quickly, this row helps prevent "silent failures" where the
 
 ### Connection panel
 
-The floating Connection panel is the gateway to the radio. It includes:
+The `Connect to Radio` dialog is the gateway to the radio. It includes:
 
-- discovered radio list
-- `Low Bandwidth` mode
-- connect or disconnect button
-- SmartLink login section
-- manual IP connection section
+- `On This Network` for beginner-friendly LAN discovery
+- `Remote with SmartLink` for internet-connected stations
+- `Connect by IP` for VPN or routed access when you already know the radio IP
+- contextual `Low Bandwidth` mode for SmartLink or VPN links
+- diagnostics and recovery actions when discovery does not find a radio
 
-This panel is meant to be simple enough for initial connection but detailed enough to support remote and manual workflows.
+The dialog is meant to keep the novice path obvious while still exposing manual routing controls only when a station actually needs them.
 
 ### multiFLEX dashboard
 

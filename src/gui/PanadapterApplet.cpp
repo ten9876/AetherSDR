@@ -117,6 +117,8 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
 
     m_cwStatsLabel = new QLabel;
     m_cwStatsLabel->setStyleSheet("QLabel { color: #6a8090; font-size: 10px; background: transparent; }");
+    m_cwStatsLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_cwStatsLabel->setFixedWidth(m_cwStatsLabel->fontMetrics().horizontalAdvance("1200 Hz  120 WPM"));
     cwBar->addWidget(m_cwStatsLabel);
 
     // Sensitivity slider — filters low-confidence decodes

@@ -66,6 +66,7 @@ protected:
 private:
     void updateNeedleTarget();
     void animateNeedle();
+    void updatePeakHoldValue();
 
     // Map dBm to fraction (0.0 = left, 1.0 = right) for RX S-meter scale
     float dbmToFraction(float dbm) const;
@@ -103,6 +104,7 @@ private:
     // Peak hold line state
     bool           m_peakHoldEnabled{false};
     float          m_peakHoldDbm{-127.0f};
+    float          m_peakHoldDecayStartDbm{-127.0f};
     int            m_peakHoldTimeMs{1000};
     float          m_peakDecayDbPerSec{10.0f};  // Medium default
     QElapsedTimer  m_peakHoldTimer;

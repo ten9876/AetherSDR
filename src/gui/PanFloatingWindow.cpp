@@ -8,25 +8,32 @@
 
 namespace AetherSDR {
 
-PanFloatingWindow::PanFloatingWindow(PanadapterApplet* applet, QWidget* parent)
+PanFloatingWindow::PanFloatingWindow(QWidget* parent)
     : QWidget(parent, Qt::Window)
-    , m_applet(applet)
 {
-    // Use the user-facing slice title (e.g. "Slice A") instead of raw hex pan ID
-    QString title = applet->sliceTitle();
-    if (title.isEmpty())
-        title = QString("Pan %1").arg(applet->panId());
-    setWindowTitle(QString("AetherSDR — %1").arg(title));
     setMinimumSize(400, 300);
 
     m_layout = new QVBoxLayout(this);
     m_layout->setContentsMargins(0, 0, 0, 0);
     m_layout->setSpacing(0);
+}
 
-    // Reparent the applet into this window
-    m_applet->setParent(this);
+void PanFloatingWindow::adoptApplet(PanadapterApplet* applet)
+{
+    if (!applet) return;
+    m_applet = applet;
+
+    // Use the user-facing slice title (e.g. "Slice A") instead of raw hex pan ID
+    QString title = applet->sliceTitle();
+    if (title.isEmpty())
+        title = QString("Pan %1").arg(applet->panId());
+    setWindowTitle(QString("AetherSDR — %1").arg(title));
+
+    // Reparent directly into this window — addWidget() calls setParent()
+    // internally, so the widget goes straight from the splitter to the
+    // floating window without an intermediate nullptr/top-level state.
+    // This avoids corrupting the main window's NSResponder chain on macOS.
     m_layout->addWidget(m_applet, 1);
-    m_applet->show();
 
     // Show dock icon in the applet's title bar
     m_applet->setFloatingState(true);

@@ -44,6 +44,11 @@ public:
     void rebuildShortcuts(QWidget* parent,
                           std::function<bool()> guardFn = nullptr);
 
+    // Enable or disable all active QShortcut objects. Used to yield key
+    // events to focused child widgets (e.g. sliders) that would otherwise
+    // have their arrow keys stolen by window-level shortcuts.
+    void setShortcutsEnabled(bool enabled);
+
     // Query
     const QVector<Action>& actions() const { return m_actions; }
     Action* action(const QString& id);

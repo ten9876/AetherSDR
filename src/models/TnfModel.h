@@ -27,7 +27,7 @@ public:
     // ── Status parsing (called from RadioModel) ─────────────────────────
     void applyTnfStatus(int id, const QMap<QString, QString>& kvs);
     void removeTnf(int id);
-    void setGlobalEnabled(bool on);
+    void applyGlobalEnabled(bool on);
 
     // ── Commands (emit commandReady) ────────────────────────────────────
     void createTnf(double freqMhz);

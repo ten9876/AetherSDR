@@ -1,3 +1,32 @@
+/*  SpectralNR.h
+
+This file is part of AetherSDR.
+
+Portions of this file are derived from WDSP (emnr.c):
+  Copyright (C) 2015, 2025 Warren Pratt, NR0V
+  https://github.com/TAPR/OpenHPSDR-wdsp
+
+The WDSP-derived portions are licensed under the GNU General Public License
+as published by the Free Software Foundation; either version 2 of the
+License, or (at your option) any later version.
+
+AetherSDR integration and C++20/Qt6 adaptation:
+  Copyright (C) 2024-2026 AetherSDR Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 #pragma once
 
 #include <atomic>
@@ -15,7 +44,7 @@ namespace AetherSDR {
 
 // Client-side spectral noise reduction using the Ephraim-Malah MMSE
 // Log-Spectral Amplitude estimator with OSMS noise floor tracking.
-// Inspired by WDSP NR2 (emnr.c) from OpenHPSDR/Thetis.
+// Derived from WDSP NR2 (emnr.c) by Warren Pratt, NR0V.
 //
 // Uses FFTW3 for FFT computation (with wisdom file for optimised plans)
 // when available; falls back to a built-in radix-2 FFT otherwise.
@@ -170,7 +199,7 @@ private:
     static constexpr double SnrqExp    = -0.25;
 
     // ── User-adjustable parameters (atomic for audio thread safety) ───
-    std::atomic<double> m_gainMax{1.5};     // cap gain — noise REDUCTION, not amplification
+    std::atomic<double> m_gainMax{1.0};     // cap gain — noise REDUCTION, never amplify above input (#1507)
     std::atomic<double> m_qSpp{0.2};        // speech presence probability prior
     std::atomic<double> m_gainSmooth{0.85}; // temporal gain smoothing (anti-musical-noise)
     std::atomic<int>    m_gainMethod{2};    // 0=Linear, 1=Log, 2=Gamma, 3=Trained

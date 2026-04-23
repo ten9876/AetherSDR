@@ -416,7 +416,7 @@ void VfoWidget::buildUI()
     m_recordBtn->setCheckable(true);
     m_recordBtn->setToolTip("Record slice audio");
     m_recordBtn->setStyleSheet(sliceBtnStyle +
-        "QPushButton { color: #804040; }"
+        "QPushButton { color: #d04040; }"
         "QPushButton:checked { color: #ff2020; background: rgba(255,50,50,60); }");
     m_recordBtn->show();
     connect(m_recordBtn, &QPushButton::clicked, this, [this](bool checked) {
@@ -445,9 +445,9 @@ void VfoWidget::buildUI()
     m_playBtn->setEnabled(false);
     m_playBtn->setToolTip("Play recorded audio");
     m_playBtn->setStyleSheet(sliceBtnStyle +
-        "QPushButton { color: #406040; }"
+        "QPushButton { color: #70b070; }"
         "QPushButton:checked { color: #30d050; background: rgba(50,200,80,60); }"
-        "QPushButton:disabled { color: #303030; background: rgba(255,255,255,5); }");
+        "QPushButton:disabled { color: #505050; background: rgba(255,255,255,5); }");
     m_playBtn->show();
     connect(m_playBtn, &QPushButton::clicked, this, [this](bool checked) {
         emit playToggled(checked);
@@ -862,6 +862,7 @@ void VfoWidget::buildTabContent()
                                   : QString::fromUtf8("AF  \xF0\x9F\x94\x8A"));  // 🔊 AF
             m_tabBtns[0]->setText(on ? QString::fromUtf8("\xF0\x9F\x94\x87")
                                      : QString::fromUtf8("\xF0\x9F\x94\x8A"));
+            if (!m_updatingFromModel) emit audioMuteToggled(on);  // (#1560)
         });
         connect(m_sqlBtn, &QPushButton::toggled, this, [this](bool on) {
             if (!m_updatingFromModel && m_slice)
@@ -895,6 +896,7 @@ void VfoWidget::buildTabContent()
         });
         connect(m_panSlider, &QSlider::valueChanged, this, [this](int v) {
             if (!m_updatingFromModel && m_slice) m_slice->setAudioPan(v);
+            if (!m_updatingFromModel) emit rxPanChanged(v);  // (#1460)
         });
         connect(m_divBtn, &QPushButton::toggled, this, [this](bool on) {
             if (!m_updatingFromModel && m_slice)
@@ -972,6 +974,8 @@ void VfoWidget::buildTabContent()
         m_bnrBtn->setAccessibleName("GPU neural denoising");
         m_nr4Btn  = makeDsp("NR4");
         m_nr4Btn->setAccessibleName("Spectral bleach noise reduction");
+        m_mnrBtn  = makeDsp("MNR");
+        m_mnrBtn->setAccessibleName("macOS MMSE-Wiener noise reduction");
         m_dfnrBtn = makeDsp("DFNR");
         m_dfnrBtn->setAccessibleName("DeepFilterNet3 neural noise reduction");
         m_apfBtn->hide();  // only visible in CW mode
@@ -980,6 +984,9 @@ void VfoWidget::buildTabContent()
 #endif
 #ifndef HAVE_SPECBLEACH
         m_nr4Btn->hide();
+#endif
+#ifndef __APPLE__
+        m_mnrBtn->hide();  // MNR is macOS only
 #endif
 #ifndef HAVE_DFNR
         m_dfnrBtn->hide();
@@ -999,7 +1006,8 @@ void VfoWidget::buildTabContent()
         m_dspGrid->addWidget(m_anftBtn, 2, 2);
         m_dspGrid->addWidget(m_bnrBtn,  2, 3);
         m_dspGrid->addWidget(m_nr4Btn,  3, 0);
-        m_dspGrid->addWidget(m_dfnrBtn, 3, 1);
+        m_dspGrid->addWidget(m_mnrBtn,  3, 1);
+        m_dspGrid->addWidget(m_dfnrBtn, 3, 2);
         dspVb->addLayout(m_dspGrid);
 
         // DSP button tooltips
@@ -1017,6 +1025,7 @@ void VfoWidget::buildTabContent()
         m_anftBtn->setToolTip("FFT-based notch filter \u2014 removes up to five persistent tones from transformers or power supplies.");
         m_bnrBtn->setToolTip("NVIDIA GPU-accelerated neural audio denoising. Requires NVIDIA RTX 4000+ with Docker.");
         m_nr4Btn->setToolTip("Client-side spectral bleach noise reduction (libspecbleach). Right-click for NR4 settings.");
+        m_mnrBtn->setToolTip("macOS only \u2014 MMSE-Wiener spectral noise reduction.\nRemoves consistent background noise while preserving speech clarity.");
         m_dfnrBtn->setToolTip("DeepFilterNet3 neural noise reduction \u2014 AI speech enhancement\nwith higher fidelity than RNNoise in high-noise environments.\nCPU-only, 10 ms latency. Right-click for DFNR settings.");
 
         // DSP button accessible names (#870)
@@ -1415,6 +1424,11 @@ void VfoWidget::buildTabContent()
         m_nr4Btn->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(m_nr4Btn, &QPushButton::customContextMenuRequested, this, [this](const QPoint& pos) {
             emit nr4RightClicked(m_nr4Btn->mapToGlobal(pos));
+        });
+        connect(m_mnrBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit mnrToggled(on); });
+        m_mnrBtn->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_mnrBtn, &QPushButton::customContextMenuRequested, this, [this](const QPoint& pos) {
+            emit mnrRightClicked(m_mnrBtn->mapToGlobal(pos));
         });
         connect(m_dfnrBtn, &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit dfnrToggled(on); });
         m_dfnrBtn->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -1891,6 +1905,51 @@ void VfoWidget::setSmartSdrPlus(bool has)
     if (m_slice) rebuildFilterButtons();
 }
 
+// ── Per-slice VFO marker display prefs (#1526) ───────────────────────────────
+
+void VfoWidget::setMarkerThin(bool thin)
+{
+    if (m_markerThin != thin) {
+        m_markerThin = thin;
+        saveDisplayPrefs();
+        emit markerStyleChanged(m_markerThin, m_filterEdgesHidden);
+    }
+    if (m_markerThinBtn)  m_markerThinBtn->setChecked(thin);
+    if (m_markerThickBtn) m_markerThickBtn->setChecked(!thin);
+}
+
+void VfoWidget::setFilterEdgesHidden(bool hide)
+{
+    if (m_filterEdgesHidden != hide) {
+        m_filterEdgesHidden = hide;
+        saveDisplayPrefs();
+        emit markerStyleChanged(m_markerThin, m_filterEdgesHidden);
+    }
+    if (m_edgesShowBtn) m_edgesShowBtn->setChecked(!hide);
+    if (m_edgesHideBtn) m_edgesHideBtn->setChecked(hide);
+}
+
+void VfoWidget::loadDisplayPrefs()
+{
+    if (!m_slice) return;
+    auto& s = AppSettings::instance();
+    const QString keyT = QStringLiteral("Slice%1_MarkerThin").arg(m_slice->sliceId());
+    const QString keyH = QStringLiteral("Slice%1_FilterEdgesHidden").arg(m_slice->sliceId());
+    m_markerThin        = s.value(keyT, "False").toString() == "True";
+    m_filterEdgesHidden = s.value(keyH, "False").toString() == "True";
+}
+
+void VfoWidget::saveDisplayPrefs()
+{
+    if (!m_slice) return;
+    auto& s = AppSettings::instance();
+    const QString keyT = QStringLiteral("Slice%1_MarkerThin").arg(m_slice->sliceId());
+    const QString keyH = QStringLiteral("Slice%1_FilterEdgesHidden").arg(m_slice->sliceId());
+    s.setValue(keyT, m_markerThin ? "True" : "False");
+    s.setValue(keyH, m_filterEdgesHidden ? "True" : "False");
+    s.save();
+}
+
 void VfoWidget::setEscLevel(float dbm)
 {
     m_escLevelDbm = dbm;
@@ -2239,6 +2298,12 @@ void VfoWidget::setSlice(SliceModel* slice)
         m_slice->disconnect(this);
     m_slice = slice;
     if (!m_slice) return;
+
+    // Load per-slice display prefs now that we know the slice ID, then push
+    // them out so the SpectrumWidget's overlay picks up the saved style. This
+    // runs after wireVfoWidget() has connected markerStyleChanged (#1526).
+    loadDisplayPrefs();
+    emit markerStyleChanged(m_markerThin, m_filterEdgesHidden);
 
     // Frequency
     connect(m_slice, &SliceModel::frequencyChanged, this, [this](double) { updateFreqLabel(); });
@@ -3001,10 +3066,20 @@ void VfoWidget::rebuildFilterButtons()
 {
     for (auto* btn : m_filterBtns) delete btn;
     m_filterBtns.clear();
-    // Remove autotune buttons if they exist (they'll be re-added for CW)
-    if (m_autotuneOnceBtn) { delete m_autotuneOnceBtn; m_autotuneOnceBtn = nullptr; }
-    if (m_autotuneLoopBtn) { delete m_autotuneLoopBtn; m_autotuneLoopBtn = nullptr; }
-    if (m_zeroBeatBtn) { delete m_zeroBeatBtn; m_zeroBeatBtn = nullptr; }
+    // Remove autotune row if it exists (re-added for CW). Delete the
+    // container — its children ("Autotune:" label, buttons) go with it.
+    if (m_autotuneContainer) {
+        delete m_autotuneContainer;
+        m_autotuneContainer = nullptr;
+        m_autotuneOnceBtn = nullptr;
+        m_autotuneLoopBtn = nullptr;
+        m_zeroBeatBtn = nullptr;
+    }
+    // Remove marker-style buttons if they exist (re-added for CW only, #1526)
+    if (m_markerThinBtn)  { delete m_markerThinBtn;  m_markerThinBtn = nullptr; }
+    if (m_markerThickBtn) { delete m_markerThickBtn; m_markerThickBtn = nullptr; }
+    if (m_edgesShowBtn)   { delete m_edgesShowBtn;   m_edgesShowBtn = nullptr; }
+    if (m_edgesHideBtn)   { delete m_edgesHideBtn;   m_edgesHideBtn = nullptr; }
 
     for (int i = 0; i < m_filterWidths.size(); ++i) {
         const int w = m_filterWidths[i];
@@ -3047,11 +3122,58 @@ void VfoWidget::rebuildFilterButtons()
         m_filterGrid->addWidget(btn, i / 4, i % 4);
     }
 
-    // Add CW autotune row spanning all 4 columns when in CW mode
-    if (m_slice && (m_slice->mode() == "CW" || m_slice->mode() == "CWL")) {
+    // Per-slice VFO marker style row: Thin/Thick line + Edges/Hide filter
+    // edges (#1526). Shown in every mode — narrow filters aren't CW-exclusive
+    // (narrow DIGL, RTTY, CWL, etc. all benefit from hiding the overlapping
+    // edge lines), and users who want a thicker center marker on any mode
+    // can set it. Cleanup in the rebuildFilterButtons header ensures we
+    // don't accumulate duplicate rows on mode change.
+    {
         int row = (m_filterWidths.size() + 3) / 4;
 
-        auto* container = new QWidget;
+        m_markerThinBtn = new QPushButton("Thin");
+        m_markerThinBtn->setCheckable(true);
+        m_markerThinBtn->setChecked(m_markerThin);
+        m_markerThinBtn->setFixedHeight(26);
+        m_markerThinBtn->setStyleSheet(kModeBtn);
+        m_markerThinBtn->setToolTip("Thin VFO center line");
+        connect(m_markerThinBtn, &QPushButton::clicked, this, [this]() { setMarkerThin(true); });
+        m_filterGrid->addWidget(m_markerThinBtn, row, 0);
+
+        m_markerThickBtn = new QPushButton("Thick");
+        m_markerThickBtn->setCheckable(true);
+        m_markerThickBtn->setChecked(!m_markerThin);
+        m_markerThickBtn->setFixedHeight(26);
+        m_markerThickBtn->setStyleSheet(kModeBtn);
+        m_markerThickBtn->setToolTip("Thick VFO center line");
+        connect(m_markerThickBtn, &QPushButton::clicked, this, [this]() { setMarkerThin(false); });
+        m_filterGrid->addWidget(m_markerThickBtn, row, 1);
+
+        m_edgesShowBtn = new QPushButton("Edges");
+        m_edgesShowBtn->setCheckable(true);
+        m_edgesShowBtn->setChecked(!m_filterEdgesHidden);
+        m_edgesShowBtn->setFixedHeight(26);
+        m_edgesShowBtn->setStyleSheet(kModeBtn);
+        m_edgesShowBtn->setToolTip("Show filter edge lines");
+        connect(m_edgesShowBtn, &QPushButton::clicked, this, [this]() { setFilterEdgesHidden(false); });
+        m_filterGrid->addWidget(m_edgesShowBtn, row, 2);
+
+        m_edgesHideBtn = new QPushButton("Hide");
+        m_edgesHideBtn->setCheckable(true);
+        m_edgesHideBtn->setChecked(m_filterEdgesHidden);
+        m_edgesHideBtn->setFixedHeight(26);
+        m_edgesHideBtn->setStyleSheet(kModeBtn);
+        m_edgesHideBtn->setToolTip("Hide filter edge lines");
+        connect(m_edgesHideBtn, &QPushButton::clicked, this, [this]() { setFilterEdgesHidden(true); });
+        m_filterGrid->addWidget(m_edgesHideBtn, row, 3);
+    }
+
+    // Add CW autotune row spanning all 4 columns when in CW mode
+    if (m_slice && (m_slice->mode() == "CW" || m_slice->mode() == "CWL")) {
+        int row = (m_filterWidths.size() + 3) / 4 + 1;
+
+        m_autotuneContainer = new QWidget;
+        auto* container = m_autotuneContainer;
         auto* hbox = new QHBoxLayout(container);
         hbox->setContentsMargins(0, 0, 0, 0);
         hbox->setSpacing(4);

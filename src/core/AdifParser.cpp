@@ -1,7 +1,9 @@
 #include "AdifParser.h"
+#include "CtyDatParser.h"
 
 #include <QFile>
 #include <QRegularExpression>
+#include <QThread>
 #include <QtAlgorithms>
 
 namespace AetherSDR {
@@ -150,7 +152,33 @@ QVector<QsoRecord> AdifParser::parseFile(const QString& path)
 
 void AdifParser::parseFileAsync(const QString& path)
 {
-    emit finished(parseFile(path));
+    // If the file is held open by an external logger (common on Windows),
+    // QFile::open() will fail.  Retry a few times before giving up so that
+    // a brief write-lock doesn't wipe every spot colour.
+    constexpr int kMaxAttempts  = 3;
+    constexpr int kRetryDelayMs = 500;
+
+    for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+        QFile f(path);
+        if (f.open(QIODevice::ReadOnly)) {
+            auto records = parse(f.readAll());
+            // If a CtyDatParser was provided, resolve DXCC prefixes here on the
+            // worker thread instead of on the GUI thread.  This avoids
+            // multi-hundred-ms stalls for large logs (e.g. 125k QSOs).
+            if (m_ctyParser) {
+                for (auto& r : records)
+                    r.dxccPrefix = m_ctyParser->resolvePrimaryPrefix(r.callsign);
+            }
+            emit finished(records);
+            return;
+        }
+        if (attempt + 1 < kMaxAttempts)
+            QThread::msleep(kRetryDelayMs);
+    }
+
+    // All attempts failed — tell the caller so it can keep its existing
+    // worked status rather than replacing it with an empty result set.
+    emit openFailed(path);
 }
 
 } // namespace AetherSDR

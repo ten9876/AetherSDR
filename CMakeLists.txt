@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AetherSDR VERSION 0.8.15 LANGUAGES C CXX)
+project(AetherSDR VERSION 0.8.20 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,6 +37,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Widgets
     Network
     Multimedia
+    Test
 )
 option(REQUIRE_SERIALPORT "Fail if Qt6 SerialPort is not found (use for release builds)" OFF)
 if(REQUIRE_SERIALPORT)
@@ -401,6 +402,14 @@ set(CORE_SOURCES
     src/core/TgxlConnection.cpp
     src/core/CommandParser.cpp
     src/core/AudioEngine.cpp
+    src/core/ClientEq.cpp
+    src/core/ClientComp.cpp
+    src/core/ClientGate.cpp
+    src/core/ClientDeEss.cpp
+    src/core/ClientTube.cpp
+    src/core/ClientPudu.cpp
+    src/core/ClientPuduMonitor.cpp
+    src/core/ClientReverb.cpp
     src/core/SpectralNR.cpp
     src/core/PanadapterStream.cpp
     src/core/RigctlProtocol.cpp
@@ -478,6 +487,8 @@ set(GUI_SOURCES
     src/gui/RadioSetupDialog.cpp
     src/gui/NetworkDiagnosticsDialog.cpp
     src/gui/PropDashboardDialog.cpp
+    src/gui/MemoryCommands.cpp
+    src/gui/MemoryBrowsePanel.cpp
     src/gui/MemoryDialog.cpp
     src/gui/SpotSettingsDialog.cpp
     src/gui/AetherDspDialog.cpp
@@ -494,7 +505,6 @@ set(GUI_SOURCES
     src/gui/PanadapterStack.cpp
     src/gui/PanLayoutDialog.cpp
     src/gui/AppletPanel.cpp
-    src/gui/FloatingAppletWindow.cpp
     src/gui/RxApplet.cpp
     src/gui/FilterPassbandWidget.cpp
     src/gui/SMeterWidget.cpp
@@ -503,7 +513,47 @@ set(GUI_SOURCES
     src/gui/PhoneCwApplet.cpp
     src/gui/PhoneApplet.cpp
     src/gui/EqApplet.cpp
-    src/gui/CatApplet.cpp
+    src/gui/ClientEqApplet.cpp
+    src/gui/ClientEqCurveWidget.cpp
+    src/gui/ClientEqEditor.cpp
+    src/gui/ClientEqEditorCanvas.cpp
+    src/gui/ClientEqFftAnalyzer.cpp
+    src/gui/ClientEqIconRow.cpp
+    src/gui/ClientEqOutputFader.cpp
+    src/gui/ClientEqParamRow.cpp
+    src/gui/ClientChainApplet.cpp
+    src/gui/ClientChainWidget.cpp
+    src/gui/containers/ContainerManager.cpp
+    src/gui/containers/ContainerTitleBar.cpp
+    src/gui/containers/ContainerWidget.cpp
+    src/gui/containers/FloatingContainerWindow.cpp
+    src/gui/ClientCompApplet.cpp
+    src/gui/ClientCompCurveWidget.cpp
+    src/gui/ClientCompKnob.cpp
+    src/gui/ClientGateApplet.cpp
+    src/gui/ClientGateCurveWidget.cpp
+    src/gui/ClientGateEditor.cpp
+    src/gui/ClientGateLevelView.cpp
+    src/gui/ClientDeEssApplet.cpp
+    src/gui/ClientDeEssCurveWidget.cpp
+    src/gui/ClientDeEssEditor.cpp
+    src/gui/ClientTubeApplet.cpp
+    src/gui/ClientTubeCurveWidget.cpp
+    src/gui/ClientTubeEditor.cpp
+    src/gui/ClientPuduApplet.cpp
+    src/gui/ClientPuduEditor.cpp
+    src/gui/ClientReverbApplet.cpp
+    src/gui/ClientReverbEditor.cpp
+    src/gui/PooDooLogo.cpp
+    src/gui/ClientCompLimiterButton.cpp
+    src/gui/ClientCompMeter.cpp
+    src/gui/ClientCompThresholdFader.cpp
+    src/gui/ClientCompEditor.cpp
+    src/gui/ClientCompEditorCanvas.cpp
+    src/gui/CatControlApplet.cpp
+    src/gui/DaxApplet.cpp
+    src/gui/TciApplet.cpp
+    src/gui/DaxIqApplet.cpp
     src/gui/MqttApplet.cpp
     src/gui/MeterSlider.cpp
     src/gui/PhaseKnob.cpp
@@ -620,7 +670,8 @@ if(APPLE)
         MACOSX_BUNDLE_ICON_FILE "AetherSDR.icns"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/packaging/macos/Info.plist.in"
     )
-    target_link_libraries(AetherSDR PRIVATE "-framework AVFoundation")
+    target_link_libraries(AetherSDR PRIVATE "-framework AVFoundation" "-framework Accelerate")
+    target_sources(AetherSDR PRIVATE src/core/MacNRFilter.cpp)
     set(MACOSX_ICON "${CMAKE_SOURCE_DIR}/docs/AetherSDR.icns")
     if(EXISTS "${MACOSX_ICON}")
         target_sources(AetherSDR PRIVATE "${MACOSX_ICON}")
@@ -649,6 +700,7 @@ target_link_libraries(AetherSDR PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::Multimedia
+    ${CMAKE_DL_LIBS}   # dlopen/dlsym for tolerant X11 error handler (#1839)
 )
 
 if(Qt6SerialPort_FOUND)
@@ -995,6 +1047,95 @@ else()
         $<$<CONFIG:Debug>:-fsanitize=address>
     )
 endif()
+
+
+# ── Unit test harnesses ──────────────────────────────────────────────────────
+# Standalone DSP smoke tests. Built alongside the main target so they share
+# the same toolchain and warning flags. Run manually with ./build/<target>.
+
+add_executable(client_eq_test
+    tests/client_eq_test.cpp
+    src/core/ClientEq.cpp
+)
+target_include_directories(client_eq_test PRIVATE src)
+
+add_executable(client_comp_test
+    tests/client_comp_test.cpp
+    src/core/ClientComp.cpp
+)
+target_include_directories(client_comp_test PRIVATE src)
+
+add_executable(client_gate_test
+    tests/client_gate_test.cpp
+    src/core/ClientGate.cpp
+)
+target_include_directories(client_gate_test PRIVATE src)
+
+add_executable(client_deess_test
+    tests/client_deess_test.cpp
+    src/core/ClientDeEss.cpp
+)
+target_include_directories(client_deess_test PRIVATE src)
+
+add_executable(client_tube_test
+    tests/client_tube_test.cpp
+    src/core/ClientTube.cpp
+)
+target_include_directories(client_tube_test PRIVATE src)
+
+add_executable(client_pudu_test
+    tests/client_pudu_test.cpp
+    src/core/ClientPudu.cpp
+)
+target_include_directories(client_pudu_test PRIVATE src)
+
+add_executable(client_reverb_test
+    tests/client_reverb_test.cpp
+    src/core/ClientReverb.cpp
+)
+target_include_directories(client_reverb_test PRIVATE src)
+
+# Container system Phase 1 tests — needs QApplication + Widgets.
+add_executable(container_widget_test
+    tests/container_widget_test.cpp
+    src/gui/containers/ContainerTitleBar.cpp
+    src/gui/containers/ContainerWidget.cpp
+    src/gui/containers/FloatingContainerWindow.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(container_widget_test PRIVATE src)
+target_link_libraries(container_widget_test PRIVATE
+    Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(container_widget_test PROPERTIES AUTOMOC ON)
+
+add_executable(container_manager_test
+    tests/container_manager_test.cpp
+    src/gui/containers/ContainerManager.cpp
+    src/gui/containers/ContainerTitleBar.cpp
+    src/gui/containers/ContainerWidget.cpp
+    src/gui/containers/FloatingContainerWindow.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(container_manager_test PRIVATE src)
+target_link_libraries(container_manager_test PRIVATE
+    Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(container_manager_test PROPERTIES AUTOMOC ON)
+
+add_executable(container_nesting_test
+    tests/container_nesting_test.cpp
+    src/gui/containers/ContainerManager.cpp
+    src/gui/containers/ContainerTitleBar.cpp
+    src/gui/containers/ContainerWidget.cpp
+    src/gui/containers/FloatingContainerWindow.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(container_nesting_test PRIVATE src)
+target_link_libraries(container_nesting_test PRIVATE
+    Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(container_nesting_test PROPERTIES AUTOMOC ON)
 
 
 # ── Install rules ────────────────────────────────────────────────────────────

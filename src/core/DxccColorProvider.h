@@ -61,10 +61,13 @@ public:
     QColor colorWorked {0x60, 0x60, 0x60};   // dim grey
 
 signals:
+    // Emitted just before async parsing begins (used to show "Updating…" in UI).
+    void importStarted();
     void importFinished(int qsoCount, int entityCount);
 
 private slots:
     void onParseFinished(QVector<QsoRecord> records);
+    void onParseFailed(const QString& path);
 
 private:
     // Band/mode helpers (same logic as AdifParser, but for live spot data)

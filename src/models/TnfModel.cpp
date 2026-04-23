@@ -1,6 +1,7 @@
 #include "TnfModel.h"
 #include "core/LogManager.h"
 #include <QDebug>
+#include <algorithm>
 
 namespace AetherSDR {
 
@@ -24,10 +25,17 @@ void TnfModel::applyTnfStatus(int id, const QMap<QString, QString>& kvs)
     if (kvs.contains("freq"))
         t.freqMhz = kvs["freq"].toDouble();
     if (kvs.contains("width")) {
-        // Width comes from radio in MHz (e.g. 0.000150 = 150 Hz)
-        double widthMhz = kvs["width"].toDouble();
-        t.widthHz = static_cast<int>(widthMhz * 1.0e6 + 0.5);
-        if (t.widthHz < 10) t.widthHz = 100;  // sane default
+        // Firmware v1.4.0.0 reports width in Hz ("width=100"), but tolerate
+        // older fractional-MHz forms defensively.
+        const double rawWidth = kvs["width"].toDouble();
+        if (rawWidth > 0.0 && rawWidth < 1.0) {
+            t.widthHz = static_cast<int>(rawWidth * 1.0e6 + 0.5);
+        } else {
+            t.widthHz = static_cast<int>(rawWidth + 0.5);
+        }
+        if (t.widthHz < 10) {
+            t.widthHz = 100;
+        }
     }
     if (kvs.contains("depth"))
         t.depthDb = kvs["depth"].toInt();
@@ -47,11 +55,10 @@ void TnfModel::removeTnf(int id)
     }
 }
 
-void TnfModel::setGlobalEnabled(bool on)
+void TnfModel::applyGlobalEnabled(bool on)
 {
     if (m_globalEnabled == on) return;
     m_globalEnabled = on;
-    emit commandReady(QString("radio set tnf_enabled=%1").arg(on ? 1 : 0));
     emit globalEnabledChanged(on);
 }
 
@@ -65,17 +72,36 @@ void TnfModel::createTnf(double freqMhz)
 void TnfModel::setTnfFreq(int id, double freqMhz)
 {
     emit commandReady(QString("tnf set %1 freq=%2").arg(id).arg(freqMhz, 0, 'f', 6));
+
+    auto it = m_tnfs.find(id);
+    if (it != m_tnfs.end() && !qFuzzyCompare(it->freqMhz + 1.0, freqMhz + 1.0)) {
+        it->freqMhz = freqMhz;
+        emit tnfChanged(id);
+    }
 }
 
 void TnfModel::setTnfWidth(int id, int widthHz)
 {
-    // Radio expects width in MHz (e.g. 150 Hz → 0.000150)
-    emit commandReady(QString("tnf set %1 width=%2").arg(id).arg(widthHz / 1.0e6, 0, 'f', 6));
+    const int clampedWidthHz = std::max(10, widthHz);
+    emit commandReady(QString("tnf set %1 width=%2").arg(id).arg(clampedWidthHz / 1.0e6, 0, 'f', 6));
+
+    auto it = m_tnfs.find(id);
+    if (it != m_tnfs.end() && it->widthHz != clampedWidthHz) {
+        it->widthHz = clampedWidthHz;
+        emit tnfChanged(id);
+    }
 }
 
 void TnfModel::setTnfDepth(int id, int depthDb)
 {
-    emit commandReady(QString("tnf set %1 depth=%2").arg(id).arg(depthDb));
+    const int clampedDepthDb = std::clamp(depthDb, 1, 3);
+    emit commandReady(QString("tnf set %1 depth=%2").arg(id).arg(clampedDepthDb));
+
+    auto it = m_tnfs.find(id);
+    if (it != m_tnfs.end() && it->depthDb != clampedDepthDb) {
+        it->depthDb = clampedDepthDb;
+        emit tnfChanged(id);
+    }
 }
 
 void TnfModel::setTnfPermanent(int id, bool on)
@@ -99,6 +125,12 @@ void TnfModel::requestRemoveTnf(int id)
 void TnfModel::requestGlobalTnfEnabled(bool on)
 {
     emit commandReady(QString("radio set tnf_enabled=%1").arg(on ? 1 : 0));
+    // Optimistic update — radio echoes tnf_enabled in status, but update
+    // immediately so the UI reflects the change without waiting for the echo.
+    if (m_globalEnabled != on) {
+        m_globalEnabled = on;
+        emit globalEnabledChanged(on);
+    }
 }
 
 void TnfModel::clear()

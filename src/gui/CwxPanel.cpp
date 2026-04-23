@@ -186,16 +186,36 @@ CwxPanel::CwxPanel(CwxModel* model, QWidget* parent)
             this, [this](int v) { if (m_model) m_model->setSpeed(v); });
 
     // Wire model signals
-    // ── F1-F12 hotkeys — always active when CWX panel is visible ──
-    // Scoped to the main window so they work even when focus is elsewhere
+    // ── F1-F12 hotkeys — active app-wide when the active slice is in a CW
+    //    mode (CW or CWL).  Guard prevents collisions with a future DVK
+    //    macro panel or other function-key users. (#1552)
     for (int i = 0; i < 12; ++i) {
         auto* sc = new QShortcut(Qt::Key_F1 + i, window());
         sc->setContext(Qt::ApplicationShortcut);
         connect(sc, &QShortcut::activated, this, [this, i]() {
-            if (isVisible() && m_model)
-                m_model->sendMacro(i + 1);
+            if (!m_model) return;
+            if (m_activeModeProvider) {
+                const QString mode = m_activeModeProvider();
+                if (mode != QLatin1String("CW") && mode != QLatin1String("CWL"))
+                    return;
+            }
+            m_model->sendMacro(i + 1);
         });
     }
+
+    // ── ESC — abort CW transmission.  Fires unconditionally: during a CW
+    //    macro the interlock state flickers TRANSMITTING↔READY every
+    //    dit/dah (~150ms), so gating on "is the radio TXing right now"
+    //    misses most key-presses.  clearBuffer() on an idle CWX is a
+    //    harmless no-op, and Qt's widget-level ESC handling (dialog
+    //    reject, text unfocus) runs before our ApplicationShortcut
+    //    anyway, so normal UI ESC behavior is preserved. (#1552)
+    auto* esc = new QShortcut(QKeySequence(Qt::Key_Escape), window());
+    esc->setContext(Qt::ApplicationShortcut);
+    connect(esc, &QShortcut::activated, this, [this]() {
+        if (m_model)
+            m_model->clearBuffer();
+    });
 
     if (m_model) setModel(m_model);
 }

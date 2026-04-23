@@ -1,0 +1,140 @@
+AetherSDR Third-Party Software Licenses
+========================================
+
+AetherSDR incorporates or links against the following third-party software.
+Each component retains its original license. Full license texts are included
+in the corresponding third_party/ subdirectories where the source is bundled.
+
+
+Protocol References
+-------------------
+AetherSDR implements the SmartSDR protocol to communicate with FlexRadio
+transceivers. The protocol behavior was determined by consulting the FlexLib
+API source code, which is Copyright FlexRadio Systems and All Rights Reserved.
+No FlexLib code is incorporated into AetherSDR — the protocol implementation
+is entirely original. SmartSDR is a trademark of FlexRadio Systems.
+
+  FlexLib:   Copyright (c) 2012-2025 FlexRadio Systems
+  Reference: https://www.flexradio.com/
+
+
+1. WDSP — Spectral Noise Reduction (NR2)
+-----------------------------------------
+The SpectralNR module (src/core/SpectralNR.h, SpectralNR.cpp) is derived from
+the WDSP library's emnr.c, implementing the Ephraim-Malah MMSE-LSA noise
+reduction algorithm with OSMS noise floor tracking.
+
+  Copyright (C) 2015, 2025 Warren Pratt, NR0V
+  License: GPL-2.0-or-later
+  Source:  https://github.com/TAPR/OpenHPSDR-wdsp
+
+
+2. RNNoise — Neural Network Noise Suppression (RN2)
+----------------------------------------------------
+Bundled at third_party/rnnoise/
+
+  Copyright (c) 2007-2017, 2024 Jean-Marc Valin
+  Copyright (c) 2023 Amazon
+  Copyright (c) 2017, Mozilla
+  Copyright (c) 2005-2017, Xiph.Org Foundation
+  Copyright (c) 2003-2004, Mark Borgerding
+  License: BSD-3-Clause
+  Source:  https://github.com/xiph/rnnoise
+
+
+3. libspecbleach — Spectral Noise Reduction (NR4)
+-------------------------------------------------
+Bundled at third_party/libspecbleach/
+
+  Copyright (C) 2022 Luciano Dato <lucianodato@gmail.com>
+  License: LGPL-2.1-or-later
+  Source:  https://github.com/lucianodato/libspecbleach
+
+
+4. r8brain-free-src — Sample Rate Converter
+--------------------------------------------
+Bundled at third_party/r8brain/
+
+  Copyright (c) 2013-2025 Aleksey Vaneev
+  License: MIT
+  Source:  https://github.com/avaneev/r8brain-free-src
+
+
+5. RtMidi — MIDI I/O
+---------------------
+Bundled at third_party/rtmidi/
+
+  Copyright (c) 2003-2023 Gary P. Scavone
+  License: MIT (with non-binding request to share modifications)
+  Source:  https://github.com/thestk/rtmidi
+
+
+6. ggmorse — Morse Code Decoder
+--------------------------------
+Bundled at third_party/ggmorse/
+
+  Copyright (c) 2021 Georgi Gerganov
+  License: MIT
+  Source:  https://github.com/ggerganov/ggmorse
+
+
+7. Eclipse Mosquitto — MQTT Client Library
+-------------------------------------------
+Bundled at third_party/mosquitto/
+
+  Copyright (c) 2010-2021 Roger Light <roger@atchoo.org>
+  License: EPL-2.0 OR BSD-3-Clause (dual-licensed)
+  Source:  https://github.com/eclipse/mosquitto
+
+
+8. RADAE — Radio Autoencoder
+-----------------------------
+Bundled at third_party/radae/
+
+  Copyright (c) 2026 Peter B Marks
+  License: BSD-2-Clause
+  Source:  https://github.com/drowe67/radae
+
+
+9. opus-rade — Opus Codec (RADE variant)
+-----------------------------------------
+Bundled at third_party/opus-rade/
+
+  Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic,
+                      Jean-Marc Valin, Timothy B. Terriberry,
+                      CSIRO, Gregory Maxwell, Mark Borgerding,
+                      Erik de Castro Lopo, Mozilla, Amazon
+  License: BSD-3-Clause
+  Source:  https://github.com/nicoboss/opus-rade
+
+
+10. DeepFilterNet — Deep Noise Suppression
+-------------------------------------------
+Bundled at third_party/deepfilter/
+
+  Copyright (c) DeepFilterNet Contributors
+  License: Apache-2.0 OR MIT (dual-licensed)
+  Source:  https://github.com/Rikorose/DeepFilterNet
+
+
+11. FFTW3 — Fast Fourier Transform Library
+--------------------------------------------
+Pre-built binaries at third_party/fftw3/ (Windows only; Linux uses system pkg)
+
+  Copyright (c) 2003, 2007-2014 Matteo Frigo
+  Copyright (c) 2003, 2007-2014 Massachusetts Institute of Technology
+  License: GPL-2.0-or-later
+  Source:  https://www.fftw.org/
+
+
+12. TCI Protocol Specification — Transceiver Control Interface
+---------------------------------------------------------------
+The TCI server (src/core/TciProtocol.cpp, TciServer.cpp) implements the
+TCI v2.0 protocol specification published by Expert Electronics. The binary
+audio frame header follows the spec's Stream struct definition. No code was
+copied from ExpertSDR3; this is an independent implementation of the published
+protocol.
+
+  Copyright (c) 2021 Expert Electronics (EE)
+  License: MIT
+  Spec:    https://github.com/ExpertSDR3/TCI

@@ -261,6 +261,21 @@ void AntennaGeniusModel::onTcpReadyRead()
                          << m_device.version;
                 m_connected = true;
                 emit connected();
+
+                // Ensure manually-connected devices appear in the
+                // discovered list so the UI button becomes visible.
+                bool wasEmpty = m_discoveredDevices.isEmpty();
+                bool found = false;
+                for (const auto& d : m_discoveredDevices) {
+                    if (d.serial == m_device.serial) { found = true; break; }
+                }
+                if (!found) {
+                    m_discoveredDevices.append(m_device);
+                    emit deviceDiscovered(m_device);
+                    if (wasEmpty)
+                        emit presenceChanged(true);
+                }
+
                 runInitSequence();
             }
             continue;

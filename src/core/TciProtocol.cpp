@@ -154,6 +154,9 @@ QString TciProtocol::generateInitBurst()
     burst += QStringLiteral("audio_stream_samples:2048;");
     burst += QStringLiteral("tx_stream_audio_buffering:50;");
     burst += QStringLiteral("iq_samplerate:48000;");
+    // audio_start primes WSJT-X's TCI audio state machine so it sends
+    // audio_start:0 back to request RX audio streaming.
+    burst += QStringLiteral("audio_start;");
     burst += QStringLiteral("start;");
     burst += QStringLiteral("ready;");
 

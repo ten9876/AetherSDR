@@ -1,5 +1,6 @@
 #include "SpectrumOverlayMenu.h"
 #include "DspParamPopup.h"
+#include "MemoryBrowsePanel.h"
 #include "SpectrumWidget.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
@@ -115,8 +116,10 @@ SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
         {"Band",      0, nullptr},   // 2 — toggleBandPanel
         {"ANT",       1, nullptr},   // 3 — toggleAntPanel
         {"DSP",       2, nullptr},   // 4 — toggleDspPanel
-        {"Display",   4, nullptr}, // 5 — toggleDisplayPanel
-        {"DAX",       3, nullptr},   // 6 — toggleDaxPanel
+        {"Display",   4, nullptr},   // 5 — toggleDisplayPanel
+        {QStringLiteral("MEM\u25b8"), 5, nullptr},   // 6 — toggleMemoryPanel
+        {"MEM+",      6, nullptr},   // 7 — quickAddMemoryRequested
+        {"DAX",       3, nullptr},   // 8 — toggleDaxPanel
     };
 
     for (const auto& def : defs) {
@@ -131,6 +134,13 @@ SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
             connect(btn, &QPushButton::clicked, this, &SpectrumOverlayMenu::toggleDaxPanel);
         else if (def.specialIdx == 4)
             connect(btn, &QPushButton::clicked, this, &SpectrumOverlayMenu::toggleDisplayPanel);
+        else if (def.specialIdx == 5)
+            connect(btn, &QPushButton::clicked, this, &SpectrumOverlayMenu::toggleMemoryPanel);
+        else if (def.specialIdx == 6)
+            connect(btn, &QPushButton::clicked, this, [this]() {
+                hideAllSubPanels();
+                emit quickAddMemoryRequested(m_panId);
+            });
         else if (def.text == "+RX")
             connect(btn, &QPushButton::clicked, this, [this]() { emit addRxClicked(m_panId); });
         else if (def.sig)
@@ -139,14 +149,16 @@ SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
     }
 
     // Menu button tooltips
-    if (m_menuBtns.size() >= 7) {
-        m_menuBtns[0]->setToolTip("Add a new receive slice on this panadapter.");
-        m_menuBtns[1]->setToolTip("Add a tracking notch filter at the current frequency.");
-        m_menuBtns[2]->setToolTip("Open band selector.");
-        m_menuBtns[3]->setToolTip("Open antenna and RF gain controls.");
-        m_menuBtns[4]->setToolTip("Open DSP noise reduction and filter controls.");
-        m_menuBtns[5]->setToolTip("Open panadapter and waterfall display settings.");
-        m_menuBtns[6]->setToolTip("Open DAX audio routing channel selector.");
+    if (m_menuBtns.size() >= 9) {
+        m_menuBtns[kBtnAddRx]->setToolTip("Add a new receive slice on this panadapter.");
+        m_menuBtns[kBtnAddTnf]->setToolTip("Add a tracking notch filter at the current frequency.");
+        m_menuBtns[kBtnBand]->setToolTip("Open band selector.");
+        m_menuBtns[kBtnAnt]->setToolTip("Open antenna and RF gain controls.");
+        m_menuBtns[kBtnDsp]->setToolTip("Open DSP noise reduction and filter controls.");
+        m_menuBtns[kBtnDisplay]->setToolTip("Open panadapter and waterfall display settings.");
+        m_menuBtns[kBtnMemoryBrowse]->setToolTip("Browse saved memories for quick recall.");
+        m_menuBtns[kBtnMemoryAdd]->setToolTip("Save the current slice on this panadapter as a memory.");
+        m_menuBtns[kBtnDax]->setToolTip("Open DAX audio routing channel selector.");
     }
 
     buildBandPanel();
@@ -154,9 +166,11 @@ SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
     buildDspPanel();
     buildDaxPanel();
     buildDisplayPanel();
+    buildMemoryPanel();
 
     // Prevent mouse/wheel events from falling through panels to the spectrum
-    for (auto* panel : {m_bandPanel, m_antPanel, m_dspPanel, m_daxPanel, m_displayPanel})
+    for (auto* panel : {m_bandPanel, m_antPanel, m_dspPanel, m_daxPanel, m_displayPanel,
+                        static_cast<QWidget*>(m_memoryPanel)})
         if (panel) panel->installEventFilter(this);
 
     updateLayout();
@@ -171,6 +185,24 @@ void SpectrumOverlayMenu::raiseAll()
     if (m_dspPanel)     m_dspPanel->raise();
     if (m_daxPanel)     m_daxPanel->raise();
     if (m_displayPanel) m_displayPanel->raise();
+    if (m_memoryPanel)  m_memoryPanel->raise();
+}
+
+void SpectrumOverlayMenu::setMemories(const QMap<int, MemoryEntry>& memories)
+{
+    if (m_memoryPanel)
+        m_memoryPanel->setMemories(memories);
+}
+
+void SpectrumOverlayMenu::setMemoryTargetSliceLetter(QChar letter)
+{
+    if (m_menuBtns.size() <= kBtnMemoryAdd) return;
+    const QString browseBase = QStringLiteral("MEM\u25b8");
+    const QString addBase    = QStringLiteral("MEM+");
+    const bool hasTarget = letter.isLetter();
+    const QString suffix = hasTarget ? QString(QChar(' ')) + letter.toUpper() : QString();
+    m_menuBtns[kBtnMemoryBrowse]->setText(browseBase + suffix);
+    m_menuBtns[kBtnMemoryAdd]->setText(addBase + suffix);
 }
 
 // ── Band sub-panel ────────────────────────────────────────────────────────────
@@ -303,8 +335,17 @@ void SpectrumOverlayMenu::buildAntPanel()
             m_rfGainSlider->setValue(snapped);
         }
         m_rfGainLabel->setText(QString("%1 dB").arg(snapped));
-        if (!m_updatingFromModel)
+        // Only emit when the snapped value actually differs from the last
+        // emitted one. Mouse drags within a single step fire valueChanged
+        // with many unsnapped values that all round to the same snapped
+        // value — without this guard we'd spam rfgain commands to the
+        // radio on every drag tick (#1498).
+        if (!m_updatingFromModel && snapped != m_lastEmittedRfGain) {
+            m_lastEmittedRfGain = snapped;
             emit rfGainChanged(snapped);
+            if (m_slice)
+                m_slice->setRfGain(static_cast<float>(snapped));
+        }
     });
 
     // WNB row: toggle button + level slider
@@ -372,6 +413,14 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
         m_updatingFromModel = false;
     });
 
+    connect(m_slice, &SliceModel::rfGainChanged, this, [this](float gain) {
+        m_updatingFromModel = true;
+        QSignalBlocker sb(m_rfGainSlider);
+        m_rfGainSlider->setValue(static_cast<int>(gain));
+        m_rfGainLabel->setText(QString("%1 dB").arg(static_cast<int>(gain)));
+        m_updatingFromModel = false;
+    });
+
     // DSP toggle connections
     using S = SliceModel;
     struct DspToggleDef {
@@ -392,10 +441,11 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
         {&S::setAnft, &S::anftChanged},  // 10
         {nullptr,     nullptr},           // 11 — BNR (client-side, wired separately)
         {nullptr,     nullptr},           // 12 — NR4 (client-side, wired separately)
-        {nullptr,     nullptr},           // 13 — DFNR (client-side, wired separately)
+        {nullptr,     nullptr},           // 13 — MNR (client-side, wired separately)
+        {nullptr,     nullptr},           // 14 — DFNR (client-side, wired separately)
     };
 
-    for (int i = 0; i < 13; ++i) {
+    for (int i = 0; i < 15; ++i) {
         if (!toggleDefs[i].setter) continue;  // skip NR2/RN2
         auto* btn = m_dspRows[i].btn;
         auto setter = toggleDefs[i].setter;
@@ -507,19 +557,34 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
     m_dspRows[12].btn->setVisible(false);
 #endif
 
-    // DFNR (client-side, index 13) — emit signal for MainWindow to handle
+    // MNR (client-side, index 13) — emit signal for MainWindow to handle
     connect(m_dspRows[13].btn, &QPushButton::toggled, this, [this](bool on) {
+        if (!m_updatingFromModel)
+            emit mnrToggled(on);
+    });
+    // MNR right-click → parameter popup
+    m_dspRows[13].btn->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_dspRows[13].btn, &QPushButton::customContextMenuRequested,
+            this, [this](const QPoint& pos) {
+        emit mnrRightClicked(m_dspRows[13].btn->mapToGlobal(pos));
+    });
+#ifndef __APPLE__
+    m_dspRows[13].btn->setVisible(false);  // MNR is macOS only
+#endif
+
+    // DFNR (client-side, index 14) — emit signal for MainWindow to handle
+    connect(m_dspRows[14].btn, &QPushButton::toggled, this, [this](bool on) {
         if (!m_updatingFromModel)
             emit dfnrToggled(on);
     });
     // DFNR right-click → parameter popup
-    m_dspRows[13].btn->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_dspRows[13].btn, &QPushButton::customContextMenuRequested,
+    m_dspRows[14].btn->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_dspRows[14].btn, &QPushButton::customContextMenuRequested,
             this, [this](const QPoint& pos) {
-        emit dfnrRightClicked(m_dspRows[13].btn->mapToGlobal(pos));
+        emit dfnrRightClicked(m_dspRows[14].btn->mapToGlobal(pos));
     });
 #ifndef HAVE_DFNR
-    m_dspRows[13].btn->setVisible(false);
+    m_dspRows[14].btn->setVisible(false);
 #endif
 
     syncAntPanel();
@@ -532,6 +597,11 @@ void SpectrumOverlayMenu::syncAntPanel()
     if (!m_slice) return;
     m_updatingFromModel = true;
     m_rxAntCmb->setCurrentText(m_slice->rxAntenna());
+    {
+        QSignalBlocker sb(m_rfGainSlider);
+        m_rfGainSlider->setValue(static_cast<int>(m_slice->rfGain()));
+    }
+    m_rfGainLabel->setText(QString("%1 dB").arg(static_cast<int>(m_slice->rfGain())));
     m_updatingFromModel = false;
 }
 
@@ -574,7 +644,8 @@ void SpectrumOverlayMenu::buildDspPanel()
         {"ANFT", false},  // 10
         {"BNR",  true},   // 11 — client-side NVIDIA NIM (intensity slider)
         {"NR4",  false},  // 12 — client-side spectral bleach (libspecbleach)
-        {"DFNR", false},  // 13 — client-side DeepFilterNet3 neural NR
+        {"MNR",  false},  // 13 — macOS MMSE-Wiener spectral NR
+        {"DFNR", false},  // 14 — client-side DeepFilterNet3 neural NR
     };
 
     // First pass: create all buttons and collect toggle-only (no slider) indices
@@ -646,7 +717,8 @@ void SpectrumOverlayMenu::buildDspPanel()
     m_dspRows[10].btn->setToolTip("FFT-based notch filter \u2014 removes up to five persistent tones from transformers or power supplies.");
     m_dspRows[11].btn->setToolTip("NVIDIA GPU-accelerated neural audio denoising. Requires NVIDIA RTX 4000+ with Docker.");
     m_dspRows[12].btn->setToolTip("Client-side spectral bleach noise reduction (libspecbleach). Right-click for NR4 settings.");
-    m_dspRows[13].btn->setToolTip("DeepFilterNet3 neural noise reduction \u2014 AI speech enhancement\nwith higher fidelity than RNNoise in high-noise environments.\nCPU-only, 10 ms latency. Right-click for DFNR settings.");
+    m_dspRows[13].btn->setToolTip("macOS only \u2014 MMSE-Wiener spectral noise reduction with asymmetric gain smoothing.\nUses Apple Accelerate vDSP for hardware-accelerated FFT on Apple Silicon.\nRemoves consistent background noise while preserving speech clarity.");
+    m_dspRows[14].btn->setToolTip("DeepFilterNet3 neural noise reduction \u2014 AI speech enhancement\nwith higher fidelity than RNNoise in high-noise environments.\nCPU-only, 10 ms latency. Right-click for DFNR settings.");
 
     // DSP slider tooltips
     if (m_dspRows[0].slider) m_dspRows[0].slider->setToolTip("Adjusts blanking depth. Higher values suppress more impulse noise but may clip desired signals.");
@@ -658,7 +730,13 @@ void SpectrumOverlayMenu::buildDspPanel()
     if (m_dspRows[9].slider) m_dspRows[9].slider->setToolTip("Adjusts ANFL notch depth.");
     if (m_dspRows[11].slider) m_dspRows[11].slider->setToolTip("Adjusts BNR denoising intensity.");
 
+    // MNR adds one extra button to the toggle row on Apple builds; widen
+    // the panel only on platforms where it actually appears (#1672 review).
+#ifdef __APPLE__
+    m_dspPanel->setFixedWidth(280);
+#else
     m_dspPanel->setFixedWidth(200);
+#endif
     m_dspPanel->adjustSize();
 
     // Wiring is done in setSlice() since we need the slice model
@@ -704,14 +782,12 @@ void SpectrumOverlayMenu::toggleDspPanel()
     if (!wasVisible) {
         syncDspPanel();
         m_dspPanelVisible = true;
-        // Center vertically on the DSP button (index 4)
-        int btnCenterY = m_menuBtns[4]->y() + m_menuBtns[4]->height() / 2;
         // Top-align DSP panel with the button menu
         int panelY = y();
         m_dspPanel->move(x() + width(), std::max(0, panelY));
         m_dspPanel->raise();
         m_dspPanel->show();
-        m_menuBtns[4]->setStyleSheet(kMenuBtnActive);
+        m_menuBtns[kBtnDsp]->setStyleSheet(kMenuBtnActive);
     }
 }
 
@@ -769,12 +845,43 @@ void SpectrumOverlayMenu::toggleDaxPanel()
     if (!wasVisible) {
         syncDaxPanel();
         m_daxPanelVisible = true;
-        int btnCenterY = m_menuBtns[6]->y() + m_menuBtns[6]->height() / 2;
+        int btnCenterY = m_menuBtns[kBtnDax]->y() + m_menuBtns[kBtnDax]->height() / 2;
         int panelY = y() + btnCenterY - m_daxPanel->sizeHint().height() / 2;
         m_daxPanel->move(x() + width(), std::max(0, panelY));
         m_daxPanel->raise();
         m_daxPanel->show();
-        m_menuBtns[6]->setStyleSheet(kMenuBtnActive);
+        m_menuBtns[kBtnDax]->setStyleSheet(kMenuBtnActive);
+    }
+}
+
+void SpectrumOverlayMenu::buildMemoryPanel()
+{
+    m_memoryPanel = new MemoryBrowsePanel(parentWidget());
+    m_memoryPanel->hide();
+    connect(m_memoryPanel, &MemoryBrowsePanel::memoryActivated, this,
+            [this](int memoryIndex) {
+        hideAllSubPanels();
+        emit memoryActivated(memoryIndex, m_panId);
+    });
+}
+
+void SpectrumOverlayMenu::toggleMemoryPanel()
+{
+    const bool wasVisible = m_memoryPanelVisible;
+    hideAllSubPanels();
+    if (!wasVisible && m_memoryPanel) {
+        m_memoryPanelVisible = true;
+        const int panelH = m_memoryPanel->sizeHint().height();
+        int panelY = y();
+        if (auto* parent = parentWidget())
+            panelY = std::clamp(panelY, 0, qMax(0, parent->height() - panelH));
+        else
+            panelY = std::max(0, panelY);
+        m_memoryPanel->move(x() + width(), panelY);
+        m_memoryPanel->raise();
+        m_memoryPanel->show();
+        m_menuBtns[kBtnMemoryBrowse]->setStyleSheet(kMenuBtnActive);
+        m_memoryPanel->focusClosestToFrequency(m_slice ? m_slice->frequency() : -1.0);
     }
 }
 
@@ -794,11 +901,13 @@ void SpectrumOverlayMenu::hideAllSubPanels()
     if (m_daxPanel) m_daxPanel->hide();
     m_displayPanelVisible = false;
     if (m_displayPanel) m_displayPanel->hide();
-    m_menuBtns[2]->setStyleSheet(kMenuBtnNormal);  // Band
-    m_menuBtns[3]->setStyleSheet(kMenuBtnNormal);  // ANT
-    m_menuBtns[4]->setStyleSheet(kMenuBtnNormal);  // DSP
-    m_menuBtns[5]->setStyleSheet(kMenuBtnNormal);  // Display
-    m_menuBtns[6]->setStyleSheet(kMenuBtnNormal);  // DAX
+    m_memoryPanelVisible = false;
+    if (m_memoryPanel) m_memoryPanel->hide();
+    for (int idx : {kBtnBand, kBtnAnt, kBtnDsp, kBtnDisplay,
+                    kBtnMemoryBrowse, kBtnMemoryAdd, kBtnDax}) {
+        if (idx >= 0 && idx < m_menuBtns.size())
+            m_menuBtns[idx]->setStyleSheet(kMenuBtnNormal);
+    }
 }
 
 void SpectrumOverlayMenu::showBandPanelAt(const QPoint& pos)
@@ -810,7 +919,7 @@ void SpectrumOverlayMenu::showBandPanelAt(const QPoint& pos)
     m_bandPanel->move(pos);
     m_bandPanel->raise();
     m_bandPanel->show();
-    m_menuBtns[2]->setStyleSheet(kMenuBtnActive);
+    m_menuBtns[kBtnBand]->setStyleSheet(kMenuBtnActive);
 }
 
 void SpectrumOverlayMenu::toggleBandPanel()
@@ -828,13 +937,12 @@ void SpectrumOverlayMenu::toggleAntPanel()
     if (!wasVisible) {
         syncAntPanel();
         m_antPanelVisible = true;
-        // Center vertically on the ANT button (index 3)
-        int antBtnCenterY = m_menuBtns[3]->y() + m_menuBtns[3]->height() / 2;
+        int antBtnCenterY = m_menuBtns[kBtnAnt]->y() + m_menuBtns[kBtnAnt]->height() / 2;
         int panelY = y() + antBtnCenterY - m_antPanel->sizeHint().height() / 2;
         m_antPanel->move(x() + width(), std::max(0, panelY));
         m_antPanel->raise();
         m_antPanel->show();
-        m_menuBtns[3]->setStyleSheet(kMenuBtnActive);
+        m_menuBtns[kBtnAnt]->setStyleSheet(kMenuBtnActive);
     }
 }
 
@@ -1333,7 +1441,7 @@ void SpectrumOverlayMenu::toggleDisplayPanel()
         m_displayPanel->move(x() + width(), std::max(0, panelY));
         m_displayPanel->raise();
         m_displayPanel->show();
-        m_menuBtns[5]->setStyleSheet(kMenuBtnActive);
+        m_menuBtns[kBtnDisplay]->setStyleSheet(kMenuBtnActive);
     }
 }
 
@@ -1350,6 +1458,7 @@ void SpectrumOverlayMenu::setRfGain(int gain)
     QSignalBlocker b(m_rfGainSlider);
     m_rfGainSlider->setValue(gain);
     m_rfGainLabel->setText(QString("%1 dB").arg(gain));
+    m_lastEmittedRfGain = gain;  // keep emit-dedupe in sync with external updates
 }
 
 void SpectrumOverlayMenu::setRfGainRange(int low, int high, int step)
@@ -1494,7 +1603,7 @@ void SpectrumOverlayMenu::setXvtrBands(const QVector<XvtrBand>& bands)
     if (bandPanelWasVisible)
         showBandPanelAt(bandPanelPos);
     else
-        m_menuBtns[2]->setStyleSheet(kMenuBtnNormal);
+        m_menuBtns[kBtnBand]->setStyleSheet(kMenuBtnNormal);
 
     // Rebuild the XVTR sub-panel (kept as fallback)
     if (m_xvtrPanel) {
@@ -1594,9 +1703,14 @@ QPushButton* SpectrumOverlayMenu::dspNr4Button() const
     return m_dspRows.size() > 12 ? m_dspRows[12].btn : nullptr;
 }
 
-QPushButton* SpectrumOverlayMenu::dspDfnrButton() const
+QPushButton* SpectrumOverlayMenu::dspMnrButton() const
 {
     return m_dspRows.size() > 13 ? m_dspRows[13].btn : nullptr;
+}
+
+QPushButton* SpectrumOverlayMenu::dspDfnrButton() const
+{
+    return m_dspRows.size() > 14 ? m_dspRows[14].btn : nullptr;
 }
 
 bool SpectrumOverlayMenu::eventFilter(QObject* obj, QEvent* event)
@@ -1609,7 +1723,7 @@ bool SpectrumOverlayMenu::eventFilter(QObject* obj, QEvent* event)
     }
     // Consume mouse/wheel events on sub-panels so they don't reach the spectrum
     if (obj == m_bandPanel || obj == m_antPanel || obj == m_dspPanel
-        || obj == m_daxPanel || obj == m_displayPanel) {
+        || obj == m_daxPanel || obj == m_displayPanel || obj == m_memoryPanel) {
         if (event->type() == QEvent::Wheel
             || event->type() == QEvent::MouseButtonPress
             || event->type() == QEvent::MouseButtonRelease) {

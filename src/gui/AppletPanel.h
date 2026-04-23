@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/AudioEngine.h"
+
 #include <QWidget>
 #include <QMap>
 #include <QStringList>
@@ -10,7 +12,10 @@ class QPushButton;
 class QScrollArea;
 class QVBoxLayout;
 
-namespace AetherSDR { class FloatingAppletWindow; }
+namespace AetherSDR {
+class ContainerManager;
+class ContainerWidget;
+} // namespace AetherSDR
 
 namespace AetherSDR {
 
@@ -23,7 +28,18 @@ class TxApplet;
 class PhoneCwApplet;
 class PhoneApplet;
 class EqApplet;
-class CatApplet;
+class ClientEqApplet;
+class ClientCompApplet;
+class ClientGateApplet;
+class ClientDeEssApplet;
+class ClientTubeApplet;
+class ClientPuduApplet;
+class ClientReverbApplet;
+class ClientChainApplet;
+class CatControlApplet;
+class DaxApplet;
+class TciApplet;
+class DaxIqApplet;
 class AntennaGeniusApplet;
 class MeterApplet;
 class MqttApplet;
@@ -51,7 +67,18 @@ public:
     PhoneCwApplet*  phoneCwApplet()  { return m_phoneCwApplet; }
     PhoneApplet*    phoneApplet()    { return m_phoneApplet; }
     EqApplet*       eqApplet()       { return m_eqApplet; }
-    CatApplet*      catApplet()      { return m_catApplet; }
+    ClientEqApplet* clientEqApplet() { return m_clientEqApplet; }
+    ClientCompApplet* clientCompApplet() { return m_clientCompApplet; }
+    ClientGateApplet* clientGateApplet() { return m_clientGateApplet; }
+    ClientDeEssApplet* clientDeEssApplet() { return m_clientDeEssApplet; }
+    ClientTubeApplet* clientTubeApplet() { return m_clientTubeApplet; }
+    ClientPuduApplet* clientPuduApplet() { return m_clientPuduApplet; }
+    ClientReverbApplet* clientReverbApplet() { return m_clientReverbApplet; }
+    ClientChainApplet* clientChainApplet() { return m_clientChainApplet; }
+    CatControlApplet* catControlApplet() { return m_catControlApplet; }
+    DaxApplet*      daxApplet()      { return m_daxApplet; }
+    TciApplet*      tciApplet()      { return m_tciApplet; }
+    DaxIqApplet*    daxIqApplet()    { return m_daxIqApplet; }
     AntennaGeniusApplet* agApplet()  { return m_agApplet; }
     MeterApplet*  meterApplet()  { return m_meterApplet; }
 #ifdef HAVE_MQTT
@@ -70,25 +97,41 @@ public:
     // Reset applet order to default
     void resetOrder();
 
+    // Show / hide an applet by ID — used to drive visibility from
+    // external state (e.g. the CHAIN widget mirrors DSP bypass onto
+    // CEQ and CMP tile visibility).  No-op for unknown IDs.
+    void setAppletVisible(const QString& id, bool visible);
+
+    // Reorder the TX DSP sub-containers inside the "tx_dsp" parent to
+    // mirror the CHAIN's current stage order.  Call whenever the user
+    // drags to reorder the chain; the applet tiles follow.
+    void setTxDspChainOrder(const QVector<AudioEngine::TxChainStage>& stages);
+
+    // ── Container system (Phase 4a groundwork, #1713) ───────────
+    //
+    // The panel owns a ContainerManager and a root sidebar container
+    // so Phase 5+ code can nest new applets under "sidebar" without
+    // waiting for the full AppletEntry → container migration to
+    // finish.  The existing m_appletOrder plumbing remains primary
+    // for all legacy applets — these accessors exist so new features
+    // can opt in to the container system early.
+    ContainerManager* containerManager() { return m_containerMgr; }
+    ContainerWidget*  rootSidebarContainer() { return m_rootSidebar; }
+
     // Global controls lock — disables wheel/mouse on sidebar sliders (#745)
     bool controlsLocked() const;
     void setControlsLocked(bool locked);
 
-    // Ordered applet entry for drag-reorder and float support
+    // One entry per tile in the reorderable applet stack.  `widget`
+    // is always a ContainerWidget; `titleBar` is its ContainerTitleBar
+    // (kept as a raw pointer so AppletDropArea can compute drop-indicator
+    // positions without touching the container internals).
     struct AppletEntry {
         QString id;
-        QWidget* widget{nullptr};      // wrapper widget (titleBar + applet)
-        QWidget* titleBar{nullptr};    // draggable AppletTitleBar
-        QPushButton* btn{nullptr};     // toggle button in button row
-        bool floating{false};          // true when applet is in a FloatingAppletWindow
+        QWidget* widget{nullptr};
+        QWidget* titleBar{nullptr};
+        QPushButton* btn{nullptr};
     };
-
-    // Detach an applet into a floating window / re-dock it
-    void floatApplet(const QString& id);
-    void dockApplet(const QString& id);
-
-    // Returns true if the applet with the given id is currently floating
-    bool isAppletFloating(const QString& id) const;
 
     friend class AppletDropArea;
 
@@ -97,13 +140,15 @@ private:
     void saveOrder();
     int dropIndexFromY(int localY) const;
 
-    // Float/dock the S-Meter (VU) section — not in m_appletOrder so handled separately.
-    void floatSMeter();
-    void dockSMeter();
+    ContainerManager* m_containerMgr{nullptr};
+    ContainerWidget*  m_rootSidebar{nullptr};
 
-    QWidget*      m_sMeterSection{nullptr};
-    QWidget*      m_sMeterContent{nullptr};  // floatable content (smeter + controls)
-    SMeterWidget* m_sMeter{nullptr};
+    // S-Meter sits above the reorderable applet stack (not in
+    // m_appletOrder).  Its ContainerWidget lives directly in the
+    // sidebar root layout, toggled by m_vuBtn.
+    ContainerWidget* m_sMeterContainer{nullptr};
+    QPushButton*     m_vuBtn{nullptr};
+    SMeterWidget*    m_sMeter{nullptr};
     QComboBox*    m_txSelect{nullptr};
     QComboBox*    m_rxSelect{nullptr};
     RxApplet*    m_rxApplet{nullptr};
@@ -114,7 +159,18 @@ private:
     PhoneCwApplet* m_phoneCwApplet{nullptr};
     PhoneApplet*   m_phoneApplet{nullptr};
     EqApplet*      m_eqApplet{nullptr};
-    CatApplet*     m_catApplet{nullptr};
+    ClientEqApplet* m_clientEqApplet{nullptr};
+    ClientCompApplet* m_clientCompApplet{nullptr};
+    ClientGateApplet* m_clientGateApplet{nullptr};
+    ClientDeEssApplet* m_clientDeEssApplet{nullptr};
+    ClientTubeApplet* m_clientTubeApplet{nullptr};
+    ClientPuduApplet* m_clientPuduApplet{nullptr};
+    ClientReverbApplet* m_clientReverbApplet{nullptr};
+    ClientChainApplet* m_clientChainApplet{nullptr};
+    CatControlApplet* m_catControlApplet{nullptr};
+    DaxApplet*     m_daxApplet{nullptr};
+    TciApplet*     m_tciApplet{nullptr};
+    DaxIqApplet*   m_daxIqApplet{nullptr};
     AntennaGeniusApplet* m_agApplet{nullptr};
     MeterApplet* m_meterApplet{nullptr};
 #ifdef HAVE_MQTT
@@ -130,9 +186,6 @@ private:
     // Ordered list of applets (drag-reorderable)
     QVector<AppletEntry> m_appletOrder;
     static const QStringList kDefaultOrder;
-
-    // Floating windows keyed by applet ID
-    QMap<QString, FloatingAppletWindow*> m_floatingWindows;
 };
 
 } // namespace AetherSDR

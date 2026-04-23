@@ -14,6 +14,7 @@
 #include "core/WanConnection.h"
 #include "core/CwDecoder.h"
 #include "core/QsoRecorder.h"
+#include "core/ClientPuduMonitor.h"
 #include "core/DxClusterClient.h"
 #ifdef HAVE_MQTT
 #include "core/MqttClient.h"
@@ -125,15 +126,22 @@ private:
     SpectrumWidget* spectrumForSlice(SliceModel* s) const;
     void wireVfoWidget(VfoWidget* w, SliceModel* s);
     void enableNr2WithWisdom();  // Wisdom-gated NR2 enable (shared by VFO + overlay)
+    void updateNr2Availability(); // Disable NR2 when Opus is active (#1597)
     void registerShortcutActions();
     void applyUiScale(int pct);
     void stepUiScale(int direction);  // +1 = zoom in, -1 = zoom out
     void toggleMinimalMode(bool on);
+    // Toggle OS window-chrome on/off (Qt::FramelessWindowHint).  Persists
+    // to AppSettings("FramelessWindow"). When on, users move/close the
+    // window via keyboard shortcuts or taskbar.
+    void setFramelessWindow(bool on);
     void showMemoryDialog();
+    void showQuickAddMemoryDialog(const QString& preferredPanId = {});
     void updateKeyerAvailability(const QString& mode);
     void showNr2ParamPopup(const QPoint& globalPos);
     void showNr4ParamPopup(const QPoint& globalPos);
     void showDfnrParamPopup(const QPoint& globalPos);
+    void showMnrSettings();
     void applyPanLayout(const QString& layoutId);
     void createPansSequentially(const QString& layoutId, int total,
                                 std::shared_ptr<QStringList> panIds, int created);
@@ -141,11 +149,16 @@ private:
     void showNetworkDiagnosticsDialog();
     void showPropDashboard();
     void setPaTempDisplayUnit(bool useFahrenheit);
+    void setPanadapterConnectionAnimation(bool visible, const QString& label = {});
+    void finishPanadapterConnectionAnimation();
     void syncMemorySpot(int memoryIndex);
     void removeMemorySpot(int memoryIndex);
     void clearMemorySpotFeed();
     void rebuildMemorySpotFeed();
-    void activateMemorySpot(int memoryIndex);
+    void refreshMemoryBrowsePanel();
+    void updateBandStackIndicator();
+    SliceModel* preferredMemorySlice(const QString& preferredPanId) const;
+    bool activateMemorySpot(int memoryIndex, const QString& preferredPanId = {});
 
     BandSnapshot captureCurrentBandState() const;
     void restoreBandState(const BandSnapshot& snap);
@@ -157,6 +170,7 @@ private:
     AudioEngine*      m_audio{nullptr};
     QThread*          m_audioThread{nullptr};
     QsoRecorder*      m_qsoRecorder{nullptr};
+    ClientPuduMonitor* m_puduMonitor{nullptr};
     BandSettings      m_bandSettings;
     // 8-channel CAT: each channel (A-H) binds to a slice index (0-7)
     static constexpr int kCatChannels = 8;
@@ -301,17 +315,34 @@ private:
     float m_lastPaTempC{0.0f};
     bool m_userDisconnected{false};  // true after explicit disconnect, blocks auto-connect
     QDialog* m_reconnectDlg{nullptr}; // shown on unexpected disconnect, dismissed on reconnect
+    class ClientEqEditor* m_clientEqEditor{nullptr}; // lazy — created on first Edit… click
+    class ClientCompEditor* m_clientCompEditor{nullptr}; // lazy — created on first Edit… click
+    class ClientGateEditor* m_clientGateEditor{nullptr}; // lazy — created on first Edit… click
+    class ClientDeEssEditor* m_clientDeEssEditor{nullptr}; // lazy — created on first Edit… click
+    class ClientTubeEditor* m_clientTubeEditor{nullptr}; // lazy — created on first Edit… click
+    class ClientPuduEditor* m_clientPuduEditor{nullptr}; // lazy — created on first Edit… click
+    class ClientReverbEditor* m_clientReverbEditor{nullptr}; // lazy — created on first Edit… click
+
+    // Applet-panel pop-out support (#1713 Phase 6).  When floating,
+    // the panel lives inside m_appletPanelFloatWindow and its splitter
+    // slot is removed; re-dock appends a fresh slot and re-applies the
+    // canonical {0, 0, width-260, 260} sizing.
+    QWidget*    m_appletPanelFloatWindow{nullptr};
+    QAction*    m_popOutSidebarAction{nullptr};
+    void floatAppletPanel();
+    void dockAppletPanel();
     bool m_displaySettingsPushed{false};  // one-shot: push saved display settings after pan created
     bool m_applyingLayout{false};        // true during layout tear-down/recreate — suppresses panadapterAdded handler
     QTimer* m_layoutRestoreTimer{nullptr}; // debounced layout rearrange after pans added on connect
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     QTimer* m_bsExpiryTimer{nullptr};    // band-stack bookmark auto-expiry, started on connect only (#1471)
     bool m_keyboardShortcutsEnabled{false}; // global enable for keyboard shortcuts (View menu)
-    bool m_startupCenterPending{false};      // one-shot: center active slice on launch
-    double m_startupCenterMhz{0.0};          // persisted frequency to center on launch
     bool m_spacePttActive{false};          // true while Space is held for PTT
     bool m_minimalMode{false};             // true when spectrum is hidden (#208)
     QAction* m_minimalModeAction{nullptr};
+    bool m_panadapterConnectionAnimationVisible{false};
+    bool m_waitingForFirstPanadapterFrame{false};
+    QString m_panadapterConnectionAnimationLabel;
     ShortcutManager m_shortcutManager;
 
 #ifdef HAVE_RADE
@@ -319,6 +350,8 @@ private:
     QThread*    m_radeThread{nullptr};
     int  m_radeSliceId{-1};
     bool m_radePrevMute{false};
+    quint32 m_radeDaxStreamId{0};
+    QMetaObject::Connection m_radeDaxStreamConn;
     void activateRADE(int sliceId);
     void deactivateRADE();
 #endif

@@ -14,6 +14,40 @@
 #include <QStandardPaths>
 #include <QRegularExpression>
 
+#ifdef __linux__
+#include <dlfcn.h>
+
+// Minimal forward declarations matching the Xlib error-handler ABI.
+// Field order must match X11/Xlib.h's XErrorEvent exactly — otherwise
+// ev->error_code etc. read the wrong bytes.
+struct AetherX11Display;
+struct AetherX11ErrorEvent {
+    int               type;
+    AetherX11Display* display;      // Display the event was read from
+    unsigned long     resourceid;   // XID of failed resource
+    unsigned long     serial;       // serial of failed request
+    unsigned char     error_code;   // BadAccess == 10
+    unsigned char     request_code; // major opcode
+    unsigned char     minor_code;
+};
+
+// Tolerant X11 error handler — logs errors instead of aborting.
+// On systems with non-free FFmpeg (e.g. openSUSE Packman), Qt Multimedia's
+// FFmpeg backend may trigger X11 hardware-acceleration probing that causes a
+// BadAccess error, even under native Wayland.  Xlib's default handler calls
+// exit() on any error; ours logs and continues.  AetherSDR only uses Qt
+// Multimedia for audio device enumeration and PCM I/O, so X11 errors from
+// video hwaccel probing are harmless.  (#1839)
+static int aetherTolerantX11ErrorHandler(AetherX11Display*, AetherX11ErrorEvent* ev)
+{
+    qWarning("Non-fatal X11 error suppressed (error_code=%d, request=%d) — "
+             "see issue #1839",
+             ev ? ev->error_code : -1,
+             ev ? ev->request_code : -1);
+    return 0;
+}
+#endif  // __linux__
+
 static QFile* s_logFile = nullptr;
 
 // Redact PII from log messages before writing to file.
@@ -95,6 +129,30 @@ int main(int argc, char* argv[])
             qputenv("QT_QPA_PLATFORM", "wayland");
         }
     }
+
+#ifdef __linux__
+    // Install a tolerant X11 error handler before QApplication and before any
+    // library (FFmpeg, VA-API, VDPAU) can open an X11 connection.  Xlib's
+    // default handler calls exit() on protocol errors like BadAccess, which
+    // makes stray X11 probing from non-free FFmpeg builds fatal.  On the
+    // Wayland platform Qt does not install its own X11 handler (unlike xcb),
+    // so without this the default handler remains active.  (#1839)
+    //
+    // dlopen avoids a build-time dependency on libX11-dev.
+    {
+        using XErrHandler = int (*)(AetherX11Display*, AetherX11ErrorEvent*);
+        using XSetErrHandlerFn = XErrHandler (*)(XErrHandler);
+        void* x11 = dlopen("libX11.so.6", RTLD_LAZY);
+        if (x11) {
+            auto fn = reinterpret_cast<XSetErrHandlerFn>(
+                dlsym(x11, "XSetErrorHandler"));
+            if (fn)
+                fn(aetherTolerantX11ErrorHandler);
+            // Do not dlclose — libX11 must stay loaded for the handler to
+            // remain registered for connections opened later by FFmpeg.
+        }
+    }
+#endif
 
     // Apply saved UI scale factor BEFORE QApplication is created.
     // QT_SCALE_FACTOR must be set before Qt initializes the display.

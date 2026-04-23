@@ -2,17 +2,18 @@
 #include "core/AppSettings.h"
 #include "core/NetworkPathResolver.h"
 
-#include <QVBoxLayout>
-#include <QHBoxLayout>
+#include <QAbstractItemView>
+#include <QFormLayout>
+#include <QFrame>
 #include <QGroupBox>
-#include <QCheckBox>
-#include <QEvent>
-#include <QPainter>
-#include <QPainterPath>
-#include <QDebug>
+#include <QHBoxLayout>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPainter>
 #include <QSignalBlocker>
+#include <QTcpSocket>
+#include <QTimer>
+#include <QVBoxLayout>
 
 namespace AetherSDR {
 
@@ -23,6 +24,10 @@ constexpr int kSourceInterfaceIdRole = Qt::UserRole + 11;
 constexpr int kSourceInterfaceNameRole = Qt::UserRole + 12;
 constexpr int kSourceAddressRole = Qt::UserRole + 13;
 constexpr int kSourceStaleRole = Qt::UserRole + 14;
+
+const char* kHintLabelStyle = "QLabel { color: #8aa8c0; font-size: 11px; }";
+const char* kInfoLabelStyle = "QLabel { color: #9bd1ff; font-size: 11px; }";
+const char* kErrorLabelStyle = "QLabel { color: #ff8f8f; font-size: 11px; }";
 
 QJsonObject loadRoutedProfiles()
 {
@@ -66,168 +71,460 @@ QString staleSelectionText(const RadioBindSettings& settings)
     return QStringLiteral("%1 (unavailable, last %2)").arg(iface, addr);
 }
 
+QLabel* makeWrappedLabel(const QString& text, const char* style = nullptr)
+{
+    auto* label = new QLabel(text);
+    label->setWordWrap(true);
+    if (style)
+        label->setStyleSheet(style);
+    return label;
+}
+
+QString smartLinkUserText(const SmartLinkClient* client)
+{
+    if (!client)
+        return QStringLiteral("Sign in to see radios at remote stations.");
+
+    if (!client->firstName().isEmpty()) {
+        const QString call = client->callsign().trimmed();
+        if (!call.isEmpty()) {
+            return QStringLiteral("%1 %2 (%3)")
+                .arg(client->firstName().trimmed(),
+                     client->lastName().trimmed(),
+                     call);
+        }
+        return QStringLiteral("%1 %2")
+            .arg(client->firstName().trimmed(), client->lastName().trimmed());
+    }
+
+    if (!client->callsign().trimmed().isEmpty())
+        return QStringLiteral("Signed in as %1").arg(client->callsign().trimmed());
+
+    return QStringLiteral("Signed in to SmartLink");
+}
+
+QString normalizedStatus(QString status)
+{
+    status.replace('_', ' ');
+    return status.trimmed();
+}
+
 }
 
 ConnectionPanel::ConnectionPanel(QWidget* parent)
     : QWidget(parent)
 {
-    setStyleSheet("ConnectionPanel { background: #0f0f1a; }");
+    setStyleSheet(
+        "ConnectionPanel { background: #0f0f1a; }"
+        "QGroupBox { border: 1px solid #304050; border-radius: 7px; margin-top: 10px; "
+        "color: #c8d8e8; font-weight: bold; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
+        "QListWidget { background: #09111b; border: 1px solid #304050; border-radius: 4px; "
+        "color: #d7e4f2; padding: 2px; }"
+        "QPushButton { padding: 5px 12px; }");
+
     const QString editStyle =
-        "QLineEdit { border: 1px solid #304050; "
-        "border-radius: 3px; padding: 2px 4px; }";
+        "QLineEdit { border: 1px solid #304050; border-radius: 4px; padding: 4px 6px; "
+        "background: #09111b; color: #d7e4f2; }";
+    const QString modeCardStyle =
+        "QCommandLinkButton { text-align: left; border: 1px solid #304050; border-radius: 8px; "
+        "padding: 10px 12px; background: #121a25; color: #d7e4f2; }"
+        "QCommandLinkButton:hover { border-color: #4e6a86; background: #172334; }"
+        "QCommandLinkButton:checked { border-color: #66a8ff; background: #1a3046; }";
+    const QString calloutStyle =
+        "QFrame { border: 1px solid #304050; border-radius: 8px; background: #121a25; }";
+    const QString lowBandwidthCheckStyle =
+        "QCheckBox { color: #d7e4f2; spacing: 8px; padding: 2px 0; }"
+        "QCheckBox::indicator { width: 16px; height: 16px; "
+        "border: 2px solid #5d748d; border-radius: 3px; background: #0b1520; }"
+        "QCheckBox::indicator:hover { border-color: #81abd9; background: #142130; }"
+        "QCheckBox::indicator:checked { border: 2px solid #8cc8ff; background: #2f71b6; }"
+        "QCheckBox::indicator:disabled { border-color: #405262; background: #10161d; }";
 
-    auto* vbox = new QVBoxLayout(this);
-    vbox->setContentsMargins(8, 8, 8, 8);
-    vbox->setSpacing(6);
+    auto* root = new QVBoxLayout(this);
+    root->setContentsMargins(12, 12, 12, 12);
+    root->setSpacing(10);
 
-    // Status label (shows connection state text)
-    m_statusLabel = new QLabel("Not connected", this);
-    m_statusLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; }");
-    m_statusLabel->setAlignment(Qt::AlignCenter);
-    vbox->addWidget(m_statusLabel);
+    auto* titleLabel = new QLabel("Connect to a Radio", this);
+    titleLabel->setStyleSheet("QLabel { color: #e7f1fb; font-size: 18px; font-weight: bold; }");
+    root->addWidget(titleLabel);
 
-    // Discovered radios list
-    m_radioGroup = new QGroupBox("Discovered Radios", this);
-    auto* gbox  = new QVBoxLayout(m_radioGroup);
-    m_radioList = new QListWidget(m_radioGroup);
+    auto* introLabel = makeWrappedLabel(
+        "Pick the simplest path for your station. Most first-time users should start with "
+        "\"On This Network\" and only use the IP path for VPN or routed connections.",
+        kHintLabelStyle);
+    root->addWidget(introLabel);
+
+    m_modeButtons = new QButtonGroup(this);
+    m_modeButtons->setExclusive(true);
+
+    auto configureModeButton = [&](QCommandLinkButton* button,
+                                   const QString& title,
+                                   const QString& description,
+                                   ConnectionMode mode) {
+        button->setText(title);
+        button->setDescription(description);
+        button->setCheckable(true);
+        button->setStyleSheet(modeCardStyle);
+        button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        button->setMinimumHeight(100);
+        m_modeButtons->addButton(button, static_cast<int>(mode));
+    };
+
+    auto* modeRow = new QHBoxLayout;
+    modeRow->setSpacing(8);
+
+    m_localModeBtn = new QCommandLinkButton(this);
+    configureModeButton(m_localModeBtn,
+                        "On This Network",
+                        "Recommended for new users when the radio and computer are on the same LAN.",
+                        LocalMode);
+    modeRow->addWidget(m_localModeBtn);
+
+    m_smartLinkModeBtn = new QCommandLinkButton(this);
+    configureModeButton(m_smartLinkModeBtn,
+                        "Remote with SmartLink",
+                        "Use FlexRadio SmartLink when the radio is away from this computer.",
+                        SmartLinkMode);
+    modeRow->addWidget(m_smartLinkModeBtn);
+
+    m_manualModeBtn = new QCommandLinkButton(this);
+    configureModeButton(m_manualModeBtn,
+                        "Connect by IP",
+                        "Best for VPN or routed station access when you already know the radio IP.",
+                        ManualMode);
+    modeRow->addWidget(m_manualModeBtn);
+
+    root->addLayout(modeRow);
+
+    m_modeStack = new QStackedWidget(this);
+    root->addWidget(m_modeStack, 1);
+
+    // ── Local page ────────────────────────────────────────────────────────
+    auto* localPage = new QWidget(m_modeStack);
+    auto* localLayout = new QVBoxLayout(localPage);
+    localLayout->setContentsMargins(0, 0, 0, 0);
+    localLayout->setSpacing(8);
+    localLayout->addWidget(makeWrappedLabel(
+        "Discovery finds radios automatically on your local network. If nothing appears, "
+        "guest Wi-Fi isolation, VPN software, or firewall rules may be blocking discovery.",
+        kHintLabelStyle));
+
+    m_localStateStack = new QStackedWidget(localPage);
+    localLayout->addWidget(m_localStateStack, 1);
+
+    auto* localListPage = new QWidget(m_localStateStack);
+    auto* localListLayout = new QVBoxLayout(localListPage);
+    localListLayout->setContentsMargins(0, 0, 0, 0);
+    localListLayout->setSpacing(8);
+    auto* localGroup = new QGroupBox("Available radios", localListPage);
+    auto* localGroupLayout = new QVBoxLayout(localGroup);
+    m_radioList = new QListWidget(localGroup);
     m_radioList->setSelectionMode(QAbstractItemView::SingleSelection);
-    gbox->addWidget(m_radioList);
-    vbox->addWidget(m_radioGroup, 1);
+    m_radioList->setWordWrap(true);
+    m_radioList->setSpacing(2);
+    m_radioList->setMinimumHeight(220);
+    localGroupLayout->addWidget(m_radioList);
+    localListLayout->addWidget(localGroup, 1);
 
-    // Low bandwidth checkbox
-    m_lowBwCheck = new QCheckBox("Low Bandwidth", this);
-    m_lowBwCheck->setChecked(
-        AppSettings::instance().value("LowBandwidthConnect", "False").toString() == "True");
-    m_lowBwCheck->setToolTip("Reduces FFT/waterfall data from the radio.\n"
-                             "Recommended for VPN, LTE, or other metered/limited links.");
-    m_lowBwCheck->setStyleSheet("QCheckBox { color: #8aa8c0; font-size: 11px; }");
-    vbox->addWidget(m_lowBwCheck);
+    auto* localActionRow = new QHBoxLayout;
+    localActionRow->addStretch();
+    m_localConnectBtn = new QPushButton("Connect Selected Radio", localListPage);
+    m_localConnectBtn->setEnabled(false);
+    localActionRow->addWidget(m_localConnectBtn);
+    localListLayout->addLayout(localActionRow);
+    m_localStateStack->addWidget(localListPage);
 
-    // Connect/disconnect button
-    m_connectBtn = new QPushButton("Connect", this);
-    m_connectBtn->setEnabled(false);
-    vbox->addWidget(m_connectBtn);
+    m_localEmptyState = new QWidget(m_localStateStack);
+    auto* emptyLayout = new QVBoxLayout(m_localEmptyState);
+    emptyLayout->setContentsMargins(0, 0, 0, 0);
+    emptyLayout->setSpacing(8);
+    auto* emptyCallout = new QFrame(m_localEmptyState);
+    emptyCallout->setStyleSheet(calloutStyle);
+    auto* emptyCalloutLayout = new QVBoxLayout(emptyCallout);
+    emptyCalloutLayout->setContentsMargins(14, 14, 14, 14);
+    emptyCalloutLayout->setSpacing(8);
+    auto* emptyTitle = new QLabel("No local radios found yet", emptyCallout);
+    emptyTitle->setStyleSheet("QLabel { color: #e7f1fb; font-size: 15px; font-weight: bold; }");
+    emptyCalloutLayout->addWidget(emptyTitle);
+    emptyCalloutLayout->addWidget(makeWrappedLabel(
+        "AetherSDR is still listening for discovery packets. If your station is on a VPN "
+        "or another routed network, switch to \"Connect by IP\" instead.",
+        kHintLabelStyle));
 
-    // ── SmartLink login section ──────────────────────────────────────────
-    m_smartLinkGroup = new QGroupBox("SmartLink", this);
-    auto* slBox = new QVBoxLayout(m_smartLinkGroup);
-    slBox->setSpacing(4);
+    auto* retryBtn = new QPushButton("Retry Discovery", emptyCallout);
+    auto* useSmartLinkBtn = new QPushButton("Remote with SmartLink", emptyCallout);
+    auto* connectByIpBtn = new QPushButton("Connect by IP", emptyCallout);
+    auto* diagnosticsBtn = new QPushButton("Open Network Diagnostics", emptyCallout);
+    emptyCalloutLayout->addWidget(retryBtn);
+    emptyCalloutLayout->addWidget(connectByIpBtn);
+    emptyCalloutLayout->addWidget(useSmartLinkBtn);
+    emptyCalloutLayout->addWidget(diagnosticsBtn);
+    emptyLayout->addWidget(emptyCallout);
+    emptyLayout->addStretch();
+    m_localStateStack->addWidget(m_localEmptyState);
 
-    // Login form container (hidden after successful login)
-    m_loginForm = new QWidget(m_smartLinkGroup);
-    auto* loginLayout = new QVBoxLayout(m_loginForm);
+    m_modeStack->addWidget(localPage);
+
+    // ── SmartLink page ────────────────────────────────────────────────────
+    auto* smartLinkPage = new QWidget(m_modeStack);
+    auto* smartLinkLayout = new QVBoxLayout(smartLinkPage);
+    smartLinkLayout->setContentsMargins(0, 0, 0, 0);
+    smartLinkLayout->setSpacing(8);
+    smartLinkLayout->addWidget(makeWrappedLabel(
+        "Use SmartLink when the radio is at another location. Sign in, choose a remote radio, "
+        "then connect over the internet.",
+        kHintLabelStyle));
+
+    auto* accountGroup = new QGroupBox("SmartLink account", smartLinkPage);
+    auto* accountLayout = new QVBoxLayout(accountGroup);
+    accountLayout->setSpacing(6);
+
+    m_loginForm = new QWidget(accountGroup);
+    auto* loginLayout = new QFormLayout(m_loginForm);
     loginLayout->setContentsMargins(0, 0, 0, 0);
-    loginLayout->setSpacing(4);
-
-    auto* emailRow = new QHBoxLayout;
-    emailRow->addWidget(new QLabel("Email:", m_loginForm));
+    loginLayout->setHorizontalSpacing(8);
+    loginLayout->setVerticalSpacing(6);
     m_emailEdit = new QLineEdit(m_loginForm);
     m_emailEdit->setStyleSheet(editStyle);
     m_emailEdit->setPlaceholderText("flexradio account email");
     QString storedEmail = AppSettings::instance().value("SmartLinkEmail").toString();
     if (!storedEmail.isEmpty())
         m_emailEdit->setText(QString::fromUtf8(QByteArray::fromBase64(storedEmail.toUtf8())));
-    emailRow->addWidget(m_emailEdit, 1);
-    loginLayout->addLayout(emailRow);
-
-    auto* passRow = new QHBoxLayout;
-    passRow->addWidget(new QLabel("Pass:", m_loginForm));
     m_passwordEdit = new QLineEdit(m_loginForm);
     m_passwordEdit->setStyleSheet(editStyle);
     m_passwordEdit->setEchoMode(QLineEdit::Password);
     m_passwordEdit->setPlaceholderText("password");
-    passRow->addWidget(m_passwordEdit, 1);
-    loginLayout->addLayout(passRow);
+    loginLayout->addRow("Email:", m_emailEdit);
+    loginLayout->addRow("Password:", m_passwordEdit);
+    m_loginBtn = new QPushButton("Sign In", m_loginForm);
+    loginLayout->addRow(QString(), m_loginBtn);
+    accountLayout->addWidget(m_loginForm);
 
-    m_loginBtn = new QPushButton("Log In", m_loginForm);
-    loginLayout->addWidget(m_loginBtn);
+    m_logoutBtn = new QPushButton("Sign Out", accountGroup);
+    m_logoutBtn->setVisible(false);
+    accountLayout->addWidget(m_logoutBtn, 0, Qt::AlignLeft);
 
-    slBox->addWidget(m_loginForm);
+    m_slUserLabel = makeWrappedLabel("Sign in to see radios at remote stations.", kHintLabelStyle);
+    accountLayout->addWidget(m_slUserLabel);
+    smartLinkLayout->addWidget(accountGroup);
 
-    // User info (shown after login)
-    m_slUserLabel = new QLabel("", m_smartLinkGroup);
-    m_slUserLabel->setStyleSheet("QLabel { color: #00b4d8; font-size: 10px; }");
-    m_slUserLabel->setVisible(false);
-    slBox->addWidget(m_slUserLabel);
+    auto* remoteGroup = new QGroupBox("Remote radios", smartLinkPage);
+    auto* remoteLayout = new QVBoxLayout(remoteGroup);
+    remoteLayout->setSpacing(10);
+    m_wanList = new QListWidget(remoteGroup);
+    m_wanList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_wanList->setWordWrap(true);
+    m_wanList->setSpacing(2);
+    m_wanList->setMinimumHeight(220);
+    remoteLayout->addWidget(m_wanList);
+    m_smartLinkEmptyLabel = makeWrappedLabel(
+        "Remote radios appear here after SmartLink sign-in.",
+        kHintLabelStyle);
+    remoteLayout->addWidget(m_smartLinkEmptyLabel);
+    auto* wanActionBar = new QWidget(remoteGroup);
+    auto* wanActionRow = new QHBoxLayout(wanActionBar);
+    wanActionRow->setContentsMargins(0, 6, 18, 0);
+    wanActionRow->setSpacing(10);
+    wanActionRow->addStretch();
+    m_wanConnectBtn = new QPushButton("Connect Remote Radio", wanActionBar);
+    m_wanConnectBtn->setEnabled(false);
+    m_wanConnectBtn->setMinimumWidth(190);
+    wanActionRow->addWidget(m_wanConnectBtn);
+    remoteLayout->addWidget(wanActionBar);
+    smartLinkLayout->addWidget(remoteGroup, 1);
 
-    vbox->addWidget(m_smartLinkGroup);
+    m_modeStack->addWidget(smartLinkPage);
 
-    // ── Manual (routed) connection ───────────────────────────────────────
-    m_manualGroup = new QGroupBox("Manual Connection", this);
-    auto* manBox = new QVBoxLayout(m_manualGroup);
-    manBox->setContentsMargins(4, 8, 4, 4);
-    manBox->setSpacing(4);
+    // ── Manual / VPN page ────────────────────────────────────────────────
+    auto* manualPage = new QWidget(m_modeStack);
+    auto* manualLayout = new QVBoxLayout(manualPage);
+    manualLayout->setContentsMargins(0, 0, 0, 0);
+    manualLayout->setSpacing(8);
+    manualLayout->addWidget(makeWrappedLabel(
+        "Use this path for VPN or other routed networks where discovery broadcasts cannot reach "
+        "the radio. Enter the radio IP address and AetherSDR will take care of the probe.",
+        kHintLabelStyle));
 
-    auto* manRow = new QHBoxLayout;
-    manRow->setContentsMargins(0, 0, 0, 0);
-    m_manualIpEdit = new QLineEdit(m_manualGroup);
+    auto* manualGroup = new QGroupBox("Radio IP address", manualPage);
+    auto* manualGroupLayout = new QVBoxLayout(manualGroup);
+    manualGroupLayout->setSpacing(8);
+    auto* manualForm = new QFormLayout;
+    manualForm->setHorizontalSpacing(8);
+    manualForm->setVerticalSpacing(6);
+    m_manualIpEdit = new QLineEdit(manualGroup);
     m_manualIpEdit->setStyleSheet(editStyle);
-    m_manualIpEdit->setPlaceholderText("IP address");
-    m_manualIpEdit->setFixedWidth(150);
-    m_manualProbeBtn = new QPushButton("Go", m_manualGroup);
-    m_manualProbeBtn->setFixedWidth(70);
-    manRow->addWidget(m_manualIpEdit);
-    manRow->addWidget(m_manualProbeBtn);
-    manBox->addLayout(manRow);
+    m_manualIpEdit->setPlaceholderText("Example: 10.0.0.25");
+    manualForm->addRow("Radio IP:", m_manualIpEdit);
+    manualGroupLayout->addLayout(manualForm);
 
+    auto* manualActionRow = new QHBoxLayout;
+    auto* manualDiagnosticsBtn = new QPushButton("Network Diagnostics", manualGroup);
+    manualActionRow->addWidget(manualDiagnosticsBtn);
+    manualActionRow->addStretch();
+    m_manualConnectBtn = new QPushButton("Connect by IP", manualGroup);
+    manualActionRow->addWidget(m_manualConnectBtn);
+    manualGroupLayout->addLayout(manualActionRow);
+
+    m_manualResultLabel = makeWrappedLabel(QString(), kHintLabelStyle);
+    m_manualResultLabel->setVisible(false);
+    manualGroupLayout->addWidget(m_manualResultLabel);
+
+    m_manualAdvancedToggle = new QToolButton(manualGroup);
+    m_manualAdvancedToggle->setText("Advanced: choose the VPN source path");
+    m_manualAdvancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_manualAdvancedToggle->setCheckable(true);
+    m_manualAdvancedToggle->setArrowType(Qt::RightArrow);
+    m_manualAdvancedToggle->setVisible(false);
+    manualGroupLayout->addWidget(m_manualAdvancedToggle, 0, Qt::AlignLeft);
+
+    m_manualAdvancedWidget = new QWidget(manualGroup);
+    auto* manualAdvancedLayout = new QVBoxLayout(m_manualAdvancedWidget);
+    manualAdvancedLayout->setContentsMargins(8, 4, 8, 4);
+    manualAdvancedLayout->setSpacing(6);
+    manualAdvancedLayout->addWidget(makeWrappedLabel(
+        "Most users can leave this on Auto. Pick a source path only if your VPN creates more "
+        "than one active network adapter or a saved path is no longer available.",
+        kHintLabelStyle));
     auto* sourceRow = new QHBoxLayout;
     sourceRow->setContentsMargins(0, 0, 0, 0);
-    sourceRow->addWidget(new QLabel("Source:", m_manualGroup));
-    m_manualSourceCombo = new QComboBox(m_manualGroup);
+    sourceRow->addWidget(new QLabel("Source path:", m_manualAdvancedWidget));
+    m_manualSourceCombo = new QComboBox(m_manualAdvancedWidget);
     sourceRow->addWidget(m_manualSourceCombo, 1);
-    manBox->addLayout(sourceRow);
-
-    m_manualSourceWarningLabel = new QLabel(m_manualGroup);
+    manualAdvancedLayout->addLayout(sourceRow);
+    m_manualSourceWarningLabel = makeWrappedLabel(QString(), kErrorLabelStyle);
     m_manualSourceWarningLabel->setVisible(false);
-    m_manualSourceWarningLabel->setWordWrap(true);
-    m_manualSourceWarningLabel->setStyleSheet("QLabel { color: #ffbb66; font-size: 10px; }");
-    manBox->addWidget(m_manualSourceWarningLabel);
+    manualAdvancedLayout->addWidget(m_manualSourceWarningLabel);
+    m_manualAdvancedWidget->setVisible(false);
+    manualGroupLayout->addWidget(m_manualAdvancedWidget);
+    manualLayout->addWidget(manualGroup);
+    manualLayout->addStretch();
+
+    m_modeStack->addWidget(manualPage);
+
+    // ── Contextual options ────────────────────────────────────────────────
+    m_linkOptionsWidget = new QFrame(this);
+    m_linkOptionsWidget->setStyleSheet(calloutStyle);
+    auto* optionsLayout = new QVBoxLayout(m_linkOptionsWidget);
+    optionsLayout->setContentsMargins(12, 10, 12, 10);
+    optionsLayout->setSpacing(6);
+    auto* optionsTitle = new QLabel("Connection options for slower links", m_linkOptionsWidget);
+    optionsTitle->setStyleSheet("QLabel { color: #e7f1fb; font-weight: bold; }");
+    optionsLayout->addWidget(optionsTitle);
+    m_lowBwHintLabel = makeWrappedLabel(QString(), kHintLabelStyle);
+    optionsLayout->addWidget(m_lowBwHintLabel);
+    m_lowBwCheck = new QCheckBox("Use low bandwidth mode", m_linkOptionsWidget);
+    const auto remoteLowBandwidth = AppSettings::instance()
+        .value("LowBandwidthRemotePreferred",
+               AppSettings::instance().value("LowBandwidthConnect", "False"))
+        .toString();
+    m_lowBwCheck->setChecked(remoteLowBandwidth == "True");
+    m_lowBwCheck->setToolTip("Reduces FFT and waterfall traffic from the radio.");
+    m_lowBwCheck->setStyleSheet(lowBandwidthCheckStyle);
+    optionsLayout->addWidget(m_lowBwCheck);
+    root->addWidget(m_linkOptionsWidget);
+
+    // ── Footer ────────────────────────────────────────────────────────────
+    auto* footerRow = new QHBoxLayout;
+    footerRow->setSpacing(8);
+    m_statusLabel = makeWrappedLabel("Choose how you want to connect.", kHintLabelStyle);
+    footerRow->addWidget(m_statusLabel, 1);
+    m_disconnectBtn = new QPushButton("Disconnect", this);
+    m_disconnectBtn->setVisible(false);
+    footerRow->addWidget(m_disconnectBtn, 0, Qt::AlignRight);
+    root->addLayout(footerRow);
+
     refreshManualSourceOptions();
 
-    connect(m_manualProbeBtn, &QPushButton::clicked, this, [this] {
-        const QString ip = m_manualIpEdit->text().trimmed();
-        if (!ip.isEmpty()) probeRadio(ip);
+    connect(m_modeButtons, QOverload<int>::of(&QButtonGroup::idClicked),
+            this, &ConnectionPanel::onConnectionModeClicked);
+
+    connect(retryBtn, &QPushButton::clicked, this, [this] {
+        setStatusText("Refreshing local discovery…");
+        emit retryDiscoveryRequested();
     });
-    connect(m_manualIpEdit, &QLineEdit::returnPressed, this, [this] {
-        const QString ip = m_manualIpEdit->text().trimmed();
-        if (!ip.isEmpty()) probeRadio(ip);
+    connect(connectByIpBtn, &QPushButton::clicked, this, [this] {
+        setCurrentMode(ManualMode);
+        m_manualIpEdit->setFocus();
+        m_manualIpEdit->selectAll();
     });
+    connect(useSmartLinkBtn, &QPushButton::clicked, this, [this] {
+        setCurrentMode(SmartLinkMode);
+        if (m_loginForm->isVisible())
+            m_emailEdit->setFocus();
+    });
+    connect(diagnosticsBtn, &QPushButton::clicked,
+            this, &ConnectionPanel::networkDiagnosticsRequested);
+    connect(manualDiagnosticsBtn, &QPushButton::clicked,
+            this, &ConnectionPanel::networkDiagnosticsRequested);
+
+    connect(m_radioList, &QListWidget::itemSelectionChanged,
+            this, &ConnectionPanel::onListSelectionChanged);
+    connect(m_wanList, &QListWidget::itemSelectionChanged,
+            this, &ConnectionPanel::onWanSelectionChanged);
+    connect(m_localConnectBtn, &QPushButton::clicked,
+            this, &ConnectionPanel::onLocalConnectClicked);
+    connect(m_wanConnectBtn, &QPushButton::clicked,
+            this, &ConnectionPanel::onWanConnectClicked);
+    connect(m_disconnectBtn, &QPushButton::clicked,
+            this, &ConnectionPanel::disconnectRequested);
+    connect(m_radioList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) {
+        if (!m_connected)
+            onLocalConnectClicked();
+    });
+    connect(m_wanList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) {
+        if (!m_connected)
+            onWanConnectClicked();
+    });
+
+    connect(m_manualConnectBtn, &QPushButton::clicked,
+            this, &ConnectionPanel::onManualConnectClicked);
+    connect(m_manualIpEdit, &QLineEdit::returnPressed,
+            this, &ConnectionPanel::onManualConnectClicked);
     connect(m_manualIpEdit, &QLineEdit::textChanged,
             this, &ConnectionPanel::onManualIpChanged);
+    connect(m_manualAdvancedToggle, &QToolButton::toggled,
+            this, &ConnectionPanel::onManualAdvancedToggled);
+    connect(m_manualSourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int) {
+                updateManualAdvancedVisibility();
+                setManualMessage(QString());
+            });
 
-    vbox->addWidget(m_manualGroup);
-
-    // Login action (button click or Enter in password field)
-    auto doLogin = [this] {
+    const auto doLogin = [this] {
         const QString email = m_emailEdit->text().trimmed();
-        const QString pass  = m_passwordEdit->text();
-        if (email.isEmpty() || pass.isEmpty()) return;
+        const QString pass = m_passwordEdit->text();
+        if (email.isEmpty() || pass.isEmpty())
+            return;
         m_loginBtn->setEnabled(false);
-        m_loginBtn->setText("Logging in...");
+        m_loginBtn->setText("Signing In...");
         emit smartLinkLoginRequested(email, pass);
     };
     connect(m_loginBtn, &QPushButton::clicked, this, doLogin);
     connect(m_passwordEdit, &QLineEdit::returnPressed, this, doLogin);
+    connect(m_logoutBtn, &QPushButton::clicked, this, [this] {
+        if (!m_smartLink)
+            return;
+        m_smartLink->logout();
+        m_wanRadios.clear();
+        m_wanList->clear();
+        m_slUserLabel->setText("Signed out of SmartLink.");
+        m_slUserLabel->setStyleSheet(kHintLabelStyle);
+        updateSmartLinkUi();
+    });
 
-    // All widgets now exist — safe to call setConnected for initial state
     setConnected(false);
-
-    connect(m_radioList, &QListWidget::itemSelectionChanged,
-            this, &ConnectionPanel::onListSelectionChanged);
-    connect(m_connectBtn, &QPushButton::clicked,
-            this, &ConnectionPanel::onConnectClicked);
-    connect(m_radioList, &QListWidget::itemDoubleClicked,
-            this, [this](QListWidgetItem*) {
-                if (!m_connected)
-                    onConnectClicked();
-            });
+    setCurrentMode(LocalMode);
+    updateLocalPageState();
+    updateSmartLinkUi();
+    updateManualAdvancedVisibility();
 }
 
 void ConnectionPanel::setConnected(bool connected)
 {
     m_connected = connected;
-    m_connectBtn->setText(connected ? "Disconnect" : "Connect");
-    m_connectBtn->setEnabled(connected || m_radioList->currentItem() != nullptr);
+    m_disconnectBtn->setVisible(connected);
+    updateActionState();
 }
 
 void ConnectionPanel::setStatusText(const QString& text)
@@ -235,15 +532,230 @@ void ConnectionPanel::setStatusText(const QString& text)
     m_statusLabel->setText(text);
 }
 
-// ─── Radio list management ────────────────────────────────────────────────────
+void ConnectionPanel::saveLowBandwidthPreference(bool enabled)
+{
+    auto& settings = AppSettings::instance();
+    const QString value = enabled ? QStringLiteral("True") : QStringLiteral("False");
+    settings.setValue("LowBandwidthConnect", value);
+    settings.setValue("LowBandwidthRemotePreferred", value);
+    settings.save();
+}
+
+QString ConnectionPanel::formatLocalRadioLabel(const RadioInfo& radio) const
+{
+    QString title = radio.model.trimmed();
+    if (!radio.nickname.trimmed().isEmpty())
+        title += QStringLiteral("  %1").arg(radio.nickname.trimmed());
+    if (!radio.callsign.trimmed().isEmpty())
+        title += QStringLiteral("  %1").arg(radio.callsign.trimmed());
+    if (title.trimmed().isEmpty())
+        title = QStringLiteral("Radio");
+    if (title == radio.model.trimmed() && !radio.address.isNull())
+        title += QStringLiteral("  %1").arg(radio.address.toString());
+
+    QString detail;
+    if (!radio.guiClientStations.isEmpty()) {
+        const QString station = radio.guiClientStations.first().trimmed();
+        detail = station.isEmpty()
+            ? QStringLiteral("Shared radio on your network via multiFLEX")
+            : QStringLiteral("Shared radio on your network via multiFLEX at %1").arg(station);
+    } else if (!radio.address.isNull()) {
+        detail = QStringLiteral("Ready on your local network • %1").arg(radio.address.toString());
+    } else {
+        detail = QStringLiteral("Ready on your local network");
+    }
+
+    return title + QLatin1Char('\n') + detail;
+}
+
+QString ConnectionPanel::formatWanRadioLabel(const WanRadioInfo& radio) const
+{
+    QString title = radio.model.trimmed();
+    if (!radio.nickname.trimmed().isEmpty())
+        title += QStringLiteral("  %1").arg(radio.nickname.trimmed());
+    if (!radio.callsign.trimmed().isEmpty())
+        title += QStringLiteral("  %1").arg(radio.callsign.trimmed());
+    if (title.trimmed().isEmpty())
+        title = QStringLiteral("SmartLink radio");
+
+    QString detail = QStringLiteral("Remote via SmartLink");
+    const QString status = normalizedStatus(radio.status);
+    if (!status.isEmpty() && status.compare(QStringLiteral("Available"), Qt::CaseInsensitive) != 0)
+        detail += QStringLiteral(" • %1").arg(status);
+    else
+        detail += QStringLiteral(" • Ready to connect");
+
+    if (!radio.guiClientStations.trimmed().isEmpty())
+        detail += QStringLiteral(" • station %1").arg(radio.guiClientStations.trimmed());
+
+    return title + QLatin1Char('\n') + detail;
+}
+
+void ConnectionPanel::setManualMessage(const QString& text, bool error)
+{
+    if (text.trimmed().isEmpty()) {
+        m_manualResultLabel->clear();
+        m_manualResultLabel->setVisible(false);
+        return;
+    }
+
+    m_manualResultLabel->setText(text);
+    m_manualResultLabel->setStyleSheet(error ? kErrorLabelStyle : kInfoLabelStyle);
+    m_manualResultLabel->setVisible(true);
+}
+
+void ConnectionPanel::updateLocalPageState()
+{
+    const bool hasRadios = !m_radios.isEmpty();
+    m_localStateStack->setCurrentIndex(hasRadios ? 0 : 1);
+
+    if (hasRadios && !m_radioList->currentItem())
+        m_radioList->setCurrentRow(0);
+
+    updateActionState();
+}
+
+void ConnectionPanel::updateSmartLinkUi()
+{
+    const bool authed = m_smartLink && m_smartLink->isAuthenticated();
+    const bool hasWanRadios = authed && !m_wanRadios.isEmpty();
+
+    m_loginForm->setVisible(!authed);
+    m_logoutBtn->setVisible(authed);
+    m_wanList->setVisible(hasWanRadios);
+    m_wanConnectBtn->setVisible(authed);
+
+    if (authed) {
+        if (m_slUserLabel->text().trimmed().isEmpty()
+            || m_slUserLabel->styleSheet() == QString::fromLatin1(kHintLabelStyle)) {
+            m_slUserLabel->setText(smartLinkUserText(m_smartLink));
+            m_slUserLabel->setStyleSheet(kInfoLabelStyle);
+        }
+        if (hasWanRadios) {
+            m_smartLinkEmptyLabel->setVisible(false);
+        } else {
+            m_smartLinkEmptyLabel->setText(
+                "No SmartLink radios are available right now. If the station is on your current "
+                "LAN, it will appear on the local page instead.");
+            m_smartLinkEmptyLabel->setVisible(true);
+        }
+    } else {
+        if (m_slUserLabel->text().trimmed().isEmpty())
+            m_slUserLabel->setText("Sign in to see radios at remote stations.");
+        if (m_slUserLabel->styleSheet().isEmpty())
+            m_slUserLabel->setStyleSheet(kHintLabelStyle);
+        m_smartLinkEmptyLabel->setText("Remote radios appear here after SmartLink sign-in.");
+        m_smartLinkEmptyLabel->setVisible(true);
+    }
+
+    if (hasWanRadios && !m_wanList->currentItem())
+        m_wanList->setCurrentRow(0);
+
+    updateActionState();
+}
+
+void ConnectionPanel::updateActionState()
+{
+    m_localConnectBtn->setEnabled(!m_connected && m_radioList->currentItem() != nullptr);
+
+    const bool smartLinkReady = !m_connected
+        && m_smartLink
+        && m_smartLink->isAuthenticated()
+        && m_wanList->currentItem() != nullptr;
+    m_wanConnectBtn->setEnabled(smartLinkReady);
+
+    const bool manualReady = !m_connected && !m_manualIpEdit->text().trimmed().isEmpty();
+    m_manualConnectBtn->setEnabled(manualReady);
+}
+
+void ConnectionPanel::updateLowBandwidthVisibility()
+{
+    const auto mode = static_cast<ConnectionMode>(m_modeStack->currentIndex());
+    const bool visible = mode == SmartLinkMode || mode == ManualMode;
+    m_linkOptionsWidget->setVisible(visible);
+
+    if (!visible)
+        return;
+
+    if (mode == SmartLinkMode) {
+        m_lowBwHintLabel->setText(
+            "Recommended for SmartLink, hotel Wi-Fi, LTE, or other internet paths where "
+            "waterfall and FFT traffic may feel heavy.");
+    } else {
+        m_lowBwHintLabel->setText(
+            "Helpful on VPN or routed links when the radio is reachable by IP but the network "
+            "feels slower than a normal local LAN.");
+    }
+}
+
+void ConnectionPanel::updateManualAdvancedVisibility()
+{
+    const auto candidates = NetworkPathResolver::enumerateIpv4Candidates();
+    const RadioBindSettings settings = currentManualBindSettings();
+    const bool hasExplicitSelection = settings.mode == RadioBindMode::Explicit;
+    const bool showToggle = candidates.size() > 1
+        || hasExplicitSelection
+        || m_manualSourceWarningLabel->isVisible();
+
+    m_manualAdvancedToggle->setVisible(showToggle);
+    if (!showToggle) {
+        if (m_manualAdvancedToggle->isChecked()) {
+            const QSignalBlocker blocker(m_manualAdvancedToggle);
+            m_manualAdvancedToggle->setChecked(false);
+        }
+        m_manualAdvancedToggle->setArrowType(Qt::RightArrow);
+        m_manualAdvancedWidget->setVisible(false);
+        return;
+    }
+
+    if (hasExplicitSelection || m_manualSourceWarningLabel->isVisible()) {
+        const QSignalBlocker blocker(m_manualAdvancedToggle);
+        m_manualAdvancedToggle->setChecked(true);
+        m_manualAdvancedToggle->setArrowType(Qt::DownArrow);
+        m_manualAdvancedWidget->setVisible(true);
+        return;
+    }
+
+    m_manualAdvancedWidget->setVisible(m_manualAdvancedToggle->isChecked());
+    m_manualAdvancedToggle->setArrowType(
+        m_manualAdvancedToggle->isChecked() ? Qt::DownArrow : Qt::RightArrow);
+}
+
+void ConnectionPanel::setCurrentMode(ConnectionMode mode)
+{
+    if (m_modeButtons->checkedId() != static_cast<int>(mode)) {
+        const QSignalBlocker blocker(m_modeButtons);
+        if (auto* button = m_modeButtons->button(static_cast<int>(mode)))
+            button->setChecked(true);
+    }
+
+    m_modeStack->setCurrentIndex(static_cast<int>(mode));
+    updateLowBandwidthVisibility();
+    updateActionState();
+}
+
+void ConnectionPanel::onConnectionModeClicked(int id)
+{
+    setCurrentMode(static_cast<ConnectionMode>(id));
+}
 
 void ConnectionPanel::onRadioDiscovered(const RadioInfo& radio)
 {
+    for (int i = 0; i < m_radios.size(); ++i) {
+        if (m_radios[i].serial == radio.serial) {
+            m_radios[i] = radio;
+            if (auto* item = m_radioList->item(i))
+                item->setText(formatLocalRadioLabel(radio));
+            updateLocalPageState();
+            return;
+        }
+    }
+
     m_radios.append(radio);
-    m_radioList->addItem(radio.displayName());
-    // Auto-select first discovered radio so new users don't get stuck
+    m_radioList->addItem(formatLocalRadioLabel(radio));
     if (m_radioList->count() == 1)
         m_radioList->setCurrentRow(0);
+    updateLocalPageState();
 }
 
 void ConnectionPanel::onRadioUpdated(const RadioInfo& radio)
@@ -251,7 +763,8 @@ void ConnectionPanel::onRadioUpdated(const RadioInfo& radio)
     for (int i = 0; i < m_radios.size(); ++i) {
         if (m_radios[i].serial == radio.serial) {
             m_radios[i] = radio;
-            m_radioList->item(i)->setText(radio.displayName());
+            if (auto* item = m_radioList->item(i))
+                item->setText(formatLocalRadioLabel(radio));
             return;
         }
     }
@@ -263,147 +776,127 @@ void ConnectionPanel::onRadioLost(const QString& serial)
         if (m_radios[i].serial == serial) {
             delete m_radioList->takeItem(i);
             m_radios.removeAt(i);
-            return;
+            break;
         }
     }
+
+    updateLocalPageState();
 }
 
 void ConnectionPanel::onListSelectionChanged()
 {
-    // When connected, Disconnect is always available. When disconnected,
-    // Connect requires a radio to be selected. (#561)
-    m_connectBtn->setEnabled(m_connected || m_radioList->currentItem() != nullptr);
+    updateActionState();
 }
 
-void ConnectionPanel::onConnectClicked()
+void ConnectionPanel::onWanSelectionChanged()
 {
-    if (m_connected) {
-        emit disconnectRequested();
-        return;
-    }
+    updateActionState();
+}
 
+void ConnectionPanel::onLocalConnectClicked()
+{
     const int row = m_radioList->currentRow();
-    if (row < 0) return;
-
-    // Check if this is a WAN entry (stored in item data)
-    auto* item = m_radioList->item(row);
-    if (!item) return;
-
-    int wanIdx = item->data(Qt::UserRole + 1).toInt();
-    if (wanIdx > 0 && wanIdx <= m_wanRadios.size()) {
-        emit wanConnectRequested(m_wanRadios[wanIdx - 1]);  // 1-based index
+    if (m_connected || row < 0 || row >= m_radios.size())
         return;
-    }
 
-    // Save low bandwidth preference before connecting
-    auto& s = AppSettings::instance();
-    s.setValue("LowBandwidthConnect", m_lowBwCheck->isChecked() ? "True" : "False");
-    s.save();
+    auto& settings = AppSettings::instance();
+    settings.setValue("LowBandwidthConnect", "False");
+    settings.save();
 
-    // LAN radio
-    if (row < m_radios.size())
-        emit connectRequested(m_radios[row]);
+    emit connectRequested(m_radios[row]);
+}
+
+void ConnectionPanel::onWanConnectClicked()
+{
+    const int row = m_wanList->currentRow();
+    if (m_connected || row < 0 || row >= m_wanRadios.size())
+        return;
+
+    saveLowBandwidthPreference(m_lowBwCheck->isChecked());
+    emit wanConnectRequested(m_wanRadios[row]);
 }
 
 void ConnectionPanel::setSmartLinkClient(SmartLinkClient* client)
 {
     m_smartLink = client;
-    if (!client) return;
+    if (!client)
+        return;
 
     connect(client, &SmartLinkClient::authenticated, this, [this] {
-        // Clear password from memory immediately
         m_passwordEdit->clear();
-
-        // Hide login form, show logout button
-        m_loginForm->setVisible(false);
-
-        // Add logout button below user label
-        m_loginBtn = new QPushButton("Log Out", m_smartLinkGroup);
-        qobject_cast<QVBoxLayout*>(m_smartLinkGroup->layout())->insertWidget(1, m_loginBtn);
-        connect(m_loginBtn, &QPushButton::clicked, this, [this] {
-            m_smartLink->logout();
-            // Remove logout button, show login form
-            m_loginBtn->deleteLater();
-            m_loginForm->setVisible(true);
-            m_loginBtn = m_loginForm->findChild<QPushButton*>();
-            m_slUserLabel->setVisible(false);
-            // Remove WAN entries from unified list
-            for (int i = m_radioList->count() - 1; i >= 0; --i) {
-                if (m_radioList->item(i)->data(Qt::UserRole + 1).toInt() > 0)
-                    delete m_radioList->takeItem(i);
-            }
-            m_wanRadios.clear();
-        });
-
-        // User info may not be available yet — show placeholder
-        m_slUserLabel->setText("Connected to SmartLink");
-        m_slUserLabel->setStyleSheet("QLabel { color: #00b4d8; font-size: 10px; }");
-        m_slUserLabel->setVisible(true);
+        m_loginBtn->setEnabled(true);
+        m_loginBtn->setText("Sign In");
+        m_slUserLabel->setText(smartLinkUserText(m_smartLink));
+        m_slUserLabel->setStyleSheet(kInfoLabelStyle);
+        updateSmartLinkUi();
     });
 
-    // Update user label when server sends user_settings (after authenticated)
     connect(client, &SmartLinkClient::serverConnected, this, [this] {
-        // User settings arrive shortly after server connect
         QTimer::singleShot(500, this, [this] {
-            if (!m_smartLink->firstName().isEmpty()) {
-                m_slUserLabel->setText(QString("%1 %2 (%3)")
-                    .arg(m_smartLink->firstName(), m_smartLink->lastName(),
-                         m_smartLink->callsign()));
+            if (m_smartLink && m_smartLink->isAuthenticated()) {
+                m_slUserLabel->setText(smartLinkUserText(m_smartLink));
+                m_slUserLabel->setStyleSheet(kInfoLabelStyle);
+                updateSmartLinkUi();
             }
         });
+    });
+
+    connect(client, &SmartLinkClient::serverDisconnected, this, [this] {
+        if (!m_smartLink || !m_smartLink->isAuthenticated()) {
+            if (m_slUserLabel->text().trimmed().isEmpty()) {
+                m_slUserLabel->setText("Sign in to see radios at remote stations.");
+                m_slUserLabel->setStyleSheet(kHintLabelStyle);
+            }
+        }
+        updateSmartLinkUi();
     });
 
     connect(client, &SmartLinkClient::authFailed, this, [this](const QString& err) {
         m_passwordEdit->clear();
-        m_loginBtn->setText("Log In");
+        m_loginBtn->setText("Sign In");
         m_loginBtn->setEnabled(true);
-        m_slUserLabel->setText("Login failed: " + err);
-        m_slUserLabel->setStyleSheet("QLabel { color: #ff4444; font-size: 10px; }");
-        m_slUserLabel->setVisible(true);
+        m_slUserLabel->setText("SmartLink sign-in failed: " + err);
+        m_slUserLabel->setStyleSheet(kErrorLabelStyle);
+        updateSmartLinkUi();
     });
-
-    // Attempt auto-login from stored keychain credentials
-    client->tryAutoLogin();
 
     connect(client, &SmartLinkClient::radioListReceived, this,
             [this](const QList<WanRadioInfo>& radios) {
-        // Remove old WAN entries from unified list
-        for (int i = m_radioList->count() - 1; i >= 0; --i) {
-            if (m_radioList->item(i)->data(Qt::UserRole + 1).toInt() > 0)
-                delete m_radioList->takeItem(i);
-        }
+        m_wanRadios.clear();
+        m_wanList->clear();
 
-        m_wanRadios = radios;
-        for (int i = 0; i < radios.size(); ++i) {
-            const auto& r = radios[i];
-            // Skip if already in LAN list (same serial)
-            bool isLan = false;
+        for (const auto& radio : radios) {
+            bool isLanRadio = false;
             for (const auto& lan : m_radios) {
-                if (lan.serial == r.serial) { isLan = true; break; }
+                if (lan.serial == radio.serial) {
+                    isLanRadio = true;
+                    break;
+                }
             }
-            if (isLan) continue;
+            if (isLanRadio)
+                continue;
 
-            QString display = QString("%1  %2  %3\nAvailable (SmartLink)")
-                .arg(r.model, r.nickname, r.callsign);
-            auto* item = new QListWidgetItem(display);
-            item->setData(Qt::UserRole + 1, i + 1);  // 1-based WAN index
-            m_radioList->addItem(item);
+            m_wanRadios.append(radio);
+            m_wanList->addItem(formatWanRadioLabel(radio));
         }
+
+        if (m_wanList->count() > 0 && !m_wanList->currentItem())
+            m_wanList->setCurrentRow(0);
+
+        updateSmartLinkUi();
     });
+
+    client->tryAutoLogin();
+    updateSmartLinkUi();
 }
 
 bool ConnectionPanel::event(QEvent* e)
 {
-    if (e->type() == QEvent::WindowDeactivate) {
-        hide();
-        return true;
-    }
     return QWidget::event(e);
 }
 
 void ConnectionPanel::paintEvent(QPaintEvent*)
 {
-    // Solid fill — system window frame handles border/decorations (#574)
     QPainter p(this);
     p.fillRect(rect(), QColor(15, 15, 26));
 }
@@ -428,20 +921,21 @@ void ConnectionPanel::refreshManualSourceOptions(const RadioBindSettings* select
         m_manualSourceCombo->setItemData(idx, candidate.address.toString(), kSourceAddressRole);
         m_manualSourceCombo->setItemData(idx, false, kSourceStaleRole);
 
-        if (selected &&
-            selected->mode == RadioBindMode::Explicit &&
-            ((!selected->interfaceId.isEmpty() && selected->interfaceId == candidate.interfaceId) ||
-             (!selected->bindAddress.isNull() && selected->bindAddress == candidate.address))) {
+        if (selected
+            && selected->mode == RadioBindMode::Explicit
+            && ((!selected->interfaceId.isEmpty() && selected->interfaceId == candidate.interfaceId)
+                || (!selected->bindAddress.isNull() && selected->bindAddress == candidate.address))) {
             selectedIndex = idx;
         }
     }
 
-    if (selected &&
-        selected->mode == RadioBindMode::Explicit &&
-        selectedIndex == 0) {
+    if (selected
+        && selected->mode == RadioBindMode::Explicit
+        && selectedIndex == 0) {
         selectedIndex = m_manualSourceCombo->count();
         m_manualSourceCombo->addItem(staleSelectionText(*selected));
-        m_manualSourceCombo->setItemData(selectedIndex, static_cast<int>(RadioBindMode::Explicit), kSourceModeRole);
+        m_manualSourceCombo->setItemData(
+            selectedIndex, static_cast<int>(RadioBindMode::Explicit), kSourceModeRole);
         m_manualSourceCombo->setItemData(selectedIndex, selected->interfaceId, kSourceInterfaceIdRole);
         m_manualSourceCombo->setItemData(selectedIndex, selected->interfaceName, kSourceInterfaceNameRole);
         m_manualSourceCombo->setItemData(selectedIndex, selected->bindAddress.toString(), kSourceAddressRole);
@@ -449,6 +943,7 @@ void ConnectionPanel::refreshManualSourceOptions(const RadioBindSettings* select
     }
 
     m_manualSourceCombo->setCurrentIndex(selectedIndex);
+    updateManualAdvancedVisibility();
 }
 
 void ConnectionPanel::applySavedSourceSelection(const QString& ip)
@@ -460,6 +955,7 @@ void ConnectionPanel::applySavedSourceSelection(const QString& ip)
 
     if (trimmedIp.isEmpty()) {
         refreshManualSourceOptions();
+        updateManualAdvancedVisibility();
         return;
     }
 
@@ -467,6 +963,7 @@ void ConnectionPanel::applySavedSourceSelection(const QString& ip)
     const QJsonObject profile = profiles.value(trimmedIp).toObject();
     if (profile.isEmpty()) {
         refreshManualSourceOptions();
+        updateManualAdvancedVisibility();
         return;
     }
 
@@ -480,13 +977,15 @@ void ConnectionPanel::applySavedSourceSelection(const QString& ip)
             settings.bindAddress = resolved.address;
         } else {
             m_manualSourceWarningLabel->setText(
-                QStringLiteral("Saved source path for %1 is unavailable. Re-select a live IPv4 source before connecting.")
+                QStringLiteral("Saved VPN source path for %1 is unavailable. Pick a live path "
+                               "below before connecting.")
                     .arg(trimmedIp));
             m_manualSourceWarningLabel->setVisible(true);
         }
     }
 
     refreshManualSourceOptions(&settings);
+    updateManualAdvancedVisibility();
 }
 
 RadioBindSettings ConnectionPanel::currentManualBindSettings(bool* staleSelection) const
@@ -532,117 +1031,147 @@ void ConnectionPanel::saveManualProfile(const QString& targetIp,
 void ConnectionPanel::onManualIpChanged(const QString& ip)
 {
     const QString trimmed = ip.trimmed();
-    if (trimmed == m_manualProfileIp)
+    m_manualConnectPending = false;
+    if (trimmed != m_manualProfileIp)
+        applySavedSourceSelection(trimmed);
+    setManualMessage(QString());
+    updateActionState();
+}
+
+void ConnectionPanel::onManualConnectClicked()
+{
+    const QString ip = m_manualIpEdit->text().trimmed();
+    if (m_connected || ip.isEmpty())
         return;
-    applySavedSourceSelection(trimmed);
+
+    m_manualConnectPending = true;
+    setManualMessage(QStringLiteral("Checking %1…").arg(ip));
+    probeRadio(ip);
+}
+
+void ConnectionPanel::onManualAdvancedToggled(bool checked)
+{
+    m_manualAdvancedToggle->setArrowType(checked ? Qt::DownArrow : Qt::RightArrow);
+    m_manualAdvancedWidget->setVisible(checked);
 }
 
 void ConnectionPanel::probeRadio(const QString& ip)
 {
-    if (m_manualIpEdit->text().trimmed() != ip) {
-        m_manualIpEdit->setText(ip);
-        applySavedSourceSelection(ip);
-    } else if (m_manualProfileIp != ip) {
-        applySavedSourceSelection(ip);
+    const QString trimmedIp = ip.trimmed();
+    if (trimmedIp.isEmpty())
+        return;
+
+    if (m_manualIpEdit->text().trimmed() != trimmedIp) {
+        m_manualIpEdit->setText(trimmedIp);
+        applySavedSourceSelection(trimmedIp);
+    } else if (m_manualProfileIp != trimmedIp) {
+        applySavedSourceSelection(trimmedIp);
     }
 
     bool staleSelection = false;
     const RadioBindSettings bindSettings = currentManualBindSettings(&staleSelection);
     if (bindSettings.mode == RadioBindMode::Explicit && staleSelection) {
         m_manualSourceWarningLabel->setText(
-            QStringLiteral("Selected source path is unavailable. Choose a live IPv4 source before probing."));
+            QStringLiteral("The selected VPN source path is unavailable. Choose a live path "
+                           "before connecting."));
         m_manualSourceWarningLabel->setVisible(true);
+        updateManualAdvancedVisibility();
+        setManualMessage("Choose a live source path before trying again.", true);
+        m_manualConnectPending = false;
         return;
     }
 
-    m_manualProbeBtn->setEnabled(false);
-    m_manualProbeBtn->setText("Probing...");
+    const QString busyText = m_manualConnectPending
+        ? QStringLiteral("Connecting...")
+        : QStringLiteral("Checking...");
+    m_manualConnectBtn->setEnabled(false);
+    m_manualConnectBtn->setText(busyText);
     m_manualSourceWarningLabel->setVisible(false);
+    updateManualAdvancedVisibility();
 
     auto* sock = new QTcpSocket(this);
-    if (bindSettings.mode == RadioBindMode::Explicit &&
-        !sock->bind(bindSettings.bindAddress, 0)) {
+    if (bindSettings.mode == RadioBindMode::Explicit
+        && !sock->bind(bindSettings.bindAddress, 0)) {
         m_manualSourceWarningLabel->setText(
-            QStringLiteral("Failed to bind source %1: %2")
+            QStringLiteral("Failed to bind %1: %2")
                 .arg(bindSettings.bindAddress.toString(), sock->errorString()));
         m_manualSourceWarningLabel->setVisible(true);
+        updateManualAdvancedVisibility();
+        setManualMessage("AetherSDR could not use that VPN source path. Try Auto or choose another path.", true);
         sock->deleteLater();
-        m_manualProbeBtn->setEnabled(true);
-        m_manualProbeBtn->setText("Connect");
+        m_manualConnectPending = false;
+        m_manualConnectBtn->setText("Connect by IP");
+        updateActionState();
         return;
     }
-    sock->connectToHost(ip, 4992);
 
-    // 3-second timeout
-    QTimer::singleShot(3000, sock, [this, sock] {
+    sock->connectToHost(trimmedIp, 4992);
+
+    QTimer::singleShot(3000, sock, [this, sock, trimmedIp] {
         if (sock->state() != QAbstractSocket::ConnectedState) {
             sock->abort();
             sock->deleteLater();
-            m_manualProbeBtn->setEnabled(true);
-            m_manualProbeBtn->setText("Connect");
+            m_manualConnectPending = false;
+            m_manualConnectBtn->setText("Connect by IP");
+            updateActionState();
+            setManualMessage(
+                QStringLiteral("No radio responded at %1. If this is a VPN path, confirm the IP "
+                               "address and try Advanced only if your VPN exposes multiple adapters.")
+                    .arg(trimmedIp),
+                true);
         }
     });
 
-    connect(sock, &QTcpSocket::connected, this, [this, sock, ip, bindSettings] {
-        // Connected — read V/H lines, then disconnect
-        auto* buf = new QByteArray;
-        connect(sock, &QTcpSocket::readyRead, this, [this, sock, ip, buf, bindSettings] {
-            buf->append(sock->readAll());
+    connect(sock, &QTcpSocket::connected, this, [this, sock, trimmedIp, bindSettings] {
+        auto* buffer = new QByteArray;
+        connect(sock, &QTcpSocket::readyRead, this,
+                [this, sock, trimmedIp, bindSettings, buffer] {
+            buffer->append(sock->readAll());
 
-            // We need V<version>\n and H<handle>\n
             QString version;
-            while (buf->contains('\n')) {
-                int idx = buf->indexOf('\n');
-                QString line = QString::fromUtf8(buf->left(idx)).trimmed();
-                buf->remove(0, idx + 1);
+            while (buffer->contains('\n')) {
+                const int idx = buffer->indexOf('\n');
+                const QString line = QString::fromUtf8(buffer->left(idx)).trimmed();
+                buffer->remove(0, idx + 1);
 
-                if (line.startsWith('V'))
+                if (line.startsWith('V')) {
                     version = line.mid(1);
-                else if (line.startsWith('H')) {
-                    // Got both V and H — we have enough info
+                } else if (line.startsWith('H')) {
                     const QHostAddress localSource = sock->localAddress();
                     sock->disconnectFromHost();
                     sock->deleteLater();
-                    delete buf;
+                    delete buffer;
 
-                    // Build a RadioInfo for this routed radio
                     RadioInfo info;
-                    info.address = QHostAddress(ip);
+                    info.address = QHostAddress(trimmedIp);
                     info.port = 4992;
                     info.version = version;
                     info.status = "Available";
                     info.model = "FLEX";
                     info.name = "FLEX";
-                    info.serial = ip;  // use IP as unique ID for routed radios
+                    info.serial = trimmedIp;
                     info.isRouted = true;
                     info.bindSettings = bindSettings;
                     info.sessionBindAddress = localSource;
 
-                    saveManualProfile(ip, bindSettings, info.sessionBindAddress);
+                    saveManualProfile(trimmedIp, bindSettings, info.sessionBindAddress);
 
-                    // Check if already in list
-                    for (int i = 0; i < m_radios.size(); ++i) {
-                        if (m_radios[i].address == info.address) {
-                            m_radios[i] = info;
-                            m_radioList->item(i)->setText(info.displayName());
-                            m_manualProbeBtn->setEnabled(true);
-                            m_manualProbeBtn->setText("Connect");
-                            emit routedRadioFound(info);
-                            return;
-                        }
+                    m_manualConnectBtn->setText("Connect by IP");
+                    updateActionState();
+
+                    if (m_manualConnectPending) {
+                        saveLowBandwidthPreference(m_lowBwCheck->isChecked());
+                        setManualMessage(
+                            QStringLiteral("Found a radio at %1. Connecting now…").arg(trimmedIp));
+                        m_manualConnectPending = false;
+                        emit connectRequested(info);
+                    } else {
+                        setManualMessage(
+                            QStringLiteral("Found a radio at %1 and saved the path for later.")
+                                .arg(trimmedIp));
+                        emit routedRadioFound(info);
                     }
 
-                    m_radios.append(info);
-                    m_radioList->addItem(info.displayName());
-
-                    m_manualProbeBtn->setEnabled(true);
-                    m_manualProbeBtn->setText("Connect");
-                    emit routedRadioFound(info);
-
-                    qDebug() << "ConnectionPanel: routed radio found at" << ip
-                             << "version:" << version
-                             << "localSource:" << info.sessionBindAddress.toString()
-                             << "mode:" << info.bindSettings.modeString();
                     return;
                 }
             }
@@ -650,11 +1179,14 @@ void ConnectionPanel::probeRadio(const QString& ip)
     });
 
     connect(sock, &QTcpSocket::errorOccurred, this,
-            [this, sock](QAbstractSocket::SocketError) {
-        qWarning() << "ConnectionPanel: probe failed:" << sock->errorString();
+            [this, sock, trimmedIp](QAbstractSocket::SocketError) {
+        setManualMessage(
+            QStringLiteral("Could not reach %1: %2").arg(trimmedIp, sock->errorString()),
+            true);
         sock->deleteLater();
-        m_manualProbeBtn->setEnabled(true);
-        m_manualProbeBtn->setText("Connect");
+        m_manualConnectPending = false;
+        m_manualConnectBtn->setText("Connect by IP");
+        updateActionState();
     });
 }
 
