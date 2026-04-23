@@ -3,6 +3,186 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.21] — 2026-04-23
+
+### Recenter policy unification plus Band Stack management
+
+Another community-heavy point release.  Five community PRs plus six
+AetherClaude fixes address crash + UX regressions uncovered in v0.8.20,
+a Wayland+FFmpeg crash class, a RADE TX regression from v0.8.19, and
+a large tuning-policy refactor that consolidates pan/zoom/reveal
+decisions into one shared intent model.  Plus the first Band Stack
+management feature (clear all, band grouping, auto-expiry).
+
+### Features
+
+**Unified tuning/recenter policy (#1861, jensenpat)**
+- Large refactor (+1038/-207, new `RECENTER.md` design doc) that
+  moves pan-follow, reveal, and hard-center decisions out of individual
+  call sites and into a shared `MainWindow` policy layer.  Every tuning
+  input path (VFO wheel, spectrum wheel, trackpad, keys, MIDI,
+  FlexControl, HID, memory, spots, clicks, band stack) now dispatches
+  through a small `TuneIntent` enum: `IncrementalTune`, `AbsoluteJump`,
+  `CommandedTargetCenter`, `ExplicitPan`, `RevealOffscreen`.
+- Incremental tuning now uses step-quantized follow (12 % trigger
+  edge, 18 % settle, 110 ms animation) so trackpad / wheel / keys
+  at the pan edge nudge smoothly instead of page-flipping.
+- Combined pan/zoom operations now send one coherent
+  `display pan set center=X bandwidth=Y` command instead of two
+  separate commands — fixes the P1 waterfall-loss / edge-drop bug
+  seen during bandwidth drag and trackpad zoom.
+- Fixes the P2 keyboard zoom +/- drift seen after memory recall and
+  mode jumps (USB ↔ SAM).
+- Memory spot clicks no longer go through an intermediate generic
+  spot path — memory recall owns the tune+center ordering end-to-end.
+- See `RECENTER.md` for the full architecture, intent semantics,
+  call-site classification, and intentional exception list (band
+  shortcuts, `restoreBandState`, RxApplet direct entry, and CAT/TCI
+  external-control paths still use `tuneAndRecenter`).
+
+**Band Stack management (#1471 → #1472)**
+- New UI affordances in the Band Stack sidebar:
+  - **× button** — "Clear All" with a confirmation dialog, so
+    accidental clears during contests don't wipe a day's work.
+  - **⚙ button** — opens a settings menu for "Group by band" and
+    auto-expiry (Off / 5 / 15 / 30 / 60 min).
+- Grouped mode uses the existing band-definition table; each band
+  section gets a header label and a right-click "Clear band" action.
+- Auto-expiry defaults off.  Enabled expiry uses a 30-second timer
+  that starts on radio connect and stops on disconnect, and
+  stale-entry pruning also runs on startup so entries saved under
+  an expiry threshold are cleaned when the app reopens.
+- Backwards-compatible XML schema: pre-existing entries carry a
+  `CreatedAtMs = 0` sentinel and are never auto-expired.
+- Thanks to LU5DX for the feature request and LU5FF for the idea.
+
+### Bug fixes
+
+**Install tolerant X11 error handler (#1840)**
+- Qt Multimedia's FFmpeg backend probes VA-API / VDPAU hardware
+  accel via X11 even under native Wayland.  On systems that ship
+  `libvdpau-va-gl` by default (openSUSE Tumbleweed + Packman is the
+  canonical case, Fedora RPMfusion is adjacent), VDPAU calls into
+  X11/GLX under Wayland → `BadAccess` → Xlib default handler calls
+  `exit()` → AetherSDR crashes on Audio-tab open.
+- Install a tolerant X11 error handler (via `dlopen(libX11.so.6)` +
+  `XSetErrorHandler`) that logs the error and returns 0 instead of
+  aborting.  Linux-only, no build-time X11 dependency.
+- `AetherX11ErrorEvent` struct layout corrected to match XErrorEvent
+  field order so the diagnostic log reports accurate error codes.
+
+**DXCC prefix resolution off GUI thread (#1844)**
+- 0.8.19 regression surfaced at 125 k-QSO log sizes: when the ADIF
+  auto-reloader (new in 0.8.19) re-processed the logbook,
+  `onParseFinished` did O(N) DXCC prefix lookups on the GUI thread,
+  producing 0.5 – 1 s waterfall freezes.
+- Move prefix resolution into the existing ADIF parse worker thread
+  via an optional `AdifParser::setCtyParser()`.  `CtyDatParser` is
+  demonstrably read-only after `loadCtyDat()`, so cross-thread access
+  is safe.  GUI thread only does the cheap `m_workedStatus.load()`
+  hash inserts on the queued callback.
+
+**TCI RX meter post-gain (#1716 → #1717)**
+- TCI RX level meter and DAX RX level meter in the same applet panel
+  used different measurement points: TCI was pre-gain, DAX was
+  post-gain.  At default gain 0.5 that made TCI read ~6 dB higher
+  than DAX for the same signal.
+- Maintainer decision (community RFC by NF0T): move TCI to post-gain
+  to match DAX convention, SmartSDR convention, and make fader
+  movement immediately visible on the meter.
+
+**XVTR waterfall always black (#1845)**
+- When a transverter is active the radio reports pan center in RF
+  domain (e.g. 144.2 MHz) but the VITA-49 waterfall tile header
+  carries IF-domain frequencies (e.g. ~28 MHz).  The existing
+  frequency-accurate bin mapping then produced bin indices outside
+  `srcSize` for every pixel and the scanline stayed all-black.
+- Detect the tile/pan frequency mismatch in
+  `MainWindow::waterfallRowReady` and shift the tile's reported
+  low/high by `panCenter - tileCenter` so the existing
+  frequency-accurate rendering in `SpectrumWidget` aligns with the
+  pan.  HF panadapters are unaffected (their tiles always overlap,
+  the shift branch never fires).
+
+**PAN freeze in Minimal Mode with popped-out panadapter (#1748)**
+- `toggleMinimalMode(true)` called `setUpdatesEnabled(false)` on
+  every applet in `m_panStack->allApplets()`, which includes
+  floating (popped-out) pans.  Their content froze even though
+  their window was still visible.
+- Skip floating pans on the suspend path via
+  `PanadapterStack::isFloating()`.  CPU savings for normal
+  (no-pop-out) minimal-mode use are preserved unchanged.
+
+**rigctld TCP CAT per-port slice binding (#1621 → #1623)**
+- WSJT-X sends `V VFOB` on init, which `cmdSetVfo()` was treating
+  as an authoritative slice-index override.  Every WSJT-X instance
+  across multiple rigctld ports then ended up controlling Slice B.
+- `cmdSetVfo()` now accepts the command without changing
+  `m_sliceIndex` (which is set per-connection by the TCP port
+  binding in `RigctlServer::onNewConnection`).  `cmdGetVfo()`
+  always reports VFOA (the current VFO for this connection) and
+  `cmdGetSplitVfo()` decouples the client-visible VFO label from
+  the internal slice id.
+- Follow-up #1868 filed for the separate `cmdSetSplitVfo` stub on
+  the enable=true path.
+
+**RADE TX no-waveform regression from #1780 (#1865, NF0T)**
+- v0.8.19 added `emit daxRouteRequested(on ? 0 : 1)` to
+  `AudioEngine::setRadeMode` on the mistaken theory that RADE
+  wanted the radio's mic path.  On PTT in RADE mode this sent
+  `transmit set dax=0`, which made the radio discard every
+  `dax_tx` VITA-49 packet from the RADE encoder and transmit
+  silence from the physical mic.
+- Remove the `daxRouteRequested` signal and its wiring entirely.
+  `updateDaxTxMode` already sets `dax=1` when the TX slice is in
+  DIGU/DIGL (which RADE activation configures), so the correct
+  routing is always in place before PTT.
+
+**Applet pop-out persistence and app-exit regression (#1860, chibondking)**
+- Four bugs around the migration from the retired
+  `FloatingAppletWindow` (System A) to the new `ContainerManager`
+  (System B):
+  1. `ContainerGeometry_P/CW` uses `/` which is invalid in
+     AppSettings XML element names → silent save/load failure for
+     the P/CW applet → position lost on every restart.  Fixed by
+     sanitizing `/` → `_` in `geometryKeyFor`, matching System A's
+     `floatKey()` helper.
+  2. Legacy float-state migration read the raw ID while System A
+     wrote the sanitized key → P/CW users migrating from older
+     versions saw the applet docked.  Same sanitizer applied to
+     the read path.
+  3. Floating windows kept the process alive after the main window
+     closed, because they inherited `WA_QuitOnClose=true` as
+     top-level widgets.  `WA_QuitOnClose=false` now marks them as
+     secondary.
+  4. `moveEvent`/`resizeEvent` wrote AppSettings on every pixel of
+     a window drag (~60 Hz).  Replaced with a 400 ms debounce
+     timer matching System A's original pattern.
+
+**Arduino WiFiServer TCP deadlock for ShackSwitch R4 (#1859, nigelfenton)**
+- ShackSwitch R4 is an Arduino-based Antenna Genius.  Arduino's
+  `WiFiServer::available()` only returns a connected client once
+  the client has sent data, but the AG protocol is
+  server-speaks-first (`V1.0 AG`).  Result: AetherSDR waits for the
+  greeting, R4 waits for client data → TCP deadlock → every AG
+  connect silently hangs.
+- Detect ShackSwitch devices (`serial.startsWith("G0JKN")` or
+  `name.contains("ShackSwitch")`) and send an empty `\r\n` on TCP
+  connect.  R4 firmware discards empty lines before the greeting,
+  protocol proceeds normally.  Real 4O3A Antenna Genius devices do
+  not match the check — zero impact on existing AG behaviour.
+- Also fix a reconnect-race by replacing the `if (m_connected)` guard
+  with an unconditional socket abort in `connectToDevice`, plus
+  add an `isConnecting()` helper for UI state.
+- Contributed by Nigel Fenton (G0JKN) — the author of the ShackSwitch
+  device itself.
+
+### Contributors
+
+Community: NF0T (Ryan Butler), jensenpat, chibondking (CJ Johnson),
+nigelfenton (Nigel Fenton), and LU5DX / LU5FF for the Band Stack
+feature request.
+
 ## [v0.8.20] — 2026-04-22
 
 ### Community regression round-up + crash batch
