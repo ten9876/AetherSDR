@@ -85,6 +85,8 @@
 #include "AetherDspDialog.h"
 #include "DspParamPopup.h"
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 #include <functional>
 #include <QApplication>
@@ -151,6 +153,24 @@
 #include <QLocale>
 
 namespace AetherSDR {
+
+namespace {
+
+constexpr double kIncrementalTriggerEdgeMarginFrac = 0.12;
+constexpr double kIncrementalSettleEdgeMarginFrac = 0.18;
+constexpr double kRevealComfortEdgeMarginFrac = 0.18;
+constexpr int kPanFollowAnimationDurationMs = 110;
+
+double quantizeIncrementalFollowDelta(double overshootMhz, double stepMhz)
+{
+    if (overshootMhz <= 0.0)
+        return 0.0;
+    if (stepMhz <= 0.0)
+        return overshootMhz;
+    return std::ceil((overshootMhz - 1e-12) / stepMhz) * stepMhz;
+}
+
+}  // namespace
 
 static bool macDaxDriverInstalled()
 {
@@ -1809,9 +1829,7 @@ MainWindow::MainWindow(QWidget* parent)
         auto* s = activeSlice();
         if (!s || s->isLocked()) { m_flexTargetMhz = -1.0; return; }
         double target = m_flexTargetMhz;
-        // Use slice tune (not slice m) — doesn't recenter pan, correct for encoder
-        s->setFrequency(target);
-        panFollowVfo(s, target);  // re-center pan if VFO stepped outside visible window (#989)
+        applyTuneRequest(s, target, TuneIntent::IncrementalTune, "flexcontrol");
     });
     // FlexControl signals (auto-queued from worker → main)
     connect(m_flexControl, &FlexControlManager::tuneSteps,
@@ -1965,8 +1983,7 @@ MainWindow::MainWindow(QWidget* parent)
             long long curHz = static_cast<long long>(std::round(s->frequency() * 1e6));
             long long snapped = ((curHz + stepHz / 2) / stepHz) * stepHz;
             double newMhz = (snapped + steps * stepHz) / 1e6;
-            s->setFrequency(newMhz);
-            panFollowVfo(s, newMhz);  // re-center pan if VFO stepped outside visible window (#989)
+            applyTuneRequest(s, newMhz, TuneIntent::IncrementalTune, "midi-relative");
         }
     });
 
@@ -1990,11 +2007,7 @@ MainWindow::MainWindow(QWidget* parent)
         int stepHz = spectrum() ? spectrum()->stepSize() : 100;
         double newMhz = s->frequency() + m_hidPendingSteps * stepHz / 1e6;
         m_hidPendingSteps = 0;
-        QString panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
-        if (!panId.isEmpty())
-            m_radioModel.sendCommand(
-                QString("slice m %1 pan=%2").arg(newMhz, 0, 'f', 6).arg(panId));
-        if (spectrum()) spectrum()->setVfoFrequency(newMhz);
+        applyTuneRequest(s, newMhz, TuneIntent::IncrementalTune, "hid-encoder");
     });
 
     connect(m_hidEncoder, &HidEncoderManager::tuneSteps,
@@ -3177,6 +3190,8 @@ void MainWindow::showMemoryDialog()
 
     auto* dlg = new MemoryDialog(&m_radioModel, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dlg, &MemoryDialog::memoryActivated,
+            this, [this](int memoryIndex) { activateMemorySpot(memoryIndex); });
     connect(dlg, &QObject::destroyed, this, [this] {
         if (m_shuttingDown)
             return;
@@ -3588,7 +3603,7 @@ void MainWindow::buildMenuBar()
         connect(dlg, &DxClusterDialog::tuneRequested,
                 this, [this](double freqMhz) {
             if (auto* sl = activeSlice())
-                sl->tuneAndRecenter(freqMhz);
+                applyTuneRequest(sl, freqMhz, TuneIntent::AbsoluteJump, "dx-cluster");
         });
         connect(dlg, &QDialog::finished, this, refreshSpots);  // refresh on close
         dlg->show();
@@ -4557,8 +4572,8 @@ void MainWindow::buildUI()
         if (slice->mode() != e.mode) {
             slice->setMode(e.mode);
         }
-        // Frequency + recenter pan
-        slice->tuneAndRecenter(e.frequencyMhz);
+        applyTuneRequest(slice, e.frequencyMhz,
+                         TuneIntent::AbsoluteJump, "bandstack-recall");
         // Filter
         if (e.filterLow != 0 || e.filterHigh != 0) {
             slice->setFilterWidth(e.filterLow, e.filterHigh);
@@ -5533,14 +5548,28 @@ bool MainWindow::activateMemorySpot(int memoryIndex, const QString& preferredPan
     if (!slice)
         return false;
 
+    m_pendingMemoryRevealSliceId = sliceId;
     m_radioModel.sendCommand(QString("memory apply %1").arg(memoryIndex));
-    m_radioModel.setPanCenter(it->freq);
+    QTimer::singleShot(750, this, [this, sliceId]() {
+        if (m_pendingMemoryRevealSliceId != sliceId)
+            return;
+        m_pendingMemoryRevealSliceId = -1;
+        if (auto* pendingSlice = m_radioModel.slice(sliceId)) {
+            const TuneCenteringResult result =
+                revealFrequencyIfNeeded(pendingSlice, pendingSlice->frequency(),
+                                        TuneIntent::CommandedTargetCenter,
+                                        "memory-apply-timeout");
+            logTunePolicyDecision("memory-apply-timeout", TuneIntent::CommandedTargetCenter,
+                                  pendingSlice->frequency(), pendingSlice->frequency(),
+                                  result);
+        }
+    });
 
     // The radio should push the rest of the applied memory state, but keep the
     // local tuning step in sync immediately so wheel/click snap follows along.
     if (it->step > 0)
         m_radioModel.sendCommand(QString("slice set %1 step=%2")
-            .arg(slice->sliceId()).arg(it->step));
+            .arg(sliceId).arg(it->step));
     return true;
 }
 
@@ -5697,7 +5726,8 @@ void MainWindow::onSliceAdded(SliceModel* s)
 #ifdef HAVE_HIDAPI
         activeTuning = activeTuning || m_hidCoalesceTimer.isActive();
 #endif
-        if (activeTuning && s->sliceId() == m_activeSliceId)
+        const bool memoryRevealPending = (m_pendingMemoryRevealSliceId == s->sliceId());
+        if (activeTuning && s->sliceId() == m_activeSliceId && !memoryRevealPending)
             return;
 
         m_updatingFromModel = true;
@@ -5708,6 +5738,14 @@ void MainWindow::onSliceAdded(SliceModel* s)
                 s->mode(), s->rttyMark(), s->rttyShift(),
                 s->ritOn(), s->ritFreq(), s->xitOn(), s->xitFreq());
         m_updatingFromModel = false;
+
+        if (memoryRevealPending) {
+            m_pendingMemoryRevealSliceId = -1;
+            const TuneCenteringResult result =
+                revealFrequencyIfNeeded(s, mhz, TuneIntent::CommandedTargetCenter, "memory-apply");
+            logTunePolicyDecision("memory-apply", TuneIntent::CommandedTargetCenter,
+                                  mhz, mhz, result);
+        }
 
         // Feed frequency to Antenna Genius for band→antenna recall
         if (s->sliceId() == m_activeSliceId)
@@ -6008,7 +6046,155 @@ SliceModel* MainWindow::activeSlice() const
     return m_radioModel.slice(m_activeSliceId);
 }
 
+const char* MainWindow::tuneIntentName(TuneIntent intent)
+{
+    switch (intent) {
+    case TuneIntent::IncrementalTune: return "IncrementalTune";
+    case TuneIntent::AbsoluteJump:    return "AbsoluteJump";
+    case TuneIntent::CommandedTargetCenter: return "CommandedTargetCenter";
+    case TuneIntent::ExplicitPan:     return "ExplicitPan";
+    case TuneIntent::RevealOffscreen: return "RevealOffscreen";
+    }
+    return "Unknown";
+}
+
+bool MainWindow::panFollowEnabled() const
+{
+    return AppSettings::instance().value("PanFollowVfo", "True").toString() == "True";
+}
+
+void MainWindow::logTunePolicyDecision(const char* source, TuneIntent intent,
+                                       double oldFreqMhz, double newFreqMhz,
+                                       const TuneCenteringResult& result) const
+{
+    qDebug().nospace()
+        << "TunePolicy:"
+        << " source=" << source
+        << " intent=" << tuneIntentName(intent)
+        << " oldFreq=" << oldFreqMhz
+        << " newFreq=" << newFreqMhz
+        << " oldCenter=" << result.oldCenterMhz
+        << " newCenter=" << result.newCenterMhz
+        << " bandwidth=" << result.bandwidthMhz
+        << " followRevealTriggered=" << result.followRevealTriggered
+        << " hardCenterUsed=" << result.hardCenterUsed
+        << " animationMs=" << result.animationDurationMs;
+}
+
+void MainWindow::mirrorDiversityChildFrequency(SliceModel* slice, double mhz)
+{
+    if (!slice || !slice->isDiversityParent())
+        return;
+
+    long long hz = static_cast<long long>(std::round(mhz * 1e6));
+    const QString freqStr = QString("%1.%2.%3")
+        .arg(static_cast<int>(hz / 1000000))
+        .arg(static_cast<int>((hz / 1000) % 1000), 3, 10, QChar('0'))
+        .arg(static_cast<int>(hz % 1000), 3, 10, QChar('0'));
+
+    for (auto* other : m_radioModel.slices()) {
+        if (!other->isDiversityChild() || other->sliceId() == slice->sliceId())
+            continue;
+        auto* sw = spectrumForSlice(other);
+        if (!sw)
+            continue;
+        if (auto* vfo = sw->vfoWidget(other->sliceId()))
+            vfo->freqLabel()->setText(freqStr);
+        sw->setSliceOverlay(other->sliceId(), mhz,
+            other->filterLow(), other->filterHigh(),
+            other->isTxSlice(), false,
+            other->mode(), other->rttyMark(), other->rttyShift(),
+            other->ritOn(), other->ritFreq(),
+            other->xitOn(), other->xitFreq());
+    }
+}
+
+void MainWindow::applyTuneRequest(SliceModel* slice, double mhz,
+                                  TuneIntent intent, const char* source)
+{
+    if (!slice)
+        return;
+
+    const double oldFreqMhz = slice->frequency();
+    auto* sw = spectrumForSlice(slice);
+    if (slice->isLocked()) {
+        if (slice->sliceId() == m_activeSliceId && sw) {
+            m_updatingFromModel = true;
+            sw->setVfoFrequency(oldFreqMhz);
+            m_updatingFromModel = false;
+        }
+        return;
+    }
+
+    if (slice->sliceId() == m_activeSliceId && sw)
+        sw->setVfoFrequency(mhz);
+
+    slice->setFrequency(mhz);
+    mirrorDiversityChildFrequency(slice, mhz);
+
+    const TuneCenteringResult result =
+        (intent == TuneIntent::IncrementalTune)
+            ? panFollowVfo(slice, mhz, source)
+            : revealFrequencyIfNeeded(slice, mhz, intent, source);
+    logTunePolicyDecision(source, intent, oldFreqMhz, mhz, result);
+}
+
+void MainWindow::applyPanRangeRequest(const QString& panId, double centerMhz,
+                                      double bandwidthMhz, const char* source)
+{
+    if (panId.isEmpty() || bandwidthMhz <= 0.0)
+        return;
+
+    auto* pan = m_radioModel.panadapter(panId);
+    const QString centerStr = QString::number(centerMhz, 'f', 6);
+    const QString bandwidthStr = QString::number(bandwidthMhz, 'f', 6);
+
+    if (pan) {
+        if (qFuzzyCompare(pan->centerMhz(), centerMhz)
+            && qFuzzyCompare(pan->bandwidthMhz(), bandwidthMhz)) {
+            return;
+        }
+        // Update both values together before the radio echo arrives. Explicit
+        // zoom workflows are especially sensitive to center/bandwidth skew;
+        // splitting them produced the P1/P2 waterfall-loss and zoom-drift bugs.
+        pan->applyPanStatus({
+            {"center", centerStr},
+            {"bandwidth", bandwidthStr},
+        });
+    }
+
+    m_radioModel.sendCommand(
+        QString("display pan set %1 center=%2 bandwidth=%3")
+            .arg(panId, centerStr, bandwidthStr));
+
+    qDebug() << "Pan range request:" << source
+             << "center" << centerMhz
+             << "bandwidth" << bandwidthMhz;
+}
+
 void MainWindow::setActiveSlice(int sliceId)
+{
+    setActiveSliceInternal(sliceId, true);
+}
+
+void MainWindow::queueActiveSliceForSpectrumTarget(int sliceId)
+{
+    if (sliceId < 0 || sliceId == m_activeSliceId) {
+        m_pendingSpectrumTargetSliceId = -1;
+        return;
+    }
+
+    m_pendingSpectrumTargetSliceId = sliceId;
+    QTimer::singleShot(0, this, [this, sliceId]() {
+        if (m_pendingSpectrumTargetSliceId != sliceId)
+            return;
+        m_pendingSpectrumTargetSliceId = -1;
+        if (auto* s = m_radioModel.slice(sliceId))
+            setActiveSliceInternal(s->sliceId(), false);
+    });
+}
+
+void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
 {
     auto* s = m_radioModel.slice(sliceId);
     if (!s) return;
@@ -6051,14 +6237,13 @@ void MainWindow::setActiveSlice(int sliceId)
     m_appletPanel->updateSliceButtons(m_radioModel.slices(), sliceId);
     auto* sw = spectrum();
     if (sw) {
-        // Recenter panadapter if the newly active slice is off-screen (#1554)
-        double sliceFreq = s->frequency();
-        double halfBw = sw->bandwidthMhz() / 2.0;
-        double lo = sw->centerMhz() - halfBw;
-        double hi = sw->centerMhz() + halfBw;
-        if (sliceFreq < lo || sliceFreq > hi) {
-            sw->setFrequencyRange(sliceFreq, sw->bandwidthMhz());
-            emit sw->centerChangeRequested(sliceFreq);
+        if (revealOffscreen) {
+            const TuneCenteringResult result =
+                revealFrequencyIfNeeded(s, s->frequency(),
+                                        TuneIntent::RevealOffscreen,
+                                        "setActiveSlice");
+            logTunePolicyDecision("setActiveSlice", TuneIntent::RevealOffscreen,
+                                  s->frequency(), s->frequency(), result);
         }
 
         sw->overlayMenu()->setSlice(s);
@@ -6354,6 +6539,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     });
 
     // ── User drag actions from spectrum → radio (per-pan) ──────────────────
+    connect(sw, &SpectrumWidget::frequencyRangeChangeRequested,
+            this, [this, applet](double center, double bandwidth) {
+        applyPanRangeRequest(applet->panId(), center, bandwidth, "explicit-pan-range");
+    });
     connect(sw, &SpectrumWidget::bandwidthChangeRequested,
             this, [this, applet](double bw) {
         m_radioModel.sendCommand(
@@ -6676,46 +6865,44 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         menu->syncExtraDisplaySettings(false, 1.15f, 80, 0);
     });
 
-    // ── Click-to-tune ────────────────────────────────────────────────────
-    // Uses "slice m <freq> pan=<panId>" (matches SmartSDR protocol).
-    // The radio routes the tune to the correct slice for that pan.
-    connect(sw, &SpectrumWidget::frequencyClicked,
-            this, [this, sw](double mhz) {
-        // Find the panId for this spectrum widget
+    auto resolveSpectrumTuneTarget = [this, sw]() -> SliceModel* {
         QString panId;
-        for (auto* applet : m_panStack->allApplets()) {
-            if (applet->spectrumWidget() == sw) {
-                panId = applet->panId();
+        for (auto* panApplet : m_panStack->allApplets()) {
+            if (panApplet->spectrumWidget() == sw) {
+                panId = panApplet->panId();
                 break;
             }
         }
 
-        if (!panId.isEmpty()) {
-            // Check if the active slice is on a DIFFERENT pan — if so, switch
-            // to a slice on the clicked pan. Don't switch when multiple slices
-            // share the same pan (that causes alternating tune targets).
-            auto* curSlice = activeSlice();
-            bool differentPan = curSlice && curSlice->panId() != panId;
+        if (panId.isEmpty())
+            return activeSlice();
 
-            if (differentPan) {
-                for (auto* s : m_radioModel.slices()) {
-                    if (s->panId() == panId) {
-                        setActiveSlice(s->sliceId());
-                        break;
-                    }
-                }
-                m_panStack->setActivePan(panId);
+        if (auto* current = activeSlice(); current && current->panId() == panId)
+            return current;
 
-                if (auto* s = activeSlice(); s && !s->isLocked()) {
-                    m_radioModel.sendCommand(
-                        QString("slice m %1 pan=%2").arg(mhz, 0, 'f', 6).arg(panId));
-                    sw->setVfoFrequency(mhz);
-                }
-            } else {
-                onFrequencyChanged(mhz);
-            }
-        } else {
-            onFrequencyChanged(mhz);
+        for (auto* candidate : m_radioModel.slices()) {
+            if (candidate->panId() == panId)
+                return candidate;
+        }
+
+        return activeSlice();
+    };
+
+    // ── Click-to-tune ────────────────────────────────────────────────────
+    // Same-pan and cross-pan tune requests both resolve a target slice first,
+    // then run through the shared absolute/incremental tuning policy.
+    connect(sw, &SpectrumWidget::frequencyClicked,
+            this, [this, resolveSpectrumTuneTarget](double mhz) {
+        if (auto* target = resolveSpectrumTuneTarget()) {
+            queueActiveSliceForSpectrumTarget(target->sliceId());
+            applyTuneRequest(target, mhz, TuneIntent::AbsoluteJump, "spectrum-click");
+        }
+    });
+    connect(sw, &SpectrumWidget::incrementalTuneRequested,
+            this, [this, resolveSpectrumTuneTarget](double mhz) {
+        if (auto* target = resolveSpectrumTuneTarget()) {
+            queueActiveSliceForSpectrumTarget(target->sliceId());
+            applyTuneRequest(target, mhz, TuneIntent::IncrementalTune, "spectrum-incremental");
         }
     });
 
@@ -6886,7 +7073,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     connect(sw, &SpectrumWidget::sliceTuneRequested,
             this, [this](int sliceId, double freqMhz) {
         if (auto* s = m_radioModel.slice(sliceId))
-            s->setFrequency(freqMhz);
+            applyTuneRequest(s, freqMhz, TuneIntent::AbsoluteJump, "slice-move-here");
     });
 
     // ── Band selection ───────────────────────────────────────────────────
@@ -6942,6 +7129,16 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             if (!s) s = activeSlice();
             if (s) {
                 if (!mode.isEmpty() && s->mode() != mode) s->setMode(mode);
+                TuneCenteringResult result;
+                if (auto* pan = m_radioModel.panadapter(s->panId())) {
+                    result.oldCenterMhz = pan->centerMhz();
+                    result.bandwidthMhz = pan->bandwidthMhz();
+                }
+                result.newCenterMhz = freqMhz;
+                result.followRevealTriggered = true;
+                result.hardCenterUsed = true;
+                logTunePolicyDecision("band-fallback", TuneIntent::AbsoluteJump,
+                                      s->frequency(), freqMhz, result);
                 s->tuneAndRecenter(freqMhz);
             }
         } else {
@@ -7049,52 +7246,122 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             this, [this](const QPoint& pos) { showDfnrParamPopup(pos); });
 }
 
-void MainWindow::panFollowVfo(SliceModel* s, double mhz)
+MainWindow::TuneCenteringResult MainWindow::revealFrequencyIfNeeded(
+    SliceModel* slice, double mhz, TuneIntent intent, const char* /*source*/)
 {
-    // Pan-follow-VFO is toggleable via View menu (#1476). On by default —
-    // matches the historical behavior users expect, but can be disabled
-    // for operators who prefer a fixed panadapter window.
-    if (AppSettings::instance().value("PanFollowVfo", "True").toString() != "True")
-        return;
+    TuneCenteringResult result;
+    if (!slice)
+        return result;
 
-    // Note: centerActiveSliceInPanadapter() is intentionally not reused here.
-    // That helper snaps to dead center and does extra work (pan stack activation,
-    // VFO widget update) that is redundant or wrong for incremental step-tuning.
-    PanadapterModel* pan = m_radioModel.panadapter(s->panId());
-    if (!pan) return;
-    const double halfBw = pan->bandwidthMhz() / 2.0;
-    if (halfBw <= 0.0) return;  // guard: bandwidth not yet received from radio
+    auto* pan = m_radioModel.panadapter(slice->panId());
+    if (!pan)
+        return result;
 
-    // "Fence" behavior (#1476): VFO slides freely inside the middle 90% of
-    // the pan window.  When it crosses the 5% boundary on either edge of
-    // the *full* window, the pan scrolls by exactly the overshoot so the
-    // VFO stays pinned to that boundary.  Continuous tuning past the fence
-    // feels like the pan scrolls by the step size — no sudden jumps, the
-    // VFO never visibly leaves the window.
-    //
-    // Express the boundary relative to halfBw: fence is 5% of the full
-    // window = 10% of halfBw.
-    static constexpr double kMarginFrac = 0.10;
-    const double deadZoneHalfBw = halfBw * (1.0 - kMarginFrac);
-    // Read the *visible* center from the spectrum widget, not the model —
-    // PanadapterModel may lag behind after a manual drag (#1643).
-    auto* sw = spectrumForSlice(s);
-    const double center = sw ? sw->centerMhz() : pan->centerMhz();
-    double newCenter;
-    if (mhz > center + deadZoneHalfBw) {
-        newCenter = mhz - deadZoneHalfBw;   // VFO pinned to right fence
-    } else if (mhz < center - deadZoneHalfBw) {
-        newCenter = mhz + deadZoneHalfBw;   // VFO pinned to left fence
-    } else {
-        return;  // VFO inside dead zone — pan stays put
+    // Prefer the visible spectrum state when available so reveal/follow stays
+    // aligned with recent manual pan/zoom gestures even if the model echo lags.
+    auto* sw = spectrumForSlice(slice);
+    result.oldCenterMhz = sw ? sw->centerMhz() : pan->centerMhz();
+    result.newCenterMhz = result.oldCenterMhz;
+    result.bandwidthMhz = sw ? sw->bandwidthMhz() : pan->bandwidthMhz();
+
+    const double bandwidthMhz = result.bandwidthMhz;
+    const double halfBw = bandwidthMhz / 2.0;
+    if (halfBw <= 0.0)
+        return result;
+
+    if (intent == TuneIntent::CommandedTargetCenter) {
+        result.newCenterMhz = mhz;
+        if (qFuzzyCompare(result.oldCenterMhz, result.newCenterMhz))
+            return result;
+
+        result.followRevealTriggered = true;
+        result.hardCenterUsed = true;
+        const double centerDelta = std::abs(result.newCenterMhz - result.oldCenterMhz);
+        result.animationDurationMs = (centerDelta <= halfBw * 0.25)
+            ? kPanFollowAnimationDurationMs
+            : 0;
+
+        pan->applyPanStatus({{"center", QString::number(result.newCenterMhz, 'f', 6)}});
+        m_radioModel.sendCommand(
+            QString("display pan set %1 center=%2")
+                .arg(pan->panId()).arg(result.newCenterMhz, 0, 'f', 6));
+        return result;
     }
 
-    // Optimistic local update: apply new center immediately so SpectrumWidget
-    // repaints without waiting for the radio echo-back round-trip. (#989)
-    pan->applyPanStatus({{"center", QString::number(newCenter, 'f', 6)}});
+    const bool incremental = (intent == TuneIntent::IncrementalTune);
+    if (incremental && !panFollowEnabled())
+        return result;
+
+    const double triggerEdgeMarginFrac =
+        incremental ? kIncrementalTriggerEdgeMarginFrac : kRevealComfortEdgeMarginFrac;
+    const double settleEdgeMarginFrac =
+        incremental ? kIncrementalSettleEdgeMarginFrac : kRevealComfortEdgeMarginFrac;
+    const double triggerDistanceFromCenter = halfBw - bandwidthMhz * triggerEdgeMarginFrac;
+    const double settleDistanceFromCenter = halfBw - bandwidthMhz * settleEdgeMarginFrac;
+    const double center = result.oldCenterMhz;
+    const int stepHz = incremental
+        ? (slice->stepHz() > 0 ? slice->stepHz() : (sw ? sw->stepSize() : 0))
+        : 0;
+    const double stepMhz = stepHz > 0 ? stepHz / 1e6 : 0.0;
+
+    auto incrementalFollowCenter = [&](double triggerBoundaryCenter,
+                                       double settleCenterTarget) {
+        const double direction = (triggerBoundaryCenter >= center) ? 1.0 : -1.0;
+        const double overshootMhz = std::abs(triggerBoundaryCenter - center);
+        const double quantizedDeltaMhz = quantizeIncrementalFollowDelta(overshootMhz, stepMhz);
+        const double cappedDeltaMhz =
+            std::min(quantizedDeltaMhz, std::abs(settleCenterTarget - center));
+        return center + direction * cappedDeltaMhz;
+    };
+
+    if (mhz > center + triggerDistanceFromCenter) {
+        const double settleCenterTarget = mhz - settleDistanceFromCenter;
+        if (incremental && stepMhz > 0.0) {
+            const double triggerBoundaryCenter = mhz - triggerDistanceFromCenter;
+            result.newCenterMhz =
+                incrementalFollowCenter(triggerBoundaryCenter, settleCenterTarget);
+        } else {
+            result.newCenterMhz = settleCenterTarget;
+        }
+    } else if (mhz < center - triggerDistanceFromCenter) {
+        const double settleCenterTarget = mhz + settleDistanceFromCenter;
+        if (incremental && stepMhz > 0.0) {
+            const double triggerBoundaryCenter = mhz + triggerDistanceFromCenter;
+            result.newCenterMhz =
+                incrementalFollowCenter(triggerBoundaryCenter, settleCenterTarget);
+        } else {
+            result.newCenterMhz = settleCenterTarget;
+        }
+    } else {
+        return result;
+    }
+
+    if (qFuzzyCompare(result.oldCenterMhz, result.newCenterMhz))
+        return result;
+
+    result.followRevealTriggered = true;
+    const double centerDelta = std::abs(result.newCenterMhz - result.oldCenterMhz);
+    result.animationDurationMs = (centerDelta <= halfBw * 0.25)
+        ? kPanFollowAnimationDurationMs
+        : 0;
+
+    // Apply the center optimistically so the owning spectrum repaints
+    // immediately; SpectrumWidget decides whether that becomes a short
+    // retargetable animation or an immediate snap based on shift size.
+    pan->applyPanStatus({{"center", QString::number(result.newCenterMhz, 'f', 6)}});
     m_radioModel.sendCommand(
         QString("display pan set %1 center=%2")
-            .arg(pan->panId()).arg(newCenter, 0, 'f', 6));
+            .arg(pan->panId()).arg(result.newCenterMhz, 0, 'f', 6));
+    return result;
+}
+
+MainWindow::TuneCenteringResult MainWindow::panFollowVfo(
+    SliceModel* s, double mhz, const char* source)
+{
+    // Incremental tuning uses a trigger margin and a slightly wider settle
+    // margin so the slice glides back into a comfortable visible area without
+    // dead-centering or waiting until it actually crosses the pan edge.
+    return revealFrequencyIfNeeded(s, mhz, TuneIntent::IncrementalTune, source);
 }
 
 void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
@@ -7108,11 +7375,15 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
         if (m_radioModel.slices().size() <= 1) return;
         m_radioModel.sendCommand(QString("slice remove %1").arg(sliceId));
     });
-    // Pan-follow-VFO (#989): wheel uses setFrequency(autopan=0) so re-center
-    // the pan explicitly when the stepped frequency falls outside the window.
-    connect(w, &VfoWidget::stepTuned, this, [this, sliceId](double mhz) {
+    connect(w, &VfoWidget::stepTuneRequested, this, [this, sliceId](double mhz) {
         if (auto* sl = m_radioModel.slice(sliceId))
-            panFollowVfo(sl, mhz);
+            applyTuneRequest(sl, mhz, TuneIntent::IncrementalTune, "vfo-wheel");
+    });
+    connect(w, &VfoWidget::directEntryCommitted, this, [this, sliceId](double mhz, const QString& source) {
+        if (auto* sl = m_radioModel.slice(sliceId)) {
+            const QByteArray sourceUtf8 = source.toUtf8();
+            applyTuneRequest(sl, mhz, TuneIntent::CommandedTargetCenter, sourceUtf8.constData());
+        }
     });
     connect(w, &VfoWidget::lockToggled, this, [this, sliceId](bool locked) {
         if (auto* sl = m_radioModel.slice(sliceId))
@@ -7175,7 +7446,8 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
         if (detected <= 0.0f) return;
         int configured = m_radioModel.transmitModel().cwPitch();
         double offsetMhz = (detected - configured) / 1.0e6;
-        slice->setFrequency(slice->frequency() + offsetMhz);
+        applyTuneRequest(slice, slice->frequency() + offsetMhz,
+                         TuneIntent::IncrementalTune, "zero-beat");
     });
     connect(w, &VfoWidget::addSpotRequested, this, [this](double freqMhz) {
         if (auto* sw = spectrum()) sw->showAddSpotDialog(freqMhz);
@@ -7195,8 +7467,8 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
         if (!rx || !tx) return;
         double rxFreq = rx->frequency();
         double txFreq = tx->frequency();
-        rx->setFrequency(txFreq);
-        tx->setFrequency(rxFreq);
+        applyTuneRequest(rx, txFreq, TuneIntent::IncrementalTune, "split-swap-rx");
+        applyTuneRequest(tx, rxFreq, TuneIntent::IncrementalTune, "split-swap-tx");
     });
 
     // Split toggle — per-widget, slice-aware (#328)
@@ -7639,23 +7911,29 @@ void MainWindow::centerActiveSliceInPanadapter(bool forceRadioCenter, double cen
             QString("display pan set %1 center=%2")
                 .arg(s->panId()).arg(targetMhz, 0, 'f', 6));
     }
+
+    TuneCenteringResult result;
+    result.oldCenterMhz = pan ? pan->centerMhz() : targetMhz;
+    result.newCenterMhz = targetMhz;
+    result.bandwidthMhz = bandwidthMhz;
+    result.followRevealTriggered = true;
+    result.hardCenterUsed = true;
+    logTunePolicyDecision("center-active-slice", TuneIntent::AbsoluteJump,
+                          s->frequency(), s->frequency(), result);
 }
 
 void MainWindow::registerShortcutActions()
 {
     // Helper: nudge active slice frequency by N steps.
-    // Uses tuneAndRecenter() so m_frequency is updated immediately (no stale
-    // base on rapid presses) and the radio keeps the slice centered in the pan.
+    // Share the incremental tune policy with wheel/knob/VFO tuning so pan
+    // follow uses the same trigger + settle margins everywhere.
     auto nudgeFreq = [this](int steps) {
         if (!m_radioModel.isConnected()) return;
         auto* s = activeSlice();
         if (!s || s->isLocked()) return;
         int stepHz = spectrum() ? spectrum()->stepSize() : 100;
         double newMhz = s->frequency() + steps * stepHz / 1e6;
-        // Use setFrequency (autopan=0) + panFollowVfo so all step-tuning paths
-        // (keyboard, wheel, FlexControl, MIDI) share the same pan-follow logic. (#989)
-        s->setFrequency(newMhz);
-        panFollowVfo(s, newMhz);
+        applyTuneRequest(s, newMhz, TuneIntent::IncrementalTune, "keyboard-step");
     };
 
     // Step cycle helper
@@ -7693,11 +7971,10 @@ void MainWindow::registerShortcutActions()
             auto* sw = s ? spectrumForSlice(s) : nullptr;
             auto* vfo = (s && sw) ? sw->vfoWidget(s->sliceId()) : nullptr;
             if (!s || !vfo) return;
-            centerActiveSliceInPanadapter(true);
             QPointer<VfoWidget> vfoGuard = vfo;
             QTimer::singleShot(0, this, [vfoGuard]() {
                 if (vfoGuard)
-                    vfoGuard->beginDirectEntry();
+                    vfoGuard->beginDirectEntry("go-to-frequency");
             });
         });
 
@@ -7717,7 +7994,19 @@ void MainWindow::registerShortcutActions()
             QKeySequence(), [this, freq]() {
                 if (!m_radioModel.isConnected()) return;
                 auto* s = activeSlice();
-                if (s && !s->isLocked()) s->tuneAndRecenter(freq);
+                if (s && !s->isLocked()) {
+                    TuneCenteringResult result;
+                    if (auto* pan = m_radioModel.panadapter(s->panId())) {
+                        result.oldCenterMhz = pan->centerMhz();
+                        result.bandwidthMhz = pan->bandwidthMhz();
+                    }
+                    result.newCenterMhz = freq;
+                    result.followRevealTriggered = true;
+                    result.hardCenterUsed = true;
+                    logTunePolicyDecision("band-shortcut", TuneIntent::AbsoluteJump,
+                                          s->frequency(), freq, result);
+                    s->tuneAndRecenter(freq);
+                }
             });
     }
 
@@ -7872,10 +8161,10 @@ void MainWindow::registerShortcutActions()
         }
 
         sw->setFrequencyRange(newCenter, newBw);
-        m_radioModel.sendCommand(
-            QString("display pan set %1 bandwidth=%2").arg(s->panId()).arg(newBw, 0, 'f', 6));
-        m_radioModel.sendCommand(
-            QString("display pan set %1 center=%2").arg(s->panId()).arg(newCenter, 0, 'f', 6));
+        // Keep keyboard zoom on the same combined pan-range path as trackpad /
+        // on-screen zoom so mode/frequency jumps do not reintroduce stale
+        // center-versus-bandwidth transitions.
+        applyPanRangeRequest(s->panId(), newCenter, newBw, "keyboard-pan-zoom");
     };
 
     // ── DSP ─────────────────────────────────────────────────────────────
@@ -8519,6 +8808,16 @@ void MainWindow::restoreBandState(const BandSnapshot& snap)
     m_updatingFromModel = true;
     if (auto* s = activeSlice()) {
         s->setMode(snap.mode);
+        TuneCenteringResult result;
+        if (auto* pan = m_radioModel.panadapter(s->panId())) {
+            result.oldCenterMhz = pan->centerMhz();
+            result.bandwidthMhz = pan->bandwidthMhz();
+        }
+        result.newCenterMhz = snap.frequencyMhz;
+        result.followRevealTriggered = true;
+        result.hardCenterUsed = true;
+        logTunePolicyDecision("restore-band-state", TuneIntent::AbsoluteJump,
+                              s->frequency(), snap.frequencyMhz, result);
         s->tuneAndRecenter(snap.frequencyMhz);
         if (!snap.rxAntenna.isEmpty())
             s->setRxAntenna(snap.rxAntenna);
@@ -8548,52 +8847,6 @@ void MainWindow::restoreBandState(const BandSnapshot& snap)
 }
 
 // ─── GUI control handlers ─────────────────────────────────────────────────────
-
-void MainWindow::onFrequencyChanged(double mhz)
-{
-    auto* sw = spectrum();
-    if (!sw) return;  // pan may be absent during band change (#1146)
-
-    // If the slice is locked, snap spectrum back to the current freq.
-    if (auto* s = activeSlice(); s && s->isLocked()) {
-        m_updatingFromModel = true;
-        sw->setVfoFrequency(s->frequency());
-        m_updatingFromModel = false;
-        return;
-    }
-
-    sw->setVfoFrequency(mhz);
-    if (!m_updatingFromModel) {
-        if (auto* s = activeSlice()) {
-            s->setFrequency(mhz);
-            panFollowVfo(s, mhz);  // re-center pan if VFO stepped outside visible window (#989)
-
-            // Diversity: immediately mirror freq to child VFO (no radio round-trip)
-            if (s->isDiversityParent()) {
-                long long hz = static_cast<long long>(std::round(mhz * 1e6));
-                QString freqStr = QString("%1.%2.%3")
-                    .arg(static_cast<int>(hz / 1000000))
-                    .arg(static_cast<int>((hz / 1000) % 1000), 3, 10, QChar('0'))
-                    .arg(static_cast<int>(hz % 1000), 3, 10, QChar('0'));
-                for (auto* other : m_radioModel.slices()) {
-                    if (other->isDiversityChild() && other->sliceId() != s->sliceId()) {
-                        auto* csw = spectrumForSlice(other);
-                        if (!csw) continue;
-                        auto* cv = csw->vfoWidget(other->sliceId());
-                        if (cv) cv->freqLabel()->setText(freqStr);
-                        // Also update the overlay marker position
-                        csw->setSliceOverlay(other->sliceId(), mhz,
-                            other->filterLow(), other->filterHigh(),
-                            other->isTxSlice(), false,
-                            other->mode(), other->rttyMark(), other->rttyShift(),
-                            other->ritOn(), other->ritFreq(),
-                            other->xitOn(), other->xitFreq());
-                    }
-                }
-            }
-        }
-    }
-}
 
 #ifdef HAVE_RADE
 void MainWindow::activateRADE(int sliceId)
@@ -9078,7 +9331,7 @@ void MainWindow::registerMidiParams()
             if (steps == 0) return;
             int stepHz = spectrum() ? spectrum()->stepSize() : 100;
             double newMhz = s->frequency() + steps * stepHz / 1e6;
-            s->setFrequency(newMhz);
+            applyTuneRequest(s, newMhz, TuneIntent::IncrementalTune, "midi-absolute");
         });
 
     // ── TX ──────────────────────────────────────────────────────────────

@@ -322,9 +322,17 @@ public:
 signals:
     // Emitted when user clicks on an inactive slice marker.
     void sliceClicked(int sliceId);
-    // Emitted when the user clicks or scrolls in the panadapter area.
+    // Emitted when the user requests an absolute jump in the panadapter area.
     void frequencyClicked(double mhz);
+    // Emitted when the user makes an incremental tuning gesture such as
+    // wheel tuning or VFO drag.
+    void incrementalTuneRequested(double mhz);
     void spotTriggered(int spotIndex);
+    // Emitted when the user changes both center and bandwidth as one explicit
+    // pan/zoom operation and the radio should apply them coherently. Splitting
+    // those into separate commands was a known source of waterfall edge loss
+    // and zoom drift during bandwidth drag / keyboard zoom.
+    void frequencyRangeChangeRequested(double newCenterMhz, double newBandwidthMhz);
     // Emitted when the user drags the frequency scale bar to change bandwidth.
     void bandwidthChangeRequested(double newBandwidthMhz);
     // Band/segment zoom: radio handles center/bandwidth (SmartSDR pcap: "band_zoom=1" / "segment_zoom=1")

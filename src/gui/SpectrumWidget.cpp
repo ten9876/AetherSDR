@@ -251,8 +251,7 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
         m_centerMhz = newCenter;
         m_bandwidthMhz = newBw;
         markOverlayDirty();
-        emit bandwidthChangeRequested(newBw);
-        emit centerChangeRequested(newCenter);
+        emit frequencyRangeChangeRequested(newCenter, newBw);
     };
     connect(m_zoomOutBtn, &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.5); });
     connect(m_zoomInBtn,  &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.0 / 1.5); });
@@ -1030,8 +1029,9 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
     const double halfBw = bandwidthMhz / 2.0;
     const bool bwChanged = (bandwidthMhz != m_bandwidthMhz);
     // Compare incoming center against the animation's *destination* (m_panCenterTarget),
-    // not the mid-animation position (m_centerMhz).  During a 200 ms nudge the animated
-    // center is far from its start, so a subsequent nudge of similar magnitude would
+    // not the mid-animation position (m_centerMhz). During a short retargetable
+    // nudge, the animated center is far from its start, so a subsequent nudge
+    // of similar magnitude would
     // falsely exceed the 25 % threshold and trigger a large-shift clear+blank.
     const double refForShiftCheck = (m_panCenterAnim &&
         m_panCenterAnim->state() != QAbstractAnimation::Stopped)
@@ -1120,7 +1120,7 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
     }
     m_panCenterAnim->setStartValue(m_centerMhz);
     m_panCenterAnim->setEndValue(centerMhz);
-    m_panCenterAnim->setDuration(200);
+    m_panCenterAnim->setDuration(110);
     m_panCenterAnim->start();
 }
 
@@ -1624,10 +1624,18 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         const QPoint pos(static_cast<int>(ev->position().x()), y);
         for (const auto& hr : m_spotClickRects) {
             if (hr.rect.contains(pos)) {
-                emit frequencyClicked(hr.freqMhz);
-                // Notify the radio that a spot was clicked (#341)
-                if (hr.markerIndex >= 0 && hr.markerIndex < m_spotMarkers.size())
-                    emit spotTriggered(m_spotMarkers[hr.markerIndex].index);
+                if (hr.markerIndex >= 0 && hr.markerIndex < m_spotMarkers.size()) {
+                    const auto& marker = m_spotMarkers[hr.markerIndex];
+                    if (marker.source == "Memory") {
+                        emit spotTriggered(marker.index);
+                    } else {
+                        emit frequencyClicked(hr.freqMhz);
+                        // Notify the radio that a spot was clicked (#341)
+                        emit spotTriggered(marker.index);
+                    }
+                } else {
+                    emit frequencyClicked(hr.freqMhz);
+                }
                 m_spotClickConsumed = true;  // suppress release-to-tune (#530)
                 ev->accept();
                 return;
@@ -1802,8 +1810,7 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
                 const QString title = hitSpotCall.isEmpty()
                     ? QStringLiteral("Apply Memory")
                     : QString("Apply %1").arg(hitSpotCall);
-                menu.addAction(title, this, [this, hitSpotFreq, hitSpotIdx]{
-                    emit frequencyClicked(hitSpotFreq);
+                menu.addAction(title, this, [this, hitSpotIdx]{
                     emit spotTriggered(hitSpotIdx);
                 });
             } else {
@@ -2154,7 +2161,10 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         m_bandwidthMhz = newBw;
         m_centerMhz = zoomCenter;
         markOverlayDirty();
-        emit bandwidthChangeRequested(newBw);
+        // Keep center and bandwidth coupled while dragging. Sending only the
+        // bandwidth and waiting to send center on release caused the radio and
+        // client waterfall to diverge under trackpad-heavy zoom workflows.
+        emit frequencyRangeChangeRequested(zoomCenter, newBw);
         ev->accept();
         return;
     }
@@ -2181,7 +2191,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
     if (m_draggingVfo) {
         const int mx = static_cast<int>(ev->position().x());
         const double mhz = snapToStep(xToMhz(mx) - m_vfoDragOffsetHz / 1.0e6, m_stepHz);
-        emit frequencyClicked(mhz);
+        emit incrementalTuneRequested(mhz);
         ev->accept();
         return;
     }
@@ -2388,9 +2398,9 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
     if (m_draggingBandwidth) {
         m_draggingBandwidth = false;
         setCursor(Qt::CrossCursor);
-        // Emit final center after drag completes — not during drag to avoid
-        // flooding the radio with commands on every mouse move (#1313).
-        emit centerChangeRequested(m_centerMhz);
+        // Re-send the final combined range so the release lands on the same
+        // coherent center/bandwidth pair as the in-flight drag updates.
+        emit frequencyRangeChangeRequested(m_centerMhz, m_bandwidthMhz);
         ev->accept();
         return;
     }
@@ -2606,8 +2616,7 @@ bool SpectrumWidget::event(QEvent* ev)
             m_bandwidthMhz = newBw;
             m_centerMhz = newCenter;
             markOverlayDirty();
-            emit bandwidthChangeRequested(newBw);
-            emit centerChangeRequested(newCenter);
+            emit frequencyRangeChangeRequested(newCenter, newBw);
             return true;
         }
     }
@@ -2679,7 +2688,7 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
     // scroll (e.g. step=500 Hz at .100 MHz → effective 400 Hz jump).
     const double baseMhz = snapToStep(vfoMhz, m_stepHz);
     const double newMhz  = baseMhz + steps * m_stepHz / 1e6;
-    emit frequencyClicked(newMhz);
+    emit incrementalTuneRequested(newMhz);
     ev->accept();
 }
 
@@ -4659,10 +4668,11 @@ void SpectrumWidget::showSpotClusterPopup(const SpotCluster& cluster, const QPoi
             text += "  " + spot.mode;
         auto* action = menu->addAction(text);
         connect(action, &QAction::triggered, this, [this, spot] {
-            const double freq = spot.freqMhz;
-            emit frequencyClicked(freq);
-            if (spot.source == "Memory")
+            if (spot.source == "Memory") {
                 emit spotTriggered(spot.index);
+            } else {
+                emit frequencyClicked(spot.freqMhz);
+            }
         });
     }
 

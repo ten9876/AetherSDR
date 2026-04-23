@@ -483,15 +483,13 @@ void MemoryDialog::activateMemoryRow(int row)
         return;
 
     const int idx = indexItem->data(Qt::UserRole).toInt();
-    const auto memoryIt = m_model->memories().constFind(idx);
-    if (memoryIt == m_model->memories().constEnd())
+    if (m_model->memories().constFind(idx) == m_model->memories().constEnd())
         return;
 
     setInlineEditMode(false);
     m_table->setCurrentCell(row, 0);
     focusTableOnCurrentRow();
-    m_model->sendCommand(QString("memory apply %1").arg(idx));
-    m_model->setPanCenter(memoryIt->freq);
+    emit memoryActivated(idx);
 }
 
 void MemoryDialog::beginEditingMemoryName(int memoryIndex)

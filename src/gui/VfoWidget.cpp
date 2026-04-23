@@ -208,8 +208,7 @@ void VfoWidget::wheelEvent(QWheelEvent* ev)
             int steps = qBound(-1, delta / 120, 1);
             if (steps != 0) {
                 double newMhz = m_slice->frequency() + steps * stepHz / 1e6;
-                m_slice->setFrequency(newMhz);
-                emit stepTuned(newMhz);
+                emit stepTuneRequested(newMhz);
             }
         }
         ev->accept();
@@ -227,8 +226,7 @@ void VfoWidget::wheelEvent(QWheelEvent* ev)
             int steps = qBound(-1, delta / 120, 1);
             if (steps != 0) {
                 double newMhz = m_slice->frequency() + steps * stepHz / 1e6;
-                m_slice->setFrequency(newMhz);
-                emit stepTuned(newMhz);
+                emit stepTuneRequested(newMhz);
             }
             ev->accept();
             return;
@@ -536,11 +534,13 @@ void VfoWidget::buildUI()
             }
 
             if (ok && freqMhz >= 0.001 && freqMhz <= maxMhz && m_slice)
-                m_slice->tuneAndRecenter(freqMhz);
+                emit directEntryCommitted(freqMhz, m_directEntrySource);
         }
+        m_directEntrySource = "vfo-direct-entry";
         m_freqStack->setCurrentIndex(0);  // back to label
     });
     connect(m_freqEdit, &QLineEdit::editingFinished, this, [this] {
+        m_directEntrySource = "vfo-direct-entry";
         m_freqStack->setCurrentIndex(0);
     });
 
@@ -2714,8 +2714,9 @@ void VfoWidget::setPlayEnabled(bool enabled)
         m_playBtn->setEnabled(enabled);
 }
 
-void VfoWidget::beginDirectEntry()
+void VfoWidget::beginDirectEntry(QString source)
 {
+    m_directEntrySource = source;
     if (m_slice) {
         m_freqEdit->setText(QString::number(m_slice->frequency(), 'f', 6));
         m_freqEdit->selectAll();

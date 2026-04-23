@@ -24,6 +24,9 @@ class MemoryDialog : public QDialog {
 public:
     explicit MemoryDialog(RadioModel* model, QWidget* parent = nullptr);
 
+Q_SIGNALS:
+    void memoryActivated(int memoryIndex);
+
 protected:
     void closeEvent(QCloseEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;

@@ -96,10 +96,24 @@ private slots:
     void onSliceAdded(SliceModel* slice);
     void onSliceRemoved(int id);
 
-    // Spectrum click-to-tune
-    void onFrequencyChanged(double mhz);
-
 private:
+    enum class TuneIntent {
+        IncrementalTune,
+        AbsoluteJump,
+        CommandedTargetCenter,
+        ExplicitPan,
+        RevealOffscreen,
+    };
+
+    struct TuneCenteringResult {
+        double oldCenterMhz{0.0};
+        double newCenterMhz{0.0};
+        double bandwidthMhz{0.0};
+        bool followRevealTriggered{false};
+        bool hardCenterUsed{false};
+        int animationDurationMs{0};
+    };
+
     void buildUI();
     void buildMenuBar();
     void applyDarkTheme();
@@ -110,11 +124,25 @@ private:
     void audioStartTx(const QHostAddress& addr, quint16 port);
     void audioStopTx();
     SliceModel* activeSlice() const;
+    static const char* tuneIntentName(TuneIntent intent);
+    bool panFollowEnabled() const;
+    void applyTuneRequest(SliceModel* slice, double mhz,
+                          TuneIntent intent, const char* source);
+    void applyPanRangeRequest(const QString& panId, double centerMhz,
+                              double bandwidthMhz, const char* source);
+    TuneCenteringResult revealFrequencyIfNeeded(SliceModel* slice, double mhz,
+                                                TuneIntent intent, const char* source);
+    void logTunePolicyDecision(const char* source, TuneIntent intent,
+                               double oldFreqMhz, double newFreqMhz,
+                               const TuneCenteringResult& result) const;
+    void mirrorDiversityChildFrequency(SliceModel* slice, double mhz);
     // Pan-follow-VFO (#989): if mhz is outside the visible pan window, apply
     // the new center locally (immediate repaint) and send the radio command.
-    void panFollowVfo(SliceModel* s, double mhz);
+    TuneCenteringResult panFollowVfo(SliceModel* s, double mhz, const char* source);
     SpectrumWidget* spectrum() const;
     void setActiveSlice(int sliceId);
+    void setActiveSliceInternal(int sliceId, bool revealOffscreen);
+    void queueActiveSliceForSpectrumTarget(int sliceId);
     void updateFilterLimitsForMode(const QString& mode);
     void centerActiveSliceInPanadapter(bool forceRadioCenter, double centerMhz = -1.0);
     void pushSliceOverlay(SliceModel* s);
@@ -303,9 +331,11 @@ private:
     bool m_splitActive{false};
     int  m_splitRxSliceId{-1};
     int  m_splitTxSliceId{-1};
+    int  m_pendingMemoryRevealSliceId{-1};
+    int  m_pendingSpectrumTargetSliceId{-1};
 
-    // Guard: set true while updating controls from the model, so that
-    // onFrequencyChanged doesn't echo the change back to the radio.
+    // Guard: set true while updating controls from the model so shared tune
+    // helpers do not echo model-driven changes back to the radio.
     bool m_updatingFromModel{false};
     bool m_shuttingDown{false};
     void toggleConnectionDialog();

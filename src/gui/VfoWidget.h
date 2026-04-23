@@ -65,7 +65,7 @@ public:
     void setRecordOn(bool on);
     void setPlayOn(bool on);
     void setPlayEnabled(bool enabled);
-    void beginDirectEntry();
+    void beginDirectEntry(QString source = QStringLiteral("vfo-direct-entry"));
     QLabel* freqLabel() const { return m_freqLabel; }
 
     bool isCollapsed() const { return m_collapsed; }
@@ -106,9 +106,10 @@ Q_SIGNALS:
     void zeroBeatRequested();                   // client-side CW zero-beat
     void addSpotRequested(double freqMhz);
     void sliceActivationRequested(int sliceId);
-    // Emitted when the wheel tunes by step (autopan=0 path) — MainWindow uses
-    // this to explicitly re-center the pan if the new freq is outside the window.
-    void stepTuned(double mhz);
+    // Emitted when the wheel tunes by step so MainWindow can apply the shared
+    // tuning/reveal policy.
+    void stepTuneRequested(double mhz);
+    void directEntryCommitted(double mhz, const QString& source);
     // Per-slice VFO marker style changed (#1526)
     void markerStyleChanged(bool markerThin, bool filterEdgesHidden);
 
@@ -176,6 +177,7 @@ private:
     QLineEdit* m_freqEdit{nullptr};
     QStackedWidget* m_freqStack{nullptr};
     QLabel* m_dbmLabel{nullptr};
+    QString m_directEntrySource{"vfo-direct-entry"};
 
     // Sub-menu tabs (QLabels with click via event filter)
     QVector<QLabel*> m_tabBtns;
