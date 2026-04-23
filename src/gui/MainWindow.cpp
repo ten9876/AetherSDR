@@ -156,8 +156,8 @@ namespace AetherSDR {
 
 namespace {
 
-constexpr double kIncrementalTriggerEdgeMarginFrac = 0.12;
-constexpr double kIncrementalSettleEdgeMarginFrac = 0.18;
+constexpr double kIncrementalTriggerEdgeMarginFrac = 0.05;
+constexpr double kIncrementalSettleEdgeMarginFrac = 0.07;
 constexpr double kRevealComfortEdgeMarginFrac = 0.18;
 constexpr int kPanFollowAnimationDurationMs = 110;
 
