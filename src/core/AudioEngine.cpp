@@ -2685,18 +2685,18 @@ void AudioEngine::setRadeMode(bool on)
 #endif
     }
 
-    // RADE wants the low-latency DAX TX route: float32 stereo packet
-    // format via feedDaxTxAudio's non-radio-route branch, and the radio
-    // set to mic-path routing (dax=0) so its own dax_tx demodulation
-    // pipeline doesn't add latency on top of the RADE codec.  On exit,
-    // restore the default radio-native route (dax=1, int16 mono).
-    //
-    // This replaces the retired "Low-Latency DAX (FreeDV)" menu — RADE
-    // mode is the only consumer of that low-latency route, so the
-    // toggle now lives with the RADE on/off state.
-    setDaxTxUseRadioRoute(!on);
+    // RADE TX: onTxAudioReady() emits txRawPcmReady (float32) then returns
+    // early — the Opus voice TX path never runs. RADEEngine receives the
+    // raw PCM, encodes it to a modem waveform, and emits it via
+    // sendModemTxAudio() → buildVitaTxPacket() → dax_tx VITA-49 stream.
+    // The radio routes that stream to the TX modulator only when dax=1.
+    // activateRADE() sets the slice to DIGU/DIGL, which fires
+    // updateDaxTxMode() → setDax(true) → transmit set dax=1 before PTT.
+    // Do NOT emit daxRouteRequested(0) here — dax=0 tells the radio to
+    // use the physical mic and discard every dax_tx packet, producing no
+    // TX waveform. feedDaxTxAudio/m_daxTxUseRadioRoute are irrelevant:
+    // RADE bypasses feedDaxTxAudio entirely.
     clearTxAccumulators();
-    emit daxRouteRequested(on ? 0 : 1);
 }
 
 void AudioEngine::sendModemTxAudio(const QByteArray& float32pcm)

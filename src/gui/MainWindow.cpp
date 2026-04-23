@@ -862,15 +862,6 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_audio, &AudioEngine::txPacketReady,
             m_radioModel.panStream(), &PanadapterStream::sendToRadio);
 
-    // RADE mode asks for its preferred DAX TX routing on the radio side.
-    // Emitted from AudioEngine::setRadeMode() so toggling the RADE
-    // button does the whole routing consolidation in one place.
-    connect(m_audio, &AudioEngine::daxRouteRequested, this,
-            [this](int daxValue) {
-        m_radioModel.sendCommand(
-            QString("transmit set dax=%1").arg(daxValue));
-    });
-
     connect(&m_radioModel, &RadioModel::txAudioStreamReady,
             this, [this](quint32 streamId) {
         m_audio->setTxStreamId(streamId);
