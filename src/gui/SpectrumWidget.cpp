@@ -1437,10 +1437,7 @@ void SpectrumWidget::updateWaterfallRow(const QVector<float>& binsIntensity,
     const double panStartMhz = m_centerMhz - m_bandwidthMhz / 2.0;
 
     QVector<QRgb> scanline(destWidth, qRgb(0, 0, 0));
-    const double panEndMhz = panStartMhz + m_bandwidthMhz;
-    const bool tileOverlaps = (highFreqMhz > panStartMhz) && (lowFreqMhz < panEndMhz);
-
-    if (tileBw > 0 && tileOverlaps) {
+    if (tileBw > 0) {
         for (int x = 0; x < destWidth; ++x) {
             const double freq = panStartMhz + (static_cast<double>(x) / destWidth) * m_bandwidthMhz;
             const double binF = (freq - lowFreqMhz) / tileBw;
@@ -1452,14 +1449,6 @@ void SpectrumWidget::updateWaterfallRow(const QVector<float>& binsIntensity,
                 const float i1 = (binIdx + 1 < srcSize) ? binsIntensity[binIdx + 1] : i0;
                 scanline[x] = intensityToRgb(i0 + frac * (i1 - i0));
             }
-        }
-    } else if (!binsIntensity.isEmpty()) {
-        // No frequency overlap (XVTR IF/RF mismatch) — map bins proportionally
-        // to display pixels, same as the FFT-derived waterfall path (#1843).
-        for (int x = 0; x < destWidth; ++x) {
-            const int binIdx = x * srcSize / destWidth;
-            if (binIdx >= 0 && binIdx < srcSize)
-                scanline[x] = intensityToRgb(binsIntensity[binIdx]);
         }
     }
 

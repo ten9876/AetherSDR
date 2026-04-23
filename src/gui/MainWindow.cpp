@@ -1075,6 +1075,23 @@ MainWindow::MainWindow(QWidget* parent)
                          double low, double high, quint32 tc) {
         for (auto* pan : m_radioModel.panadapters()) {
             if (pan->wfStreamId() == streamId) {
+                // XVTR support: when a transverter is active the radio reports
+                // the pan center in RF domain (e.g. 144.2 MHz) but the VITA-49
+                // tile header carries the IF-domain frequency range (e.g. ~28
+                // MHz) because tiles come from the FPGA before XVTR offset is
+                // applied.  If the tile's frequency span has no overlap with
+                // the pan's RF range, shift tile low/high by (panCenter -
+                // tileCenter) so the frequency-accurate bin mapping lines up.
+                // Non-XVTR panadapters always overlap → the shift is a no-op.
+                // (#1843)
+                const double tileCenter = (low + high) / 2.0;
+                const double panCenter  = pan->centerMhz();
+                const double tileBw     = high - low;
+                if (tileBw > 0 && std::abs(tileCenter - panCenter) > tileBw) {
+                    const double offset = panCenter - tileCenter;
+                    low  += offset;
+                    high += offset;
+                }
                 if (auto* sw = m_panStack->spectrum(pan->panId())) {
                     sw->updateWaterfallRow(bins, low, high, tc);
                     finishPanadapterConnectionAnimation();
