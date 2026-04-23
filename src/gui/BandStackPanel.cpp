@@ -99,7 +99,10 @@ BandStackPanel::BandStackPanel(QWidget* parent)
             expiryActions[i]->setChecked(m_autoExpiryMinutes == expiryOpts[i]);
         }
 
-        QAction* result = menu.exec(m_settingsButton->mapToGlobal(QPoint(0, 0)));
+        // Anchor popup at the button's bottom-left so the menu opens below it
+        // rather than overlapping the button's top-left corner.
+        QAction* result = menu.exec(
+            m_settingsButton->mapToGlobal(m_settingsButton->rect().bottomLeft()));
         if (!result) return;
 
         if (result == groupAction) {

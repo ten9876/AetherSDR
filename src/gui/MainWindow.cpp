@@ -3725,10 +3725,12 @@ void MainWindow::buildUI()
         BandStackSettings::instance().save();
     });
 
-    // Auto-expiry timer — runs every 30s, prunes stale bookmarks
-    auto* bsExpiryTimer = new QTimer(this);
-    bsExpiryTimer->setInterval(30000);
-    connect(bsExpiryTimer, &QTimer::timeout, this, [this]() {
+    // Auto-expiry timer — runs every 30s, prunes stale bookmarks.
+    // Started on radio connect and stopped on disconnect so the tick doesn't
+    // fire in an idle app with no radio to prune bookmarks for.
+    m_bsExpiryTimer = new QTimer(this);
+    m_bsExpiryTimer->setInterval(30000);
+    connect(m_bsExpiryTimer, &QTimer::timeout, this, [this]() {
         int minutes = BandStackSettings::instance().autoExpiryMinutes();
         if (minutes <= 0) return;
         if (m_radioModel.serial().isEmpty()) return;
@@ -3741,7 +3743,6 @@ void MainWindow::buildUI()
                 m_radioModel.serial(), m_bandPlanMgr);
         }
     });
-    bsExpiryTimer->start();
 
     // Sync RadioModel's active pan/wf IDs when PanadapterStack focus changes.
     // This ensures display setting commands (fps, average, black_level, etc.)
@@ -4296,6 +4297,10 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_panStack->bandStackPanel()->loadBookmarks(
             m_radioModel.serial(), m_bandPlanMgr);
 
+        // Start the auto-expiry timer now that we have a radio to prune for
+        if (m_bsExpiryTimer && !m_bsExpiryTimer->isActive())
+            m_bsExpiryTimer->start();
+
         // Auto-start 4-channel rigctld TCP servers if enabled
         auto& as = AppSettings::instance();
         if (as.value("AutoStartRigctld", "False").toString() == "True") {
@@ -4445,6 +4450,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_stationLabel->setText("N0CALL");
         m_tnfIndicator->setStyleSheet("QLabel { color: #404858; font-weight: bold; font-size: 24px; }");
         m_panStack->bandStackPanel()->clear();
+        if (m_bsExpiryTimer && m_bsExpiryTimer->isActive())
+            m_bsExpiryTimer->stop();
         m_tgxlIndicator->setVisible(false);
         m_tgxlConn.disconnect();
         m_pgxlConn.disconnect();
