@@ -130,6 +130,22 @@ int main(int argc, char* argv[])
         }
     }
 
+    // On X11, Qt's xcb plugin uses XInput2 (XI2) for mouse events by default.
+    // XI2 delivers raw device button numbers that bypass Xmodmap's button
+    // remapping (which only affects core X11 protocol events).  This causes
+    // users with Xmodmap pointer remaps (e.g. trackball users) to see their
+    // remapped buttons ignored.  Disabling XI2 mouse events forces Qt to use
+    // core X11 events that honor Xmodmap.  (#1862)
+    if (!qEnvironmentVariableIsSet("QT_XCB_NO_XI2_MOUSE")) {
+        const QByteArray platform = qgetenv("QT_QPA_PLATFORM");
+        const QByteArray session  = qgetenv("XDG_SESSION_TYPE");
+        if (platform == "xcb" || session == "x11"
+                || (!qEnvironmentVariableIsSet("WAYLAND_DISPLAY")
+                    && platform.isEmpty())) {
+            qputenv("QT_XCB_NO_XI2_MOUSE", "1");
+        }
+    }
+
 #ifdef __linux__
     // Install a tolerant X11 error handler before QApplication and before any
     // library (FFmpeg, VA-API, VDPAU) can open an X11 connection.  Xlib's
