@@ -43,6 +43,9 @@ public:
     // Attach to a slice; pass nullptr to detach.
     void setSlice(SliceModel* slice);
     void setAfGain(int pct);
+
+    // Auto AGC-T: feed the measured noise floor from SpectrumWidget (#1869).
+    void onNoiseFloorUpdate(float dbm);
     void syncStepFromSlice(int stepHz, const QVector<int>& stepList);
     void cycleStepUp();
     void cycleStepDown();
@@ -155,6 +158,7 @@ private:
     static constexpr const char* AGC_MODES[4] = {"off", "slow", "med", "fast"};
     QComboBox*   m_agcCombo{nullptr};
     QSlider*     m_agcTSlider{nullptr};
+    QPushButton* m_autoAgcBtn{nullptr};  // Auto AGC-T toggle (#1869)
 
     // AF gain + audio pan
     QPushButton* m_muteBtn{nullptr};

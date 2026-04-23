@@ -778,6 +778,16 @@ void RxApplet::buildUI()
         m_agcTSlider->setStyleSheet(kSliderStyle);
         agcRow->addWidget(m_agcTSlider, 1);
 
+        // Auto AGC-T toggle (#1869): automatically track noise floor
+        m_autoAgcBtn = mkToggle("A");
+        m_autoAgcBtn->setFixedWidth(20);
+        m_autoAgcBtn->setStyleSheet(QString(kButtonBase) + kGreenActive);
+        m_autoAgcBtn->setToolTip("Auto AGC Threshold: track noise floor");
+        connect(m_autoAgcBtn, &QPushButton::toggled, this, [this](bool on) {
+            m_agcTSlider->setEnabled(!on);
+        });
+        agcRow->addWidget(m_autoAgcBtn);
+
         connect(m_agcTSlider, &QSlider::valueChanged, this, [this](int v) {
             if (m_slice) {
                 if (m_slice->agcMode() == "off") {
@@ -958,6 +968,8 @@ void RxApplet::buildUI()
     m_agcCombo->setAccessibleDescription("Automatic gain control speed");
     m_agcTSlider->setAccessibleName("AGC threshold");
     m_agcTSlider->setAccessibleDescription("Maximum gain applied to weak signals");
+    m_autoAgcBtn->setAccessibleName("Auto AGC threshold");
+    m_autoAgcBtn->setAccessibleDescription("Automatically adjust AGC threshold based on noise floor");
     m_ritOnBtn->setAccessibleName("RIT toggle");
     m_ritOnBtn->setAccessibleDescription("Receive incremental tuning");
     m_ritZero->setAccessibleName("RIT zero");
@@ -1262,13 +1274,17 @@ void RxApplet::connectSlice(SliceModel* s)
     // AGC threshold / off level — slider switches based on AGC mode
     {
         QSignalBlocker b(m_agcTSlider);
-        if (s->agcMode() == "off") {
+        bool isOff = (s->agcMode() == "off");
+        if (isOff) {
             m_agcTSlider->setValue(s->agcOffLevel());
             m_agcTSlider->setToolTip(QString("AGC Off Level: %1").arg(s->agcOffLevel()));
         } else {
             m_agcTSlider->setValue(s->agcThreshold());
             m_agcTSlider->setToolTip(QString("AGC Threshold: %1").arg(s->agcThreshold()));
         }
+        // Auto AGC-T not applicable when AGC is off (#1869)
+        m_autoAgcBtn->setEnabled(!isOff);
+        if (isOff) m_autoAgcBtn->setChecked(false);
     }
     connect(s, &SliceModel::agcThresholdChanged, this, [this](int v) {
         if (m_slice && m_slice->agcMode() != "off") {
@@ -1287,13 +1303,17 @@ void RxApplet::connectSlice(SliceModel* s)
     connect(s, &SliceModel::agcModeChanged, this, [this](const QString& mode) {
         if (!m_slice) return;
         QSignalBlocker b(m_agcTSlider);
-        if (mode == "off") {
+        bool isOff = (mode == "off");
+        if (isOff) {
             m_agcTSlider->setValue(m_slice->agcOffLevel());
             m_agcTSlider->setToolTip(QString("AGC Off Level: %1").arg(m_slice->agcOffLevel()));
         } else {
             m_agcTSlider->setValue(m_slice->agcThreshold());
             m_agcTSlider->setToolTip(QString("AGC Threshold: %1").arg(m_slice->agcThreshold()));
         }
+        // Auto AGC-T not applicable when AGC is off (#1869)
+        m_autoAgcBtn->setEnabled(!isOff);
+        if (isOff) m_autoAgcBtn->setChecked(false);
     });
 
     // Audio mute
@@ -1437,6 +1457,30 @@ void RxApplet::connectSlice(SliceModel* s)
 void RxApplet::disconnectSlice(SliceModel* s)
 {
     s->disconnect(this);
+}
+
+// ─── Auto AGC-T (#1869) ──────────────────────────────────────────────────────
+
+void RxApplet::onNoiseFloorUpdate(float dbm)
+{
+    if (!m_autoAgcBtn->isChecked() || !m_slice)
+        return;
+    if (m_slice->agcMode() == "off")
+        return;
+
+    // Map noise floor (dBm) to the 0-100 AGC threshold scale.
+    // The radio's AGC threshold roughly corresponds to signal strength on a
+    // linear scale where 0 ≈ −140 dBm and 100 ≈ −40 dBm.  We place the
+    // threshold a few dB above the measured noise floor so the AGC doesn't
+    // act on noise but engages quickly for real signals.
+    constexpr float kDbmFloor  = -140.0f;
+    constexpr float kDbmCeil   = -40.0f;
+    constexpr float kMarginDb  = 6.0f;  // dB above noise floor
+    float mapped = (dbm + kMarginDb - kDbmFloor) / (kDbmCeil - kDbmFloor) * 100.0f;
+    int threshold = qBound(0, static_cast<int>(std::round(mapped)), 100);
+
+    if (threshold != m_slice->agcThreshold())
+        m_slice->setAgcThreshold(threshold);
 }
 
 // ─── Private helpers ──────────────────────────────────────────────────────────

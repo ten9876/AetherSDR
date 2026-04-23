@@ -348,6 +348,8 @@ signals:
     void sliceTuneRequested(int sliceId, double freqMhz);
     void popOutRequested(bool popOut);  // true=float, false=dock
     void sliceTxRequested(int sliceId);
+    // Emitted periodically with the measured noise floor in dBm (#1869).
+    void noiseFloorMeasured(float dbm);
     // Emitted on resize so MainWindow can re-push xpixels/ypixels to the radio (#1511)
     void dimensionsChanged(int w, int h);
     // Spot signals

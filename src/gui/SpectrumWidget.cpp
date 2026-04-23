@@ -1279,9 +1279,12 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
     }
     m_bins = binsDbm;
 
-    // Noise floor auto-adjust: every 10 frames, measure noise floor and
-    // adjust min_dbm so it sits at the user's chosen position.
-    if (m_noiseFloorEnable && !m_transmitting && !m_smoothed.isEmpty()) {
+    // Noise floor measurement: every 10 frames, compute the noise floor
+    // from the smoothed FFT bins.  The result is always emitted via
+    // noiseFloorMeasured() for consumers like auto AGC-T (#1869).
+    // When noiseFloorEnable is on, it also adjusts the display range
+    // so the noise floor sits at the user's chosen vertical position.
+    if (!m_transmitting && !m_smoothed.isEmpty()) {
         if (++m_noiseFloorFrameCount >= 10) {
             m_noiseFloorFrameCount = 0;
 
@@ -1291,26 +1294,32 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
             int idx = sorted.size() / 5;  // 20th percentile
             float noiseFloor = sorted[idx];
 
-            // Position: 0 = noise at top, 100 = noise at bottom
-            // noiseFloor should appear at (position/100) of the way down
-            float frac = m_noiseFloorPosition / 100.0f;
-            // noiseFloor maps to frac in the display:
-            //   frac = (refLevel - noiseFloor) / dynamicRange
-            //   => dynamicRange = (refLevel - noiseFloor) / frac
-            // Keep refLevel (max_dbm) fixed, adjust min_dbm
-            if (frac > 0.05f && frac < 0.95f) {
-                float newRange = (m_refLevel - noiseFloor) / frac;
-                newRange = std::clamp(newRange, 20.0f, 150.0f);
-                float newMin = m_refLevel - newRange;
-                // Only adjust if change is significant (> 1 dB)
-                float currentMin = m_refLevel - m_dynamicRange;
-                if (std::abs(newMin - currentMin) > 1.0f) {
-                    // Optimistic update: suppress re-firing on subsequent FFT frames
-                    // while waiting for the radio to confirm and echo the new range.
-                    // Without this, every FFT frame would re-emit until the echo-back
-                    // arrives, producing a burst of identical display pan set commands.
-                    m_dynamicRange = newRange;
-                    emit dbmRangeChangeRequested(newMin, m_refLevel);
+            // Emit for auto AGC-T and other consumers (#1869)
+            emit noiseFloorMeasured(noiseFloor);
+
+            // Noise floor auto-adjust: reposition the display range
+            if (m_noiseFloorEnable) {
+                // Position: 0 = noise at top, 100 = noise at bottom
+                // noiseFloor should appear at (position/100) of the way down
+                float frac = m_noiseFloorPosition / 100.0f;
+                // noiseFloor maps to frac in the display:
+                //   frac = (refLevel - noiseFloor) / dynamicRange
+                //   => dynamicRange = (refLevel - noiseFloor) / frac
+                // Keep refLevel (max_dbm) fixed, adjust min_dbm
+                if (frac > 0.05f && frac < 0.95f) {
+                    float newRange = (m_refLevel - noiseFloor) / frac;
+                    newRange = std::clamp(newRange, 20.0f, 150.0f);
+                    float newMin = m_refLevel - newRange;
+                    // Only adjust if change is significant (> 1 dB)
+                    float currentMin = m_refLevel - m_dynamicRange;
+                    if (std::abs(newMin - currentMin) > 1.0f) {
+                        // Optimistic update: suppress re-firing on subsequent FFT frames
+                        // while waiting for the radio to confirm and echo the new range.
+                        // Without this, every FFT frame would re-emit until the echo-back
+                        // arrives, producing a burst of identical display pan set commands.
+                        m_dynamicRange = newRange;
+                        emit dbmRangeChangeRequested(newMin, m_refLevel);
+                    }
                 }
             }
         }

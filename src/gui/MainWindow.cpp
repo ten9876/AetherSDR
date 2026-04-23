@@ -6497,6 +6497,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     connect(menu, &SpectrumOverlayMenu::noiseFloorEnableChanged,
             sw, &SpectrumWidget::setNoiseFloorEnable);
 
+    // Route noise floor measurement to RxApplet for auto AGC-T (#1869)
+    connect(sw, &SpectrumWidget::noiseFloorMeasured,
+            m_appletPanel->rxApplet(), &RxApplet::onNoiseFloorUpdate);
+
     // Pop out / dock panadapter
     connect(sw, &SpectrumWidget::popOutRequested, this, [this, applet](bool popOut) {
         if (popOut) {
