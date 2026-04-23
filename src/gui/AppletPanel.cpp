@@ -458,8 +458,12 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         // the container manager so the float state carries over.
         // The key is read once; the new ContainerManager persistence
         // takes over from that point.
+        // Sanitize '/' in IDs like "P/CW" — System A's floatKey() helper
+        // replaced '/' with '_', so match that exact key format here.
+        QString safeId = id;
+        safeId.replace('/', '_');
         const QString legacyFloatKey =
-            QStringLiteral("FloatingApplet_%1_IsFloating").arg(id);
+            QStringLiteral("FloatingApplet_%1_IsFloating").arg(safeId);
         if (settings.value(legacyFloatKey, "False").toString() == "True" && on) {
             QTimer::singleShot(0, this, [this, id]() {
                 if (m_containerMgr) m_containerMgr->floatContainer(id);

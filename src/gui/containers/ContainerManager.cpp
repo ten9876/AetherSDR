@@ -30,9 +30,13 @@ ContainerWidget::DockMode dockModeFromString(const QString& s)
 
 // Build the AppSettings key for a floating container's geometry.
 // Stable across launches so saved geometry survives rename-free.
+// Sanitize '/' in IDs like "P/CW" — slashes are invalid in the
+// AppSettings XML element names and cause silent save/load failures.
 QString geometryKeyFor(const QString& id)
 {
-    return QStringLiteral("ContainerGeometry_%1").arg(id);
+    QString safe = id;
+    safe.replace('/', '_');
+    return QStringLiteral("ContainerGeometry_%1").arg(safe);
 }
 
 } // namespace
