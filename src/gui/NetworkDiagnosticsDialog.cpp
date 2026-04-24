@@ -207,7 +207,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model, AudioEngin
     m_audioPacketGapMaxLabel = makeVal();
     audioGrid->addWidget(m_audioPacketGapMaxLabel, row++, 1);
 
-    audioGrid->addWidget(new QLabel("Jitter Estimate:"), row, 0);
+    audioGrid->addWidget(new QLabel("Network Jitter:"), row, 0);
     m_audioJitterLabel = makeVal();
     audioGrid->addWidget(m_audioJitterLabel, row++, 1);
 
@@ -324,8 +324,15 @@ void NetworkDiagnosticsDialog::refresh()
     const int total = m_model->packetTotalCount();
     if (total > 0) {
         const double pct = (dropped * 100.0) / total;
+        const int windowPackets = m_model->packetLossWindowPackets();
+        const int windowDrops = m_model->packetLossWindowDrops();
+        const double windowPct = m_model->packetLossPercent();
         m_droppedLabel->setText(
-            QString("Total: %1 / %2 dropped (%3%)")
+            QString("Last %1s: %2 / %3 dropped (%4%)   Total: %5 / %6 dropped (%7%)")
+                .arg(m_model->packetLossWindowSeconds())
+                .arg(windowDrops)
+                .arg(windowPackets)
+                .arg(windowPct, 0, 'f', 2)
                 .arg(dropped).arg(total).arg(pct, 0, 'f', 2));
     } else {
         m_droppedLabel->setText("No packets received yet");
@@ -340,10 +347,9 @@ void NetworkDiagnosticsDialog::refresh()
         m_audioUnderrunRateLabel->setText(QString::number(underruns - m_lastAudioUnderrunCount));
         m_lastAudioUnderrunCount = underruns;
 
-        auto* panStream = m_model->panStream();
-        m_audioPacketGapLabel->setText(formatMsValue(panStream->audioPacketGapMs()));
-        m_audioPacketGapMaxLabel->setText(formatMsValue(panStream->audioPacketGapMaxMs()));
-        m_audioJitterLabel->setText(formatMsValue(panStream->audioPacketJitterMs()));
+        m_audioPacketGapLabel->setText(formatMsValue(m_model->audioPacketGapMs()));
+        m_audioPacketGapMaxLabel->setText(formatMsValue(m_model->audioPacketGapMaxMs()));
+        m_audioJitterLabel->setText(formatMsValue(m_model->audioPacketJitterMs()));
     } else {
         m_audioBufferLabel->setText("Unavailable");
         m_audioBufferPeakLabel->setText("Unavailable");
