@@ -237,6 +237,9 @@ public:
         double txFreqMhz{0};
     };
     const QMap<quint32, ClientInfo>& clientInfoMap() const { return m_clientInfoMap; }
+    void    setKnownGuiClients(const QStringList& handles,
+                               const QStringList& programs,
+                               const QStringList& stations);
     void    setRemoteOnEnabled(bool on);
     void    setMultiFlexEnabled(bool on);
     // Panadapter access (delegates to active pan)
@@ -325,6 +328,11 @@ signals:
     void txOwnerChanged(bool ownedByUs, const QString& otherStation);
     // Emitted when the set of other connected clients changes.
     void otherClientsChanged(int count, const QStringList& names);
+    // Emitted when another GUI client logs in after our known client list.
+    void clientConnected(quint32 handle,
+                         const QString& source,
+                         const QString& station,
+                         const QString& program);
     // Emitted when GPS status changes (from "sub gps all").
     void gpsStatusChanged(const QString& status, int tracked, int visible,
                           const QString& grid, const QString& altitude,

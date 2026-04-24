@@ -69,6 +69,42 @@ bool statusFlagSet(const QMap<QString, QString>& kvs, const QString& key)
         || value.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0;
 }
 
+QString cleanClientText(QString value)
+{
+    value.replace(QChar(0x7f), QLatin1Char(' '));
+    return value.trimmed();
+}
+
+quint32 parseClientHandle(QString text)
+{
+    text = text.trimmed();
+    if (text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
+        text = text.mid(2);
+
+    bool ok = false;
+    const quint32 handle = text.toUInt(&ok, 16);
+    return ok ? handle : 0;
+}
+
+QString clientConnectionSource(const QMap<QString, QString>& kvs)
+{
+    const QStringList keys = {
+        QStringLiteral("ip"),
+        QStringLiteral("client_ip"),
+        QStringLiteral("remote_ip"),
+        QStringLiteral("name"),
+        QStringLiteral("client_id")
+    };
+
+    for (const QString& key : keys) {
+        const QString value = cleanClientText(kvs.value(key));
+        if (!value.isEmpty())
+            return value;
+    }
+
+    return {};
+}
+
 QJsonObject panToJson(const PanadapterModel* pan, const QString& activePanId)
 {
     QJsonObject obj;
@@ -292,16 +328,7 @@ void RadioModel::connectToRadio(const RadioInfo& info)
     m_model   = info.model;
     m_version = info.version;
     m_maxSlices = maxSlicesForModel(m_model);
-    // Populate client station map from discovery data
-    m_clientStations.clear();
-    m_clientInfoMap.clear();
-    for (int i = 0; i < info.guiClientHandles.size(); ++i) {
-        quint32 h = info.guiClientHandles[i].toUInt(nullptr, 16);
-        QString station = (i < info.guiClientStations.size())
-            ? info.guiClientStations[i]
-            : (i < info.guiClientPrograms.size() ? info.guiClientPrograms[i] : "Unknown");
-        m_clientStations[h] = station;
-    }
+    setKnownGuiClients(info.guiClientHandles, info.guiClientPrograms, info.guiClientStations);
     QMetaObject::invokeMethod(m_connection, [conn = m_connection, info] {
         conn->connectToRadio(info);
     });
@@ -354,6 +381,34 @@ void RadioModel::setPendingClientDisconnects(const QList<quint32>& handles)
     for (quint32 handle : handles) {
         if (handle != 0 && !m_pendingClientDisconnects.contains(handle))
             m_pendingClientDisconnects.append(handle);
+    }
+}
+
+void RadioModel::setKnownGuiClients(const QStringList& handles,
+                                    const QStringList& programs,
+                                    const QStringList& stations)
+{
+    m_clientStations.clear();
+    m_clientInfoMap.clear();
+
+    for (int i = 0; i < handles.size(); ++i) {
+        const quint32 handle = parseClientHandle(handles[i]);
+        if (handle == 0)
+            continue;
+
+        const QString program = i < programs.size()
+            ? cleanClientText(programs[i])
+            : QStringLiteral("Unknown");
+        const QString station = i < stations.size()
+            ? cleanClientText(stations[i])
+            : program;
+
+        m_clientStations[handle] = station.isEmpty() ? program : station;
+        ClientInfo client;
+        client.station = station;
+        client.program = program;
+        client.localPtt = false;
+        m_clientInfoMap[handle] = client;
     }
 }
 
@@ -1782,12 +1837,21 @@ void RadioModel::onStatusReceived(const QString& object,
                 m_clientInfoMap.remove(handle);
                 emitOtherClientsChanged();
             } else if (action == "connected" || kvs.contains("connected")) {
-                QString program = kvs.value("program", "Unknown");
-                QString station = kvs.value("station", program);
+                const bool knownClient = m_clientStations.contains(handle)
+                    || m_clientInfoMap.contains(handle);
+                QString program = cleanClientText(kvs.value("program", "Unknown"));
+                QString station = cleanClientText(kvs.value("station", program));
+                const QString source = clientConnectionSource(kvs);
                 bool ptt = kvs.value("local_ptt", "0") == "1";
                 m_clientStations[handle] = station;
-                m_clientInfoMap[handle] = {station, program, ptt};
+                ClientInfo client;
+                client.station = station;
+                client.program = program;
+                client.localPtt = ptt;
+                m_clientInfoMap[handle] = client;
                 emitOtherClientsChanged();
+                if (handle != clientHandle() && !knownClient)
+                    emit clientConnected(handle, source, station, program);
             }
         }
         return;

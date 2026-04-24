@@ -380,6 +380,38 @@ static QList<ClientDisconnectDialog::Client> buildDisconnectClients(const WanRad
                                   splitClientField(info.guiClientStations));
 }
 
+static QString cleanClientDisplayText(QString value)
+{
+    value.replace(QChar(0x7f), QLatin1Char(' '));
+    return value.trimmed();
+}
+
+static QString clientConnectionStatusMessage(quint32 handle,
+                                             const QString& source,
+                                             const QString& station,
+                                             const QString& program)
+{
+    QString from = cleanClientDisplayText(source);
+    const QString stationText = cleanClientDisplayText(station);
+    const QString programText = cleanClientDisplayText(program);
+    QString detail = stationText;
+
+    if (detail.isEmpty() || detail.compare(QStringLiteral("Unknown"), Qt::CaseInsensitive) == 0)
+        detail = programText;
+    if (detail.compare(QStringLiteral("Unknown"), Qt::CaseInsensitive) == 0)
+        detail.clear();
+
+    if (from.isEmpty())
+        from = detail;
+    if (from.isEmpty())
+        from = QStringLiteral("client 0x%1").arg(handle, 8, 16, QChar('0')).toUpper();
+
+    if (!detail.isEmpty() && detail.compare(from, Qt::CaseInsensitive) != 0)
+        return QObject::tr("New client connection from %1 (%2)").arg(from, detail);
+
+    return QObject::tr("New client connection from %1").arg(from);
+}
+
 bool MainWindow::confirmClientSlotAvailability(const RadioInfo& info,
                                                QList<quint32>* disconnectHandles)
 {
@@ -460,6 +492,9 @@ void MainWindow::startWanRadioConnect(const WanRadioInfo& info)
     }
 
     m_userDisconnected = false;
+    m_radioModel.setKnownGuiClients(splitClientField(info.guiClientHandles),
+                                    splitClientField(info.guiClientPrograms),
+                                    splitClientField(info.guiClientStations));
     m_radioModel.setPendingClientDisconnects(disconnectHandles);
     m_connPanel->setStatusText("Requesting SmartLink connection…");
     setPanadapterConnectionAnimation(true, "Connecting to remote radio…");
@@ -1942,6 +1977,15 @@ MainWindow::MainWindow(QWidget* parent)
     // Multi-Flex: title bar indicator when other clients are connected
     connect(&m_radioModel, &RadioModel::otherClientsChanged,
             m_titleBar, &TitleBar::setMultiFlexStatus);
+    connect(&m_radioModel, &RadioModel::clientConnected,
+            this, [this](quint32 handle,
+                         const QString& source,
+                         const QString& station,
+                         const QString& program) {
+        statusBar()->showMessage(
+            clientConnectionStatusMessage(handle, source, station, program),
+            10000);
+    });
 
     // Apply saved master volume
     int savedMasterVol = AppSettings::instance().value("MasterVolume", "100").toInt();
