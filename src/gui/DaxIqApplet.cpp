@@ -12,6 +12,7 @@
 #include <QComboBox>
 #include <QProgressBar>
 #include <QSignalBlocker>
+#include <QTimer>
 #include <algorithm>
 #include <cmath>
 
@@ -134,29 +135,51 @@ void DaxIqApplet::setRadioModel(RadioModel* model)
         return;
     }
 
-    // DAX IQ streams are per-session. On reconnect: reset UI then re-enable
-    // any channels the user had on before disconnect.
+    // DAX IQ streams are per-session. On reconnect: reset the UI immediately,
+    // then re-enable persisted channels after a short delay. connectionStateChanged(true)
+    // fires at TCP connect, before sub/stream setup completes; emitting
+    // iqEnableRequested immediately risks a rejected stream create if the radio
+    // isn't ready yet.
     connect(model, &RadioModel::connectionStateChanged,
             this, [this](bool connected) {
-        if (!connected) {
-            return;
-        }
-        auto& ss = AppSettings::instance();
         for (int i = 0; i < kChannels; ++i) {
             if (!m_iqEnable[i]) {
                 continue;
             }
+            if (!connected) {
+                m_iqEnable[i]->setText("Off");
+                m_iqEnable[i]->setStyleSheet(kIqBtnOff);
+                if (m_iqMeter[i]) {
+                    m_iqMeter[i]->setValue(0);
+                }
+                continue;
+            }
+            // Reset to Off; stream requests follow after session setup settles.
             m_iqEnable[i]->setText("Off");
             m_iqEnable[i]->setStyleSheet(kIqBtnOff);
             if (m_iqMeter[i]) {
                 m_iqMeter[i]->setValue(0);
             }
-            if (ss.value(QStringLiteral("DaxIqEnabled%1").arg(i + 1), "False").toString() == "True") {
-                emit iqEnableRequested(i + 1);
-                m_iqEnable[i]->setText("On");
-                m_iqEnable[i]->setStyleSheet(kIqBtnOn);
-            }
         }
+        if (!connected) {
+            return;
+        }
+        QTimer::singleShot(1500, this, [this]() {
+            if (!m_model || !m_model->isConnected()) {
+                return;
+            }
+            auto& ss = AppSettings::instance();
+            for (int i = 0; i < kChannels; ++i) {
+                if (!m_iqEnable[i]) {
+                    continue;
+                }
+                if (ss.value(QStringLiteral("DaxIqEnabled%1").arg(i + 1), "False").toString() == "True") {
+                    emit iqEnableRequested(i + 1);
+                    m_iqEnable[i]->setText("On");
+                    m_iqEnable[i]->setStyleSheet(kIqBtnOn);
+                }
+            }
+        });
     });
 
     // Wire DAX IQ stream state changes → sync On/Off buttons

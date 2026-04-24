@@ -202,9 +202,8 @@ void TciApplet::buildUI()
                     m_tciStatus->setText("(port in use)");
                     m_tciStatus->setStyleSheet(
                         "QLabel { color: #cc3333; font-size: 10px; }");
-                    auto& ss2 = AppSettings::instance();
-                    ss2.setValue("AutoStartTCI", "False");
-                    ss2.save();
+                    ss.setValue("AutoStartTCI", "False");
+                    ss.save();
                     emit tciToggled(false);
                     return;
                 }
