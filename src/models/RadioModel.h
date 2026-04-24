@@ -523,6 +523,7 @@ public:
 
     struct XvtrInfo {
         int     index{0};
+        int     order{-1};
         QString name;
         double  rfFreq{0.0};
         double  ifFreq{0.0};

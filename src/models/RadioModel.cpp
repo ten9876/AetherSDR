@@ -1696,6 +1696,7 @@ void RadioModel::onStatusReceived(const QString& object,
             }
             auto& x = m_xvtrList[idx];
             x.index = idx;
+            if (kvs.contains("order"))     x.order   = kvs["order"].toInt();
             if (kvs.contains("name"))      x.name     = kvs["name"];
             if (kvs.contains("rf_freq"))   x.rfFreq   = kvs["rf_freq"].toDouble();
             if (kvs.contains("if_freq"))   x.ifFreq   = kvs["if_freq"].toDouble();
