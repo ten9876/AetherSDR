@@ -135,6 +135,7 @@
 #include <QProgressDialog>
 #include <QThread>
 #include "core/AppSettings.h"
+#include "core/SpotCommandPolicy.h"
 #ifdef HAVE_RADE
 #include "core/RADEEngine.h"
 #endif
@@ -248,6 +249,7 @@ static QString buildNetworkTooltip(const RadioModel& model)
 
 static constexpr const char* kPaTempUnitSettingKey = "PaTempDisplayUnit";
 static constexpr int kMemorySpotIdBase = 1000000;
+static constexpr int kPassiveSpotIdBase = 2000000;
 
 static bool s_keyboardShortcutsEnabled = false;
 
@@ -261,6 +263,11 @@ static int memoryIndexFromSpotId(int spotIndex)
     if (spotIndex > -kMemorySpotIdBase)
         return -1;
     return -spotIndex - kMemorySpotIdBase;
+}
+
+static bool isPassiveLocalSpotId(int spotIndex)
+{
+    return spotIndex <= -kPassiveSpotIdBase;
 }
 
 static QString memorySpotLabel(const MemoryEntry& memory)
@@ -1074,23 +1081,23 @@ MainWindow::MainWindow(QWidget* parent)
         return false;
     };
 
-    // Build spot add command and queue for batch send
-    auto queueSpotCmd = [this, isDuplicateSpot](const DxSpot& spot, const QString& source) {
-        if (!m_radioModel.isConnected()) return;
-        if (isDuplicateSpot(spot)) return;
-        QString call = QString(spot.dxCall).replace(' ', QChar(0x7f));
-        QString freq = QString::number(spot.freqMhz, 'f', 6);
-        QString cmd = "spot add callsign=" + call + " rx_freq=" + freq
-                     + " tx_freq=" + freq
-                     + " source=" + source
-                     + " spotter_callsign=" + spot.spotterCall
-                     + " lifetime_seconds=" + QString::number(
-                           spot.lifetimeSec > 0 ? spot.lifetimeSec
-                           : [&]() { int s = AppSettings::instance().value("DxClusterSpotLifetimeSec", 0).toInt();
-                                     return s > 0 ? s : AppSettings::instance().value("DxClusterSpotLifetime", 30).toInt() * 60; }());
-        if (!spot.comment.isEmpty())
-            cmd += " comment=" + QString(spot.comment).replace(' ', QChar(0x7f));
-        // Apply source-specific color if not already set
+    auto spotLifetimeSeconds = [](const DxSpot& spot, const QString& source) {
+        if (spot.lifetimeSec > 0)
+            return spot.lifetimeSec;
+
+        auto& as = AppSettings::instance();
+        if (source == "WSJT-X")
+            return as.value("WsjtxSpotLifetime", 120).toInt();
+        if (source == "FreeDV")
+            return as.value("FreeDvSpotLifetime", 120).toInt();
+
+        int sec = as.value("DxClusterSpotLifetimeSec", 0).toInt();
+        if (sec <= 0)
+            sec = as.value("DxClusterSpotLifetime", 30).toInt() * 60;
+        return sec;
+    };
+
+    auto spotColorForSource = [](const DxSpot& spot, const QString& source) {
         QString spotColor = spot.color;
         if (spotColor.isEmpty()) {
             auto& as = AppSettings::instance();
@@ -1103,10 +1110,62 @@ MainWindow::MainWindow(QWidget* parent)
             else if (source == "FreeDV")
                 spotColor = as.value("FreeDvSpotColor", "#FF8C00").toString();  // HAVE_WEBSOCKETS
         }
-        if (!spotColor.isEmpty()) {
-            if (spotColor.length() == 7) spotColor = "#FF" + spotColor.mid(1);
-            cmd += " color=" + spotColor;
+        if (spotColor.length() == 7)
+            spotColor = "#FF" + spotColor.mid(1);
+        return spotColor;
+    };
+
+    auto addPassiveSpotToModel = [this](const DxSpot& spot, const QString& source,
+                                        const QString& color, int lifetimeSec) {
+        if (spot.dxCall.trimmed().isEmpty() || spot.freqMhz <= 0.0)
+            return;
+
+        QMap<QString, QString> kvs;
+        kvs["callsign"] = QString(spot.dxCall).replace(' ', QChar(0x7f));
+        kvs["rx_freq"] = QString::number(spot.freqMhz, 'f', 6);
+        kvs["tx_freq"] = QString::number(spot.freqMhz, 'f', 6);
+        kvs["source"] = source;
+        kvs["spotter_callsign"] = spot.spotterCall;
+        kvs["lifetime_seconds"] = QString::number(lifetimeSec);
+        kvs["timestamp"] = QString::number(QDateTime::currentSecsSinceEpoch());
+        if (!spot.comment.isEmpty())
+            kvs["comment"] = QString(spot.comment).replace(' ', QChar(0x7f));
+        if (!color.isEmpty())
+            kvs["color"] = color;
+
+        const int spotId = m_nextPassiveSpotId--;
+        m_radioModel.spotModel().applySpotStatus(spotId, kvs);
+        if (lifetimeSec > 0) {
+            const qint64 expiresAt = QDateTime::currentMSecsSinceEpoch()
+                                   + qint64(lifetimeSec) * 1000;
+            m_passiveSpotExpiryMs.insert(spotId, expiresAt);
         }
+    };
+
+    // Build spot add command and queue for batch send
+    auto queueSpotCmd = [this, isDuplicateSpot, spotLifetimeSeconds,
+                         spotColorForSource, addPassiveSpotToModel]
+                        (const DxSpot& spot, const QString& source) {
+        if (!m_radioModel.isConnected()) return;
+        if (isDuplicateSpot(spot)) return;
+        const int lifetimeSec = spotLifetimeSeconds(spot, source);
+        const QString spotColor = spotColorForSource(spot, source);
+        if (!SpotCommandPolicy::shouldSendSpotAddCommands()) {
+            addPassiveSpotToModel(spot, source, spotColor, lifetimeSec);
+            return;
+        }
+
+        QString call = QString(spot.dxCall).replace(' ', QChar(0x7f));
+        QString freq = QString::number(spot.freqMhz, 'f', 6);
+        QString cmd = "spot add callsign=" + call + " rx_freq=" + freq
+                     + " tx_freq=" + freq
+                     + " source=" + source
+                     + " spotter_callsign=" + spot.spotterCall
+                     + " lifetime_seconds=" + QString::number(lifetimeSec);
+        if (!spot.comment.isEmpty())
+            cmd += " comment=" + QString(spot.comment).replace(' ', QChar(0x7f));
+        if (!spotColor.isEmpty())
+            cmd += " color=" + spotColor;
         m_spotCmdBatch.append(cmd);
     };
 
@@ -1115,6 +1174,10 @@ MainWindow::MainWindow(QWidget* parent)
     spotCmdTimer->start(1000);
     connect(spotCmdTimer, &QTimer::timeout, this, [this] {
         if (m_spotCmdBatch.isEmpty() || !m_radioModel.isConnected()) return;
+        if (!SpotCommandPolicy::shouldSendSpotAddCommands()) {
+            m_spotCmdBatch.clear();
+            return;
+        }
         // Send up to RbnRateLimit commands per tick
         int limit = AppSettings::instance().value("RbnRateLimit", 10).toInt();
         int count = std::min(static_cast<int>(m_spotCmdBatch.size()), limit);
@@ -1122,6 +1185,27 @@ MainWindow::MainWindow(QWidget* parent)
             m_radioModel.sendCommand(m_spotCmdBatch[i]);
         m_spotCmdBatch.remove(0, count);
     });
+
+    auto* passiveSpotExpiryTimer = new QTimer(this);
+    passiveSpotExpiryTimer->start(1000);
+    connect(passiveSpotExpiryTimer, &QTimer::timeout, this, [this] {
+        if (m_passiveSpotExpiryMs.isEmpty())
+            return;
+
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        QVector<int> expired;
+        for (auto it = m_passiveSpotExpiryMs.cbegin(); it != m_passiveSpotExpiryMs.cend(); ++it) {
+            if (it.value() <= now)
+                expired.append(it.key());
+        }
+
+        for (int spotId : expired) {
+            m_passiveSpotExpiryMs.remove(spotId);
+            m_radioModel.spotModel().removeSpot(spotId);
+        }
+    });
+    connect(&m_radioModel.spotModel(), &SpotModel::spotsCleared,
+            this, [this] { m_passiveSpotExpiryMs.clear(); });
 
     connect(m_dxCluster, &DxClusterClient::spotReceived,
             this, [queueSpotCmd](const DxSpot& spot) {
@@ -1134,7 +1218,7 @@ MainWindow::MainWindow(QWidget* parent)
     });
 
     connect(m_wsjtxClient, &WsjtxClient::spotReceived,
-            this, [this, isDuplicateSpot](const DxSpot& spot) {
+            this, [this, isDuplicateSpot, spotLifetimeSeconds, addPassiveSpotToModel](const DxSpot& spot) {
         if (!m_radioModel.isConnected()) return;
         if (isDuplicateSpot(spot)) return;
 
@@ -1198,11 +1282,16 @@ MainWindow::MainWindow(QWidget* parent)
                      + " source=WSJT-X"
                      + " spotter_callsign=" + colored.spotterCall
                      + " lifetime_seconds=" + QString::number(
-                           as.value("WsjtxSpotLifetime", 120).toInt());
+                           spotLifetimeSeconds(colored, "WSJT-X"));
         if (!colored.comment.isEmpty())
             cmd += " comment=" + QString(colored.comment).replace(' ', QChar(0x7f));
         if (!colored.color.isEmpty())
             cmd += " color=" + colored.color;
+        if (!SpotCommandPolicy::shouldSendSpotAddCommands()) {
+            addPassiveSpotToModel(colored, "WSJT-X", colored.color,
+                                  spotLifetimeSeconds(colored, "WSJT-X"));
+            return;
+        }
         m_spotCmdBatch.append(cmd);
     });
 
@@ -4036,7 +4125,10 @@ void MainWindow::buildMenuBar()
                 this, [this] { QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->stopConnection(); }); });
 #endif
         connect(dlg, &DxClusterDialog::spotsClearedAll,
-                this, [this] { m_spotDedup.clear(); });
+                this, [this] {
+            m_spotDedup.clear();
+            m_radioModel.spotModel().clear();
+        });
         connect(dlg, &DxClusterDialog::tuneRequested,
                 this, [this](double freqMhz) {
             if (auto* sl = activeSlice())
@@ -7435,7 +7527,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             return;
         }
 
-        m_radioModel.sendCommand(QString("spot trigger %1").arg(spotIndex));
+        if (!isPassiveLocalSpotId(spotIndex))
+            m_radioModel.sendCommand(QString("spot trigger %1").arg(spotIndex));
 
         // Auto-switch mode from spot metadata (#424)
         if (AppSettings::instance().value("SpotAutoSwitchMode", "False").toString() != "True")
@@ -7527,7 +7620,29 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         QString spotColor = as.value("ManualSpotColor", "#00FF00").toString();
         if (spotColor.length() == 7) spotColor = "#FF" + spotColor.mid(1);
         cmd += " color=" + spotColor;
-        m_radioModel.sendCommand(cmd);
+        if (SpotCommandPolicy::shouldSendSpotAddCommands()) {
+            m_radioModel.sendCommand(cmd);
+        } else {
+            QMap<QString, QString> kvs;
+            kvs["callsign"] = QString(callsign).replace(' ', QChar(0x7f));
+            kvs["rx_freq"] = freq;
+            kvs["tx_freq"] = freq;
+            kvs["source"] = "Manual";
+            kvs["spotter_callsign"] = myCall;
+            kvs["lifetime_seconds"] = QString::number(lifetimeSec);
+            kvs["timestamp"] = QString::number(QDateTime::currentSecsSinceEpoch());
+            if (!comment.isEmpty())
+                kvs["comment"] = QString(comment).replace(' ', QChar(0x7f));
+            kvs["color"] = spotColor;
+
+            const int spotId = m_nextPassiveSpotId--;
+            m_radioModel.spotModel().applySpotStatus(spotId, kvs);
+            if (lifetimeSec > 0) {
+                m_passiveSpotExpiryMs.insert(
+                    spotId,
+                    QDateTime::currentMSecsSinceEpoch() + qint64(lifetimeSec) * 1000);
+            }
+        }
 
         // Forward to DX cluster if requested
         if (forwardToCluster && m_dxCluster && m_dxCluster->isConnected()) {
@@ -7541,6 +7656,11 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         }
     });
     connect(sw, &SpectrumWidget::spotRemoveRequested, this, [this](int spotIndex) {
+        if (isPassiveLocalSpotId(spotIndex)) {
+            m_passiveSpotExpiryMs.remove(spotIndex);
+            m_radioModel.spotModel().removeSpot(spotIndex);
+            return;
+        }
         m_radioModel.sendCommand(QString("spot remove %1").arg(spotIndex));
     });
 

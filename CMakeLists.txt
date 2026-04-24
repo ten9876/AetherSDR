@@ -421,6 +421,7 @@ set(CORE_SOURCES
     src/core/SpotCollectorClient.cpp
     src/core/PotaClient.cpp
     src/core/PropForecastClient.cpp
+    src/core/SpotCommandPolicy.cpp
     src/core/RigctlServer.cpp
     src/core/TciServer.cpp
     src/core/TciProtocol.cpp
@@ -1095,6 +1096,14 @@ add_executable(client_reverb_test
     src/core/ClientReverb.cpp
 )
 target_include_directories(client_reverb_test PRIVATE src)
+
+add_executable(passive_spots_policy_test
+    tests/passive_spots_policy_test.cpp
+    src/core/AppSettings.cpp
+    src/core/SpotCommandPolicy.cpp
+)
+target_include_directories(passive_spots_policy_test PRIVATE src)
+target_link_libraries(passive_spots_policy_test PRIVATE Qt6::Core)
 
 # Container system Phase 1 tests — needs QApplication + Widgets.
 add_executable(container_widget_test

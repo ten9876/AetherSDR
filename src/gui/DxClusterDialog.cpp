@@ -2,6 +2,7 @@
 #include "GuardedSlider.h"
 #include "core/DxClusterClient.h"
 #include "core/AppSettings.h"
+#include "core/SpotCommandPolicy.h"
 #include "models/RadioModel.h"
 
 #include <QVBoxLayout>
@@ -1724,6 +1725,8 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
 
     auto& s = AppSettings::instance();
     bool spotsEnabled     = s.value("IsSpotsEnabled", "True").toString() == "True";
+    bool passiveSpots     = SpotCommandPolicy::passiveModeFromSetting(
+                                s.value(SpotCommandPolicy::kPassiveSpotsModeKey, "False"));
     bool memoriesEnabled  = s.value("IsMemorySpotsEnabled", "False").toString() == "True";
     bool overrideColors   = s.value("IsSpotsOverrideColorsEnabled", "False").toString() == "True";
     bool overrideBg       = s.value("IsSpotsOverrideBackgroundColorsEnabled", "True").toString() == "True";
@@ -1769,6 +1772,23 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
         save("IsSpotsEnabled", on ? "True" : "False");
     });
     grid->addWidget(spotsToggle, row++, 1, Qt::AlignLeft);
+
+    // ── Passive Spots: receive/render only, do not publish spot add commands ──
+    grid->addWidget(new QLabel("Passive Spots:"), row, 0);
+    auto* passiveToggle = new QPushButton(passiveSpots ? "Enabled" : "Disabled");
+    passiveToggle->setCheckable(true);
+    passiveToggle->setChecked(passiveSpots);
+    passiveToggle->setFixedWidth(80);
+    passiveToggle->setToolTip(
+        "Receive and render radio spots without sending spot add commands to the radio.");
+    passiveToggle->setStyleSheet(
+        "QPushButton { background: #206030; color: white; border: 1px solid #305040; padding: 3px; }"
+        "QPushButton:!checked { background: #603020; }");
+    connect(passiveToggle, &QPushButton::toggled, this, [passiveToggle, save](bool on) {
+        passiveToggle->setText(on ? "Enabled" : "Disabled");
+        save(SpotCommandPolicy::kPassiveSpotsModeKey, on ? "True" : "False");
+    });
+    grid->addWidget(passiveToggle, row++, 1, Qt::AlignLeft);
 
     // ── Memory feed visibility ──────────────────────────────────────────
     grid->addWidget(new QLabel("Memories:"), row, 0);

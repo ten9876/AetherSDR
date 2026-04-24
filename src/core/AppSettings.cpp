@@ -299,6 +299,7 @@ void AppSettings::migrateFromQSettings()
         setValue("GUIClientID", QUuid::createUuid().toString(QUuid::WithoutBraces));
         setValue("IsSingleClickTuneEnabled", "False");
         setValue("IsSpotsEnabled", "True");
+        setValue("PassiveSpotsMode", "False");
         setValue("SpotsMaxLevel", "3");
         setValue("SpotFontSize", "16");
         setValue("FavoriteMode0", "USB");
@@ -352,6 +353,8 @@ void AppSettings::migrateFromQSettings()
     setValue("GUIClientID", QUuid::createUuid().toString(QUuid::WithoutBraces));
     if (!contains("IsSingleClickTuneEnabled"))
         setValue("IsSingleClickTuneEnabled", "False");
+    if (!contains("PassiveSpotsMode"))
+        setValue("PassiveSpotsMode", "False");
     if (!contains("FavoriteMode0")) setValue("FavoriteMode0", "USB");
     if (!contains("FavoriteMode1")) setValue("FavoriteMode1", "CW");
     if (!contains("FavoriteMode2")) setValue("FavoriteMode2", "AM");

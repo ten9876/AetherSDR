@@ -48,6 +48,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QStatusBar>
+#include <QHash>
 
 namespace AetherSDR {
 
@@ -242,6 +243,8 @@ private:
 
     // Batched spot add commands (flushed 1/sec)
     QStringList m_spotCmdBatch;
+    int m_nextPassiveSpotId{-2000000};
+    QHash<int, qint64> m_passiveSpotExpiryMs;
     // External controllers run on a dedicated worker thread (#502)
     QThread*             m_extCtrlThread{nullptr};
 #ifdef HAVE_SERIALPORT
