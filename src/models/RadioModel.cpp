@@ -1849,6 +1849,26 @@ void RadioModel::sendCmdPublic(const QString& cmd, ResponseCallback cb)
     sendCmd(cmd, cb);
 }
 
+void RadioModel::requestLocalPtt()
+{
+    // "enforce_local_ptt" returns 0x50001000; the settable key matches the
+    // status key the radio broadcasts: local_ptt.  Firmware v1.4.0.0 quirk.
+    sendCmd("client set local_ptt=1", [this](int code, const QString& body) {
+        if (code != 0) {
+            qCWarning(lcProtocol) << "requestLocalPtt: radio returned error"
+                                  << Qt::hex << code << body;
+            return;
+        }
+        // Optimistic update: mark our own entry as having PTT in case the radio
+        // doesn't echo a local_ptt=1 status message back to us.
+        quint32 ours = clientHandle();
+        if (m_clientInfoMap.contains(ours)) {
+            m_clientInfoMap[ours].localPtt = true;
+            emitOtherClientsChanged();
+        }
+    });
+}
+
 void RadioModel::setAmpOperate(bool on)
 {
     if (m_ampHandle.isEmpty()) return;
@@ -1965,6 +1985,11 @@ void RadioModel::onStatusReceived(const QString& object,
                 emitOtherClientsChanged();
                 if (!shouldSuppressClientConnectionNotice(handle))
                     announceClientConnection(handle, source, station, program);
+            } else if (kvs.contains("local_ptt") && m_clientInfoMap.contains(handle)) {
+                // Partial update: radio echoes local_ptt state change without
+                // a full connected message (e.g. after enforce_local_ptt command).
+                m_clientInfoMap[handle].localPtt = kvs.value("local_ptt") == "1";
+                emitOtherClientsChanged();
             }
         }
         return;

@@ -369,6 +369,10 @@ public:
     // Send a raw command to the radio (for dialogs that need direct protocol access).
     void sendCommand(const QString& cmd);
 
+    // Request local PTT for our station. Sends "client set local_ptt=1" and applies
+    // an optimistic update in case the radio doesn't echo the state change.
+    void requestLocalPtt();
+
     // PC Audio: create/remove remote_audio_rx stream
     void createRxAudioStream();
     void removeRxAudioStream();

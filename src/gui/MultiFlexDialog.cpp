@@ -71,9 +71,7 @@ MultiFlexDialog::MultiFlexDialog(RadioModel* model, QWidget* parent)
     pttRow->addWidget(m_pttLabel);
     m_pttBtn = new QPushButton("Enable");
     connect(m_pttBtn, &QPushButton::clicked, this, [this]() {
-        // Request local PTT for our station
-        m_model->sendCommand("client set enforce_local_ptt=1");
-        // The radio will echo back updated client status with local_ptt=1
+        m_model->requestLocalPtt();
     });
     pttRow->addWidget(m_pttBtn);
     pttRow->addStretch();
@@ -87,15 +85,19 @@ MultiFlexDialog::MultiFlexDialog(RadioModel* model, QWidget* parent)
     closeRow->addWidget(closeBtn);
     root->addLayout(closeRow);
 
-    // Refresh on client changes
+    // Refresh on client changes or row selection
     connect(m_model, &RadioModel::otherClientsChanged, this, [this]() { refresh(); });
     connect(m_model, &RadioModel::infoChanged, this, [this]() { refresh(); });
+    connect(m_table, &QTableWidget::itemSelectionChanged, this, [this]() { refresh(); });
 
     refresh();
 }
 
 void MultiFlexDialog::refresh()
 {
+    if (m_refreshing) return;
+    m_refreshing = true;
+
     // Enable button style
     bool enabled = m_model->multiFlexEnabled();
     m_enableBtn->setText(enabled ? "Enabled" : "Disabled");
@@ -107,10 +109,8 @@ void MultiFlexDialog::refresh()
           "border-radius: 3px; padding: 6px 20px; font-weight: bold; font-size: 13px; }"
           "QPushButton:hover { background: #702020; }");
 
-    // Build per-client TX info from all slices (including other clients' slices)
-    // Each client's TX slice has tx=1 and client_handle matching the client
     const auto& infoMap = m_model->clientInfoMap();
-    quint32 ourHandle = m_model->ourClientHandle();
+    const quint32 ourHandle = m_model->ourClientHandle();
 
     // Build local TX info override from our own slices (ClientInfo may not
     // have TX data if slice status arrived before client connected status)
@@ -124,28 +124,41 @@ void MultiFlexDialog::refresh()
         }
     }
 
+    // Remember selected handle across repopulation
+    quint32 selectedHandle = 0;
+    {
+        const auto sel = m_table->selectedItems();
+        if (!sel.isEmpty())
+            selectedHandle = sel.first()->data(Qt::UserRole).toUInt();
+    }
+
     // Populate table
     m_table->setRowCount(infoMap.size());
 
-    // Track if we have PTT for the bottom label
     bool weHavePtt = false;
-    QString otherStation;
-
+    QString ourStation;
+    int restoreRow = -1;
     int row = 0;
+
     for (auto it = infoMap.cbegin(); it != infoMap.cend(); ++it) {
         quint32 handle = it.key();
         const auto& info = it.value();
         bool isUs = (handle == ourHandle);
         bool hasPtt = info.localPtt || (isUs && infoMap.size() == 1);
 
-        if (isUs && hasPtt) weHavePtt = true;
-        if (!isUs) otherStation = info.station;
+        if (isUs) {
+            weHavePtt = hasPtt;
+            ourStation = info.station;
+        }
+        if (handle == selectedHandle)
+            restoreRow = row;
 
         // LOCAL PTT
         auto* pttItem = new QTableWidgetItem(hasPtt ? "\xE2\x9C\x94" : "");
         pttItem->setTextAlignment(Qt::AlignCenter);
         if (hasPtt)
             pttItem->setForeground(QColor(0x40, 0xff, 0x40));
+        pttItem->setData(Qt::UserRole, handle);
         m_table->setItem(row, 0, pttItem);
 
         // STATION — program: station
@@ -156,6 +169,7 @@ void MultiFlexDialog::refresh()
         stationItem->setTextAlignment(Qt::AlignCenter);
         if (isUs)
             stationItem->setForeground(QColor(0x00, 0xb4, 0xd8));
+        stationItem->setData(Qt::UserRole, handle);
         m_table->setItem(row, 1, stationItem);
 
         // TX ANT and TX FREQ — from slice status, with fallback to our own slices
@@ -177,14 +191,43 @@ void MultiFlexDialog::refresh()
         ++row;
     }
 
-    // Local PTT button — show when another client has PTT
-    if (infoMap.size() > 1 && !weHavePtt) {
-        m_pttLabel->setText(QString("Enable Local PTT for this station (%1):").arg(otherStation));
-        m_pttLabel->show();
-        m_pttBtn->show();
-    } else {
+    // Restore row selection after repopulation (blocked to avoid re-entrancy)
+    if (restoreRow >= 0) {
+        QSignalBlocker sb(m_table);
+        m_table->selectRow(restoreRow);
+    }
+
+    m_refreshing = false;
+
+    // Local PTT section — determine what the selected row is asking for
+    if (infoMap.size() <= 1) {
         m_pttLabel->hide();
         m_pttBtn->hide();
+        return;
+    }
+
+    if (weHavePtt) {
+        // We already hold PTT; another station cannot be granted it from here —
+        // they must request it from their own client.
+        const auto sel = m_table->selectedItems();
+        quint32 selHandle = sel.isEmpty() ? 0 : sel.first()->data(Qt::UserRole).toUInt();
+        bool selIsUs = (selHandle == ourHandle || selHandle == 0);
+        if (!selIsUs && infoMap.contains(selHandle)) {
+            QString selStation = infoMap.value(selHandle).station;
+            m_pttLabel->setText(
+                QString("%1 must claim PTT from their station.").arg(selStation));
+            m_pttLabel->show();
+        } else {
+            m_pttLabel->hide();
+        }
+        m_pttBtn->hide();
+    } else {
+        // We don't have PTT — offer to claim it for our station
+        m_pttLabel->setText(
+            QString("Enable Local PTT for this station (%1):").arg(ourStation));
+        m_pttLabel->show();
+        m_pttBtn->setText("Enable");
+        m_pttBtn->show();
     }
 }
 

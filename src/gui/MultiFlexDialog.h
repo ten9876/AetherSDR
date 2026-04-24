@@ -23,6 +23,7 @@ private:
     QPushButton* m_enableBtn;
     QLabel* m_pttLabel;
     QPushButton* m_pttBtn;
+    bool m_refreshing{false};
 };
 
 } // namespace AetherSDR

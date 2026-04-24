@@ -138,6 +138,7 @@ key=value pairs by locating the last space before the first `=` sign.
 ### Firmware v1.4.0.0 Quirks
 
 - `client set udpport` returns `0x50001000` — use the one-byte UDP packet method
+- `client set enforce_local_ptt=1` returns `0x50001000` — correct command is `client set local_ptt=1`; the radio echoes a full `connected` status to ALL clients updating their `local_ptt` field when ownership changes
 - Slice frequency is `RF_frequency` (not `freq`) in status messages
 - Streams are discriminated by **PacketClassCode** (PCC), NOT by packet type
 - `audio_level` is the status key for AF gain (not `audio_gain`)
