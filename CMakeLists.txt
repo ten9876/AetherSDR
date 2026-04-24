@@ -1105,6 +1105,17 @@ add_executable(passive_spots_policy_test
 target_include_directories(passive_spots_policy_test PRIVATE src)
 target_link_libraries(passive_spots_policy_test PRIVATE Qt6::Core)
 
+# Help guide search tests - needs QApplication + Widgets.
+add_executable(help_dialog_test
+    tests/help_dialog_test.cpp
+    src/gui/HelpDialog.cpp
+)
+target_include_directories(help_dialog_test PRIVATE src)
+target_link_libraries(help_dialog_test PRIVATE
+    Qt6::Core Qt6::Widgets Qt6::Test
+)
+set_target_properties(help_dialog_test PROPERTIES AUTOMOC ON)
+
 # Container system Phase 1 tests — needs QApplication + Widgets.
 add_executable(container_widget_test
     tests/container_widget_test.cpp

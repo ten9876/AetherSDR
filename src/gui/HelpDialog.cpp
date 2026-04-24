@@ -3,12 +3,42 @@
 #include <QDialogButtonBox>
 #include <QFile>
 #include <QHBoxLayout>
+#include <QKeySequence>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
+#include <QShortcut>
 #include <QTextBrowser>
+#include <QTextCursor>
 #include <QVBoxLayout>
 
 namespace AetherSDR {
+
+namespace {
+
+const char* kFindEditStyle =
+    "QLineEdit {"
+    "  background: #111d29;"
+    "  color: #d8e4ee;"
+    "  border: 1px solid #304050;"
+    "  border-radius: 4px;"
+    "  min-height: 26px;"
+    "  padding: 2px 8px;"
+    "}"
+    "QLineEdit:focus { border-color: #00b4d8; }";
+
+const char* kFindEditNoMatchStyle =
+    "QLineEdit {"
+    "  background: #111d29;"
+    "  color: #d8e4ee;"
+    "  border: 1px solid #c65050;"
+    "  border-radius: 4px;"
+    "  min-height: 26px;"
+    "  padding: 2px 8px;"
+    "}"
+    "QLineEdit:focus { border-color: #e07070; }";
+
+} // namespace
 
 HelpDialog::HelpDialog(const QString& windowTitle,
                        const QString& resourcePath,
@@ -51,6 +81,53 @@ void HelpDialog::buildUI(const QString& resourcePath)
     subtitle->setStyleSheet("color: #8aa8c0; font-size: 12px;");
     headerLayout->addWidget(subtitle);
 
+    auto* findRow = new QWidget(header);
+    findRow->setObjectName("helpFindRow");
+    auto* findLayout = new QHBoxLayout(findRow);
+    findLayout->setContentsMargins(0, 8, 0, 0);
+    findLayout->setSpacing(8);
+
+    auto* findLabel = new QLabel("Find:", findRow);
+    findLabel->setStyleSheet("color: #8aa8c0; font-size: 12px; font-weight: 700;");
+    findLayout->addWidget(findLabel);
+
+    m_findEdit = new QLineEdit(findRow);
+    m_findEdit->setObjectName("helpFindEdit");
+    m_findEdit->setPlaceholderText("Subject or term");
+    m_findEdit->setClearButtonEnabled(true);
+    m_findEdit->setStyleSheet(kFindEditStyle);
+    m_findEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    findLayout->addWidget(m_findEdit, 1);
+
+    m_findButton = new QPushButton("Find", findRow);
+    m_findButton->setObjectName("helpFindButton");
+    m_findButton->setCursor(Qt::PointingHandCursor);
+    m_findButton->setAutoDefault(false);
+    m_findButton->setDefault(false);
+    m_findButton->setEnabled(false);
+    m_findButton->setToolTip("Find next match");
+    m_findButton->setStyleSheet(
+        "QPushButton {"
+        "  background: #203040;"
+        "  color: #d8e4ee;"
+        "  border: 1px solid #38506a;"
+        "  border-radius: 4px;"
+        "  min-width: 72px;"
+        "  min-height: 28px;"
+        "  padding: 0 12px;"
+        "}"
+        "QPushButton:hover:enabled { background: #28435a; }"
+        "QPushButton:disabled { color: #5f7080; border-color: #263442; }");
+    findLayout->addWidget(m_findButton);
+
+    m_findStatus = new QLabel(findRow);
+    m_findStatus->setObjectName("helpFindStatus");
+    m_findStatus->setMinimumWidth(96);
+    m_findStatus->setStyleSheet("color: #7f93a7; font-size: 11px;");
+    findLayout->addWidget(m_findStatus);
+
+    headerLayout->addWidget(findRow);
+
     layout->addWidget(header);
 
     auto* separator = new QWidget(this);
@@ -58,12 +135,13 @@ void HelpDialog::buildUI(const QString& resourcePath)
     separator->setStyleSheet("background: #203040;");
     layout->addWidget(separator);
 
-    auto* browser = new QTextBrowser(this);
-    browser->setReadOnly(true);
-    browser->setOpenExternalLinks(true);
-    browser->setOpenLinks(true);
-    browser->document()->setDocumentMargin(18);
-    browser->document()->setDefaultStyleSheet(
+    m_browser = new QTextBrowser(this);
+    m_browser->setObjectName("helpBrowser");
+    m_browser->setReadOnly(true);
+    m_browser->setOpenExternalLinks(true);
+    m_browser->setOpenLinks(true);
+    m_browser->document()->setDocumentMargin(18);
+    m_browser->document()->setDefaultStyleSheet(
         "body { color: #c8d8e8; font-size: 12px; font-family: sans-serif; }"
         "h1 { color: #00b4d8; font-size: 22px; font-weight: 700; margin: 0 0 16px 0; }"
         "h2 { color: #c8d8e8; font-size: 18px; font-weight: 700; margin: 18px 0 8px 0; }"
@@ -78,8 +156,8 @@ void HelpDialog::buildUI(const QString& resourcePath)
         "em { color: #8898a8; font-style: italic; }"
         "code { color: #d8e4ee; background-color: #152230; }"
         "a { color: #00b4d8; text-decoration: none; }");
-    browser->setMarkdown(loadMarkdown(resourcePath));
-    browser->setStyleSheet(
+    m_browser->setMarkdown(loadMarkdown(resourcePath));
+    m_browser->setStyleSheet(
         "QTextBrowser {"
         "  background: #0f0f1a;"
         "  color: #d8e4ee;"
@@ -118,7 +196,16 @@ void HelpDialog::buildUI(const QString& resourcePath)
         "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {"
         "  width: 0px;"
         "}");
-    layout->addWidget(browser, 1);
+    layout->addWidget(m_browser, 1);
+
+    connect(m_findEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
+        if (m_findButton)
+            m_findButton->setEnabled(!text.isEmpty());
+        resetFindState();
+    });
+    connect(m_findEdit, &QLineEdit::returnPressed, this, &HelpDialog::findNext);
+    connect(m_findButton, &QPushButton::clicked, this, &HelpDialog::findNext);
+    new QShortcut(QKeySequence::Find, this, [this]() { focusFindField(); });
 
     auto* footer = new QWidget(this);
     footer->setStyleSheet("background: #0a0a14;");
@@ -135,6 +222,8 @@ void HelpDialog::buildUI(const QString& resourcePath)
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, footer);
     auto* closeButton = buttons->button(QDialogButtonBox::Close);
     closeButton->setCursor(Qt::PointingHandCursor);
+    closeButton->setAutoDefault(false);
+    closeButton->setDefault(false);
     closeButton->setStyleSheet(
         "QPushButton {"
         "  background: #00b4d8;"
@@ -155,6 +244,51 @@ void HelpDialog::buildUI(const QString& resourcePath)
     setStyleSheet("HelpDialog { background: #0f0f1a; }");
 }
 
+void HelpDialog::focusFindField()
+{
+    if (!m_findEdit)
+        return;
+
+    m_findEdit->setFocus(Qt::ShortcutFocusReason);
+    m_findEdit->selectAll();
+}
+
+void HelpDialog::findNext()
+{
+    if (!m_browser || !m_findEdit)
+        return;
+
+    const QString term = m_findEdit->text();
+    if (term.isEmpty()) {
+        updateFindFeedback(QString(), false);
+        focusFindField();
+        return;
+    }
+
+    if (m_browser->find(term)) {
+        updateFindFeedback(QString(), false);
+        m_findEdit->setFocus(Qt::OtherFocusReason);
+        return;
+    }
+
+    QTextCursor cursor = m_browser->textCursor();
+    cursor.movePosition(QTextCursor::Start);
+    cursor.clearSelection();
+    m_browser->setTextCursor(cursor);
+
+    if (m_browser->find(term)) {
+        updateFindFeedback("Wrapped to top", false);
+    } else {
+        cursor = m_browser->textCursor();
+        cursor.movePosition(QTextCursor::Start);
+        cursor.clearSelection();
+        m_browser->setTextCursor(cursor);
+        updateFindFeedback("No matches", true);
+    }
+
+    m_findEdit->setFocus(Qt::OtherFocusReason);
+}
+
 QString HelpDialog::loadMarkdown(const QString& resourcePath) const
 {
     QFile file(resourcePath);
@@ -166,6 +300,31 @@ QString HelpDialog::loadMarkdown(const QString& resourcePath) const
     }
 
     return QString::fromUtf8(file.readAll());
+}
+
+void HelpDialog::resetFindState()
+{
+    if (!m_browser)
+        return;
+
+    QTextCursor cursor = m_browser->textCursor();
+    cursor.movePosition(QTextCursor::Start);
+    cursor.clearSelection();
+    m_browser->setTextCursor(cursor);
+    updateFindFeedback(QString(), false);
+}
+
+void HelpDialog::updateFindFeedback(const QString& message, bool noMatch)
+{
+    if (m_findStatus) {
+        m_findStatus->setText(message);
+        m_findStatus->setStyleSheet(noMatch
+            ? "color: #e07070; font-size: 11px; font-weight: 700;"
+            : "color: #7f93a7; font-size: 11px;");
+    }
+
+    if (m_findEdit)
+        m_findEdit->setStyleSheet(noMatch ? kFindEditNoMatchStyle : kFindEditStyle);
 }
 
 } // namespace AetherSDR
