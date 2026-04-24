@@ -125,6 +125,13 @@ RadioInfo RadioDiscovery::parseDiscoveryPacket(const QByteArray& data) const
             cleaned.replace('\x7f', ' ');
             info.guiClientPrograms = cleaned.split(',', Qt::SkipEmptyParts);
         }
+        else if (key == "gui_client_ips")
+            info.guiClientIps = value.split(',', Qt::SkipEmptyParts);
+        else if (key == "gui_client_hosts") {
+            QString cleaned = value;
+            cleaned.replace('\x7f', ' ');
+            info.guiClientHosts = cleaned.split(',', Qt::SkipEmptyParts);
+        }
     }
     return info;
 }

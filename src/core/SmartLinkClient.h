@@ -27,6 +27,8 @@ struct WanRadioInfo {
     QString guiClientPrograms;
     QString guiClientStations;
     QString guiClientHandles;
+    QString guiClientIps;
+    QString guiClientHosts;
 };
 
 // SmartLink client — manages the TLS connection to smartlink.flexradio.com
