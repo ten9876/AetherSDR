@@ -3458,6 +3458,231 @@ void MainWindow::showNetworkDiagnosticsDialog()
     m_networkDiagnosticsDialog->activateWindow();
 }
 
+QJsonObject MainWindow::buildControlDevicesSnapshot() const
+{
+    auto stringArray = [](const QStringList& values) {
+        QJsonArray array;
+        for (const QString& value : values)
+            array.append(value);
+        return array;
+    };
+
+    auto buttonBindings = [](const QString& prefix, int buttonCount) {
+        static const char* kActionNames[] = {"tap", "double_tap", "hold"};
+        QJsonArray bindings;
+        auto& settings = AppSettings::instance();
+        for (int button = 1; button <= buttonCount; ++button) {
+            for (int action = 0; action < 3; ++action) {
+                const QString key = QString("%1Btn%2Action%3").arg(prefix).arg(button).arg(action);
+                const QString mappedAction = settings.value(key, "None").toString();
+                if (mappedAction == QStringLiteral("None"))
+                    continue;
+                QJsonObject obj;
+                obj["button"] = button;
+                obj["gesture"] = kActionNames[action];
+                obj["action"] = mappedAction;
+                bindings.append(obj);
+            }
+        }
+        return bindings;
+    };
+
+    auto addTarget = [this](QJsonObject* obj) {
+        if (m_activeSliceId >= 0)
+            (*obj)["target_slice_id"] = m_activeSliceId;
+        else
+            (*obj)["target_slice_id"] = QJsonValue();
+        (*obj)["target_scope"] = "active_slice";
+    };
+
+    auto flexWheelModeName = [](FlexWheelMode mode) {
+        switch (mode) {
+        case FlexWheelMode::Frequency: return QStringLiteral("Frequency");
+        case FlexWheelMode::Volume:    return QStringLiteral("Volume");
+        case FlexWheelMode::Power:     return QStringLiteral("Power");
+        }
+        return QStringLiteral("Unknown");
+    };
+
+    const bool activeSliceAvailable = activeSlice() != nullptr;
+    QJsonArray devices;
+    int activeDeviceCount = 0;
+
+    auto appendDevice = [&devices, &activeDeviceCount](QJsonObject device) {
+        if (device["active"].toBool())
+            ++activeDeviceCount;
+        devices.append(device);
+    };
+
+#ifdef HAVE_SERIALPORT
+    {
+        const bool active = m_flexControl && m_flexControl->isOpen();
+        QJsonObject flex;
+        flex["type"] = "FlexControl";
+        flex["available"] = true;
+        flex["active"] = active;
+        flex["active_for_current_slice"] = active && activeSliceAvailable;
+        flex["bus_type"] = "USB";
+        flex["transport"] = "USB serial";
+        flex["wheel_mode"] = flexWheelModeName(m_flexWheelMode);
+        flex["port_name"] = (m_flexControl && active)
+            ? m_flexControl->portName()
+            : AppSettings::instance().value("FlexControlPort").toString();
+        flex["auto_detect"] = AppSettings::instance().value("FlexControlAutoDetect", "True").toString() == "True";
+        flex["invert_direction"] = AppSettings::instance().value("FlexControlInvertDir", "False").toString() == "True";
+        flex["button_bindings"] = buttonBindings(QStringLiteral("FlexControl"), 4);
+        addTarget(&flex);
+        flex["detail"] = active
+            ? QString("Flex wheel controls %1 on the active slice").arg(flex["wheel_mode"].toString())
+            : QStringLiteral("FlexControl is not connected");
+        appendDevice(flex);
+    }
+#else
+    appendDevice(QJsonObject{
+        {"type", "FlexControl"},
+        {"available", false},
+        {"active", false},
+        {"active_for_current_slice", false},
+        {"bus_type", "USB"},
+        {"detail", "Qt SerialPort support is not compiled in"}
+    });
+#endif
+
+#ifdef HAVE_HIDAPI
+    {
+        const bool active = m_hidEncoder && m_hidEncoder->isOpen();
+        QJsonObject hid;
+        hid["type"] = "USB HID Wheel";
+        hid["available"] = true;
+        hid["active"] = active;
+        hid["active_for_current_slice"] = active && activeSliceAvailable;
+        hid["bus_type"] = "USB";
+        hid["transport"] = "hidapi";
+        hid["device_name"] = m_hidEncoder ? m_hidEncoder->deviceName() : QString();
+        hid["vendor_id"] = (m_hidEncoder && m_hidEncoder->vendorId() != 0)
+            ? QString("0x%1").arg(m_hidEncoder->vendorId(), 4, 16, QChar('0'))
+            : QString();
+        hid["product_id"] = (m_hidEncoder && m_hidEncoder->productId() != 0)
+            ? QString("0x%1").arg(m_hidEncoder->productId(), 4, 16, QChar('0'))
+            : QString();
+        hid["auto_detect"] = AppSettings::instance().value("HidEncoderAutoDetect", "True").toString() == "True";
+        hid["invert_direction"] = AppSettings::instance().value("HidEncoderInvertDir", "False").toString() == "True";
+        hid["button_bindings"] = buttonBindings(QStringLiteral("HidEncoder"), 16);
+        addTarget(&hid);
+        hid["detail"] = active
+            ? QString("HID wheel `%1` tunes the active slice").arg(hid["device_name"].toString())
+            : QStringLiteral("No supported HID wheel is connected");
+        appendDevice(hid);
+    }
+#else
+    appendDevice(QJsonObject{
+        {"type", "USB HID Wheel"},
+        {"available", false},
+        {"active", false},
+        {"active_for_current_slice", false},
+        {"bus_type", "USB"},
+        {"detail", "hidapi support is not compiled in"}
+    });
+#endif
+
+#ifdef HAVE_MIDI
+    {
+        auto messageTypeName = [](MidiBinding::MsgType type) {
+            switch (type) {
+            case MidiBinding::CC:        return QStringLiteral("CC");
+            case MidiBinding::NoteOn:    return QStringLiteral("NoteOn");
+            case MidiBinding::NoteOff:   return QStringLiteral("NoteOff");
+            case MidiBinding::PitchBend: return QStringLiteral("PitchBend");
+            }
+            return QStringLiteral("Unknown");
+        };
+
+        auto bindingScope = [](const QString& paramId, const QString& category) {
+            if (paramId.startsWith(QStringLiteral("rx."))
+                || paramId == QStringLiteral("global.nextSlice")
+                || paramId == QStringLiteral("global.prevSlice")) {
+                return QStringLiteral("active_slice");
+            }
+            if (category == QStringLiteral("Global"))
+                return QStringLiteral("global");
+            if (category == QStringLiteral("TX") || category == QStringLiteral("Phone/CW"))
+                return QStringLiteral("transmit");
+            return category.toLower();
+        };
+
+        const bool active = m_midiControl && m_midiControl->isOpen();
+        QJsonArray bindings;
+        int sliceBindingCount = 0;
+        if (m_midiControl) {
+            for (const MidiBinding& binding : m_midiControl->bindings()) {
+                const MidiParam* param = m_midiControl->findParam(binding.paramId);
+                const QString category = param ? param->category : QString();
+                const QString scope = bindingScope(binding.paramId, category);
+                if (scope == QStringLiteral("active_slice"))
+                    ++sliceBindingCount;
+
+                QJsonObject obj;
+                obj["source"] = binding.sourceDisplayName();
+                obj["channel"] = binding.channel < 0
+                    ? QStringLiteral("any")
+                    : QString::number(binding.channel + 1);
+                obj["message_type"] = messageTypeName(binding.msgType);
+                obj["number"] = binding.number;
+                obj["param_id"] = binding.paramId;
+                obj["param_name"] = param ? param->displayName : binding.paramId;
+                obj["category"] = category;
+                obj["relative"] = binding.relative;
+                obj["inverted"] = binding.inverted;
+                obj["scope"] = scope;
+                bindings.append(obj);
+            }
+        }
+
+        QJsonObject midi;
+        midi["type"] = "MIDI Controller";
+        midi["available"] = true;
+        midi["active"] = active;
+        midi["active_for_current_slice"] = active && activeSliceAvailable && sliceBindingCount > 0;
+        midi["bus_type"] = "Unknown";
+        midi["transport"] = "RtMidi";
+        midi["port_name"] = m_midiControl ? m_midiControl->currentPortName() : QString();
+        midi["available_ports"] = m_midiControl ? stringArray(m_midiControl->availablePorts()) : QJsonArray{};
+        midi["binding_count"] = bindings.size();
+        midi["slice_binding_count"] = sliceBindingCount;
+        midi["bindings"] = bindings;
+        addTarget(&midi);
+        midi["detail"] = active
+            ? QString("MIDI port `%1` has %2 active-slice binding(s)")
+                  .arg(midi["port_name"].toString())
+                  .arg(sliceBindingCount)
+            : QStringLiteral("MIDI controller is not connected");
+        appendDevice(midi);
+    }
+#else
+    appendDevice(QJsonObject{
+        {"type", "MIDI Controller"},
+        {"available", false},
+        {"active", false},
+        {"active_for_current_slice", false},
+        {"bus_type", "Unknown"},
+        {"detail", "MIDI support is not compiled in"}
+    });
+#endif
+
+    QJsonObject snapshot;
+    snapshot["available"] = true;
+    snapshot["target_scope"] = "active_slice";
+    snapshot["active_slice_available"] = activeSliceAvailable;
+    if (m_activeSliceId >= 0)
+        snapshot["target_slice_id"] = m_activeSliceId;
+    else
+        snapshot["target_slice_id"] = QJsonValue();
+    snapshot["active_device_count"] = activeDeviceCount;
+    snapshot["devices"] = devices;
+    snapshot["note"] = "External wheel controls operate on the current active slice unless a binding changes slices.";
+    return snapshot;
+}
+
 void MainWindow::showPropDashboard()
 {
     if (!m_propDashboardDialog) {
@@ -4867,7 +5092,8 @@ void MainWindow::buildMenuBar()
         dlg->raise();
     });
     helpMenu->addAction("Slice Troubleshooting...", this, [this]() {
-        SliceTroubleshootingDialog dlg(&m_radioModel, m_audio, this);
+        SliceTroubleshootingDialog dlg(&m_radioModel, m_audio, this,
+                                       [this]() { return buildControlDevicesSnapshot(); });
         dlg.exec();
     });
     helpMenu->addAction("What's New...", this, [this]() {

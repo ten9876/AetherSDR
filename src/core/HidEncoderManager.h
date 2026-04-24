@@ -27,6 +27,8 @@ public:
     void close();
     bool isOpen() const { return m_device != nullptr; }
     QString deviceName() const { return m_deviceName; }
+    uint16_t vendorId() const { return m_openVid; }
+    uint16_t productId() const { return m_openPid; }
 
     void setInvertDirection(bool invert) { m_invertDirection = invert; }
 

@@ -2,6 +2,7 @@
 #include "GuardedSlider.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
+#include "core/DeviceDiagnostics.h"
 #include "models/RadioModel.h"
 
 #include <QApplication>
@@ -20,6 +21,7 @@
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QStringList>
+#include <utility>
 
 namespace AetherSDR {
 
@@ -114,6 +116,90 @@ QString formatClientBullet(const QJsonObject& client)
         .arg(formatNumber(client["tx_freq_mhz"], 6));
 }
 
+QString formatBoolValue(const QJsonValue& value)
+{
+    return value.isBool() ? yesNo(value.toBool()) : QStringLiteral("n/a");
+}
+
+QString formatPercentValue(const QJsonValue& value)
+{
+    return value.isDouble() ? QString("%1%").arg(qRound(value.toDouble())) : QStringLiteral("n/a");
+}
+
+QString formatAudioDeviceShort(const QJsonObject& device)
+{
+    const QString description = orPlaceholder(device["description"].toString(), "Unavailable");
+    const QString bus = orPlaceholder(device["bus_type"].toString(), "Unknown");
+    return QString("`%1` (bus `%2`)").arg(description, bus);
+}
+
+QString formatAudioSupport(const QJsonObject& device)
+{
+    if (device["direction"].toString() == QStringLiteral("output")) {
+        return QString("24k float `%1`, 48k float `%2`")
+            .arg(yesNo(device["supports_24k_float_stereo"].toBool()))
+            .arg(yesNo(device["supports_48k_float_stereo"].toBool()));
+    }
+
+    return QString("24k stereo `%1`, 48k stereo `%2`, 24k mono `%3`, 48k mono `%4`")
+        .arg(yesNo(device["supports_24k_int16_stereo"].toBool()))
+        .arg(yesNo(device["supports_48k_int16_stereo"].toBool()))
+        .arg(yesNo(device["supports_24k_int16_mono"].toBool()))
+        .arg(yesNo(device["supports_48k_int16_mono"].toBool()));
+}
+
+QString formatAudioDeviceBullet(const QJsonObject& device, const QString& prefix = "- ")
+{
+    QStringList flags;
+    if (device["selected"].toBool())
+        flags << "selected";
+    if (device["default"].toBool())
+        flags << "default";
+    if (flags.isEmpty())
+        flags << "available";
+
+    const QJsonObject preferred = device["preferred_format"].toObject();
+    return QString("%1`%2` (%3): bus `%4`, rates `%5-%6 Hz`, channels `%7-%8`, preferred `%9 Hz/%10 ch/%11`, %12")
+        .arg(prefix)
+        .arg(orPlaceholder(device["description"].toString(), "Unavailable"))
+        .arg(flags.join(", "))
+        .arg(orPlaceholder(device["bus_type"].toString(), "Unknown"))
+        .arg(device["minimum_sample_rate"].toInt())
+        .arg(device["maximum_sample_rate"].toInt())
+        .arg(device["minimum_channel_count"].toInt())
+        .arg(device["maximum_channel_count"].toInt())
+        .arg(preferred["sample_rate"].toInt())
+        .arg(preferred["channel_count"].toInt())
+        .arg(orPlaceholder(preferred["sample_format"].toString(), "Unknown"))
+        .arg(formatAudioSupport(device));
+}
+
+QString formatControlDeviceBullet(const QJsonObject& device)
+{
+    return QString("- `%1`: active `%2`, active for slice `%3`, bus `%4`, target slice `%5`, detail `%6`")
+        .arg(orPlaceholder(device["type"].toString()))
+        .arg(yesNo(device["active"].toBool()))
+        .arg(yesNo(device["active_for_current_slice"].toBool()))
+        .arg(orPlaceholder(device["bus_type"].toString(), "Unknown"))
+        .arg(device.contains("target_slice_id") && device["target_slice_id"].isDouble()
+                 ? QString::number(device["target_slice_id"].toInt())
+                 : QStringLiteral("n/a"))
+        .arg(orPlaceholder(device["detail"].toString(), "n/a"));
+}
+
+QString formatMidiBindingBullet(const QJsonObject& binding, const QString& prefix = "  - ")
+{
+    return QString("%1`%2` -> `%3` (`%4`, channel `%5`, relative `%6`, inverted `%7`, scope `%8`)")
+        .arg(prefix)
+        .arg(orPlaceholder(binding["source"].toString()))
+        .arg(orPlaceholder(binding["param_name"].toString(), binding["param_id"].toString()))
+        .arg(orPlaceholder(binding["message_type"].toString()))
+        .arg(orPlaceholder(binding["channel"].toString()))
+        .arg(yesNo(binding["relative"].toBool()))
+        .arg(yesNo(binding["inverted"].toBool()))
+        .arg(orPlaceholder(binding["scope"].toString(), "unknown"));
+}
+
 QString formatTxBandBullet(const QJsonObject& band)
 {
     return QString("- `%1` (ID `%2`): RF `%3`, tune `%4`, inhibit `%5`, HWALC `%6`, "
@@ -200,8 +286,14 @@ QJsonObject buildClientDspSnapshot(const AudioEngine* audio)
 
 } // namespace
 
-SliceTroubleshootingDialog::SliceTroubleshootingDialog(RadioModel* model, AudioEngine* audio, QWidget* parent)
-    : QDialog(parent), m_model(model), m_audio(audio)
+SliceTroubleshootingDialog::SliceTroubleshootingDialog(RadioModel* model,
+                                                       AudioEngine* audio,
+                                                       QWidget* parent,
+                                                       SnapshotProvider controlDevicesProvider)
+    : QDialog(parent)
+    , m_model(model)
+    , m_audio(audio)
+    , m_controlDevicesProvider(std::move(controlDevicesProvider))
 {
     setWindowTitle("Slice Troubleshooting");
     setMinimumSize(920, 720);
@@ -285,7 +377,19 @@ void SliceTroubleshootingDialog::refreshSnapshot()
     ui["controls_locked"] = ::ControlsLock::isLocked();
     m_snapshot["ui"] = ui;
     m_snapshot["client_dsp"] = buildClientDspSnapshot(m_audio);
-    m_snapshot["schema_version"] = 2;
+
+    const QJsonObject audioDevices = DeviceDiagnostics::buildAudioDevicesSnapshot(m_audio, m_snapshot);
+    m_snapshot["audio_devices"] = audioDevices;
+    DeviceDiagnostics::annotateSliceAudioRoutes(&m_snapshot, audioDevices);
+
+    m_snapshot["control_devices"] = m_controlDevicesProvider
+        ? m_controlDevicesProvider()
+        : QJsonObject{
+            {"available", false},
+            {"note", "No control device provider registered."},
+            {"devices", QJsonArray{}}
+        };
+    m_snapshot["schema_version"] = 3;
 
     m_summaryText = buildSummary(m_snapshot);
     m_jsonText = QString::fromUtf8(QJsonDocument(m_snapshot).toJson(QJsonDocument::Indented));
@@ -374,6 +478,11 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
     const QJsonObject nr4 = clientDsp["nr4"].toObject();
     const QJsonObject rn2 = clientDsp["rn2"].toObject();
     const QJsonObject dfnr = clientDsp["dfnr"].toObject();
+    const QJsonObject audioDevices = snapshot["audio_devices"].toObject();
+    const QJsonObject audioVolumes = audioDevices["volumes"].toObject();
+    const QJsonObject rxRoute = audioDevices["rx_route"].toObject();
+    const QJsonObject txRoute = audioDevices["tx_route"].toObject();
+    const QJsonObject controlDevices = snapshot["control_devices"].toObject();
 
     lines << "# Slice Troubleshooting Snapshot";
     lines << "";
@@ -503,6 +612,89 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
                      .arg(yesNo(dfnr["enabled"].toBool()))
                      .arg(formatNumber(dfnr["atten_limit_db"], 0))
                      .arg(formatNumber(dfnr["post_filter_beta"], 2));
+    }
+    lines << "";
+
+    lines << "## Audio Devices";
+    if (!audioDevices["available"].toBool()) {
+        lines << "- Live audio engine state is unavailable; Qt Multimedia device enumeration is still included below.";
+    }
+    lines << QString("- RX route: `%1` (source `%2`), PC audio enabled `%3`, PC mute `%4`, master `%5`, engine volume `%6`, engine mute `%7`, RX stream `%8`")
+                 .arg(orPlaceholder(rxRoute["output"].toString(), "Unknown"))
+                 .arg(orPlaceholder(rxRoute["source"].toString()))
+                 .arg(yesNo(audioVolumes["pc_audio_enabled"].toBool()))
+                 .arg(yesNo(audioVolumes["pc_audio_muted"].toBool()))
+                 .arg(formatPercentValue(audioVolumes["pc_master_volume_pct"]))
+                 .arg(formatPercentValue(audioVolumes["engine_rx_volume_pct"]))
+                 .arg(formatBoolValue(audioVolumes["engine_rx_muted"]))
+                 .arg(formatBoolValue(audioDevices["rx_streaming"]));
+    lines << QString("- TX input route: `%1` (mic `%2`, DAX `%3`), PC mic gain `%4`, TX stream `%5`, DAX TX mode `%6`, DAX radio route `%7`")
+                 .arg(orPlaceholder(txRoute["input"].toString(), "Unknown"))
+                 .arg(orPlaceholder(txRoute["mic_selection"].toString()))
+                 .arg(yesNo(txRoute["dax_on"].toBool()))
+                 .arg(formatPercentValue(audioVolumes["pc_mic_gain_pct"]))
+                 .arg(formatBoolValue(audioDevices["tx_streaming"]))
+                 .arg(formatBoolValue(audioDevices["dax_tx_mode"]))
+                 .arg(formatBoolValue(audioDevices["dax_tx_use_radio_route"]));
+    lines << QString("- Selected input: %1 (source `%2`, present `%3`)")
+                 .arg(formatAudioDeviceShort(audioDevices["selected_input"].toObject()))
+                 .arg(orPlaceholder(audioDevices["selected_input_source"].toString()))
+                 .arg(yesNo(audioDevices["selected_input_present"].toBool()));
+    lines << QString("- Selected output: %1 (source `%2`, present `%3`)")
+                 .arg(formatAudioDeviceShort(audioDevices["selected_output"].toObject()))
+                 .arg(orPlaceholder(audioDevices["selected_output_source"].toString()))
+                 .arg(yesNo(audioDevices["selected_output_present"].toBool()));
+    lines << QString("- Radio output levels: lineout `%1` (mute `%2`), headphones `%3` (mute `%4`), front speaker mute `%5`")
+                 .arg(audioVolumes["radio_lineout_gain"].toInt())
+                 .arg(yesNo(audioVolumes["radio_lineout_mute"].toBool()))
+                 .arg(audioVolumes["radio_headphone_gain"].toInt())
+                 .arg(yesNo(audioVolumes["radio_headphone_mute"].toBool()))
+                 .arg(yesNo(audioVolumes["radio_front_speaker_mute"].toBool()));
+
+    lines << "- Input device list:";
+    const QJsonArray inputDevices = audioDevices["input_devices"].toArray();
+    if (inputDevices.isEmpty()) {
+        lines << "  - None reported by Qt Multimedia.";
+    } else {
+        for (const QJsonValue& value : inputDevices)
+            lines << formatAudioDeviceBullet(value.toObject(), "  - ");
+    }
+
+    lines << "- Output device list:";
+    const QJsonArray outputDevices = audioDevices["output_devices"].toArray();
+    if (outputDevices.isEmpty()) {
+        lines << "  - None reported by Qt Multimedia.";
+    } else {
+        for (const QJsonValue& value : outputDevices)
+            lines << formatAudioDeviceBullet(value.toObject(), "  - ");
+    }
+    lines << "";
+
+    lines << "## Control Devices";
+    if (!controlDevices["available"].toBool()) {
+        lines << QString("- %1").arg(orPlaceholder(controlDevices["note"].toString(), "Control device state is unavailable."));
+    }
+    lines << QString("- Target scope: `%1`, target slice `%2`, active slice available `%3`, active device count `%4`")
+                 .arg(orPlaceholder(controlDevices["target_scope"].toString(), "active_slice"))
+                 .arg(controlDevices.contains("target_slice_id") && controlDevices["target_slice_id"].isDouble()
+                          ? QString::number(controlDevices["target_slice_id"].toInt())
+                          : QStringLiteral("n/a"))
+                 .arg(yesNo(controlDevices["active_slice_available"].toBool()))
+                 .arg(controlDevices["active_device_count"].toInt());
+    const QJsonArray controlDeviceList = controlDevices["devices"].toArray();
+    if (controlDeviceList.isEmpty()) {
+        lines << "- No control device entries are available.";
+    } else {
+        for (const QJsonValue& value : controlDeviceList) {
+            const QJsonObject device = value.toObject();
+            lines << formatControlDeviceBullet(device);
+            const QJsonArray bindings = device["bindings"].toArray();
+            if (!bindings.isEmpty()) {
+                lines << "  - MIDI bindings:";
+                for (const QJsonValue& binding : bindings)
+                    lines << formatMidiBindingBullet(binding.toObject(), "    - ");
+            }
+        }
     }
     lines << "";
 
@@ -637,6 +829,10 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
             const QJsonObject digital = slice["digital"].toObject();
             const QJsonObject fm = slice["fm"].toObject();
             const QJsonObject pan = slice["panadapter_state"].toObject();
+            const QString sliceRxRoute = orPlaceholder(audio["rx_route"].toString(), "Unknown");
+            const QString sliceRxTarget = sliceRxRoute == QStringLiteral("PC audio")
+                ? orPlaceholder(audio["selected_output_device"].toString(), "Unavailable")
+                : QStringLiteral("radio lineout/headphones");
 
             lines << QString("### Slice %1").arg(slice["slice_id"].toInt());
             lines << QString("- Pan `%1`, active `%2`, TX slice `%3`, frequency `%4 MHz`, mode `%5`")
@@ -650,11 +846,13 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
                          .arg(filter["high_hz"].toInt())
                          .arg(tuning["step_hz"].toInt())
                          .arg(joinArray(slice["mode_list"].toArray()));
-            lines << QString("- Audio / RF: audio gain `%1`, audio pan `%2`, audio mute `%3`, RF gain `%4`")
+            lines << QString("- Audio / RF: audio gain `%1`, audio pan `%2`, audio mute `%3`, RF gain `%4`, route `%5` via `%6`")
                          .arg(formatNumber(audio["gain"]))
                          .arg(audio["pan"].toInt())
                          .arg(yesNo(audio["mute"].toBool()))
-                         .arg(formatNumber(slice["rf_gain"], 1));
+                         .arg(formatNumber(slice["rf_gain"], 1))
+                         .arg(sliceRxRoute)
+                         .arg(sliceRxTarget);
             lines << QString("- Antennas / control: RX `%1`, TX `%2`, locked `%3`, QSK `%4`, "
                               "record `%5`, play `%6` (enabled `%7`)")
                          .arg(orPlaceholder(antennas["rx"].toString()))

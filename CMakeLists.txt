@@ -441,6 +441,7 @@ set(CORE_SOURCES
     src/core/LogManager.cpp
     src/core/ShortcutManager.cpp
     src/core/SupportBundle.cpp
+    src/core/DeviceDiagnostics.cpp
     src/core/SerialPortController.cpp
     src/core/FlexControlManager.cpp
     src/core/OpusCodec.cpp
@@ -1115,6 +1116,12 @@ target_link_libraries(help_dialog_test PRIVATE
     Qt6::Core Qt6::Widgets Qt6::Test
 )
 set_target_properties(help_dialog_test PROPERTIES AUTOMOC ON)
+
+add_executable(device_diagnostics_test
+    tests/device_diagnostics_test.cpp
+)
+target_include_directories(device_diagnostics_test PRIVATE src)
+target_link_libraries(device_diagnostics_test PRIVATE Qt6::Core)
 
 # Container system Phase 1 tests — needs QApplication + Widgets.
 add_executable(container_widget_test

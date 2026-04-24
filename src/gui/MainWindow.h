@@ -49,6 +49,7 @@
 #include <QMenu>
 #include <QStatusBar>
 #include <QHash>
+#include <QJsonObject>
 
 namespace AetherSDR {
 
@@ -176,6 +177,7 @@ private:
                                 std::shared_ptr<QStringList> panIds, int created);
     void updatePaTempLabel();
     void showNetworkDiagnosticsDialog();
+    QJsonObject buildControlDevicesSnapshot() const;
     void showPropDashboard();
     bool confirmClientSlotAvailability(const RadioInfo& info, QList<quint32>* disconnectHandles);
     bool confirmClientSlotAvailability(const WanRadioInfo& info, QList<quint32>* disconnectHandles);

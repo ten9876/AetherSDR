@@ -97,6 +97,7 @@ public:
 
     bool isMuted() const       { return m_muted.load(); }
     void setMuted(bool m);
+    bool isRxStreaming() const { return m_audioSink != nullptr; }
     bool isTxStreaming() const { return m_audioSource != nullptr; }
 
     // Client-side PC mic gain (0-100 → 0.0-1.0, applied before Opus encoding)

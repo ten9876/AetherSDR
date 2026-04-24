@@ -31,6 +31,7 @@ public:
     bool open(const QString& portName);
     void close();
     bool isOpen() const { return m_port.isOpen(); }
+    QString portName() const { return m_port.portName(); }
 
     // Scan QSerialPortInfo for VID 0x2192, PID 0x0010
     static QString detectPort();

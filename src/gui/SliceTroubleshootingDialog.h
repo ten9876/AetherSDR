@@ -2,6 +2,7 @@
 
 #include <QDialog>
 #include <QJsonObject>
+#include <functional>
 
 class QLabel;
 class QPlainTextEdit;
@@ -15,7 +16,12 @@ class SliceTroubleshootingDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit SliceTroubleshootingDialog(RadioModel* model, AudioEngine* audio = nullptr, QWidget* parent = nullptr);
+    using SnapshotProvider = std::function<QJsonObject()>;
+
+    explicit SliceTroubleshootingDialog(RadioModel* model,
+                                        AudioEngine* audio = nullptr,
+                                        QWidget* parent = nullptr,
+                                        SnapshotProvider controlDevicesProvider = {});
 
 private:
     void refreshSnapshot();
@@ -28,6 +34,7 @@ private:
 
     RadioModel* m_model{nullptr};
     AudioEngine* m_audio{nullptr};
+    SnapshotProvider m_controlDevicesProvider;
     QJsonObject m_snapshot;
     QString m_summaryText;
     QString m_jsonText;
