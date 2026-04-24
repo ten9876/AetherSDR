@@ -161,6 +161,7 @@ namespace {
 constexpr double kIncrementalTriggerEdgeMarginFrac = 0.05;
 constexpr double kIncrementalSettleEdgeMarginFrac = 0.06;
 constexpr double kRevealComfortEdgeMarginFrac = 0.18;
+constexpr double kSpectrumClickEdgeMarginFrac = 0.05;
 constexpr int kPanFollowAnimationDurationMs = 110;
 
 double quantizeIncrementalFollowDelta(double overshootMhz, double stepMhz)
@@ -7783,7 +7784,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 }
 
 MainWindow::TuneCenteringResult MainWindow::revealFrequencyIfNeeded(
-    SliceModel* slice, double mhz, TuneIntent intent, const char* /*source*/)
+    SliceModel* slice, double mhz, TuneIntent intent, const char* source)
 {
     TuneCenteringResult result;
     if (!slice)
@@ -7828,10 +7829,13 @@ MainWindow::TuneCenteringResult MainWindow::revealFrequencyIfNeeded(
     if (incremental && !panFollowEnabled())
         return result;
 
+    const bool isSpectrumClick = source && qstrcmp(source, "spectrum-click") == 0;
+    const double comfortMargin =
+        isSpectrumClick ? kSpectrumClickEdgeMarginFrac : kRevealComfortEdgeMarginFrac;
     const double triggerEdgeMarginFrac =
-        incremental ? kIncrementalTriggerEdgeMarginFrac : kRevealComfortEdgeMarginFrac;
+        incremental ? kIncrementalTriggerEdgeMarginFrac : comfortMargin;
     const double settleEdgeMarginFrac =
-        incremental ? kIncrementalSettleEdgeMarginFrac : kRevealComfortEdgeMarginFrac;
+        incremental ? kIncrementalSettleEdgeMarginFrac : comfortMargin;
     const double triggerDistanceFromCenter = halfBw - bandwidthMhz * triggerEdgeMarginFrac;
     const double settleDistanceFromCenter = halfBw - bandwidthMhz * settleEdgeMarginFrac;
     const double center = result.oldCenterMhz;
