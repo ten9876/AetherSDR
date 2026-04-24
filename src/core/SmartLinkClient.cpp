@@ -394,6 +394,8 @@ void SmartLinkClient::parseRadioList(const QString& msg)
         info.guiClientPrograms = kv.value("gui_client_programs");
         info.guiClientStations = kv.value("gui_client_stations");
         info.guiClientHandles  = kv.value("gui_client_handles");
+        info.guiClientIps      = kv.value("gui_client_ips");
+        info.guiClientHosts    = kv.value("gui_client_hosts");
 
         // Port selection: prefer manual port forwards, fall back to UPnP
         // (matches FlexLib WanServer.cs logic)

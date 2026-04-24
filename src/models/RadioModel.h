@@ -232,6 +232,7 @@ public:
     struct ClientInfo {
         QString station;
         QString program;
+        QString source;
         bool localPtt{false};
         QString txAntenna;
         double txFreqMhz{0};
@@ -239,7 +240,14 @@ public:
     const QMap<quint32, ClientInfo>& clientInfoMap() const { return m_clientInfoMap; }
     void    setKnownGuiClients(const QStringList& handles,
                                const QStringList& programs,
-                               const QStringList& stations);
+                               const QStringList& stations,
+                               const QStringList& ips = {},
+                               const QStringList& hosts = {});
+    void    mergeKnownGuiClients(const QStringList& handles,
+                                 const QStringList& programs,
+                                 const QStringList& stations,
+                                 const QStringList& ips = {},
+                                 const QStringList& hosts = {});
     void    setRemoteOnEnabled(bool on);
     void    setMultiFlexEnabled(bool on);
     // Panadapter access (delegates to active pan)
@@ -394,6 +402,16 @@ private:
     void registerAsGuiClient(const QString& clientId);
     void disconnectPendingClientsThen(std::function<void()> continuation);
     void handleForcedClientDisconnect();
+    void applyKnownGuiClients(const QStringList& handles,
+                              const QStringList& programs,
+                              const QStringList& stations,
+                              const QStringList& ips,
+                              const QStringList& hosts,
+                              bool replaceExisting);
+    void announceClientConnection(quint32 handle,
+                                  const QString& source,
+                                  const QString& station,
+                                  const QString& program);
 
     // Route command to active connection (LAN or WAN)
     using ResponseCallback = RadioConnection::ResponseCallback;
@@ -594,6 +612,7 @@ private:
     QMap<quint32, ClientInfo> m_clientInfoMap; // handle → full client info
     QMap<quint32, QString> m_clientStations;   // handle → station name (legacy, kept in sync)
     QList<quint32> m_pendingClientDisconnects; // handles chosen before connecting
+    QSet<quint32> m_announcedClientConnections; // client login notices shown this session
 
     SleepInhibitor m_sleepInhibitor;     // prevents OS idle sleep while connected
     RadioInfo m_lastInfo;               // stored for auto-reconnect

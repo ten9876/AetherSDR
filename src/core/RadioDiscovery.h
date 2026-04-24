@@ -69,6 +69,8 @@ struct RadioInfo {
     QStringList guiClientStations;
     QStringList guiClientHandles;
     QStringList guiClientPrograms;
+    QStringList guiClientIps;
+    QStringList guiClientHosts;
 
     QString displayName() const {
         QString suffix;

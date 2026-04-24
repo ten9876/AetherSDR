@@ -494,7 +494,9 @@ void MainWindow::startWanRadioConnect(const WanRadioInfo& info)
     m_userDisconnected = false;
     m_radioModel.setKnownGuiClients(splitClientField(info.guiClientHandles),
                                     splitClientField(info.guiClientPrograms),
-                                    splitClientField(info.guiClientStations));
+                                    splitClientField(info.guiClientStations),
+                                    splitClientField(info.guiClientIps),
+                                    splitClientField(info.guiClientHosts));
     m_radioModel.setPendingClientDisconnects(disconnectHandles);
     m_connPanel->setStatusText("Requesting SmartLink connection…");
     setPanadapterConnectionAnimation(true, "Connecting to remote radio…");
@@ -808,6 +810,17 @@ MainWindow::MainWindow(QWidget* parent)
             m_connPanel, &ConnectionPanel::onRadioDiscovered);
     connect(&m_discovery, &RadioDiscovery::radioUpdated,
             m_connPanel, &ConnectionPanel::onRadioUpdated);
+    connect(&m_discovery, &RadioDiscovery::radioUpdated,
+            this, [this](const RadioInfo& info) {
+        if (!m_radioModel.isConnected() || m_radioModel.serial() != info.serial)
+            return;
+
+        m_radioModel.mergeKnownGuiClients(info.guiClientHandles,
+                                          info.guiClientPrograms,
+                                          info.guiClientStations,
+                                          info.guiClientIps,
+                                          info.guiClientHosts);
+    });
     connect(&m_discovery, &RadioDiscovery::radioLost,
             m_connPanel, &ConnectionPanel::onRadioLost);
     connect(m_connPanel, &ConnectionPanel::retryDiscoveryRequested, this, [this] {
@@ -906,6 +919,23 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_connPanel, &ConnectionPanel::wanDisconnectClientsRequested,
             this, [this](const WanRadioInfo& info) {
         disconnectWanRadioClients(info);
+    });
+    connect(&m_smartLink, &SmartLinkClient::radioListReceived,
+            this, [this](const QList<WanRadioInfo>& radios) {
+        if (!m_radioModel.isConnected() || !m_radioModel.isWan())
+            return;
+
+        for (const auto& info : radios) {
+            if (info.serial != m_pendingWanRadio.serial)
+                continue;
+
+            m_radioModel.mergeKnownGuiClients(splitClientField(info.guiClientHandles),
+                                              splitClientField(info.guiClientPrograms),
+                                              splitClientField(info.guiClientStations),
+                                              splitClientField(info.guiClientIps),
+                                              splitClientField(info.guiClientHosts));
+            break;
+        }
     });
 
     // SmartLink server says radio is ready — connect via TLS
