@@ -147,7 +147,9 @@ bool PipeWireAudioBridge::loadPipeSource(int index)
         return false;
     }
 
-    // Load PulseAudio pipe-source module
+    // Load PulseAudio pipe-source module.
+    // pipe_size=2048 keeps the module's internal read buffer small (~42ms at
+    // 24kHz mono s16le) to minimize RX latency — matching the TX sink config.
     uint32_t modIdx = runPactl({
         "load-module", "module-pipe-source",
         QStringLiteral("file=%1").arg(pipePath),
@@ -156,6 +158,7 @@ bool PipeWireAudioBridge::loadPipeSource(int index)
         QStringLiteral("format=s16le"),
         QStringLiteral("rate=%1").arg(SAMPLE_RATE),
         QStringLiteral("channels=%1").arg(CHANNELS),
+        QStringLiteral("pipe_size=2048"),
     });
 
     if (modIdx == 0) {
@@ -171,6 +174,14 @@ bool PipeWireAudioBridge::loadPipeSource(int index)
         ::unlink(pipePath.toUtf8().constData());
         return false;
     }
+
+    // Shrink the kernel pipe buffer to cap queuing latency.  The default is
+    // 65536 bytes (~1365ms at 24kHz mono s16le).  4096 bytes (~85ms) provides
+    // enough headroom to absorb scheduling jitter while keeping the pipeline
+    // tight.  The kernel will round up to at least one page (4096).
+#ifdef F_SETPIPE_SZ
+    ::fcntl(fd, F_SETPIPE_SZ, 4096);
+#endif
 
     m_rx[index].fd = fd;
     m_rx[index].moduleIndex = modIdx;
