@@ -8754,6 +8754,44 @@ void MainWindow::registerShortcutActions()
                 if (cur == modes[i]) { idx = i; break; }
             s->setAgcMode(modes[(idx + 1) % 4]);
         });
+    m_shortcutManager.registerAction("agct_up", "AGC-T Up", "AGC",
+        QKeySequence(), [this]() {
+            auto* s = activeSlice();
+            if (s) s->setAgcThreshold(std::min(100, s->agcThreshold() + 5));
+        }, true);
+    m_shortcutManager.registerAction("agct_down", "AGC-T Down", "AGC",
+        QKeySequence(), [this]() {
+            auto* s = activeSlice();
+            if (s) s->setAgcThreshold(std::max(0, s->agcThreshold() - 5));
+        }, true);
+    m_shortcutManager.registerAction("rf_gain_up", "RF Gain Up", "AGC",
+        QKeySequence(), [this]() {
+            auto* pan = m_radioModel.activePanadapter();
+            if (!pan) return;
+            int next = std::min(pan->rfGain() + 8, pan->rfGainHigh());
+            m_radioModel.setPanRfGain(next);
+            if (auto* sw = spectrum()) {
+                sw->setRfGain(next);
+                sw->overlayMenu()->setRfGain(next);
+                auto& s = AppSettings::instance();
+                s.setValue(sw->settingsKey("DisplayRfGain"), QString::number(next));
+                s.save();
+            }
+        }, true);
+    m_shortcutManager.registerAction("rf_gain_down", "RF Gain Down", "AGC",
+        QKeySequence(), [this]() {
+            auto* pan = m_radioModel.activePanadapter();
+            if (!pan) return;
+            int next = std::max(pan->rfGain() - 8, pan->rfGainLow());
+            m_radioModel.setPanRfGain(next);
+            if (auto* sw = spectrum()) {
+                sw->setRfGain(next);
+                sw->overlayMenu()->setRfGain(next);
+                auto& s = AppSettings::instance();
+                s.setValue(sw->settingsKey("DisplayRfGain"), QString::number(next));
+                s.save();
+            }
+        }, true);
 
     // ── Display ─────────────────────────────────────────────────────────
     m_shortcutManager.registerAction("band_zoom", "Band Zoom", "Display",
