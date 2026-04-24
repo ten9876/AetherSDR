@@ -99,14 +99,7 @@ void HelpDialog::buildUI(const QString& resourcePath)
     m_findEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     findLayout->addWidget(m_findEdit, 1);
 
-    m_findButton = new QPushButton("Find", findRow);
-    m_findButton->setObjectName("helpFindButton");
-    m_findButton->setCursor(Qt::PointingHandCursor);
-    m_findButton->setAutoDefault(false);
-    m_findButton->setDefault(false);
-    m_findButton->setEnabled(false);
-    m_findButton->setToolTip("Find next match");
-    m_findButton->setStyleSheet(
+    const QString kFindButtonStyle =
         "QPushButton {"
         "  background: #203040;"
         "  color: #d8e4ee;"
@@ -117,7 +110,26 @@ void HelpDialog::buildUI(const QString& resourcePath)
         "  padding: 0 12px;"
         "}"
         "QPushButton:hover:enabled { background: #28435a; }"
-        "QPushButton:disabled { color: #5f7080; border-color: #263442; }");
+        "QPushButton:disabled { color: #5f7080; border-color: #263442; }";
+
+    m_findPrevButton = new QPushButton("Previous", findRow);
+    m_findPrevButton->setObjectName("helpFindPrevButton");
+    m_findPrevButton->setCursor(Qt::PointingHandCursor);
+    m_findPrevButton->setAutoDefault(false);
+    m_findPrevButton->setDefault(false);
+    m_findPrevButton->setEnabled(false);
+    m_findPrevButton->setToolTip("Find previous match (Shift+Return)");
+    m_findPrevButton->setStyleSheet(kFindButtonStyle);
+    findLayout->addWidget(m_findPrevButton);
+
+    m_findButton = new QPushButton("Next", findRow);
+    m_findButton->setObjectName("helpFindButton");
+    m_findButton->setCursor(Qt::PointingHandCursor);
+    m_findButton->setAutoDefault(false);
+    m_findButton->setDefault(false);
+    m_findButton->setEnabled(false);
+    m_findButton->setToolTip("Find next match (Return)");
+    m_findButton->setStyleSheet(kFindButtonStyle);
     findLayout->addWidget(m_findButton);
 
     m_findStatus = new QLabel(findRow);
@@ -199,13 +211,21 @@ void HelpDialog::buildUI(const QString& resourcePath)
     layout->addWidget(m_browser, 1);
 
     connect(m_findEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
-        if (m_findButton)
-            m_findButton->setEnabled(!text.isEmpty());
+        const bool hasTerm = !text.isEmpty();
+        if (m_findButton)      m_findButton->setEnabled(hasTerm);
+        if (m_findPrevButton)  m_findPrevButton->setEnabled(hasTerm);
         resetFindState();
     });
     connect(m_findEdit, &QLineEdit::returnPressed, this, &HelpDialog::findNext);
     connect(m_findButton, &QPushButton::clicked, this, &HelpDialog::findNext);
+    connect(m_findPrevButton, &QPushButton::clicked, this, &HelpDialog::findPrevious);
     new QShortcut(QKeySequence::Find, this, [this]() { focusFindField(); });
+    // Shift+Return inside the find field → previous match.  Scope to the
+    // find field so the shortcut is only active when typing a query.
+    auto* prevShortcut = new QShortcut(QKeySequence(Qt::SHIFT | Qt::Key_Return),
+                                       m_findEdit,
+                                       [this]() { findPrevious(); });
+    prevShortcut->setContext(Qt::WidgetShortcut);
 
     auto* footer = new QWidget(this);
     footer->setStyleSheet("background: #0a0a14;");
@@ -255,6 +275,16 @@ void HelpDialog::focusFindField()
 
 void HelpDialog::findNext()
 {
+    runFind(/*backward=*/false);
+}
+
+void HelpDialog::findPrevious()
+{
+    runFind(/*backward=*/true);
+}
+
+void HelpDialog::runFind(bool backward)
+{
     if (!m_browser || !m_findEdit)
         return;
 
@@ -265,19 +295,26 @@ void HelpDialog::findNext()
         return;
     }
 
-    if (m_browser->find(term)) {
+    const QTextDocument::FindFlags flags = backward
+        ? QTextDocument::FindFlags(QTextDocument::FindBackward)
+        : QTextDocument::FindFlags();
+
+    if (m_browser->find(term, flags)) {
         updateFindFeedback(QString(), false);
         m_findEdit->setFocus(Qt::OtherFocusReason);
         return;
     }
 
+    // No match from the current cursor position.  Wrap to the opposite
+    // end of the document (top for forward, bottom for backward) and
+    // retry so Return/Shift+Return both circle through matches.
     QTextCursor cursor = m_browser->textCursor();
-    cursor.movePosition(QTextCursor::Start);
+    cursor.movePosition(backward ? QTextCursor::End : QTextCursor::Start);
     cursor.clearSelection();
     m_browser->setTextCursor(cursor);
 
-    if (m_browser->find(term)) {
-        updateFindFeedback("Wrapped to top", false);
+    if (m_browser->find(term, flags)) {
+        updateFindFeedback(backward ? "Wrapped to bottom" : "Wrapped to top", false);
     } else {
         cursor = m_browser->textCursor();
         cursor.movePosition(QTextCursor::Start);

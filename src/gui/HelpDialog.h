@@ -22,6 +22,8 @@ private:
     void buildUI(const QString& resourcePath);
     void focusFindField();
     void findNext();
+    void findPrevious();
+    void runFind(bool backward);
     QString loadMarkdown(const QString& resourcePath) const;
     void resetFindState();
     void updateFindFeedback(const QString& message, bool noMatch);
@@ -29,6 +31,7 @@ private:
     QTextBrowser* m_browser{nullptr};
     QLineEdit* m_findEdit{nullptr};
     QPushButton* m_findButton{nullptr};
+    QPushButton* m_findPrevButton{nullptr};
     QLabel* m_findStatus{nullptr};
 };
 
