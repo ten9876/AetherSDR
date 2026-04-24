@@ -3,6 +3,7 @@
 #include "MqttApplet.h"
 #endif
 #include "ConnectionPanel.h"
+#include "ClientDisconnectDialog.h"
 #include "TitleBar.h"
 #include "PanadapterApplet.h"
 #include "PanadapterStack.h"
@@ -115,6 +116,7 @@
 #include <QLabel>
 #include <QCloseEvent>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QShortcut>
 #include <QScrollArea>
 #include <QFrame>
@@ -315,6 +317,335 @@ static bool shortcutGuard() {
     return s_keyboardShortcutsEnabled && !isTextInputFocused();
 }
 
+static QStringList splitClientField(const QString& raw)
+{
+    QString cleaned = raw;
+    cleaned.replace(QChar(0x7f), QLatin1Char(' '));
+
+    QStringList values;
+    for (const QString& value : cleaned.split(',', Qt::SkipEmptyParts))
+        values << value.trimmed();
+    return values;
+}
+
+static quint32 parseClientHandle(QString text)
+{
+    text = text.trimmed();
+    if (text.startsWith("0x", Qt::CaseInsensitive))
+        text = text.mid(2);
+
+    bool ok = false;
+    const quint32 handle = text.toUInt(&ok, 16);
+    return ok ? handle : 0;
+}
+
+static QList<ClientDisconnectDialog::Client> buildDisconnectClients(const QStringList& handles,
+                                                                    const QStringList& programs,
+                                                                    const QStringList& stations)
+{
+    QList<ClientDisconnectDialog::Client> clients;
+    for (int i = 0; i < handles.size(); ++i) {
+        const quint32 handle = parseClientHandle(handles[i]);
+        if (handle == 0)
+            continue;
+
+        if (std::any_of(clients.cbegin(), clients.cend(), [handle](const auto& client) {
+                return client.handle == handle;
+            })) {
+            continue;
+        }
+
+        ClientDisconnectDialog::Client client;
+        client.handle = handle;
+        if (i < programs.size())
+            client.program = programs[i];
+        if (i < stations.size())
+            client.station = stations[i];
+        clients.append(client);
+    }
+    return clients;
+}
+
+static QList<ClientDisconnectDialog::Client> buildDisconnectClients(const RadioInfo& info)
+{
+    return buildDisconnectClients(info.guiClientHandles,
+                                  info.guiClientPrograms,
+                                  info.guiClientStations);
+}
+
+static QList<ClientDisconnectDialog::Client> buildDisconnectClients(const WanRadioInfo& info)
+{
+    return buildDisconnectClients(splitClientField(info.guiClientHandles),
+                                  splitClientField(info.guiClientPrograms),
+                                  splitClientField(info.guiClientStations));
+}
+
+bool MainWindow::confirmClientSlotAvailability(const RadioInfo& info,
+                                               QList<quint32>* disconnectHandles)
+{
+    if (disconnectHandles)
+        disconnectHandles->clear();
+
+    const auto clients = buildDisconnectClients(info);
+    const int maxSlices = RadioModel::maxSlicesForModel(info.model);
+    if (clients.isEmpty() || clients.size() < maxSlices)
+        return true;
+
+    ClientDisconnectDialog dialog(clients, maxSlices, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return false;
+
+    if (disconnectHandles)
+        *disconnectHandles = dialog.selectedHandles();
+    return !dialog.selectedHandles().isEmpty();
+}
+
+bool MainWindow::confirmClientSlotAvailability(const WanRadioInfo& info,
+                                               QList<quint32>* disconnectHandles)
+{
+    if (disconnectHandles)
+        disconnectHandles->clear();
+
+    const auto clients = buildDisconnectClients(info);
+    const int maxSlices = RadioModel::maxSlicesForModel(info.model);
+    if (clients.isEmpty() || clients.size() < maxSlices)
+        return true;
+
+    ClientDisconnectDialog dialog(clients, maxSlices, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return false;
+
+    if (disconnectHandles)
+        *disconnectHandles = dialog.selectedHandles();
+    return !dialog.selectedHandles().isEmpty();
+}
+
+void MainWindow::disconnectWanRadioClients(const WanRadioInfo& info)
+{
+    if (!m_smartLink.isConnected()) {
+        m_connPanel->setStatusText("SmartLink is not connected");
+        return;
+    }
+
+    const auto clients = buildDisconnectClients(info);
+    if (clients.isEmpty()) {
+        m_connPanel->setStatusText("No remote clients to disconnect");
+        statusBar()->showMessage("No remote clients are currently reported for that radio.", 4000);
+        return;
+    }
+
+    ClientDisconnectDialog dialog(clients,
+                                  RadioModel::maxSlicesForModel(info.model),
+                                  this,
+                                  ClientDisconnectDialog::Mode::RemoteClientDisconnect);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    const QList<quint32> handles = dialog.selectedHandles();
+    if (handles.isEmpty())
+        return;
+
+    m_smartLink.disconnectRadioClients(info.serial, handles);
+    m_connPanel->setStatusText("Disconnect request sent");
+    statusBar()->showMessage("Remote client disconnect request sent through SmartLink.", 4000);
+}
+
+void MainWindow::startWanRadioConnect(const WanRadioInfo& info)
+{
+    QList<quint32> disconnectHandles;
+    if (!confirmClientSlotAvailability(info, &disconnectHandles)) {
+        m_connPanel->setStatusText("Connection canceled");
+        setPanadapterConnectionAnimation(false);
+        return;
+    }
+
+    m_userDisconnected = false;
+    m_radioModel.setPendingClientDisconnects(disconnectHandles);
+    m_connPanel->setStatusText("Requesting SmartLink connection…");
+    setPanadapterConnectionAnimation(true, "Connecting to remote radio…");
+    // Store WAN radio info for when connect_ready arrives
+    m_pendingWanRadio = info;
+
+    // Pre-bind UDP socket for VITA-49 reception BEFORE requesting
+    // connection, so we can pass our port to the SmartLink server.
+    // The server tells the radio our public IP:port for UDP streaming.
+    quint16 udpPort = m_radioModel.panStream()->localPort();
+    if (udpPort == 0) {
+        // Not yet bound — start WAN early to get a port
+        const quint16 radioUdpPort = static_cast<quint16>(
+            info.publicUdpPort > 0 ? info.publicUdpPort : 4993);
+        auto* ps = m_radioModel.panStream();
+        QMetaObject::invokeMethod(ps, [ps, info, radioUdpPort]() {
+            ps->startWan(QHostAddress(info.publicIp), radioUdpPort);
+        }, Qt::BlockingQueuedConnection);
+        udpPort = ps->localPort();
+    }
+    qDebug() << "MainWindow: pre-bound UDP port" << udpPort << "for WAN hole punch";
+    auto requestSmartLinkConnect = [this, serial = info.serial, udpPort] {
+        if (serial != m_pendingWanRadio.serial)
+            return;
+        m_smartLink.requestConnect(serial, udpPort);
+    };
+    if (!disconnectHandles.isEmpty()) {
+        m_smartLink.disconnectRadioClients(info.serial, disconnectHandles);
+        QTimer::singleShot(350, this, requestSmartLinkConnect);
+    } else {
+        requestSmartLinkConnect();
+    }
+}
+
+void MainWindow::showForcedDisconnectDialog(bool wasWan,
+                                            const RadioInfo& radioInfo,
+                                            const WanRadioInfo& wanInfo)
+{
+    if (m_reconnectDlg) {
+        m_reconnectDlg->close();
+        m_reconnectDlg->deleteLater();
+        m_reconnectDlg = nullptr;
+    }
+
+    auto* dialog = new QDialog(this);
+    m_reconnectDlg = dialog;
+    dialog->setWindowTitle(tr("Radio Disconnected"));
+    dialog->setModal(true);
+    dialog->setWindowModality(Qt::ApplicationModal);
+    dialog->setWindowFlags(dialog->windowFlags() & ~Qt::WindowContextHelpButtonHint);
+    dialog->setFixedWidth(460);
+    dialog->setStyleSheet(
+        "QDialog { background: #0f0f1a; }"
+        "QFrame#forcedDisconnectHeader {"
+        "  background: qlineargradient(x1:0, y1:0, x2:1, y2:0,"
+        "    stop:0 #103626, stop:1 #10283a);"
+        "  border-bottom: 1px solid #00b4d8;"
+        "}"
+        "QLabel { color: #c8d8e8; background: transparent; }"
+        "QLabel#eyebrow { color: #40ff80; background: transparent; font-weight: bold; }"
+        "QLabel#title { color: #ffffff; background: transparent; font-size: 18px; font-weight: bold; }"
+        "QLabel#body { color: #c8d8e8; background: transparent; }"
+        "QPushButton {"
+        "  background: #1a2a3a;"
+        "  border: 1px solid #304050;"
+        "  border-radius: 3px;"
+        "  color: #c8d8e8;"
+        "  padding: 7px 16px;"
+        "}"
+        "QPushButton:hover { background: #203040; border-color: #00b4d8; }"
+        "QPushButton#primaryButton {"
+        "  background: #00b4d8;"
+        "  border-color: #00c8f0;"
+        "  color: #0f0f1a;"
+        "  font-weight: bold;"
+        "}"
+        "QPushButton#primaryButton:hover { background: #00c8f0; }");
+
+    auto* outer = new QVBoxLayout(dialog);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(0);
+
+    auto* header = new QFrame(dialog);
+    header->setObjectName("forcedDisconnectHeader");
+    auto* headerLayout = new QVBoxLayout(header);
+    headerLayout->setContentsMargins(18, 14, 18, 14);
+    headerLayout->setSpacing(4);
+
+    auto* eyebrow = new QLabel(tr("CONNECTION ENDED"), header);
+    eyebrow->setObjectName("eyebrow");
+    headerLayout->addWidget(eyebrow);
+
+    auto* title = new QLabel(tr("Disconnected by another client"), header);
+    title->setObjectName("title");
+    headerLayout->addWidget(title);
+    outer->addWidget(header);
+
+    auto* content = new QWidget(dialog);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(18, 16, 18, 18);
+    layout->setSpacing(14);
+
+    auto* body = new QLabel(
+        tr("Another client requested this AetherSDR session to disconnect. "
+           "Automatic reconnect has been paused so the other operator can use the radio safely."),
+        content);
+    body->setObjectName("body");
+    body->setWordWrap(true);
+    layout->addWidget(body);
+
+    auto* buttons = new QHBoxLayout;
+    buttons->setSpacing(10);
+
+    auto* quit = new QPushButton(tr("Quit"), content);
+    quit->setCursor(Qt::PointingHandCursor);
+    quit->setMinimumHeight(34);
+    buttons->addWidget(quit);
+
+    auto* reconnect = new QPushButton(tr("Reconnect"), content);
+    reconnect->setObjectName("primaryButton");
+    reconnect->setCursor(Qt::PointingHandCursor);
+    reconnect->setMinimumHeight(34);
+    buttons->addWidget(reconnect);
+    layout->addLayout(buttons);
+    outer->addWidget(content);
+
+    connect(dialog, &QObject::destroyed, this, [this, dialog] {
+        if (m_reconnectDlg == dialog)
+            m_reconnectDlg = nullptr;
+    });
+
+    connect(quit, &QPushButton::clicked, this, [this, dialog] {
+        m_userDisconnected = true;
+        if (m_reconnectDlg == dialog)
+            m_reconnectDlg = nullptr;
+        dialog->close();
+        dialog->deleteLater();
+        QApplication::quit();
+    });
+
+    connect(reconnect, &QPushButton::clicked, this, [this, dialog, wasWan, radioInfo, wanInfo] {
+        if (m_reconnectDlg == dialog)
+            m_reconnectDlg = nullptr;
+        dialog->close();
+        dialog->deleteLater();
+
+        m_userDisconnected = false;
+        m_connPanel->setStatusText("Reconnecting…");
+        setPanadapterConnectionAnimation(true, "Reconnecting to radio…");
+
+        QTimer::singleShot(300, this, [this, wasWan, radioInfo, wanInfo] {
+            if (wasWan && !wanInfo.serial.isEmpty()) {
+                startWanRadioConnect(wanInfo);
+                return;
+            }
+
+            if (radioInfo.address.isNull()) {
+                setPanadapterConnectionAnimation(false);
+                m_connPanel->setStatusText("Select a radio to reconnect");
+                m_connPanel->show();
+                return;
+            }
+
+            QList<quint32> disconnectHandles;
+            if (!confirmClientSlotAvailability(radioInfo, &disconnectHandles)) {
+                m_userDisconnected = true;
+                m_connPanel->setStatusText("Connection canceled");
+                setPanadapterConnectionAnimation(false);
+                return;
+            }
+
+            m_radioModel.setPendingClientDisconnects(disconnectHandles);
+            m_radioModel.connectToRadio(radioInfo);
+        });
+    });
+
+    dialog->adjustSize();
+    if (QScreen* screen = windowHandle() ? windowHandle()->screen() : QApplication::primaryScreen()) {
+        const QRect area = screen->availableGeometry();
+        dialog->move(area.center() - dialog->rect().center());
+    }
+    dialog->show();
+    dialog->raise();
+    dialog->activateWindow();
+}
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
@@ -470,6 +801,13 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(m_connPanel, &ConnectionPanel::connectRequested,
             this, [this](const RadioInfo& info){
+        QList<quint32> disconnectHandles;
+        if (!confirmClientSlotAvailability(info, &disconnectHandles)) {
+            m_connPanel->setStatusText("Connection canceled");
+            setPanadapterConnectionAnimation(false);
+            return;
+        }
+        m_radioModel.setPendingClientDisconnects(disconnectHandles);
         m_connPanel->setStatusText("Connecting…");
         m_userDisconnected = false;
         setPanadapterConnectionAnimation(true, "Connecting to radio…");
@@ -492,6 +830,14 @@ MainWindow::MainWindow(QWidget* parent)
             .value("LastConnectedRadioSerial").toString();
         if (!lastSerial.isEmpty() && info.serial == lastSerial
             && !m_radioModel.isConnected()) {
+            QList<quint32> disconnectHandles;
+            if (!confirmClientSlotAvailability(info, &disconnectHandles)) {
+                m_userDisconnected = true;
+                m_connPanel->setStatusText("Connection canceled");
+                setPanadapterConnectionAnimation(false);
+                return;
+            }
+            m_radioModel.setPendingClientDisconnects(disconnectHandles);
             qDebug() << "Auto-connecting to" << info.displayName();
             m_connPanel->setStatusText("Auto-connecting…");
             setPanadapterConnectionAnimation(true, "Connecting to radio…");
@@ -520,27 +866,11 @@ MainWindow::MainWindow(QWidget* parent)
     // WAN radio connect: ask SmartLink server for a handle, then TLS to radio
     connect(m_connPanel, &ConnectionPanel::wanConnectRequested,
             this, [this](const WanRadioInfo& info) {
-        m_connPanel->setStatusText("Requesting SmartLink connection…");
-        setPanadapterConnectionAnimation(true, "Connecting to remote radio…");
-        // Store WAN radio info for when connect_ready arrives
-        m_pendingWanRadio = info;
-
-        // Pre-bind UDP socket for VITA-49 reception BEFORE requesting
-        // connection, so we can pass our port to the SmartLink server.
-        // The server tells the radio our public IP:port for UDP streaming.
-        quint16 udpPort = m_radioModel.panStream()->localPort();
-        if (udpPort == 0) {
-            // Not yet bound — start WAN early to get a port
-            const quint16 radioUdpPort = static_cast<quint16>(
-                info.publicUdpPort > 0 ? info.publicUdpPort : 4993);
-            auto* ps = m_radioModel.panStream();
-            QMetaObject::invokeMethod(ps, [ps, info, radioUdpPort]() {
-                ps->startWan(QHostAddress(info.publicIp), radioUdpPort);
-            }, Qt::BlockingQueuedConnection);
-            udpPort = ps->localPort();
-        }
-        qDebug() << "MainWindow: pre-bound UDP port" << udpPort << "for WAN hole punch";
-        m_smartLink.requestConnect(info.serial, udpPort);
+        startWanRadioConnect(info);
+    });
+    connect(m_connPanel, &ConnectionPanel::wanDisconnectClientsRequested,
+            this, [this](const WanRadioInfo& info) {
+        disconnectWanRadioClients(info);
     });
 
     // SmartLink server says radio is ready — connect via TLS
@@ -833,6 +1163,17 @@ MainWindow::MainWindow(QWidget* parent)
             this, &MainWindow::onConnectionStateChanged);
     connect(&m_radioModel, &RadioModel::connectionError,
             this, &MainWindow::onConnectionError);
+    connect(&m_radioModel, &RadioModel::forcedDisconnectRequested,
+            this, [this] {
+        const bool wasWan = m_radioModel.isWan();
+        const RadioInfo radioInfo = m_radioModel.lastRadioInfo();
+        const WanRadioInfo wanInfo = m_pendingWanRadio;
+
+        m_userDisconnected = true;
+        m_connPanel->setStatusText("Disconnected by another client");
+        setPanadapterConnectionAnimation(false);
+        showForcedDisconnectDialog(wasWan, radioInfo, wanInfo);
+    });
     connect(&m_radioModel, &RadioModel::sliceAdded,
             this, &MainWindow::onSliceAdded);
     connect(&m_radioModel, &RadioModel::sliceRemoved,
@@ -2720,6 +3061,14 @@ MainWindow::MainWindow(QWidget* parent)
         const QString lastSerial = AppSettings::instance()
             .value("LastConnectedRadioSerial").toString();
         if (!lastSerial.isEmpty() && info.serial == lastSerial) {
+            QList<quint32> disconnectHandles;
+            if (!confirmClientSlotAvailability(info, &disconnectHandles)) {
+                m_userDisconnected = true;
+                m_connPanel->setStatusText("Connection canceled");
+                setPanadapterConnectionAnimation(false);
+                return;
+            }
+            m_radioModel.setPendingClientDisconnects(disconnectHandles);
             qDebug() << "Auto-connecting to routed radio" << info.address.toString();
             m_connPanel->setStatusText("Auto-connecting…");
             setPanadapterConnectionAnimation(true, "Connecting to radio…");

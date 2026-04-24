@@ -481,6 +481,7 @@ set(MODEL_SOURCES
 set(GUI_SOURCES
     src/gui/MainWindow.cpp
     src/gui/ConnectionPanel.cpp
+    src/gui/ClientDisconnectDialog.cpp
     src/gui/SpectrumWidget.cpp
     src/gui/SpectrumOverlayMenu.cpp
     src/gui/VfoWidget.cpp

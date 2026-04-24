@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QList>
 #include <QSslSocket>
 #include <QString>
 #include <QStringList>
@@ -61,6 +62,8 @@ public:
     // holePunchPort is the local UDP port we've bound for VITA-49 reception;
     // the SmartLink server tells the radio to send UDP to our public IP:port.
     void requestConnect(const QString& serial, quint16 holePunchPort = 0);
+    // Ask the SmartLink server to force-disconnect specific GUI clients.
+    void disconnectRadioClients(const QString& serial, const QList<quint32>& handles);
     // Disconnect from SmartLink server
     void disconnect();
 

@@ -176,6 +176,11 @@ private:
     void updatePaTempLabel();
     void showNetworkDiagnosticsDialog();
     void showPropDashboard();
+    bool confirmClientSlotAvailability(const RadioInfo& info, QList<quint32>* disconnectHandles);
+    bool confirmClientSlotAvailability(const WanRadioInfo& info, QList<quint32>* disconnectHandles);
+    void disconnectWanRadioClients(const WanRadioInfo& info);
+    void startWanRadioConnect(const WanRadioInfo& info);
+    void showForcedDisconnectDialog(bool wasWan, const RadioInfo& radioInfo, const WanRadioInfo& wanInfo);
     void setPaTempDisplayUnit(bool useFahrenheit);
     void setPanadapterConnectionAnimation(bool visible, const QString& label = {});
     void finishPanadapterConnectionAnimation();

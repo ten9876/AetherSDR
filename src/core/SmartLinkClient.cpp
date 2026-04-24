@@ -252,6 +252,27 @@ void SmartLinkClient::requestConnect(const QString& serial, quint16 holePunchPor
     m_socket.write(cmd.toUtf8());
 }
 
+void SmartLinkClient::disconnectRadioClients(const QString& serial, const QList<quint32>& handles)
+{
+    if (!m_serverConnected || serial.isEmpty())
+        return;
+
+    QList<quint32> uniqueHandles;
+    for (quint32 handle : handles) {
+        if (handle != 0 && !uniqueHandles.contains(handle))
+            uniqueHandles.append(handle);
+    }
+
+    for (quint32 handle : uniqueHandles) {
+        const QString handleText = QString("0x%1").arg(handle, 0, 16);
+        const QString cmd = QString("application disconnect_users serial=%1 handle=%2\n")
+                                .arg(serial, handleText);
+        qCDebug(lcSmartLink) << "SmartLinkClient: disconnecting GUI client"
+                             << handleText << "from radio" << serial;
+        m_socket.write(cmd.toUtf8());
+    }
+}
+
 // ── TLS Socket Callbacks ─────────────────────────────────────────────────────
 
 void SmartLinkClient::onSslConnected()

@@ -12,6 +12,7 @@
 #include <QtEndian>
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 namespace AetherSDR {
 
@@ -59,6 +60,13 @@ QString atuStatusToString(ATUStatus status)
     case ATUStatus::ManualBypass: return "ManualBypass";
     }
     return "Unknown";
+}
+
+bool statusFlagSet(const QMap<QString, QString>& kvs, const QString& key)
+{
+    const QString value = kvs.value(key).trimmed();
+    return value == QStringLiteral("1")
+        || value.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0;
 }
 
 QJsonObject panToJson(const PanadapterModel* pan, const QString& activePanId)
@@ -249,6 +257,21 @@ bool RadioModel::isConnected() const
     return m_connection->isConnected() || (m_wanConn && m_wanConn->isConnected());
 }
 
+int RadioModel::maxSlicesForModel(const QString& model)
+{
+    const QString normalized = model.toUpper();
+    // FlexRadio lists slice capacity as independent receivers per model family.
+    if (normalized.contains("6700"))
+        return 8;
+    if (normalized.contains("6600") || normalized.contains("6500")
+            || normalized.contains("8600") || normalized.contains("AU-520"))
+        return 4;
+    if (normalized.contains("6300") || normalized.contains("6400")
+            || normalized.contains("8400") || normalized.contains("AU-510"))
+        return 2;
+    return 4;
+}
+
 SliceModel* RadioModel::slice(int id) const
 {
     for (auto* s : m_slices)
@@ -263,10 +286,12 @@ void RadioModel::connectToRadio(const RadioInfo& info)
     m_wanConn = nullptr;  // LAN mode
     m_lastInfo = info;
     m_intentionalDisconnect = false;
+    m_forcedDisconnectInProgress = false;
     m_reconnectTimer.stop();
     m_name    = info.name;
     m_model   = info.model;
     m_version = info.version;
+    m_maxSlices = maxSlicesForModel(m_model);
     // Populate client station map from discovery data
     m_clientStations.clear();
     m_clientInfoMap.clear();
@@ -296,6 +321,7 @@ void RadioModel::connectViaWan(WanConnection* wan, const QString& publicIp, quin
     m_wanPublicIp = publicIp;
     m_wanUdpPort = udpPort;
     m_intentionalDisconnect = false;
+    m_forcedDisconnectInProgress = false;
     m_reconnectTimer.stop();
 
     // Wire WAN connection signals (same as RadioConnection)
@@ -319,6 +345,15 @@ void RadioModel::connectViaWan(WanConnection* wan, const QString& publicIp, quin
         onConnected();
     } else {
         qCDebug(lcProtocol) << "RadioModel: WAN not yet connected, waiting for connected signal";
+    }
+}
+
+void RadioModel::setPendingClientDisconnects(const QList<quint32>& handles)
+{
+    m_pendingClientDisconnects.clear();
+    for (quint32 handle : handles) {
+        if (handle != 0 && !m_pendingClientDisconnects.contains(handle))
+            m_pendingClientDisconnects.append(handle);
     }
 }
 
@@ -770,15 +805,87 @@ void RadioModel::onConnected()
     // especially on WAN/SmartLink where the radio is stricter.
     const QString clientId = AppSettings::instance().value("GUIClientID").toString();
 
-    if (m_wanConn) {
-        // On WAN: wait for client ip response before sending client gui.
-        // The radio needs time after wan validate to accept GUI registration.
-        sendCmd("client ip", [this, clientId](int, const QString& body) {
-            qCDebug(lcProtocol) << "RadioModel: client ip ->" << body.trimmed();
+    disconnectPendingClientsThen([this, clientId] {
+        if (m_wanConn) {
+            // On WAN: wait for client ip response before sending client gui.
+            // The radio needs time after wan validate to accept GUI registration.
+            sendCmd("client ip", [this, clientId](int, const QString& body) {
+                qCDebug(lcProtocol) << "RadioModel: client ip ->" << body.trimmed();
+                registerAsGuiClient(clientId);
+            });
+        } else {
             registerAsGuiClient(clientId);
+        }
+    });
+}
+
+void RadioModel::disconnectPendingClientsThen(std::function<void()> continuation)
+{
+    QList<quint32> handles;
+    const quint32 ours = clientHandle();
+    for (quint32 handle : m_pendingClientDisconnects) {
+        if (handle != 0 && handle != ours && !handles.contains(handle))
+            handles.append(handle);
+    }
+    m_pendingClientDisconnects.clear();
+
+    if (handles.isEmpty()) {
+        continuation();
+        return;
+    }
+
+    auto remaining = std::make_shared<QList<quint32>>(handles);
+    auto step = std::make_shared<std::function<void()>>();
+    *step = [this, remaining, continuation, step]() mutable {
+        if (remaining->isEmpty()) {
+            QTimer::singleShot(250, this, [continuation]() mutable {
+                continuation();
+            });
+            return;
+        }
+
+        const quint32 handle = remaining->takeFirst();
+        const QString command = QString("client disconnect 0x%1").arg(handle, 0, 16);
+        qCDebug(lcProtocol) << "RadioModel: disconnecting occupied client" << Qt::hex << handle;
+        sendCmd(command, [handle, step](int code, const QString& body) {
+            if (code != 0) {
+                qCWarning(lcProtocol) << "RadioModel: client disconnect failed for"
+                                      << Qt::hex << handle
+                                      << "code" << code
+                                      << "body:" << body;
+            }
+            (*step)();
+        });
+    };
+
+    (*step)();
+}
+
+void RadioModel::handleForcedClientDisconnect()
+{
+    if (m_forcedDisconnectInProgress)
+        return;
+
+    m_forcedDisconnectInProgress = true;
+    m_intentionalDisconnect = true;
+    m_reconnectTimer.stop();
+
+    qCWarning(lcProtocol) << "RadioModel: this GUI client was force-disconnected by another client";
+    emit forcedDisconnectRequested();
+
+    if (m_wanConn) {
+        m_wanConn->disconnectFromRadio();
+        return;
+    }
+
+    const quint32 handle = clientHandle();
+    const QString streamId = m_rxAudioStreamId;
+    if (m_connection->isConnected()) {
+        QMetaObject::invokeMethod(m_connection, [conn = m_connection, handle, streamId]() {
+            conn->gracefulDisconnect(handle, streamId);
         });
     } else {
-        registerAsGuiClient(clientId);
+        QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
     }
 }
 
@@ -1208,6 +1315,7 @@ void RadioModel::onDisconnected()
     m_ampHandle.clear();
     m_ampOperate = false;
     m_fullDuplex = false;
+    m_maxSlices = 4;
     m_model.clear();
     m_version.clear();
     m_chassisSerial.clear();
@@ -1238,6 +1346,7 @@ void RadioModel::onDisconnected()
     m_clientInfoMap.clear();
     emit otherClientsChanged(0, {});
     emit connectionStateChanged(false);
+    m_forcedDisconnectInProgress = false;
 
     if (m_wanConn) {
         qCDebug(lcProtocol) << "RadioModel: WAN disconnected (no auto-reconnect for SmartLink)";
@@ -1667,6 +1776,8 @@ void RadioModel::onStatusReceived(const QString& object,
             QString action = cm.captured(2);  // "disconnected" or empty
 
             if (action == "disconnected") {
+                if (handle == clientHandle() && statusFlagSet(kvs, QStringLiteral("forced")))
+                    handleForcedClientDisconnect();
                 m_clientStations.remove(handle);
                 m_clientInfoMap.remove(handle);
                 emitOtherClientsChanged();
@@ -2235,7 +2346,7 @@ void RadioModel::setMultiFlexEnabled(bool on)
 void RadioModel::handleRadioStatus(const QMap<QString, QString>& kvs)
 {
     bool changed = false;
-    if (kvs.contains("model"))    { m_model = kvs["model"]; changed = true; }
+    if (kvs.contains("model"))    { m_model = kvs["model"]; m_maxSlices = maxSlicesForModel(m_model); changed = true; }
     if (kvs.contains("slices")) {
         // slices=N reports available (unused) slots; total capacity = open + available
         int available = kvs["slices"].toInt();

@@ -301,9 +301,20 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     loginLayout->addRow(QString(), m_loginBtn);
     accountLayout->addWidget(m_loginForm);
 
-    m_logoutBtn = new QPushButton("Sign Out", accountGroup);
+    auto* accountActionBar = new QWidget(accountGroup);
+    auto* accountActionRow = new QHBoxLayout(accountActionBar);
+    accountActionRow->setContentsMargins(0, 0, 0, 0);
+    accountActionRow->setSpacing(10);
+
+    m_logoutBtn = new QPushButton("Sign Out", accountActionBar);
     m_logoutBtn->setVisible(false);
-    accountLayout->addWidget(m_logoutBtn, 0, Qt::AlignLeft);
+    accountActionRow->addWidget(m_logoutBtn);
+    m_wanDisconnectClientsBtn = new QPushButton("Disconnect Remote Clients", accountActionBar);
+    m_wanDisconnectClientsBtn->setVisible(false);
+    m_wanDisconnectClientsBtn->setEnabled(false);
+    accountActionRow->addWidget(m_wanDisconnectClientsBtn);
+    accountActionRow->addStretch();
+    accountLayout->addWidget(accountActionBar);
 
     m_slUserLabel = makeWrappedLabel("Sign in to see radios at remote stations.", kHintLabelStyle);
     accountLayout->addWidget(m_slUserLabel);
@@ -466,6 +477,8 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
             this, &ConnectionPanel::onLocalConnectClicked);
     connect(m_wanConnectBtn, &QPushButton::clicked,
             this, &ConnectionPanel::onWanConnectClicked);
+    connect(m_wanDisconnectClientsBtn, &QPushButton::clicked,
+            this, &ConnectionPanel::onWanDisconnectClientsClicked);
     connect(m_disconnectBtn, &QPushButton::clicked,
             this, &ConnectionPanel::disconnectRequested);
     connect(m_radioList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) {
@@ -622,6 +635,7 @@ void ConnectionPanel::updateSmartLinkUi()
 
     m_loginForm->setVisible(!authed);
     m_logoutBtn->setVisible(authed);
+    m_wanDisconnectClientsBtn->setVisible(authed);
     m_wanList->setVisible(hasWanRadios);
     m_wanConnectBtn->setVisible(authed);
 
@@ -663,6 +677,16 @@ void ConnectionPanel::updateActionState()
         && m_smartLink->isAuthenticated()
         && m_wanList->currentItem() != nullptr;
     m_wanConnectBtn->setEnabled(smartLinkReady);
+
+    const int wanRow = m_wanList->currentRow();
+    const bool remoteClientsAvailable = wanRow >= 0
+        && wanRow < m_wanRadios.size()
+        && !m_wanRadios[wanRow].guiClientHandles.trimmed().isEmpty();
+    const bool smartLinkDisconnectReady = m_smartLink
+        && m_smartLink->isAuthenticated()
+        && m_smartLink->isConnected()
+        && remoteClientsAvailable;
+    m_wanDisconnectClientsBtn->setEnabled(smartLinkDisconnectReady);
 
     const bool manualReady = !m_connected && !m_manualIpEdit->text().trimmed().isEmpty();
     m_manualConnectBtn->setEnabled(manualReady);
@@ -814,6 +838,15 @@ void ConnectionPanel::onWanConnectClicked()
 
     saveLowBandwidthPreference(m_lowBwCheck->isChecked());
     emit wanConnectRequested(m_wanRadios[row]);
+}
+
+void ConnectionPanel::onWanDisconnectClientsClicked()
+{
+    const int row = m_wanList->currentRow();
+    if (row < 0 || row >= m_wanRadios.size())
+        return;
+
+    emit wanDisconnectClientsRequested(m_wanRadios[row]);
 }
 
 void ConnectionPanel::setSmartLinkClient(SmartLinkClient* client)

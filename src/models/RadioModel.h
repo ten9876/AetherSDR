@@ -24,6 +24,7 @@
 #include <QJsonObject>
 #include <QMap>
 #include <QSet>
+#include <functional>
 
 namespace AetherSDR {
 
@@ -110,6 +111,7 @@ public:
     QString region()       const { return m_region; }
     int     rttyMarkDefault() const { return m_rttyMarkDefault; }
     QString radioOptions() const { return m_radioOptions; }
+    RadioInfo lastRadioInfo() const { return m_lastInfo; }
 
     // License info (populated from "sub license all" responses)
     QString licenseRadioId()        const { return m_licenseRadioId; }
@@ -137,6 +139,7 @@ public:
 
     // Max slices reported by radio
     int maxSlices() const { return m_maxSlices; }
+    static int maxSlicesForModel(const QString& model);
 
     // Max panadapters supported by this radio model.
     // FLEX-6700: 8 (dual SCU, high-capacity)
@@ -251,6 +254,7 @@ public:
     // High-level actions
     void connectToRadio(const RadioInfo& info);
     void connectViaWan(WanConnection* wan, const QString& publicIp, quint16 udpPort);
+    void setPendingClientDisconnects(const QList<quint32>& handles);
     void disconnectFromRadio();
     void forceDisconnect();  // Close TCP but allow auto-reconnect
     bool isWan() const { return m_wanConn != nullptr; }
@@ -293,6 +297,8 @@ signals:
     void sliceRemoved(int sliceId);
     void metersChanged();
     void connectionError(const QString& msg);
+    // Emitted when another GUI client forces this client to disconnect.
+    void forcedDisconnectRequested();
     // Emitted when a panadapter's center frequency or bandwidth changes.
     void panadapterInfoChanged(double centerMhz, double bandwidthMhz);
     // Emitted when the radio reports the panadapter's dBm display range.
@@ -378,6 +384,8 @@ private:
     void configurePan();
     void configureWaterfall();
     void registerAsGuiClient(const QString& clientId);
+    void disconnectPendingClientsThen(std::function<void()> continuation);
+    void handleForcedClientDisconnect();
 
     // Route command to active connection (LAN or WAN)
     using ResponseCallback = RadioConnection::ResponseCallback;
@@ -576,10 +584,12 @@ private:
     quint32            m_txClientHandle{0};  // handle of the client that owns TX
     QMap<quint32, ClientInfo> m_clientInfoMap; // handle → full client info
     QMap<quint32, QString> m_clientStations;   // handle → station name (legacy, kept in sync)
+    QList<quint32> m_pendingClientDisconnects; // handles chosen before connecting
 
     SleepInhibitor m_sleepInhibitor;     // prevents OS idle sleep while connected
     RadioInfo m_lastInfo;               // stored for auto-reconnect
     bool      m_intentionalDisconnect{false};
+    bool      m_forcedDisconnectInProgress{false};
     QTimer    m_reconnectTimer;
 
     // ── Network quality monitor (matches FlexLib MonitorNetworkQuality) ──

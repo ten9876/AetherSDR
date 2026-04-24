@@ -43,6 +43,7 @@ public slots:
 signals:
     void connectRequested(const RadioInfo& radio);
     void wanConnectRequested(const WanRadioInfo& radio);
+    void wanDisconnectClientsRequested(const WanRadioInfo& radio);
     void disconnectRequested();
     void routedRadioFound(const RadioInfo& radio);
     void retryDiscoveryRequested();
@@ -55,6 +56,7 @@ private slots:
     void onWanSelectionChanged();
     void onLocalConnectClicked();
     void onWanConnectClicked();
+    void onWanDisconnectClientsClicked();
     void onManualIpChanged(const QString& ip);
     void onManualConnectClicked();
     void onManualAdvancedToggled(bool checked);
@@ -110,6 +112,7 @@ private:
     QLabel*      m_slUserLabel{nullptr};
     QListWidget* m_wanList{nullptr};
     QLabel*      m_smartLinkEmptyLabel{nullptr};
+    QPushButton* m_wanDisconnectClientsBtn{nullptr};
     QPushButton* m_wanConnectBtn{nullptr};
     QList<WanRadioInfo> m_wanRadios;
 
