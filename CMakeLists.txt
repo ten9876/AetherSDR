@@ -426,6 +426,7 @@ set(CORE_SOURCES
     src/core/TciProtocol.cpp
     src/core/MqttClient.cpp
     src/core/PgxlConnection.cpp
+    src/core/Rf2kController.cpp
     src/core/FirmwareUploader.cpp
     src/core/DvkWavTransfer.cpp
     src/core/QsoRecorder.cpp

@@ -40,6 +40,7 @@
 #include "core/ShortcutManager.h"
 #include "core/TgxlConnection.h"
 #include "core/PgxlConnection.h"
+#include "core/Rf2kController.h"
 #include "core/DxccColorProvider.h"
 
 #include <QMainWindow>
@@ -217,6 +218,7 @@ private:
     AntennaGeniusModel m_antennaGenius;
     TgxlConnection    m_tgxlConn;        // direct TCP 9010 to TGXL for manual relay control
     PgxlConnection    m_pgxlConn;        // direct TCP 9008 to PGXL for telemetry
+    Rf2kController    m_rf2kController;   // N1MM UDP band switching for RF2K+/RF2K-S PA
     BandPlanManager*  m_bandPlanMgr{nullptr};
     CwDecoder         m_cwDecoder;
     DxClusterClient*   m_dxCluster{nullptr};

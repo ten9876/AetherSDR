@@ -14,6 +14,7 @@
 #include "core/FirmwareStager.h"
 #include "core/TgxlConnection.h"
 #include "core/PgxlConnection.h"
+#include "core/Rf2kController.h"
 #include "models/AntennaGeniusModel.h"
 
 #include <QCloseEvent>
@@ -65,9 +66,10 @@ static const QString kEditStyle =
 
 RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
                                    TgxlConnection* tgxl, PgxlConnection* pgxl,
-                                   AntennaGeniusModel* ag, QWidget* parent)
+                                   AntennaGeniusModel* ag, Rf2kController* rf2k,
+                                   QWidget* parent)
     : QDialog(parent), m_model(model), m_audio(audio),
-      m_tgxl(tgxl), m_pgxl(pgxl), m_ag(ag)
+      m_tgxl(tgxl), m_pgxl(pgxl), m_ag(ag), m_rf2k(rf2k)
 {
     setWindowTitle("Radio Setup");
     setMinimumSize(820, 620);
@@ -3391,6 +3393,68 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
             [this]() { return m_ag->peerPort(); });
         connect(m_ag, &AntennaGeniusModel::connected, this, updateAg);
         connect(m_ag, &AntennaGeniusModel::disconnected, this, updateAg);
+    }
+
+    // Row 4: RF2K+/RF2K-S Power Amplifier — N1MM UDP band switching (#1902)
+    if (m_rf2k) {
+        int rf2kRow = 4;
+        auto* devLbl = new QLabel("RF2K+/RF2K-S (PA)");
+        devLbl->setStyleSheet(kLabelStyle);
+        grid->addWidget(devLbl, rf2kRow, 0);
+
+        auto* ipEdit = new QLineEdit;
+        ipEdit->setPlaceholderText("e.g. 192.168.1.50");
+        ipEdit->setStyleSheet(kEditStyle);
+        ipEdit->setMinimumWidth(140);
+        QString savedIp = settings.value("Rf2kIpAddress", "").toString();
+        if (!savedIp.isEmpty())
+            ipEdit->setText(savedIp);
+        else if (!m_rf2k->targetIp().isEmpty())
+            ipEdit->setText(m_rf2k->targetIp());
+        grid->addWidget(ipEdit, rf2kRow, 1);
+
+        auto* portSpin = new QSpinBox;
+        portSpin->setRange(1, 65535);
+        int savedPort = settings.value("Rf2kUdpPort", "0").toInt();
+        portSpin->setValue(savedPort > 0 ? savedPort : 12060);
+        portSpin->setStyleSheet(
+            "QSpinBox { background: #1a2a3a; border: 1px solid #304050; "
+            "border-radius: 3px; color: #c8d8e8; font-size: 12px; padding: 2px; }");
+        grid->addWidget(portSpin, rf2kRow, 2);
+
+        auto* enableBtn = new QPushButton(m_rf2k->isEnabled() ? "Disable" : "Enable");
+        enableBtn->setStyleSheet(kBtnStyle);
+        grid->addWidget(enableBtn, rf2kRow, 3);
+
+        auto* statusLbl = new QLabel(m_rf2k->isEnabled() ? "Enabled" : "Disabled");
+        statusLbl->setStyleSheet(m_rf2k->isEnabled()
+            ? "QLabel { color: #00e060; font-size: 11px; }"
+            : "QLabel { color: #8aa8c0; font-size: 11px; }");
+        grid->addWidget(statusLbl, rf2kRow, 4);
+
+        connect(enableBtn, &QPushButton::clicked, this,
+                [=, &settings]() {
+            if (m_rf2k->isEnabled()) {
+                m_rf2k->setEnabled(false);
+                settings.setValue("Rf2kEnabled", "False");
+            } else {
+                QString ip = ipEdit->text().trimmed();
+                if (ip.isEmpty()) return;
+                int port = portSpin->value();
+                settings.setValue("Rf2kIpAddress", ip);
+                settings.setValue("Rf2kUdpPort", QString::number(port));
+                settings.setValue("Rf2kEnabled", "True");
+                m_rf2k->setTarget(ip, static_cast<quint16>(port));
+                m_rf2k->setEnabled(true);
+            }
+            settings.save();
+            bool on = m_rf2k->isEnabled();
+            enableBtn->setText(on ? "Disable" : "Enable");
+            statusLbl->setText(on ? "Enabled" : "Disabled");
+            statusLbl->setStyleSheet(on
+                ? "QLabel { color: #00e060; font-size: 11px; }"
+                : "QLabel { color: #8aa8c0; font-size: 11px; }");
+        });
     }
 
     for (auto* lbl : group->findChildren<QLabel*>())

@@ -3842,7 +3842,7 @@ void MainWindow::buildMenuBar()
         // Snapshot compression setting before dialog opens
         QString prevComp = m_radioModel.audioCompressionParam();
 
-        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, this);
+        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, &m_rf2kController, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         m_radioSetupDialog = dlg;
         connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
@@ -3898,7 +3898,7 @@ void MainWindow::buildMenuBar()
 #ifdef HAVE_SERIALPORT
     auto* flexControlAction = settingsMenu->addAction("FlexControl...");
     connect(flexControlAction, &QAction::triggered, this, [this] {
-        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, this);
+        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, &m_rf2kController, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
                 m_txBandAction, &QAction::trigger);
@@ -3923,7 +3923,7 @@ void MainWindow::buildMenuBar()
     });
     auto* usbCablesAction = settingsMenu->addAction("USB Cables...");
     connect(usbCablesAction, &QAction::triggered, this, [this] {
-        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, this);
+        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, &m_rf2kController, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
                 m_txBandAction, &QAction::trigger);
@@ -5835,6 +5835,15 @@ void MainWindow::onConnectionStateChanged(bool connected)
                 quint16 agPort = static_cast<quint16>(cs.value("AG_ManualPort", "9007").toInt());
                 m_antennaGenius.connectToAddress(QHostAddress(agIp), agPort);
             }
+            // RF2K+/RF2K-S PA — enable N1MM UDP band switching (#1902)
+            QString rf2kIp = cs.value("Rf2kIpAddress", "").toString();
+            if (!rf2kIp.isEmpty() && cs.value("Rf2kEnabled", "False").toString() == "True") {
+                quint16 rf2kPort = static_cast<quint16>(cs.value("Rf2kUdpPort", "12060").toInt());
+                int rf2kRadioNr = cs.value("Rf2kRadioNr", "1").toInt();
+                m_rf2kController.setTarget(rf2kIp, rf2kPort);
+                m_rf2kController.setRadioNr(rf2kRadioNr);
+                m_rf2kController.setEnabled(true);
+            }
         }
     } else {
         QMetaObject::invokeMethod(m_dxCluster, [=] { m_dxCluster->disconnect(); });
@@ -5856,6 +5865,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_panStack->setBandStackVisible(false);
         refreshMemoryBrowsePanel();
         updateBandStackIndicator();
+        m_rf2kController.setEnabled(false);
         m_tgxlIndicator->setVisible(false);
         m_tgxlConn.disconnect();
         m_pgxlConn.disconnect();
@@ -6307,6 +6317,10 @@ void MainWindow::onSliceAdded(SliceModel* s)
             && AppSettings::instance().value("ActiveFollowsTxSlice", "False").toString() == "True") {
             setActiveSlice(s->sliceId());
         }
+
+        // RF2K+/RF2K-S: track TX slice for N1MM UDP band switching (#1902)
+        if (tx)
+            m_rf2kController.setTxSlice(s);
     });
 
     // When the radio notifies us that this slice became active, switch to it
@@ -7686,7 +7700,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     // XVTR button → open Radio Setup XVTR tab (#571)
     connect(menu, &SpectrumOverlayMenu::xvtrSetupRequested,
             this, [this]() {
-        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, this);
+        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, &m_rf2kController, this);
         connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
                 m_txBandAction, &QAction::trigger);
         dlg->selectTab("XVTR");
