@@ -347,7 +347,7 @@ signals:
                           const QString& lat, const QString& lon,
                           const QString& utcTime);
     // Emitted when network quality assessment changes.
-    // quality: "Excellent", "Very Good", "Good", "Fair", "Poor"
+    // quality: "Off", "Excellent", "Very Good", "Good", "Fair", "Poor"
     // pingMs: round-trip time in milliseconds
     void networkQualityChanged(const QString& quality, int pingMs);
     // Emitted when the radio assigns a TX audio stream ID (DAX TX).
@@ -628,23 +628,40 @@ private:
     bool      m_forcedDisconnectInProgress{false};
     QTimer    m_reconnectTimer;
 
-    // ── Network quality monitor (matches FlexLib MonitorNetworkQuality) ──
+    // ── Network quality monitor ──
     void startNetworkMonitor();
     void stopNetworkMonitor();
     void evaluateNetworkQuality();
+    void resetNetworkHealthSamples();
+    void recordNetworkHealthSample(int currentErrors, int currentPackets);
 
     enum class NetState { Off, Excellent, VeryGood, Good, Fair, Poor };
+    double networkQualityTargetScore(int pingMs) const;
+    NetState networkStateForScore(double score, NetState currentState) const;
+    bool usesRemoteNetworkThresholds() const;
+
     static constexpr int LAN_PING_FAIR_MS = 50;
     static constexpr int LAN_PING_POOR_MS = 100;
+    static constexpr int REMOTE_PING_FAIR_MS = 180;
+    static constexpr int REMOTE_PING_POOR_MS = 350;
+    static constexpr int NETWORK_LOSS_WINDOW_SAMPLES = 10;
+    static constexpr int NETWORK_MIN_LOSS_WINDOW_PACKETS = 100;
 
     QTimer        m_pingTimer;           // 1-second interval
+    QMetaObject::Connection m_networkPingConnection;
     // RTT now measured by RadioConnection::pingRttMeasured at socket-read time
     int           m_lastPingRtt{0};      // ms
     int           m_maxPingRtt{0};       // max RTT seen this session
     int           m_lastErrorCount{0};   // snapshot for delta
+    int           m_lastPacketCount{0};  // snapshot for delta
+    int           m_lossSamplePackets[NETWORK_LOSS_WINDOW_SAMPLES]{};
+    int           m_lossSampleErrors[NETWORK_LOSS_WINDOW_SAMPLES]{};
+    int           m_lossSampleCursor{0};
+    int           m_lossSampleCount{0};
+    int           m_packetLossWindowPackets{0};
+    int           m_packetLossWindowErrors{0};
+    double        m_networkQualityScore{100.0};
     NetState      m_netState{NetState::Off};
-    NetState      m_nextState{NetState::Off};
-    int           m_stateCountdown{0};
     int           m_pingMissCount{0};          // consecutive unanswered pings
     static constexpr int PING_MISS_DISCONNECT = 5; // force disconnect after 5 missed pings (~5s)
 
@@ -655,6 +672,13 @@ public:
     int     lastPingRtt()      const { return m_lastPingRtt; }
     int     maxPingRtt()       const { return m_maxPingRtt; }
     QString networkQuality()   const;
+    int     packetLossWindowSeconds() const { return NETWORK_LOSS_WINDOW_SAMPLES; }
+    int     packetLossWindowDrops() const { return m_packetLossWindowErrors; }
+    int     packetLossWindowPackets() const { return m_packetLossWindowPackets; }
+    double  packetLossPercent() const;
+    int     audioPacketGapMs() const;
+    int     audioPacketGapMaxMs() const;
+    int     audioPacketJitterMs() const;
     int     packetDropCount()  const;
     int     packetTotalCount() const;
     qint64  rxBytes()          const;

@@ -1538,14 +1538,15 @@ void RadioModel::onVersionReceived(const QString& v)
     emit infoChanged();
 }
 
-// ─── Network quality monitor (matches FlexLib MonitorNetworkQuality) ─────────
+// ─── Network quality monitor ─────────────────────────────────────────────────
 
 void RadioModel::startNetworkMonitor()
 {
+    m_pingTimer.stop();
+    m_pingTimer.disconnect();
     m_netState = NetState::Excellent;
-    m_nextState = NetState::Excellent;
-    m_stateCountdown = 0;
-    m_lastErrorCount = 0;
+    m_networkQualityScore = 100.0;
+    resetNetworkHealthSamples();
     m_lastPingRtt = 0;
     m_maxPingRtt = 0;
     m_pingMissCount = 0;
@@ -1553,7 +1554,11 @@ void RadioModel::startNetworkMonitor()
     // RTT is read from kernel TCP_INFO (smoothed RTT from TCP ACK timing),
     // completely independent of Qt event loop buffering. Falls back to
     // QElapsedTimer stopwatch if the platform kernel call is unavailable.
-    connect(m_connection, &RadioConnection::pingRttMeasured, this, [this](int ms) {
+    if (m_networkPingConnection) {
+        disconnect(m_networkPingConnection);
+        m_networkPingConnection = {};
+    }
+    m_networkPingConnection = connect(m_connection, &RadioConnection::pingRttMeasured, this, [this](int ms) {
         m_pingMissCount = 0;
         m_lastPingRtt = ms;
         evaluateNetworkQuality();
@@ -1581,98 +1586,181 @@ void RadioModel::stopNetworkMonitor()
 {
     m_pingTimer.stop();
     m_pingTimer.disconnect();
+    if (m_networkPingConnection) {
+        disconnect(m_networkPingConnection);
+        m_networkPingConnection = {};
+    }
     m_netState = NetState::Off;
-    m_nextState = NetState::Off;
 }
 
 void RadioModel::evaluateNetworkQuality()
 {
-    // Check for new packet errors since last evaluation
     const int currentErrors = m_panStream->packetErrorCount();
-    const bool packetLost = (currentErrors > m_lastErrorCount);
-    m_lastErrorCount = currentErrors;
-
+    const int currentPackets = m_panStream->packetTotalCount();
+    recordNetworkHealthSample(currentErrors, currentPackets);
     const int ping = m_lastPingRtt;
 
-    // State machine from FlexLib MonitorNetworkQualityTask
-    switch (m_netState) {
-    case NetState::Excellent:
-        if (ping >= LAN_PING_POOR_MS)
-            m_nextState = NetState::Poor;
-        else if (ping >= LAN_PING_FAIR_MS)
-            m_nextState = NetState::Good;
-        else if (packetLost)
-            m_nextState = NetState::VeryGood;
-        break;
-
-    case NetState::VeryGood:
-        if (ping >= LAN_PING_POOR_MS) {
-            m_nextState = NetState::Poor;
-            m_stateCountdown = 5;
-        } else if (ping >= LAN_PING_FAIR_MS || packetLost) {
-            m_nextState = NetState::Good;
-            m_stateCountdown = 5;
-        } else {
-            if (m_stateCountdown-- <= 0) {
-                m_nextState = NetState::Excellent;
-                m_stateCountdown = 5;
-            }
-        }
-        break;
-
-    case NetState::Good:
-        if (ping >= LAN_PING_POOR_MS) {
-            m_nextState = NetState::Poor;
-            m_stateCountdown = 5;
-        } else if (packetLost) {
-            m_nextState = NetState::Fair;
-            m_stateCountdown = 5;
-        } else if (ping < LAN_PING_FAIR_MS) {
-            if (m_stateCountdown-- <= 0) {
-                m_nextState = NetState::VeryGood;
-                m_stateCountdown = 5;
-            }
-        }
-        break;
-
-    case NetState::Fair:
-        if (ping >= LAN_PING_POOR_MS || packetLost) {
-            m_nextState = NetState::Poor;
-            m_stateCountdown = 5;
-        } else {
-            if (m_stateCountdown-- <= 0) {
-                m_nextState = NetState::Good;
-                m_stateCountdown = 5;
-            }
-        }
-        break;
-
-    case NetState::Poor:
-        if (ping < LAN_PING_POOR_MS) {
-            if (m_stateCountdown-- <= 0) {
-                m_nextState = NetState::Fair;
-                m_stateCountdown = 5;
-            }
-        }
-        break;
-
-    case NetState::Off:
-        m_nextState = NetState::Poor;
-        m_stateCountdown = 5;
-        break;
-    }
-
-    m_netState = m_nextState;
+    const double targetScore = networkQualityTargetScore(ping);
+    const double alpha = targetScore < m_networkQualityScore
+                             ? (targetScore <= 45.0 ? 0.45 : 0.30)
+                             : 0.12;
+    m_networkQualityScore += (targetScore - m_networkQualityScore) * alpha;
+    m_netState = networkStateForScore(m_networkQualityScore, m_netState);
     if (ping > m_maxPingRtt) m_maxPingRtt = ping;
 
     static const char* names[] = {"Off", "Excellent", "Very Good", "Good", "Fair", "Poor"};
     emit networkQualityChanged(names[static_cast<int>(m_netState)], ping);
 }
 
+void RadioModel::resetNetworkHealthSamples()
+{
+    m_lastErrorCount = m_panStream ? m_panStream->packetErrorCount() : 0;
+    m_lastPacketCount = m_panStream ? m_panStream->packetTotalCount() : 0;
+    for (int i = 0; i < NETWORK_LOSS_WINDOW_SAMPLES; ++i) {
+        m_lossSamplePackets[i] = 0;
+        m_lossSampleErrors[i] = 0;
+    }
+    m_lossSampleCursor = 0;
+    m_lossSampleCount = 0;
+    m_packetLossWindowPackets = 0;
+    m_packetLossWindowErrors = 0;
+}
+
+void RadioModel::recordNetworkHealthSample(int currentErrors, int currentPackets)
+{
+    const int deltaErrors = std::max(0, currentErrors - m_lastErrorCount);
+    const int deltaPackets = std::max(0, currentPackets - m_lastPacketCount);
+    m_lastErrorCount = currentErrors;
+    m_lastPacketCount = currentPackets;
+
+    if (m_lossSampleCount < NETWORK_LOSS_WINDOW_SAMPLES) {
+        ++m_lossSampleCount;
+    } else {
+        m_packetLossWindowPackets -= m_lossSamplePackets[m_lossSampleCursor];
+        m_packetLossWindowErrors -= m_lossSampleErrors[m_lossSampleCursor];
+    }
+
+    m_lossSamplePackets[m_lossSampleCursor] = deltaPackets;
+    m_lossSampleErrors[m_lossSampleCursor] = deltaErrors;
+    m_packetLossWindowPackets += deltaPackets;
+    m_packetLossWindowErrors += deltaErrors;
+    m_lossSampleCursor = (m_lossSampleCursor + 1) % NETWORK_LOSS_WINDOW_SAMPLES;
+}
+
+double RadioModel::networkQualityTargetScore(int pingMs) const
+{
+    const bool remote = usesRemoteNetworkThresholds();
+    const int fairPingMs = remote ? REMOTE_PING_FAIR_MS : LAN_PING_FAIR_MS;
+    const int poorPingMs = remote ? REMOTE_PING_POOR_MS : LAN_PING_POOR_MS;
+    const int goodJitterMs = remote ? 45 : 20;
+    const int fairJitterMs = remote ? 90 : 45;
+    const int poorJitterMs = remote ? 150 : 90;
+
+    double score = 100.0;
+    if (pingMs >= poorPingMs) {
+        score = std::min(score, 45.0);
+    } else if (pingMs >= fairPingMs) {
+        score = std::min(score, 70.0);
+    } else if (pingMs >= fairPingMs * 2 / 3) {
+        score = std::min(score, 84.0);
+    }
+
+    if (m_packetLossWindowPackets >= NETWORK_MIN_LOSS_WINDOW_PACKETS) {
+        const double lossPct = packetLossPercent();
+        if (lossPct >= 3.0) {
+            score = std::min(score, 35.0);
+        } else if (lossPct >= 1.0) {
+            score = std::min(score, 52.0);
+        } else if (lossPct >= 0.35) {
+            score = std::min(score, 70.0);
+        } else if (lossPct >= 0.05) {
+            score = std::min(score, 84.0);
+        }
+    }
+
+    const int jitterMs = audioPacketJitterMs();
+    if (jitterMs >= poorJitterMs) {
+        score = std::min(score, 42.0);
+    } else if (jitterMs >= fairJitterMs) {
+        score = std::min(score, 58.0);
+    } else if (jitterMs >= goodJitterMs) {
+        score = std::min(score, 74.0);
+    }
+
+    return score;
+}
+
+RadioModel::NetState RadioModel::networkStateForScore(double score, NetState currentState) const
+{
+    switch (currentState) {
+    case NetState::Excellent:
+        return score < 89.0 ? NetState::VeryGood : NetState::Excellent;
+    case NetState::VeryGood:
+        if (score >= 94.0)
+            return NetState::Excellent;
+        if (score < 76.0)
+            return NetState::Good;
+        return NetState::VeryGood;
+    case NetState::Good:
+        if (score >= 83.0)
+            return NetState::VeryGood;
+        if (score < 60.0)
+            return NetState::Fair;
+        return NetState::Good;
+    case NetState::Fair:
+        if (score >= 68.0)
+            return NetState::Good;
+        if (score < 40.0)
+            return NetState::Poor;
+        return NetState::Fair;
+    case NetState::Poor:
+        return score >= 50.0 ? NetState::Fair : NetState::Poor;
+    case NetState::Off:
+        break;
+    }
+
+    if (score >= 92.0)
+        return NetState::Excellent;
+    if (score >= 80.0)
+        return NetState::VeryGood;
+    if (score >= 65.0)
+        return NetState::Good;
+    if (score >= 45.0)
+        return NetState::Fair;
+    return NetState::Poor;
+}
+
+bool RadioModel::usesRemoteNetworkThresholds() const
+{
+    return m_wanConn != nullptr || m_lastInfo.isRouted;
+}
+
 QString RadioModel::networkQuality() const
 {
     static const char* names[] = {"Off", "Excellent", "Very Good", "Good", "Fair", "Poor"};
     return names[static_cast<int>(m_netState)];
+}
+
+double RadioModel::packetLossPercent() const
+{
+    if (m_packetLossWindowPackets <= 0)
+        return 0.0;
+    return (m_packetLossWindowErrors * 100.0) / m_packetLossWindowPackets;
+}
+
+int RadioModel::audioPacketGapMs() const
+{
+    return m_panStream ? m_panStream->audioPacketGapMs() : 0;
+}
+
+int RadioModel::audioPacketGapMaxMs() const
+{
+    return m_panStream ? m_panStream->audioPacketGapMaxMs() : 0;
+}
+
+int RadioModel::audioPacketJitterMs() const
+{
+    return m_panStream ? m_panStream->audioPacketJitterMs() : 0;
 }
 
 int RadioModel::packetDropCount() const
@@ -3227,6 +3315,13 @@ QJsonObject RadioModel::troubleshootingSnapshot() const
     network["max_ping_rtt_ms"] = m_maxPingRtt;
     network["packet_drop_count"] = packetDropCount();
     network["packet_total_count"] = packetTotalCount();
+    network["packet_loss_window_seconds"] = packetLossWindowSeconds();
+    network["packet_loss_window_drops"] = packetLossWindowDrops();
+    network["packet_loss_window_packets"] = packetLossWindowPackets();
+    network["packet_loss_window_percent"] = packetLossPercent();
+    network["audio_packet_gap_ms"] = audioPacketGapMs();
+    network["audio_packet_gap_max_ms"] = audioPacketGapMaxMs();
+    network["audio_packet_jitter_ms"] = audioPacketJitterMs();
     network["rx_bytes"] = static_cast<qint64>(rxBytes());
     network["tx_bytes"] = static_cast<qint64>(txBytes());
     QJsonObject streamCategories;
