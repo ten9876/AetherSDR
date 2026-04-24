@@ -425,12 +425,15 @@ void RadioModel::applyKnownGuiClients(const QStringList& handles,
     if (replaceExisting) {
         m_clientStations.clear();
         m_clientInfoMap.clear();
+        m_startupClientConnections.clear();
     }
 
     for (int i = 0; i < handles.size(); ++i) {
         const quint32 handle = parseClientHandle(handles[i]);
         if (handle == 0)
             continue;
+        if (replaceExisting)
+            m_startupClientConnections.insert(handle);
 
         const QString program = i < programs.size()
             ? cleanClientText(programs[i])
@@ -455,6 +458,25 @@ void RadioModel::applyKnownGuiClients(const QStringList& handles,
         m_clientStations[handle] = client.station.isEmpty() ? client.program : client.station;
         m_clientInfoMap[handle] = client;
     }
+}
+
+bool RadioModel::shouldSuppressClientConnectionNotice(quint32 handle)
+{
+    if (handle == 0 || handle == clientHandle())
+        return true;
+
+    if (m_startupClientConnections.remove(handle)) {
+        m_announcedClientConnections.insert(handle);
+        return true;
+    }
+
+    if (m_clientConnectionNoticeTimer.isValid()
+            && m_clientConnectionNoticeTimer.elapsed() < CLIENT_CONNECTION_STARTUP_SUPPRESS_MS) {
+        m_announcedClientConnections.insert(handle);
+        return true;
+    }
+
+    return false;
 }
 
 void RadioModel::announceClientConnection(quint32 handle,
@@ -923,6 +945,7 @@ void RadioModel::setPanNoiseFloorEnable(bool on)
 void RadioModel::onConnected()
 {
     qCDebug(lcProtocol) << "RadioModel: connected";
+    m_clientConnectionNoticeTimer.restart();
     setActivePanResized(false);
 
     // Inhibit system sleep while connected if the user has opted in (#1420)
@@ -1481,6 +1504,8 @@ void RadioModel::onDisconnected()
     m_clientStations.clear();
     m_clientInfoMap.clear();
     m_announcedClientConnections.clear();
+    m_startupClientConnections.clear();
+    m_clientConnectionNoticeTimer.invalidate();
     emit otherClientsChanged(0, {});
     emit connectionStateChanged(false);
     m_forcedDisconnectInProgress = false;
@@ -1918,6 +1943,7 @@ void RadioModel::onStatusReceived(const QString& object,
                 m_clientStations.remove(handle);
                 m_clientInfoMap.remove(handle);
                 m_announcedClientConnections.remove(handle);
+                m_startupClientConnections.remove(handle);
                 emitOtherClientsChanged();
             } else if (action == "connected" || kvs.contains("connected")) {
                 QString program = cleanClientText(kvs.value("program", "Unknown"));
@@ -1937,7 +1963,8 @@ void RadioModel::onStatusReceived(const QString& object,
                 client.localPtt = ptt;
                 m_clientInfoMap[handle] = client;
                 emitOtherClientsChanged();
-                announceClientConnection(handle, source, station, program);
+                if (!shouldSuppressClientConnectionNotice(handle))
+                    announceClientConnection(handle, source, station, program);
             }
         }
         return;

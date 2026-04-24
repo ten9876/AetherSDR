@@ -408,6 +408,7 @@ private:
                               const QStringList& ips,
                               const QStringList& hosts,
                               bool replaceExisting);
+    bool shouldSuppressClientConnectionNotice(quint32 handle);
     void announceClientConnection(quint32 handle,
                                   const QString& source,
                                   const QString& station,
@@ -613,6 +614,9 @@ private:
     QMap<quint32, QString> m_clientStations;   // handle → station name (legacy, kept in sync)
     QList<quint32> m_pendingClientDisconnects; // handles chosen before connecting
     QSet<quint32> m_announcedClientConnections; // client login notices shown this session
+    QSet<quint32> m_startupClientConnections; // clients present before our connect status replay
+    QElapsedTimer m_clientConnectionNoticeTimer;
+    static constexpr qint64 CLIENT_CONNECTION_STARTUP_SUPPRESS_MS = 5000;
 
     SleepInhibitor m_sleepInhibitor;     // prevents OS idle sleep while connected
     RadioInfo m_lastInfo;               // stored for auto-reconnect
