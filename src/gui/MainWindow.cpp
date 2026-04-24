@@ -7169,15 +7169,31 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         qDebug() << "MainWindow: switching to band" << bandName
                  << "freq:" << freqMhz << "mode:" << mode;
 
-        // Radio-authoritative band change: the radio manages its own band
-        // stack recall (frequency, mode, filters, pan center, bandwidth,
-        // antennas). Aether only has to provide the correct band-stack key.
-        // Translate the UI band label to the radio's band-stack key. Mapping
-        // determined from SmartSDR pcap captures (#1540/#1211):
-        //   - Standard HF names (160, 80, ..., 6, 2200, 630): pass through
-        //   - XVTR display names ("2m"): send band=X<order> (xvtr setup order)
-        //   - WWV / GEN: send numeric band-stack slot 33 / 34 (per pcap)
-        //   - Anything else: refuse; do not synthesize a slice tune fallback
+        // Maintainer note: keep band changes radio-authoritative.
+        //
+        // The Flex band stack owns the state users expect to survive a band
+        // jump: frequency, mode, filters, pan center, bandwidth/zoom, and
+        // built-in antenna selection. Aether should therefore send exactly one
+        // `display pan set <panId> band=<key>` command when it can form a
+        // spec-correct key. Do not use the `freqMhz` / `mode` arguments as a
+        // local fallback; those are static UI defaults, and the old fallback
+        // reset users to band-center SSB instead of restoring their saved stack
+        // state (#1876, #1852, #1856, #1849).
+        //
+        // UI band names are not always protocol keys:
+        //   - Native bands are displayed as "20m", "630m", etc., but Flex
+        //     expects bare keys such as "20" and "630".
+        //   - XVTR names are user labels such as "2m" or "70cm"; do not strip
+        //     those into native-band keys. Flex expects `X<order>`, where
+        //     `order` is the radio's XVTR setup order, not the xvtr status
+        //     object index, RF frequency, or display name.
+        //   - WWV / GEN use numeric band-stack slots 33 / 34 from SmartSDR
+        //     capture history (#1540/#1211).
+        //
+        // If no exact mapping exists, refuse the band change and leave the
+        // current slice/pan state untouched. Guessing is worse than failing
+        // visibly because a wrong tune destroys the very band-stack state this
+        // path exists to preserve.
         static const QSet<QString> kPassThroughBands = {
             "160", "80", "60", "40", "30", "20", "17", "15", "12", "10", "6",
             "2200", "630"
