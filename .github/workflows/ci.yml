@@ -99,12 +99,43 @@ jobs:
         with:
           arch: x64
 
+      # Verify sccache can actually compile through the backend.  GitHub
+      # Actions Cache occasionally has outages; when that happens, sccache's
+      # GHA backend can't read/write and every compile through sccache
+      # fails.  Pre-flight a tiny test compile so we can fall through to a
+      # plain build instead of failing the whole job.
+      - name: Test sccache health
+        id: sccache_health
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          'int main(){return 0;}' | Out-File -Encoding ASCII test.cpp
+          sccache cl /c test.cpp /Fo:test.obj 2>&1 | Tee-Object -Variable scOut
+          $exit = $LASTEXITCODE
+          Remove-Item test.cpp,test.obj -ErrorAction SilentlyContinue
+          if ($exit -eq 0) {
+            "healthy=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "sccache OK"
+          } else {
+            "healthy=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "::warning::sccache unhealthy (exit $exit) — building without compiler cache"
+          }
+
       - name: Configure
-        run: >
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_RADE=OFF
-          -DCMAKE_C_COMPILER_LAUNCHER=sccache
-          -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
-          -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+        shell: pwsh
+        run: |
+          $launcher = "${{ steps.sccache_health.outputs.healthy }}" -eq "true"
+          $cargs = @(
+            "-B","build","-G","Ninja",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DENABLE_RADE=OFF",
+            "-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded"
+          )
+          if ($launcher) {
+            $cargs += "-DCMAKE_C_COMPILER_LAUNCHER=sccache"
+            $cargs += "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+          }
+          & cmake @cargs
 
       - name: Build
         run: cmake --build build -j $env:NUMBER_OF_PROCESSORS
