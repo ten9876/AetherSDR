@@ -39,18 +39,36 @@ jobs:
 
   # Cross-platform build check — runs only when CMakeLists.txt, third_party/,
   # or workflows are modified, to catch MSVC issues before release. (#796 lesson)
+  #
+  # Caching strategy:
+  #   * Qt install        — handled by jurplel/install-qt-action's cache: true
+  #   * FFTW3 third_party — actions/cache, keyed on the setup script + version
+  #   * MSVC object files — sccache via GitHub Actions cache backend
+  # Net effect: cold cache ~5 min, warm cache ~2-3 min (was ~14 min).
   check-windows:
     needs: [build, check-paths]
     if: needs.check-paths.outputs.build-changed == 'true'
     runs-on: windows-latest
+    env:
+      SCCACHE_GHA_ENABLED: 'true'
     steps:
       - uses: actions/checkout@v6
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.7.3'
+          # 6.8.3 matches what community Windows builders are running and
+          # exposes Qt 6.8.x MOC volume so we catch issues like #1910 (MSVC
+          # COFF section limit, fixed by /bigobj) before they reach users.
+          version: '6.8.3'
           modules: 'qtmultimedia qtwebsockets qtserialport qtshadertools'
+          cache: true
+
+      - name: Cache FFTW3
+        uses: actions/cache@v4
+        with:
+          path: third_party/fftw3
+          key: ${{ runner.os }}-fftw3-3.3.5-${{ hashFiles('setup-fftw.ps1') }}
 
       - name: Install FFTW3
         shell: pwsh
@@ -63,8 +81,19 @@ jobs:
         shell: pwsh
         run: .\setup-deepfilter.ps1
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
+
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_RADE=OFF
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_RADE=OFF
+          -DCMAKE_C_COMPILER_LAUNCHER=sccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
 
       - name: Build
         run: cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
+
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
