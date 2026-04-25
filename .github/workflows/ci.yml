@@ -57,7 +57,10 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.7.3'
+          # 6.8.3 matches what community Windows builders are running and
+          # exposes Qt 6.8.x MOC volume so we catch issues like #1910 (MSVC
+          # COFF section limit, fixed by /bigobj) before they reach users.
+          version: '6.8.3'
           modules: 'qtmultimedia qtwebsockets qtserialport qtshadertools'
           cache: true
 
