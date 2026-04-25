@@ -59,6 +59,7 @@ protected:
 private:
     QString m_panId;
     SpectrumWidget* m_spectrum{nullptr};
+    QWidget*        m_titleBar{nullptr};
     QLabel*         m_titleLabel{nullptr};
     QPushButton*    m_popOutBtn{nullptr};
     QPushButton*    m_maxBtn{nullptr};

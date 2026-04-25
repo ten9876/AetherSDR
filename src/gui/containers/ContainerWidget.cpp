@@ -5,6 +5,7 @@
 #include <QMimeData>
 #include <QPixmap>
 #include <QVBoxLayout>
+#include <QWindow>
 
 namespace AetherSDR {
 
@@ -132,8 +133,21 @@ void ContainerWidget::onTitleBarClose()
 
 void ContainerWidget::onTitleBarDragStart(const QPoint& /*globalPos*/)
 {
-    // MIME type is shared with AppletDropArea's drag-reorder handling.
     if (!m_titleBar) return;
+
+    // Floating window: title-bar drag moves the OS window via the Qt 6
+    // cross-platform primitive that hands the move off to the compositor.
+    // (Pop-out windows are frameless — no native title bar to grab.)
+    if (m_dockMode == DockMode::Floating) {
+        if (auto* w = window()) {
+            if (auto* h = w->windowHandle()) {
+                h->startSystemMove();
+                return;
+            }
+        }
+    }
+
+    // MIME type is shared with AppletDropArea's drag-reorder handling.
     auto* drag = new QDrag(m_titleBar);
     auto* mime = new QMimeData;
     mime->setData("application/x-aethersdr-applet", m_id.toUtf8());

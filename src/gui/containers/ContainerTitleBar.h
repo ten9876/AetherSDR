@@ -49,6 +49,8 @@ private:
     QPushButton* m_closeBtn{nullptr};
     QPoint       m_pressPos;
     bool         m_pressed{false};
+    bool         m_closeAllowed{true};   // false = explicitly disabled (sidebar)
+    bool         m_isFloating{false};
 };
 
 } // namespace AetherSDR

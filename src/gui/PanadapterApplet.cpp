@@ -8,8 +8,10 @@
 #include <QSlider>
 #include <QEvent>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QTextEdit>
+#include <QWindow>
 #include <QGuiApplication>
 #include <QClipboard>
 
@@ -23,12 +25,14 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     layout->setSpacing(0);
 
     // ── Title bar (16px gradient, matching applet style) ─────────────────
-    auto* titleBar = new QWidget;
-    titleBar->setFixedHeight(16);
-    titleBar->setStyleSheet(
+    m_titleBar = new QWidget;
+    m_titleBar->setFixedHeight(16);
+    m_titleBar->setStyleSheet(
         "QWidget { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
         "stop:0 #3a4a5a, stop:0.5 #2a3a4a, stop:1 #1a2a38); "
         "border-bottom: 1px solid #0a1a28; }");
+    m_titleBar->installEventFilter(this);  // drag-to-move when floating
+    auto* titleBar = m_titleBar;
 
     auto* barLayout = new QHBoxLayout(titleBar);
     barLayout->setContentsMargins(6, 1, 4, 1);
@@ -372,6 +376,21 @@ void PanadapterApplet::clearCwText()
 
 bool PanadapterApplet::eventFilter(QObject* obj, QEvent* ev)
 {
+    // Title-bar drag in floating mode → move the OS window via Qt 6's
+    // cross-platform startSystemMove.  Frameless pop-outs have no native
+    // title bar, so the applet's own title strip becomes the drag handle.
+    if (obj == m_titleBar && m_isFloating
+        && ev->type() == QEvent::MouseButtonPress) {
+        auto* me = static_cast<QMouseEvent*>(ev);
+        if (me->button() == Qt::LeftButton) {
+            if (auto* w = window()) {
+                if (auto* h = w->windowHandle()) {
+                    h->startSystemMove();
+                    return true;
+                }
+            }
+        }
+    }
     if (ev->type() == QEvent::MouseButtonPress)
         emit activated(m_panId);
     return QWidget::eventFilter(obj, ev);

@@ -83,6 +83,7 @@ QString ContainerTitleBar::title() const
 
 void ContainerTitleBar::setFloatingState(bool isFloating)
 {
+    m_isFloating = isFloating;
     // "↙" when floating (to dock) / "⚊" when docked (to float).
     m_floatBtn->setText(isFloating
         ? QString::fromUtf8("\xe2\x86\x99")
@@ -90,11 +91,15 @@ void ContainerTitleBar::setFloatingState(bool isFloating)
     m_floatBtn->setToolTip(isFloating
         ? "Return to panel"
         : "Pop out into a floating window");
+    // ↙ already covers "close + dock" while floating, so the redundant
+    // × button hides itself in float mode and reappears when docked.
+    if (m_closeBtn) m_closeBtn->setVisible(m_closeAllowed && !isFloating);
 }
 
 void ContainerTitleBar::setCloseButtonVisible(bool visible)
 {
-    if (m_closeBtn) m_closeBtn->setVisible(visible);
+    m_closeAllowed = visible;
+    if (m_closeBtn) m_closeBtn->setVisible(visible && !m_isFloating);
 }
 
 void ContainerTitleBar::mousePressEvent(QMouseEvent* ev)
