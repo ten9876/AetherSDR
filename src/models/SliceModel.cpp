@@ -297,6 +297,9 @@ void SliceModel::setDaxChannel(int ch)
 void SliceModel::setRttyMark(int hz)
 {
     if (m_rttyMark == hz) return;
+    // Track explicit user override so applyStatus() won't fight an intentional
+    // choice of 2125 when rtty_mark_default is non-standard.
+    m_rttyMarkUserOverride = (hz == 2125 && m_rttyMarkDefault != 2125);
     m_rttyMark = hz;
     sendCommand(QString("slice set %1 rtty_mark=%2").arg(m_id).arg(hz));
     emit rttyMarkChanged(hz);
@@ -496,6 +499,9 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
         if (std::abs(m_frequency - f) > 1e-9) {
             m_frequency = f;
             freqChanged = true;
+            // Band change clears any user override so rtty_mark_default is
+            // restored if the radio resets the mark in the same status update.
+            m_rttyMarkUserOverride = false;
         }
     }
     if (kvs.contains("mode")) {
@@ -722,9 +728,9 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
     if (kvs.contains("rtty_mark")) {
         int v = kvs["rtty_mark"].toInt();
         // The radio resets rtty_mark to 2125 on band changes regardless of the
-        // configured rtty_mark_default. If we know the default differs, push it
-        // back so the slice stays at the user's configured mark frequency.
-        if (v == 2125 && m_rttyMarkDefault != 2125) {
+        // configured rtty_mark_default. If we know the default differs and the
+        // user has not explicitly chosen 2125, push the default back.
+        if (v == 2125 && m_rttyMarkDefault != 2125 && !m_rttyMarkUserOverride) {
             v = m_rttyMarkDefault;
             sendCommand(QString("slice set %1 rtty_mark=%2").arg(m_id).arg(v));
         }

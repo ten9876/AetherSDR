@@ -288,6 +288,7 @@ private:
     int     m_daxChannel{0};
     int     m_rttyMark{2125};
     int     m_rttyMarkDefault{2125};
+    bool    m_rttyMarkUserOverride{false};
     int     m_rttyShift{170};
     int     m_diglOffset{2210};
     int     m_diguOffset{1500};
