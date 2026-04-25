@@ -377,6 +377,10 @@ void TitleBar::mousePressEvent(QMouseEvent* ev)
             }
 #else
             // Qt < 6.2: no startSystemMove — track the drag manually.
+            // Restore first if maximised so the drag doesn't move a full-screen
+            // window (startSystemMove handles snap-away automatically on 6.2+).
+            if (w->isMaximized())
+                w->showNormal();
             m_dragActive = true;
             m_dragOffset = ev->globalPosition().toPoint() - w->frameGeometry().topLeft();
             ev->accept();
