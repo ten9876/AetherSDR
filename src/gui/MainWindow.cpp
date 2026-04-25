@@ -1065,6 +1065,19 @@ MainWindow::MainWindow(QWidget* parent)
 #endif
     m_spotThread->start();
 
+    // Create sockets/timers inside the worker thread so their internal
+    // notifiers bind to the SpotClients event dispatcher, not the main
+    // thread's Win32 message pump.  Fixes cross-thread sendEvent assert
+    // on Windows during radio disconnect (#1929).
+    QMetaObject::invokeMethod(m_dxCluster, &DxClusterClient::initialize, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_rbnClient, &DxClusterClient::initialize, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_wsjtxClient, &WsjtxClient::initialize, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_spotCollectorClient, &SpotCollectorClient::initialize, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_potaClient, &PotaClient::initialize, Qt::QueuedConnection);
+#ifdef HAVE_WEBSOCKETS
+    QMetaObject::invokeMethod(m_freedvClient, &FreeDvClient::initialize, Qt::QueuedConnection);
+#endif
+
     // ── HF Propagation Forecast ────────────────────────────────────────────
     m_propForecast = new PropForecastClient(this);
     connect(m_propForecast, &PropForecastClient::forecastUpdated,
@@ -3471,17 +3484,27 @@ void MainWindow::closeEvent(QCloseEvent* event)
     m_radioModel.disconnectFromRadio();
     audioStopRx();
 
-    // Stop spot client worker thread
+    // Stop spot client worker thread — schedule destruction inside the
+    // worker thread so socket abort() runs with correct thread affinity,
+    // avoiding cross-thread sendEvent asserts on Windows (#1929).
     if (m_spotThread) {
+        QMetaObject::invokeMethod(m_dxCluster, &QObject::deleteLater, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(m_rbnClient, &QObject::deleteLater, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(m_wsjtxClient, &QObject::deleteLater, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(m_spotCollectorClient, &QObject::deleteLater, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(m_potaClient, &QObject::deleteLater, Qt::QueuedConnection);
+#ifdef HAVE_WEBSOCKETS
+        QMetaObject::invokeMethod(m_freedvClient, &QObject::deleteLater, Qt::QueuedConnection);
+#endif
         m_spotThread->quit();
         m_spotThread->wait(3000);
-        delete m_dxCluster;  m_dxCluster = nullptr;
-        delete m_rbnClient;  m_rbnClient = nullptr;
-        delete m_wsjtxClient; m_wsjtxClient = nullptr;
-        delete m_spotCollectorClient; m_spotCollectorClient = nullptr;
-        delete m_potaClient;  m_potaClient = nullptr;
+        m_dxCluster = nullptr;
+        m_rbnClient = nullptr;
+        m_wsjtxClient = nullptr;
+        m_spotCollectorClient = nullptr;
+        m_potaClient = nullptr;
 #ifdef HAVE_WEBSOCKETS
-        delete m_freedvClient; m_freedvClient = nullptr;
+        m_freedvClient = nullptr;
 #endif
     }
 

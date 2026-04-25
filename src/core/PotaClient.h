@@ -19,6 +19,7 @@ public:
     explicit PotaClient(QObject* parent = nullptr);
     ~PotaClient() override;
 
+    void initialize();  // must be called from the target thread after moveToThread()
     void startPolling(int intervalSec = 30);
     void stopPolling();
     bool isPolling() const { return m_polling; }
@@ -37,8 +38,8 @@ private slots:
     void onPollTimer();
 
 private:
-    QNetworkAccessManager* m_nam;
-    QTimer*     m_pollTimer;
+    QNetworkAccessManager* m_nam{nullptr};
+    QTimer*     m_pollTimer{nullptr};
     QFile       m_logFile;
     QSet<int>   m_seenSpotIds;   // track spotId to only emit new spots
     std::atomic<bool> m_polling{false};

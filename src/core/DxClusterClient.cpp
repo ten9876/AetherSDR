@@ -11,9 +11,16 @@ namespace AetherSDR {
 
 DxClusterClient::DxClusterClient(QObject* parent)
     : QObject(parent)
-    , m_socket(new QTcpSocket(this))
-    , m_reconnectTimer(new QTimer(this))
 {
+    // Socket and timer are created in initialize() so they belong to
+    // the correct thread after moveToThread().
+}
+
+void DxClusterClient::initialize()
+{
+    m_socket = new QTcpSocket(this);
+    m_reconnectTimer = new QTimer(this);
+
     connect(m_socket, &QTcpSocket::connected,    this, &DxClusterClient::onConnected);
     connect(m_socket, &QTcpSocket::disconnected, this, &DxClusterClient::onDisconnected);
     connect(m_socket, &QTcpSocket::readyRead,    this, &DxClusterClient::onReadyRead);
@@ -27,9 +34,10 @@ DxClusterClient::DxClusterClient(QObject* parent)
 DxClusterClient::~DxClusterClient()
 {
     m_intentionalDisconnect = true;
-    m_reconnectTimer->stop();
+    if (m_reconnectTimer)
+        m_reconnectTimer->stop();
     m_logFile.close();
-    if (m_socket->state() != QAbstractSocket::UnconnectedState)
+    if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState)
         m_socket->abort();
 }
 

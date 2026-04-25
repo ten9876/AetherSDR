@@ -25,6 +25,7 @@ public:
     explicit FreeDvClient(QObject* parent = nullptr);
     ~FreeDvClient() override;
 
+    void initialize();  // must be called from the target thread after moveToThread()
     void startConnection();
     void stopConnection();
     bool isConnected() const { return m_connected.load(); }
@@ -65,9 +66,9 @@ private:
     void onRemoveConnection(const QJsonObject& data);
     void onBulkUpdate(const QJsonArray& pairs);
 
-    QWebSocket*  m_ws;
-    QTimer*      m_pingTimer;
-    QTimer*      m_reconnectTimer;
+    QWebSocket*  m_ws{nullptr};
+    QTimer*      m_pingTimer{nullptr};
+    QTimer*      m_reconnectTimer{nullptr};
     QFile        m_logFile;
 
     QHash<QString, StationInfo> m_stations;  // sid → station info

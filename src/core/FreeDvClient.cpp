@@ -13,10 +13,17 @@ namespace AetherSDR {
 
 FreeDvClient::FreeDvClient(QObject* parent)
     : QObject(parent)
-    , m_ws(new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this))
-    , m_pingTimer(new QTimer(this))
-    , m_reconnectTimer(new QTimer(this))
 {
+    // WebSocket and timers are created in initialize() so they belong to
+    // the correct thread after moveToThread().
+}
+
+void FreeDvClient::initialize()
+{
+    m_ws = new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
+    m_pingTimer = new QTimer(this);
+    m_reconnectTimer = new QTimer(this);
+
     m_pingTimer->setSingleShot(false);
     m_reconnectTimer->setSingleShot(true);
 
@@ -40,7 +47,8 @@ FreeDvClient::FreeDvClient(QObject* parent)
 
 FreeDvClient::~FreeDvClient()
 {
-    stopConnection();
+    if (m_ws)
+        stopConnection();
     m_logFile.close();
 }
 

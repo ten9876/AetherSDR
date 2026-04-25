@@ -18,6 +18,7 @@ public:
     explicit SpotCollectorClient(QObject* parent = nullptr);
     ~SpotCollectorClient() override;
 
+    void initialize();  // must be called from the target thread after moveToThread()
     void startListening(quint16 port);
     void stopListening();
     bool isListening() const { return m_listening; }
@@ -36,7 +37,7 @@ private slots:
 private:
     bool parseDxSpotLine(const QString& line, DxSpot& spot) const;
 
-    QUdpSocket* m_socket;
+    QUdpSocket* m_socket{nullptr};
     QFile       m_logFile;
     quint16     m_port{9999};
     std::atomic<bool> m_listening{false};

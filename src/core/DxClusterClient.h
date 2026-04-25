@@ -32,6 +32,7 @@ public:
     explicit DxClusterClient(QObject* parent = nullptr);
     ~DxClusterClient() override;
 
+    void initialize();  // must be called from the target thread after moveToThread()
     void connectToCluster(const QString& host, quint16 port, const QString& callsign);
     void disconnect();
     bool isConnected() const { return m_connected; }
@@ -63,9 +64,9 @@ private:
     void handleLine(const QString& line);
     void stripTelnetIAC();
 
-    QTcpSocket* m_socket;
+    QTcpSocket* m_socket{nullptr};
     QByteArray  m_readBuffer;
-    QTimer*     m_reconnectTimer;
+    QTimer*     m_reconnectTimer{nullptr};
     QFile       m_logFile;
 
     QString m_logFileName{"dxcluster.log"};

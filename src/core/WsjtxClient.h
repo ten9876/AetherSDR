@@ -20,6 +20,7 @@ public:
     explicit WsjtxClient(QObject* parent = nullptr);
     ~WsjtxClient() override;
 
+    void initialize();  // must be called from the target thread after moveToThread()
     void startListening(const QString& address, quint16 port);
     void stopListening();
     bool isListening() const { return m_listening; }
@@ -48,7 +49,7 @@ private:
     void parseDecode(QDataStream& ds);
     QString extractCallsign(const QString& message) const;
 
-    QUdpSocket* m_socket;
+    QUdpSocket* m_socket{nullptr};
     QFile       m_logFile;
     QHostAddress m_bindAddr;
     bool        m_isMulticast{false};

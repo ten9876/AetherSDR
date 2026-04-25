@@ -13,14 +13,21 @@ namespace AetherSDR {
 
 WsjtxClient::WsjtxClient(QObject* parent)
     : QObject(parent)
-    , m_socket(new QUdpSocket(this))
 {
+    // Socket is created in initialize() so it belongs to the correct
+    // thread after moveToThread().
+}
+
+void WsjtxClient::initialize()
+{
+    m_socket = new QUdpSocket(this);
     connect(m_socket, &QUdpSocket::readyRead, this, &WsjtxClient::onReadyRead);
 }
 
 WsjtxClient::~WsjtxClient()
 {
-    stopListening();
+    if (m_socket)
+        stopListening();
     m_logFile.close();
 }
 

@@ -15,16 +15,23 @@ namespace AetherSDR {
 
 PotaClient::PotaClient(QObject* parent)
     : QObject(parent)
-    , m_nam(new QNetworkAccessManager(this))
-    , m_pollTimer(new QTimer(this))
 {
+    // NAM and timer are created in initialize() so they belong to the
+    // correct thread after moveToThread().
+}
+
+void PotaClient::initialize()
+{
+    m_nam = new QNetworkAccessManager(this);
+    m_pollTimer = new QTimer(this);
     m_pollTimer->setSingleShot(false);
     connect(m_pollTimer, &QTimer::timeout, this, &PotaClient::onPollTimer);
 }
 
 PotaClient::~PotaClient()
 {
-    stopPolling();
+    if (m_pollTimer)
+        stopPolling();
     m_logFile.close();
 }
 
