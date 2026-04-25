@@ -5140,6 +5140,10 @@ void MainWindow::buildMenuBar()
         dlg->activateWindow();
     });
     helpMenu->addSeparator();
+    helpMenu->addAction(QString::fromUtf8("Submit your idea... \xF0\x9F\x92\xA1"),
+                        this, [this]() {
+        if (m_titleBar) m_titleBar->showFeatureRequestDialog();
+    });
     helpMenu->addAction("Support...", this, [this]() {
         auto* dlg = new SupportDialog(this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);

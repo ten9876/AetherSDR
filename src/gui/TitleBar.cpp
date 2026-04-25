@@ -2,6 +2,7 @@
 #include "GuardedSlider.h"
 #include "core/AppSettings.h"
 
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QDialog>
@@ -253,46 +254,30 @@ TitleBar::TitleBar(QWidget* parent)
         emit headphoneVolumeChanged(v);
     });
 
-    m_hbox->addSpacing(12);
-
-    // ── Minimal Mode button ─────────────────────────────────────────────────
-    m_minimalBtn = new QPushButton("\xe2\x86\x99");  // ↙ U+2199
-    m_minimalBtn->setFixedSize(28, 28);
-    m_minimalBtn->setToolTip("Minimal Mode (Ctrl+M)");
-    m_minimalBtn->setAccessibleName("Minimal mode");
-    m_minimalBtn->setStyleSheet(
-        "QPushButton { background: #1a2a3a; color: #c8d8e8; border: 1px solid #304050; "
-        "border-radius: 4px; font-size: 18px; padding: 0; }"
-        "QPushButton:hover { background: #203040; color: #00b4d8; border-color: #00b4d8; }");
-    connect(m_minimalBtn, &QPushButton::clicked, this, &TitleBar::minimalModeRequested);
-    m_hbox->addWidget(m_minimalBtn);
-
-    // ── Feature Request button ──────────────────────────────────────────────
-    m_featureBtn = new QPushButton("\xF0\x9F\x92\xA1");  // 💡
-    auto* featureBtn = m_featureBtn;
-    featureBtn->setFixedSize(28, 28);
-    featureBtn->setToolTip("Submit a feature request");
-    featureBtn->setAccessibleName("Feature request");
-    featureBtn->setStyleSheet(
-        "QPushButton { background: #3a2a00; color: #ffd060; border: 1px solid #806020; "
-        "border-radius: 4px; font-size: 20px; padding: 0; }"
-        "QPushButton:hover { background: #504000; color: #ffe080; }");
-    connect(featureBtn, &QPushButton::clicked, this, &TitleBar::showFeatureRequestDialog);
-    m_hbox->addWidget(featureBtn);
-
     // ── Window-control trio (min / max / close) ───────────────────────────
-    // Flat labels — click is wired via eventFilter().  Close uses a red
-    // hover for the standard "destructive action" cue.
+    // Discord-style: thin 1 px vertical separator before the trio, larger
+    // flat labels with a subtle hover background.  Click is wired via
+    // eventFilter().  Close uses a red hover for the destructive action cue.
     m_hbox->addSpacing(8);
 
+    auto* sep = new QFrame;
+    sep->setFixedSize(1, 20);
+    sep->setStyleSheet("QFrame { background: #304050; border: none; }");
+    m_hbox->addWidget(sep);
+
+    m_hbox->addSpacing(4);
+
     const QString winLblStyle = QStringLiteral(
-        "QLabel { color: #8aa8c0; font-size: 14px; padding: 0 6px; }"
-        "QLabel:hover { color: #00b4d8; }");
+        "QLabel { color: #8aa8c0; font-size: 18px; padding: 0 10px; "
+        "border-radius: 4px; }"
+        "QLabel:hover { color: #ffffff; background: #203040; }");
     const QString winCloseLblStyle = QStringLiteral(
-        "QLabel { color: #8aa8c0; font-size: 14px; padding: 0 6px; }"
-        "QLabel:hover { color: #ff4040; }");
+        "QLabel { color: #8aa8c0; font-size: 18px; padding: 0 10px; "
+        "border-radius: 4px; }"
+        "QLabel:hover { color: #ffffff; background: #cc2030; }");
 
     m_minimizeLbl = new QLabel(QString::fromUtf8("\xe2\x80\x94"));  // — em dash
+    m_minimizeLbl->setFixedHeight(24);
     m_minimizeLbl->setAlignment(Qt::AlignCenter);
     m_minimizeLbl->setCursor(Qt::PointingHandCursor);
     m_minimizeLbl->setToolTip("Minimize");
@@ -302,6 +287,7 @@ TitleBar::TitleBar(QWidget* parent)
     m_hbox->addWidget(m_minimizeLbl);
 
     m_maximizeLbl = new QLabel(QString::fromUtf8("\xe2\x96\xa1"));  // □ U+25A1
+    m_maximizeLbl->setFixedHeight(24);
     m_maximizeLbl->setAlignment(Qt::AlignCenter);
     m_maximizeLbl->setCursor(Qt::PointingHandCursor);
     m_maximizeLbl->setToolTip("Maximize");
@@ -311,6 +297,7 @@ TitleBar::TitleBar(QWidget* parent)
     m_hbox->addWidget(m_maximizeLbl);
 
     m_closeLbl = new QLabel(QString::fromUtf8("\xe2\x9c\x95"));  // ✕ U+2715
+    m_closeLbl->setFixedHeight(24);
     m_closeLbl->setAlignment(Qt::AlignCenter);
     m_closeLbl->setCursor(Qt::PointingHandCursor);
     m_closeLbl->setToolTip("Close");
@@ -763,12 +750,6 @@ void TitleBar::setMinimalMode(bool on)
     m_hpLabel->setVisible(!on);
     // Don't touch m_otherTxLabel or m_mfBtn — their visibility is
     // managed by setOtherClientTx() and setMultiFlexStatus() respectively
-
-    // Swap icon and tooltip
-    if (m_minimalBtn) {
-        m_minimalBtn->setText(on ? "\xe2\x86\x97" : "\xe2\x86\x99");  // ↗ or ↙
-        m_minimalBtn->setToolTip(on ? "Restore Full Mode (Ctrl+M)" : "Minimal Mode (Ctrl+M)");
-    }
 }
 
 } // namespace AetherSDR

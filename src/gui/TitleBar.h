@@ -44,8 +44,11 @@ signals:
     // View menu checkbox can stay in sync.
     void blinkEnabledChanged(bool enabled);
 
-private:
+public:
+    // Open the feature-request dialog.  Wired from Help → Submit your idea…
     void showFeatureRequestDialog();
+
+private:
     void showFeatureRequestDialogImpl();
     QHBoxLayout* m_hbox{nullptr};
     QMenuBar*    m_menuBar{nullptr};
@@ -58,9 +61,6 @@ private:
     QSlider*     m_hpSlider{nullptr};
     QLabel*      m_masterLabel{nullptr};
     QLabel*      m_hpLabel{nullptr};
-
-    QPushButton* m_minimalBtn{nullptr};
-    QPushButton* m_featureBtn{nullptr};
 
     // Window-control trio (frameless mode): minimize, maximize/restore, close.
     // QLabels (not buttons) for a flat look; click is wired via eventFilter.
