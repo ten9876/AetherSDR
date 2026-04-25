@@ -46,26 +46,36 @@ AetherSDR supports four DAX IQ channels with selectable sample rates
 
 ---
 
-## Finding and Using the DIGI Applet
+## Finding and Using the Digital Applets
 
-The DIGI applet is your control center for all external-software integration.
-Here is how to find it and what each section does.
+AetherSDR provides four independent applets for external-software integration.
+Each applet handles one aspect of digital operation:
 
-### Opening the DIGI applet
+| Applet | Purpose |
+|---|---|
+| **CAT** | Rig control — TCP and virtual serial port CAT servers |
+| **DAX** | Audio routing — virtual audio devices for RX and TX |
+| **TCI** | TCI server — control + audio over a single WebSocket |
+| **IQ** | IQ streaming — raw baseband IQ channels |
+
+These applets replace the former combined "DIGI" panel that existed in earlier
+versions of AetherSDR. Each applet can now be opened, closed, and reordered
+independently in the applet panel.
+
+### Opening the applets
 
 1. Connect to your radio.
 2. Look at the **right-hand applet panel** (the vertical strip of collapsible
    sections on the right side of the main window).
-3. Click the **DIGI** button to expand it.
+3. Click the **CAT**, **DAX**, **TCI**, or **IQ** button to expand the
+   applet you need.
 
-> **Tip:** Keep the DIGI applet visible during setup. It answers the question
-> "What endpoints is AetherSDR offering to the rest of the station?"
+> **Tip:** Keep the relevant applets visible during setup. They answer the
+> question "What endpoints is AetherSDR offering to the rest of the station?"
 
-### What you will see inside
+### What you will see inside each applet
 
-The DIGI applet is divided into four sections from top to bottom:
-
-#### CAT Control
+#### CAT applet
 
 - **Enable TCP** — starts four rigctld-compatible TCP servers (channels A-D)
 - **Enable TTY** — creates four virtual serial ports (channels A-D)
@@ -73,13 +83,13 @@ The DIGI applet is divided into four sections from top to bottom:
 - **Channel rows (A-D)** — each row shows the TCP port number, connection count,
   and the virtual serial port path
 
-#### TCI Server
+#### TCI applet
 
 - **Enable** — starts the TCI WebSocket server
 - **Port** — the WebSocket port (default `50001`)
 - **Status** — shows "(stopped)" or the port and connected client count
 
-#### DAX Audio Channels
+#### DAX applet
 
 - **DAX 1-4** — four receive channels, each with a gain slider and level meter.
   When a slice is assigned to a DAX channel, the label shows which slice
@@ -88,7 +98,7 @@ The DIGI applet is divided into four sections from top to bottom:
   owns transmit.
 - **Enable** — starts the DAX virtual audio bridge
 
-#### DAX IQ
+#### IQ applet
 
 - **IQ 1-4** — four IQ channels, each with a sample rate selector
   (24k/48k/96k/192k), level meter, and On/Off toggle
@@ -99,7 +109,7 @@ The DIGI applet is divided into four sections from top to bottom:
 
 ### CAT over TCP
 
-When you click **Enable TCP** in the DIGI applet, AetherSDR starts four
+When you click **Enable TCP** in the **CAT** applet, AetherSDR starts four
 independent TCP servers that speak the **Hamlib rigctld protocol**. Any
 application that can talk to rigctld can connect directly.
 
@@ -114,7 +124,7 @@ The four servers use consecutive ports starting from the base port:
 
 **How to use it:**
 
-1. In the DIGI applet, click **Enable TCP**.
+1. In the **CAT** applet, click **Enable TCP**.
 2. Note the base port (default `4532`). Change it if another application
    already uses that port.
 3. In your digital program, set the rig control type to **rigctld** or
@@ -138,7 +148,7 @@ other applications.
 
 **How to use it:**
 
-1. In the DIGI applet, click **Enable TTY**.
+1. In the **CAT** applet, click **Enable TTY**.
 2. The channel rows will show the actual PTY device paths.
 3. In your digital program, select the symlink path as the serial port
    (e.g. `/tmp/AetherSDR-CAT-A`).
@@ -231,7 +241,7 @@ connection, eliminating the need for virtual audio devices entirely.
 
 ### DAX gain staging
 
-The DIGI applet provides gain sliders for each DAX channel:
+The **DAX** applet provides gain sliders for each DAX channel:
 
 - **RX gain (DAX 1-4):** Controls the level of audio sent from the radio to
   your digital program. Start at 50% and adjust if decodes are poor or the
@@ -265,8 +275,8 @@ the radio.
 3. Check the options you want. The setting is saved immediately and persists
    across restarts.
 
-> **Note:** The **Enable TCP** button in the DIGI applet is separate from
-> auto-start. TCP CAT servers are toggled directly from the DIGI applet or
+> **Note:** The **Enable TCP** button in the **CAT** applet is separate from
+> auto-start. TCP CAT servers are toggled directly from the **CAT** applet or
 > will start if you had them enabled when you last used the application.
 > The "Autostart CAT" menu item specifically controls the TTY/PTY virtual
 > serial ports.
@@ -280,7 +290,7 @@ When you connect to the radio with auto-start enabled:
 - **TCI:** The WebSocket server starts on the configured port (default `50001`).
 - **DAX:** The virtual audio devices are created after a short delay (about
   3 seconds, to allow the radio to finish session setup). The DAX Enable
-  button in the DIGI applet will light up automatically.
+  button in the **DAX** applet will light up automatically.
 
 ---
 
@@ -303,9 +313,9 @@ This method works on **Linux and macOS**.
 3. Confirm the slice owns transmit (TX indicator visible on the slice).
 4. Assign the slice to **DAX channel 1** (click the DAX channel selector in
    the slice bar or panadapter DAX overlay).
-5. Open the **DIGI applet**.
-6. Click **Enable TCP**. Note the base port (default `4532`).
-7. Click **Enable** under DAX Audio Channels. Verify the DAX 1 row shows
+5. Open the **CAT** applet and click **Enable TCP**. Note the base port
+   (default `4532`).
+6. Open the **DAX** applet and click **Enable**. Verify the DAX 1 row shows
    your slice (e.g. "Slice A").
 
 **Step 2 — Configure WSJT-X**
@@ -329,10 +339,10 @@ This method works on **Linux and macOS**.
 **Step 3 — Verify**
 
 1. You should see the WSJT-X waterfall filling with signals.
-2. The DIGI applet should show `1 client` on channel A's TCP row.
+2. The **CAT** applet should show `1 client` on channel A's TCP row.
 3. The DAX 1 level meter should show activity.
 4. To test transmit: click **Tune** in WSJT-X. The radio should key up and
-   the TX meter in the DIGI applet should show level. Keep the TX gain moderate.
+   the TX meter in the **DAX** applet should show level. Keep the TX gain moderate.
 
 #### Option 2: TCI (control + audio over one connection)
 
@@ -344,8 +354,8 @@ needed.
 1. Connect to the radio.
 2. Select or create a slice and set the mode to **DIGU**.
 3. Confirm the slice owns transmit.
-4. Open the **DIGI applet**.
-5. Under **TCI Server**, click **Enable**. Note the port (default `50001`).
+4. Open the **TCI** applet and click **Enable**. Note the port
+   (default `50001`).
 6. You do **not** need to enable DAX — TCI carries audio internally.
 
 **Step 2 — Configure WSJT-X 3.0**
@@ -363,7 +373,7 @@ needed.
 
 **Step 3 — Verify**
 
-1. The TCI status in the DIGI applet should show `1 client`.
+1. The **TCI** applet status should show `1 client`.
 2. The WSJT-X waterfall should fill with signals.
 3. Test transmit with **Tune** as above.
 
@@ -389,9 +399,9 @@ and audio routing. This walkthrough covers the CAT+DAX method.
    **USB** depending on your VARA configuration.
 3. Confirm the slice owns transmit.
 4. Assign the slice to **DAX channel 1**.
-5. Open the **DIGI applet**.
-6. Click **Enable TCP**. Note the base port (default `4532`).
-7. Click **Enable** under DAX Audio Channels.
+5. Open the **CAT** applet and click **Enable TCP**. Note the base port
+   (default `4532`).
+6. Open the **DAX** applet and click **Enable**.
 
 **Step 2 — Configure VARA**
 
@@ -421,8 +431,8 @@ and audio routing. This walkthrough covers the CAT+DAX method.
 
 **Step 4 — Verify**
 
-1. The DIGI applet should show a connected client on channel A.
-2. When VARA transmits, the TX level meter in the DIGI applet should show
+1. The **CAT** applet should show a connected client on channel A.
+2. When VARA transmits, the TX level meter in the **DAX** applet should show
    activity.
 3. When receiving, the DAX 1 meter should show activity and VARA's waterfall
    should display signals.
@@ -441,9 +451,9 @@ and integrates with Hamlib for rig control.
    modes) or **DIGL** / **RTTY** as appropriate.
 3. Confirm the slice owns transmit.
 4. Assign the slice to **DAX channel 1**.
-5. Open the **DIGI applet**.
-6. Click **Enable TCP**. Note the base port (default `4532`).
-7. Click **Enable** under DAX Audio Channels.
+5. Open the **CAT** applet and click **Enable TCP**. Note the base port
+   (default `4532`).
+6. Open the **DAX** applet and click **Enable**.
 
 **Step 2 — Configure fldigi**
 
@@ -480,9 +490,9 @@ and integrates with Hamlib for rig control.
 1. fldigi's waterfall should show signals from the radio.
 2. The frequency display in fldigi should match the radio's frequency.
 3. Changing frequency in fldigi should move the radio, and vice versa.
-4. The DIGI applet should show a connected CAT client.
+4. The **CAT** applet should show a connected client.
 5. To test transmit: type some text in the transmit pane and press the TX
-   button (or Ctrl+T). The radio should key up and the DIGI applet TX meter
+   button (or Ctrl+T). The radio should key up and the **DAX** applet TX meter
    should show level.
 
 ---
@@ -528,8 +538,8 @@ demodulated audio (e.g. SDR receivers, digital mode research tools).
 
 ## How AetherSDR Maps Channels
 
-The DIGI applet is organized around four channels (A, B, C, D) that align with
-the four-slice workflow:
+The **CAT** and **DAX** applets are organized around four channels (A, B, C, D)
+that align with the four-slice workflow:
 
 | Channel | CAT TCP port (default) | TTY path | DAX audio |
 |---|---|---|---|
@@ -552,7 +562,8 @@ Use this sequence the first time you integrate a new digital application:
 3. Set the slice to the correct digital mode (usually **DIGU** or **DIGL**).
 4. Confirm that the correct slice owns transmit.
 5. Assign the slice to a DAX channel (1-4).
-6. Open the **DIGI applet** and keep it visible.
+6. Open the **CAT**, **DAX**, **TCI**, or **IQ** applets as needed and keep
+   them visible.
 7. Enable **TCP**, **TTY**, or **TCI** depending on what your application expects.
 8. Enable **DAX** if your workflow needs virtual audio devices.
 9. Configure your digital application to point at the correct CAT endpoint
@@ -581,7 +592,7 @@ poor or your transmitted signal looks dirty:
 A good digital layout keeps these items on screen:
 
 - the active slice and its mode
-- the DIGI applet
+- the **CAT**, **DAX**, or **TCI** applet (whichever your workflow uses)
 - the TX applet
 - the status bar network and TX indicators
 - at least one visible panadapter
@@ -614,7 +625,7 @@ then confirm the application's transmit audio is routed to `AetherSDR TX`.
 **Cause:** The radio-control path is correct but the DAX receive audio path
 is not.
 
-**Fix:** Leave CAT alone. Check that DAX is enabled in the DIGI applet and
+**Fix:** Leave CAT alone. Check that DAX is enabled in the **DAX** applet and
 that the application's audio input is set to the correct `AetherSDR DAX`
 channel.
 
@@ -622,7 +633,7 @@ channel.
 
 **Cause:** DAX is right, but CAT or TCI is wrong or not connected.
 
-**Fix:** Leave audio alone. Check the DIGI applet for a connected CAT client.
+**Fix:** Leave audio alone. Check the **CAT** applet for a connected client.
 Verify the port number and host in your application's rig control settings.
 
 ### No DAX devices appear in the audio settings
@@ -632,7 +643,7 @@ PulseAudio/PipeWire service is not running.
 
 **Fix:**
 - Verify the radio is connected.
-- Click **Enable** under DAX in the DIGI applet.
+- Click **Enable** in the **DAX** applet.
 - On Linux: run `pactl list sources short` to check if the devices exist.
 - On macOS: check **System Settings > Sound > Input** for AetherSDR devices.
 - On Windows: use TCI instead — DAX virtual audio is not available on Windows.

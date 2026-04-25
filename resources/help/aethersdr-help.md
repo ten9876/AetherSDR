@@ -171,7 +171,10 @@ Default applet order is:
 - `PHNE`
 - `P/CW`
 - `EQ`
-- `DIGI`
+- `CAT`
+- `DAX`
+- `TCI`
+- `IQ`
 - `MTR`
 - `AG`
 
@@ -228,18 +231,38 @@ This applet is mode-sensitive. In phone-oriented modes it exposes microphone-ori
 
 The EQ applet is for transmit and receive equalization. Small moves are best. Shape the audio, then listen and measure before making another large adjustment.
 
-### `DIGI`
+### `CAT`
 
-The DIGI applet is the bridge between AetherSDR and external software. It handles:
+The CAT applet handles rig control for external software. It provides:
 
-- CAT over TCP
-- virtual TTY or PTY control
-- TCI server enablement
-- DAX enablement
-- DAX receive and transmit levels
-- DAX IQ integration
+- CAT over TCP (four rigctld-compatible servers, channels A-D)
+- Virtual TTY/PTY serial port creation (channels A-D)
+- Base port configuration and per-channel connection status
 
-If you use computer-driven digital modes, this applet deserves a permanent place in your operating layout.
+### `DAX`
+
+The DAX applet manages virtual audio routing between the radio and external software. It provides:
+
+- DAX receive channels 1-4 with gain sliders and level meters
+- DAX transmit channel with gain slider and level meter
+- Enable/disable control for the virtual audio bridge
+
+### `TCI`
+
+The TCI applet runs the TCI WebSocket server, which carries control, audio, and IQ data over a single connection. It provides:
+
+- TCI server enable/disable
+- Port configuration (default `50001`)
+- Connected client status
+
+### `IQ`
+
+The IQ applet manages raw baseband IQ streaming for applications that need undemodulated data. It provides:
+
+- Four IQ channels with selectable sample rates (24k/48k/96k/192k)
+- Per-channel level meters and on/off toggles
+
+If you use computer-driven digital modes, these applets deserve a permanent place in your operating layout.
 
 ### `MTR`
 
