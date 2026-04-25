@@ -8116,7 +8116,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     });
 
     // ── Spot trigger — notify the radio when a spot label is clicked (#341)
-    connect(sw, &SpectrumWidget::spotTriggered, this, [this, applet](int spotIndex) {
+    connect(sw, &SpectrumWidget::spotTriggered, this, [this, applet, resolveSpectrumTuneTarget](int spotIndex) {
         const auto& spots = m_radioModel.spotModel().spots();
         auto it = spots.find(spotIndex);
         if (it == spots.end()) return;
@@ -8134,7 +8134,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         // Auto-switch mode from spot metadata (#424)
         if (AppSettings::instance().value("SpotAutoSwitchMode", "False").toString() != "True")
             return;
-        auto* s = activeSlice();
+        auto* s = resolveSpectrumTuneTarget();
         if (!s) return;
 
         // Extract mode: prefer explicit mode field, fall back to comment text
