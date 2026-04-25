@@ -2552,6 +2552,16 @@ void RadioModel::onStatusReceived(const QString& object,
             const bool radioTx = (state == "TRANSMITTING");
             emit radioTransmittingChanged(radioTx);
 
+            // Hardware PTT: if we own TX and the radio is transmitting but we
+            // didn't request it locally, adopt the TX intent so the audio gate opens (#1940).
+            if (m_txOwnedByUs && radioTx && !m_txRequested) {
+                m_txRequested = true;
+            }
+            // Clear local TX intent when radio confirms we've left TX (#1940).
+            if (m_txOwnedByUs && !radioTx && m_txRequested) {
+                m_txRequested = false;
+            }
+
             if (!m_txOwnedByUs || (!m_txRequested && !m_cwKeyActive && !m_transmitModel.isTuning())) {
                 // Another client owns TX, or local unkey requested:
                 // force local TX/audio gate off through all interlock states.
