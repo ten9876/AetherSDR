@@ -75,6 +75,7 @@
 #include "models/MeterModel.h"
 #include "models/BandDefs.h"
 #include "models/BandPlanManager.h"
+#include "models/XvtrPolicy.h"
 #include "core/BandStackSettings.h"
 #include "gui/BandStackPanel.h"
 #include "models/TunerModel.h"
@@ -167,6 +168,18 @@ constexpr double kIncrementalSettleEdgeMarginFrac = 0.06;
 constexpr double kRevealComfortEdgeMarginFrac = 0.18;
 constexpr double kSpectrumClickEdgeMarginFrac = 0.05;
 constexpr int kPanFollowAnimationDurationMs = 110;
+
+QVector<XvtrPolicy::Transverter> xvtrPolicyBandsFrom(
+    const QMap<int, RadioModel::XvtrInfo>& xvtrs)
+{
+    QVector<XvtrPolicy::Transverter> bands;
+    bands.reserve(xvtrs.size());
+    for (auto it = xvtrs.cbegin(); it != xvtrs.cend(); ++it) {
+        const auto& x = it.value();
+        bands.append({x.index, x.order, x.name, x.rfFreq, x.ifFreq, x.isValid});
+    }
+    return bands;
+}
 
 double quantizeIncrementalFollowDelta(double overshootMhz, double stepMhz)
 {
@@ -1608,41 +1621,29 @@ MainWindow::MainWindow(QWidget* parent)
                          double low, double high, quint32 tc) {
         for (auto* pan : m_radioModel.panadapters()) {
             if (pan->wfStreamId() == streamId) {
-                const double tileCenter = (low + high) / 2.0;
-                const double panCenter  = pan->centerMhz();
-                const double tileBw     = high - low;
-                bool xvtrTileNeedsShift = false;
-                if (tileBw > 0 && std::abs(tileCenter - panCenter) > tileBw) {
+                const double panCenter = pan->centerMhz();
+                if (XvtrPolicy::isWaterfallTileOutsidePan(low, high, panCenter)) {
                     // Only reinterpret non-overlapping tile ranges for real XVTR
                     // IF/RF translation. Ordinary HF pans can briefly see stale
                     // tile centers while dragging; shifting those corrupts rows.
-                    const double observedOffset = panCenter - tileCenter;
-                    const double toleranceMhz = std::max(tileBw, 0.25);
-                    for (const auto& xvtr : m_radioModel.xvtrList()) {
-                        if (!xvtr.isValid || xvtr.rfFreq <= 0.0 || xvtr.ifFreq <= 0.0)
-                            continue;
-                        const double expectedOffset = xvtr.rfFreq - xvtr.ifFreq;
-                        if (std::abs(observedOffset - expectedOffset) <= toleranceMhz) {
-                            xvtrTileNeedsShift = true;
-                            break;
-                        }
-                    }
-                    if (!xvtrTileNeedsShift) {
+                    const auto xvtrs = xvtrPolicyBandsFrom(m_radioModel.xvtrList());
+                    bool hasXvtrSliceAntenna = false;
+                    if (!XvtrPolicy::waterfallTileMatchesTransverterOffset(
+                            low, high, panCenter, xvtrs)) {
                         for (auto* slice : m_radioModel.slices()) {
                             if (!slice || slice->panId() != pan->panId())
                                 continue;
                             if (slice->rxAntenna().startsWith(QStringLiteral("XVT"),
                                                                Qt::CaseInsensitive)) {
-                                xvtrTileNeedsShift = true;
+                                hasXvtrSliceAntenna = true;
                                 break;
                             }
                         }
                     }
-                }
-                if (xvtrTileNeedsShift) {
-                    const double offset = panCenter - tileCenter;
-                    low  += offset;
-                    high += offset;
+                    const auto mapped = XvtrPolicy::mapWaterfallTileRange(
+                        low, high, panCenter, xvtrs, hasXvtrSliceAntenna);
+                    low = mapped.lowMhz;
+                    high = mapped.highMhz;
                 }
                 if (auto* sw = m_panStack->spectrum(pan->panId())) {
                     sw->updateWaterfallRow(bins, low, high, tc);
@@ -8166,60 +8167,18 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         // current slice/pan state untouched. Guessing is worse than failing
         // visibly because a wrong tune destroys the very band-stack state this
         // path exists to preserve.
-        static const QSet<QString> kPassThroughBands = {
-            "160", "80", "60", "40", "30", "20", "17", "15", "12", "10", "6",
-            "2200", "630"
-        };
-        static const QMap<QString, int> kNumericBandSlots = {
-            { QStringLiteral("WWV"), 33 },
-            { QStringLiteral("GEN"), 34 },
-        };
-
-        // Band names from the UI carry the human suffix ("20m", "630m"),
-        // while the radio's band-stack keys are bare numbers ("20", "630").
-        // Only strip when the bare value is a known native band so XVTR names
-        // such as "2m" still fall through to the XVTR lookup below.
-        QString radioKey = bandName;
-        if (radioKey.endsWith('m') && radioKey.length() > 1) {
-            const QString stripped = radioKey.chopped(1);
-            if (kPassThroughBands.contains(stripped))
-                radioKey = stripped;
-        }
-
-        QString stackKey;
-        QString unsupportedBandReason;
-        if (kPassThroughBands.contains(radioKey)) {
-            stackKey = radioKey;
-        } else if (kNumericBandSlots.contains(bandName)) {
-            stackKey = QString::number(kNumericBandSlots.value(bandName));
-            qDebug() << "  ↳ numeric band slot:" << bandName << "->" << stackKey;
-        } else {
-            for (auto it = m_radioModel.xvtrList().constBegin();
-                 it != m_radioModel.xvtrList().constEnd(); ++it) {
-                if (it.value().isValid && it.value().name == bandName) {
-                    if (it.value().order < 0) {
-                        unsupportedBandReason =
-                            QString("XVTR %1 has no setup order; cannot form Flex band= key")
-                                .arg(bandName);
-                    } else {
-                        stackKey = QString("X%1").arg(it.value().order);
-                        qDebug() << "  ↳ XVTR match:" << bandName << "->" << stackKey;
-                    }
-                    break;
-                }
-            }
-        }
+        const auto stackKeyResult = XvtrPolicy::resolveBandStackKey(
+            bandName, xvtrPolicyBandsFrom(m_radioModel.xvtrList()));
+        const QString stackKey = stackKeyResult.key;
+        QString unsupportedBandReason = stackKeyResult.unsupportedReason;
 
         if (stackKey.isEmpty()) {
-            if (unsupportedBandReason.isEmpty()) {
-                unsupportedBandReason =
-                    QString("Band %1 has no Flex display pan band= mapping").arg(bandName);
-            }
             qWarning() << "MainWindow: refusing unsupported band change:"
                        << unsupportedBandReason;
             statusBar()->showMessage(unsupportedBandReason, 5000);
             return;
         } else {
+            qDebug() << "  ↳ Flex band key:" << bandName << "->" << stackKey;
             m_bandSettings.setCurrentBand(bandName);
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));

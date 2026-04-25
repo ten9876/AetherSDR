@@ -477,6 +477,7 @@ set(MODEL_SOURCES
     src/models/DvkModel.cpp
     src/models/BandSettings.cpp
     src/models/BandPlanManager.cpp
+    src/models/XvtrPolicy.cpp
     src/models/AntennaGeniusModel.cpp
 )
 
@@ -1105,6 +1106,13 @@ add_executable(passive_spots_policy_test
 )
 target_include_directories(passive_spots_policy_test PRIVATE src)
 target_link_libraries(passive_spots_policy_test PRIVATE Qt6::Core)
+
+add_executable(xvtr_policy_test
+    tests/xvtr_policy_test.cpp
+    src/models/XvtrPolicy.cpp
+)
+target_include_directories(xvtr_policy_test PRIVATE src)
+target_link_libraries(xvtr_policy_test PRIVATE Qt6::Core)
 
 # Help guide search tests - needs QApplication + Widgets.
 add_executable(help_dialog_test
