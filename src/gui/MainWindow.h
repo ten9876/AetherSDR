@@ -51,6 +51,9 @@
 #include <QSizeGrip>
 #include <QHash>
 #include <QJsonObject>
+#include <QTimer>
+
+class QAbstractSlider;
 
 namespace AetherSDR {
 
@@ -197,6 +200,9 @@ private:
     void updateBandStackIndicator();
     SliceModel* preferredMemorySlice(const QString& preferredPanId) const;
     bool activateMemorySpot(int memoryIndex, const QString& preferredPanId = {});
+    void beginSliderShortcutLease(QAbstractSlider* slider);
+    void renewSliderShortcutLease();
+    void releaseSliderShortcutLease(bool clearFocus);
 
     BandSnapshot captureCurrentBandState() const;
     void restoreBandState(const BandSnapshot& snap);
@@ -383,6 +389,8 @@ private:
     qint64 m_bsConnectGraceUntilMs{0};   // suppress auto-save right after connect
     bool m_keyboardShortcutsEnabled{false}; // global enable for keyboard shortcuts (View menu)
     bool m_spacePttActive{false};          // true while Space is held for PTT
+    QPointer<QAbstractSlider> m_sliderShortcutLease;
+    QTimer m_sliderShortcutLeaseTimer;
     bool m_minimalMode{false};             // true when spectrum is hidden (#208)
     QAction* m_minimalModeAction{nullptr};
     bool m_panadapterConnectionAnimationVisible{false};

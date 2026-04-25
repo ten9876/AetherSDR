@@ -114,6 +114,7 @@
 #include <QMenu>
 #include <QAction>
 #include <QActionGroup>
+#include <QAbstractSlider>
 #include <QLabel>
 #include <QCloseEvent>
 #include <QMessageBox>
@@ -167,6 +168,7 @@ constexpr double kIncrementalSettleEdgeMarginFrac = 0.06;
 constexpr double kRevealComfortEdgeMarginFrac = 0.18;
 constexpr double kSpectrumClickEdgeMarginFrac = 0.05;
 constexpr int kPanFollowAnimationDurationMs = 110;
+constexpr int kSliderShortcutLeaseMs = 2000;
 
 double quantizeIncrementalFollowDelta(double overshootMhz, double stepMhz)
 {
@@ -264,6 +266,7 @@ static constexpr int kMemorySpotIdBase = 1000000;
 static constexpr int kPassiveSpotIdBase = 2000000;
 
 static bool s_keyboardShortcutsEnabled = false;
+static bool s_sliderShortcutLeaseActive = false;
 
 static int memorySpotId(int memoryIndex)
 {
@@ -323,17 +326,20 @@ static QPixmap buildBandStackIndicatorPixmap(bool active)
     return pixmap;
 }
 
-static bool isTextInputFocused()
+static bool shortcutInputCaptured()
 {
+    if (s_sliderShortcutLeaseActive)
+        return true;
+
     auto* w = QApplication::focusWidget();
     if (!w) return false;
     return qobject_cast<QLineEdit*>(w) || qobject_cast<QTextEdit*>(w)
         || qobject_cast<QPlainTextEdit*>(w) || qobject_cast<QSpinBox*>(w)
-        || qobject_cast<QComboBox*>(w) || qobject_cast<QAbstractSlider*>(w);
+        || qobject_cast<QComboBox*>(w);
 }
 
 static bool shortcutGuard() {
-    return s_keyboardShortcutsEnabled && !isTextInputFocused();
+    return s_keyboardShortcutsEnabled && !shortcutInputCaptured();
 }
 
 static QStringList splitClientField(const QString& raw)
@@ -3753,8 +3759,64 @@ void MainWindow::showPropDashboard()
     m_propDashboardDialog->activateWindow();
 }
 
+void MainWindow::beginSliderShortcutLease(QAbstractSlider* slider)
+{
+    if (!slider) return;
+
+    m_sliderShortcutLease = slider;
+    s_sliderShortcutLeaseActive = true;
+    m_shortcutManager.setShortcutsEnabled(false);
+    renewSliderShortcutLease();
+}
+
+void MainWindow::renewSliderShortcutLease()
+{
+    if (!m_sliderShortcutLease) {
+        releaseSliderShortcutLease(false);
+        return;
+    }
+
+    s_sliderShortcutLeaseActive = true;
+    m_shortcutManager.setShortcutsEnabled(false);
+
+    if (m_sliderShortcutLease->isSliderDown()) {
+        m_sliderShortcutLeaseTimer.stop();
+        return;
+    }
+
+    m_sliderShortcutLeaseTimer.start(kSliderShortcutLeaseMs);
+}
+
+void MainWindow::releaseSliderShortcutLease(bool clearFocus)
+{
+    auto* slider = m_sliderShortcutLease.data();
+
+    if (clearFocus && slider && slider->isSliderDown()) {
+        renewSliderShortcutLease();
+        return;
+    }
+
+    m_sliderShortcutLeaseTimer.stop();
+    m_sliderShortcutLease.clear();
+    s_sliderShortcutLeaseActive = false;
+    m_shortcutManager.setShortcutsEnabled(true);
+
+    if (clearFocus && slider && QApplication::focusWidget() == slider)
+        slider->clearFocus();
+}
+
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 {
+    if (auto* slider = qobject_cast<QAbstractSlider*>(obj)) {
+        if (event->type() == QEvent::MouseButtonPress
+            || event->type() == QEvent::MouseButtonDblClick) {
+            beginSliderShortcutLease(slider);
+        } else if (event->type() == QEvent::MouseButtonRelease
+                   && m_sliderShortcutLease.data() == slider) {
+            renewSliderShortcutLease();
+        }
+    }
+
     // Applet-panel floating window — save geometry on move/resize, and
     // dock back on close so the menu action stays in sync.
     if (obj == m_appletPanelFloatWindow) {
@@ -3789,7 +3851,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
     if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
         auto* ke = static_cast<QKeyEvent*>(event);
         if (ke->key() == Qt::Key_Space && !ke->isAutoRepeat()
-            && !isTextInputFocused()
+            && !shortcutInputCaptured()
             && m_radioModel.isConnected()) {
             if (m_keyboardShortcutsEnabled) {
                 if (event->type() == QEvent::KeyPress && !m_spacePttActive) {
@@ -3803,12 +3865,11 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
             return true;  // always consume Space to prevent button activation
         }
 
-        // Arrow keys on focused sliders: intercept here (before QShortcut processing)
-        // so the slider's singleStep/pageStep movement isn't stolen by frequency-tune
-        // shortcuts. The application event filter runs before Qt's shortcut map.
+        // A clicked slider gets a short keyboard lease so arrow nudges adjust
+        // the slider, then global operating shortcuts automatically resume.
         if (event->type() == QEvent::KeyPress) {
             auto* slider = qobject_cast<QAbstractSlider*>(QApplication::focusWidget());
-            if (slider) {
+            if (slider && m_sliderShortcutLease.data() == slider && s_sliderShortcutLeaseActive) {
                 int k = ke->key();
                 if (k == Qt::Key_Left || k == Qt::Key_Right
                     || k == Qt::Key_Up || k == Qt::Key_Down) {
@@ -3816,6 +3877,21 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                     int step = (ke->modifiers() & Qt::ControlModifier)
                                    ? slider->pageStep() : slider->singleStep();
                     slider->setValue(slider->value() + (increase ? step : -step));
+                    renewSliderShortcutLease();
+                    return true;
+                }
+                if (k == Qt::Key_PageUp || k == Qt::Key_PageDown) {
+                    const int step = slider->pageStep();
+                    slider->setValue(slider->value()
+                                     + (k == Qt::Key_PageUp ? step : -step));
+                    renewSliderShortcutLease();
+                    return true;
+                }
+                if (k == Qt::Key_Home || k == Qt::Key_End) {
+                    slider->setValue(k == Qt::Key_Home
+                                         ? slider->minimum()
+                                         : slider->maximum());
+                    renewSliderShortcutLease();
                     return true;
                 }
             }
@@ -9342,14 +9418,18 @@ void MainWindow::registerShortcutActions()
     s_keyboardShortcutsEnabled = m_keyboardShortcutsEnabled;
     m_shortcutManager.rebuildShortcuts(this, shortcutGuard);
 
-    // Disable all QShortcuts while a slider has keyboard focus so arrow keys
-    // (and other slider keys) reach the slider instead of being consumed by
-    // window-level shortcuts (e.g. frequency tune left/right). Qt processes
-    // shortcuts before dispatching key events to focused widgets.
+    m_sliderShortcutLeaseTimer.setSingleShot(true);
+    connect(&m_sliderShortcutLeaseTimer, &QTimer::timeout, this,
+            [this]() { releaseSliderShortcutLease(true); });
+
+    // Temporarily yield global shortcuts while a clicked slider is being
+    // nudged, then return keyboard control to the operator shortcuts.
     connect(qApp, &QApplication::focusChanged, this,
             [this](QWidget* /*old*/, QWidget* now) {
-        m_shortcutManager.setShortcutsEnabled(
-            !qobject_cast<QAbstractSlider*>(now));
+        if (auto* slider = qobject_cast<QAbstractSlider*>(now))
+            beginSliderShortcutLease(slider);
+        else
+            releaseSliderShortcutLease(false);
     });
 }
 
