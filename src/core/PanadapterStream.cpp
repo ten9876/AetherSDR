@@ -163,6 +163,12 @@ bool PanadapterStream::start(RadioConnection* conn)
 
     m_localAddress = m_socket->localAddress();
     m_localPort = m_socket->localPort();
+
+    // Enlarge UDP receive buffer to avoid packet loss on busy bands (#1978).
+    // Default OS buffer (8 KB on Windows) is too small when FFT, waterfall,
+    // meter, and DAX audio packets share one socket.
+    m_socket->setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption, 2 * 1024 * 1024);
+
     qCDebug(lcVita49) << "PanadapterStream: local UDP endpoint"
                       << m_localAddress.toString() << ":" << m_localPort;
 
@@ -218,6 +224,10 @@ bool PanadapterStream::startWan(const QHostAddress& radioAddr, quint16 radioUdpP
 
     m_localPort = m_socket->localPort();
     m_localAddress = m_socket->localAddress();
+
+    // Enlarge UDP receive buffer to avoid packet loss on busy bands (#1978).
+    m_socket->setSocketOption(QAbstractSocket::ReceiveBufferSizeSocketOption, 2 * 1024 * 1024);
+
     m_radioAddress = radioAddr;
     m_radioPort = radioUdpPort;
     m_isWanMode = true;
