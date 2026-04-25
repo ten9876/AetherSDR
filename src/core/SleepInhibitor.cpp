@@ -43,11 +43,15 @@ void SleepInhibitor::acquire(const QString& reason)
 #endif
 
 #ifdef Q_OS_WIN
+    // ES_SYSTEM_REQUIRED prevents full sleep; ES_AWAYMODE_REQUIRED tells Windows
+    // to keep network adapters alive even when the display is off (Away Mode).
+    // This prevents NIC power-management from killing TCP connections during
+    // screen-lock / idle / Modern Standby. (#1966)
     EXECUTION_STATE prev = SetThreadExecutionState(
-        ES_CONTINUOUS | ES_SYSTEM_REQUIRED);
+        ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED);
     if (prev != 0 || true) { // SetThreadExecutionState returns previous state, 0 only on error
         m_held = true;
-        qDebug() << "SleepInhibitor: acquired (Windows SetThreadExecutionState)";
+        qDebug() << "SleepInhibitor: acquired (Windows SetThreadExecutionState + AwayMode)";
     }
 #endif
 

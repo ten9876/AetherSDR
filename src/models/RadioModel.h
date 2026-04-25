@@ -664,7 +664,11 @@ private:
     double        m_networkQualityScore{100.0};
     NetState      m_netState{NetState::Off};
     int           m_pingMissCount{0};          // consecutive unanswered pings
+    QElapsedTimer m_pingElapsed;               // wall-clock time since last ping tick (#1966)
     static constexpr int PING_MISS_DISCONNECT = 5; // force disconnect after 5 missed pings (~5s)
+    // If the wall-clock gap between two ping ticks exceeds this threshold, the
+    // system was likely suspended — reset the miss counter instead of disconnecting. (#1966)
+    static constexpr qint64 PING_SUSPEND_GAP_MS = 3000;
 
     // Network diagnostics — byte counters for rate calculation
 

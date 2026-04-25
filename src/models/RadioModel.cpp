@@ -966,8 +966,9 @@ void RadioModel::onConnected()
     m_clientConnectionNoticeTimer.restart();
     setActivePanResized(false);
 
-    // Inhibit system sleep while connected if the user has opted in (#1420)
-    if (AppSettings::instance().value("InhibitSleepWhileConnected", "False").toString() == "True")
+    // Inhibit system sleep while connected. Defaults to True so that Windows does
+    // not suspend the NIC during idle/lock, which causes lost communication. (#1966)
+    if (AppSettings::instance().value("InhibitSleepWhileConnected", "True").toString() == "True")
         m_sleepInhibitor.acquire("AetherSDR connected to radio");
 
     emit connectionStateChanged(true);
@@ -1568,6 +1569,7 @@ void RadioModel::startNetworkMonitor()
     m_lastPingRtt = 0;
     m_maxPingRtt = 0;
     m_pingMissCount = 0;
+    m_pingElapsed.start();
 
     // RTT is read from kernel TCP_INFO (smoothed RTT from TCP ACK timing),
     // completely independent of Qt event loop buffering. Falls back to
@@ -1587,6 +1589,16 @@ void RadioModel::startNetworkMonitor()
         if (!isConnected()) {
             stopNetworkMonitor();
             return;
+        }
+        // Detect system suspend/resume: if wall-clock time since the last tick
+        // greatly exceeds the 1-second interval, the OS was likely asleep.
+        // Reset the miss counter to give the network stack time to recover
+        // instead of immediately force-disconnecting. (#1966)
+        qint64 elapsed = m_pingElapsed.restart();
+        if (elapsed > PING_SUSPEND_GAP_MS && m_pingMissCount > 0) {
+            qDebug() << "RadioModel: ping tick gap" << elapsed
+                     << "ms — system likely resumed from suspend, resetting miss count";
+            m_pingMissCount = 0;
         }
         ++m_pingMissCount;
         if (m_pingMissCount >= PING_MISS_DISCONNECT) {
