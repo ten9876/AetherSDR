@@ -130,6 +130,7 @@ private:
     void updateTxBadgeStyle(bool isTx);
     void showTab(int index);
     void updateFreqLabel();
+    bool cancelDirectEntry();
     void updateFilterLabel();
     void updateModeTab();
     void rebuildFilterButtons();

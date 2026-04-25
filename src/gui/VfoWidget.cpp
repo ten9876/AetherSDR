@@ -26,6 +26,7 @@
 #include <QFile>
 #include <QPixmap>
 #include <QEvent>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <cmath>
 
@@ -487,6 +488,7 @@ void VfoWidget::buildUI()
     const int stackW = QFontMetrics(labelFont).horizontalAdvance("0000.000.000") + 8;
     m_freqStack->setFixedWidth(stackW);
     m_freqEdit->setPlaceholderText("MHz (e.g. 14.225)");
+    m_freqEdit->installEventFilter(this);
     m_freqStack->addWidget(m_freqEdit);
     m_freqStack->setCurrentIndex(0);  // show label by default
 
@@ -2731,6 +2733,19 @@ void VfoWidget::beginDirectEntry(QString source)
     });
 }
 
+bool VfoWidget::cancelDirectEntry()
+{
+    if (!m_freqStack || !m_freqEdit || m_freqStack->currentIndex() != 1)
+        return false;
+
+    m_directEntrySource = "vfo-direct-entry";
+    if (m_slice)
+        m_freqEdit->setText(QString::number(m_slice->frequency(), 'f', 6));
+    m_freqStack->setCurrentIndex(0);
+    m_freqEdit->clearFocus();
+    return true;
+}
+
 void VfoWidget::syncFromSlice()
 {
     if (!m_slice) return;
@@ -3346,6 +3361,17 @@ void VfoWidget::setTransmitModel(TransmitModel* txModel)
 
 bool VfoWidget::eventFilter(QObject* obj, QEvent* event)
 {
+    if (obj == m_freqEdit
+        && (event->type() == QEvent::ShortcutOverride
+            || event->type() == QEvent::KeyPress)) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        if ((ke->key() == Qt::Key_Escape || ke->key() == Qt::Key_Cancel)
+            && cancelDirectEntry()) {
+            event->accept();
+            return true;
+        }
+    }
+
     // Double-click on DIG offset label → switch to inline edit
     if (obj == m_digOffsetLabel && event->type() == QEvent::MouseButtonDblClick) {
         if (m_digOffsetStack && m_digOffsetEdit) {

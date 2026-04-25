@@ -23,6 +23,7 @@
 #include <QAction>
 #include <QPainter>
 #include <QWheelEvent>
+#include <QKeyEvent>
 #include <QDoubleSpinBox>
 #include <QDir>
 #include <cmath>
@@ -416,6 +417,7 @@ void RxApplet::buildUI()
             " font-weight: bold; padding: 0 4px; }");
         m_freqEdit->setAlignment(Qt::AlignRight);
         m_freqEdit->setPlaceholderText("MHz");
+        m_freqEdit->installEventFilter(this);
         m_freqStack->addWidget(m_freqEdit);
         m_freqStack->setCurrentIndex(0);
 
@@ -1813,6 +1815,21 @@ void RxApplet::applyOffsetDir(const QString& dir)
 
 bool RxApplet::eventFilter(QObject* obj, QEvent* ev)
 {
+    if (obj == m_freqEdit
+        && (ev->type() == QEvent::ShortcutOverride
+            || ev->type() == QEvent::KeyPress)) {
+        auto* ke = static_cast<QKeyEvent*>(ev);
+        if ((ke->key() == Qt::Key_Escape || ke->key() == Qt::Key_Cancel)
+            && m_freqStack->currentIndex() == 1) {
+            if (m_slice)
+                m_freqEdit->setText(QString::number(m_slice->frequency(), 'f', 6));
+            m_freqStack->setCurrentIndex(0);
+            m_freqEdit->clearFocus();
+            ev->accept();
+            return true;
+        }
+    }
+
     // Double-click frequency label → inline edit
     if (obj == m_freqLabel && ev->type() == QEvent::MouseButtonDblClick) {
         if (m_slice) {
