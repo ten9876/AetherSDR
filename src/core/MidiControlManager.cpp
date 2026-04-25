@@ -102,7 +102,10 @@ bool MidiControlManager::openPortByName(const QString& portName)
             if (QString::fromStdString(probe.getPortName(i)).contains(portName, Qt::CaseInsensitive))
                 return openPort(static_cast<int>(i));
         }
-    } catch (const RtMidiError&) {}
+    } catch (const RtMidiError& e) {
+        qCWarning(lcDevices) << "MidiControlManager: error finding port:" << e.what();
+        emit portError(QString::fromStdString(e.getMessage()));
+    }
     return false;
 }
 
