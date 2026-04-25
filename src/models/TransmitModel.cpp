@@ -23,7 +23,7 @@ void TransmitModel::resetState()
     m_atuStatus = ATUStatus::None;
     m_memoriesEnabled = false;
     m_usingMemory = false;
-    m_showTxInWaterfall = false;
+    m_showTxInWaterfall = true;
 
     emit apdStateChanged();
     emit moxChanged(false);

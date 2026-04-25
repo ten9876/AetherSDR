@@ -251,7 +251,7 @@ private:
     int     m_rcaTxReqPolarity{0};
     int     m_maxPowerLevel{100};
     QString m_tuneMode{"single_tone"};
-    bool    m_showTxInWaterfall{false};
+    bool    m_showTxInWaterfall{true};
 
     // ATU state
     bool      m_atuEnabled{false};

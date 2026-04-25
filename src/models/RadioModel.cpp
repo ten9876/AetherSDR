@@ -1110,6 +1110,12 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
             sendCmd("sub xvtr all", [this](int, const QString&) {
             // Memory status arrives via normal status handler — no subscription needed.
             // "sub memory all" returns 500000A3 (invalid subscription object).
+        // Enable show-TX-in-waterfall by default so the waterfall keeps
+        // scrolling during transmit instead of freezing (#1970).
+        // SmartSDR defaults to off, but users consistently find the freeze
+        // confusing.  Those who prefer it off can disable in Radio Setup.
+        sendCmd("transmit set show_tx_in_waterfall=1");
+
         // Request available mic inputs (comma-separated response: "MIC,BAL,LINE,ACC")
         sendCmd("mic list", [this](int code, const QString& body) {
             if (code == 0) {
