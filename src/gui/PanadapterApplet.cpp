@@ -376,9 +376,11 @@ void PanadapterApplet::clearCwText()
 
 bool PanadapterApplet::eventFilter(QObject* obj, QEvent* ev)
 {
+#ifndef Q_OS_WIN
     // Title-bar drag in floating mode → move the OS window via Qt 6's
     // cross-platform startSystemMove.  Frameless pop-outs have no native
     // title bar, so the applet's own title strip becomes the drag handle.
+    // Windows keeps the native frame, so the OS title bar handles moves.
     if (obj == m_titleBar && m_isFloating
         && ev->type() == QEvent::MouseButtonPress) {
         auto* me = static_cast<QMouseEvent*>(ev);
@@ -391,6 +393,7 @@ bool PanadapterApplet::eventFilter(QObject* obj, QEvent* ev)
             }
         }
     }
+#endif
     if (ev->type() == QEvent::MouseButtonPress)
         emit activated(m_panId);
     return QWidget::eventFilter(obj, ev);

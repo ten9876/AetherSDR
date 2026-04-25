@@ -22,13 +22,18 @@ constexpr int kDefaultH = 240;
 } // namespace
 
 FloatingContainerWindow::FloatingContainerWindow(QWidget* parent)
+#ifdef Q_OS_WIN
+    // Windows: keep native frame.  FramelessWindowHint is unreliable on
+    // Windows (constructor bitmask sometimes ignored) and the GPU/QRhi
+    // reparent path crashes when the layout is wired for frameless.
+    : QWidget(parent, Qt::Window)
+#else
     : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
+#endif
 {
-    // Windows quirk: the constructor flag bitmask is sometimes ignored
-    // and the native frame still gets drawn.  Re-applying via setWindowFlags
-    // before show() forces the platform plugin to honour FramelessWindowHint
-    // on all Qt versions / widget hierarchies.
+#ifndef Q_OS_WIN
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+#endif
     setAttribute(Qt::WA_DeleteOnClose, false);
     setAttribute(Qt::WA_QuitOnClose, false);
     setStyleSheet("QWidget { background: #08121d; }");
@@ -60,14 +65,16 @@ void FloatingContainerWindow::takeContainer(ContainerWidget* container)
         m_container->setDockMode(ContainerWidget::DockMode::Floating);
         setWindowTitle(m_container->title());
 
+#ifndef Q_OS_WIN
         // Bottom-right resize grip — frameless windows lose OS edge resize.
-        // Append after the container so it sits at the bottom of the layout.
+        // Windows keeps native frame so the OS already provides edge resize.
         auto* gripRow = new QHBoxLayout;
         gripRow->setContentsMargins(0, 0, 0, 0);
         gripRow->addStretch(1);
         gripRow->addWidget(new QSizeGrip(this), 0,
                            Qt::AlignBottom | Qt::AlignRight);
         m_layout->addLayout(gripRow);
+#endif
     }
 }
 

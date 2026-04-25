@@ -11,13 +11,18 @@
 namespace AetherSDR {
 
 PanFloatingWindow::PanFloatingWindow(QWidget* parent)
+#ifdef Q_OS_WIN
+    // Windows: keep native frame.  FramelessWindowHint is unreliable on
+    // Windows and combined with QRhiWidget reparenting (the GPU spectrum)
+    // it triggers a crash on pop-out.
+    : QWidget(parent, Qt::Window)
+#else
     : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
+#endif
 {
-    // Windows quirk: the constructor flag bitmask is sometimes ignored
-    // and the native frame still gets drawn.  Re-applying via setWindowFlags
-    // before show() forces the platform plugin to honour FramelessWindowHint
-    // on all Qt versions / widget hierarchies.
+#ifndef Q_OS_WIN
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+#endif
     setMinimumSize(400, 300);
 
     m_layout = new QVBoxLayout(this);
@@ -42,13 +47,16 @@ void PanFloatingWindow::adoptApplet(PanadapterApplet* applet)
     // This avoids corrupting the main window's NSResponder chain on macOS.
     m_layout->addWidget(m_applet, 1);
 
+#ifndef Q_OS_WIN
     // Bottom-right resize grip — frameless windows lose OS edge resize.
+    // Windows keeps native frame so the OS already provides edge resize.
     auto* gripRow = new QHBoxLayout;
     gripRow->setContentsMargins(0, 0, 0, 0);
     gripRow->addStretch(1);
     gripRow->addWidget(new QSizeGrip(this), 0,
                        Qt::AlignBottom | Qt::AlignRight);
     m_layout->addLayout(gripRow);
+#endif
 
     // Show dock icon in the applet's title bar
     m_applet->setFloatingState(true);
