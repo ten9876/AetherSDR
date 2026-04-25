@@ -23,6 +23,7 @@ struct BandStackEntry {
     bool wnbOn{false};
     int wnbLevel{50};
     qint64 createdAtMs{0};  // epoch ms; 0 = legacy entry (never auto-expires)
+    bool autoSaved{false};  // true if added by auto-save dwell; false = manual
 };
 
 // Persistence for user frequency bookmarks, stored per-radio in
@@ -49,6 +50,11 @@ public:
     bool groupByBand() const { return m_groupByBand; }
     void setGroupByBand(bool grouped) { m_groupByBand = grouped; }
 
+    // Auto-save: seconds the active slice must dwell on a frequency before
+    // being added to the stack automatically.  0 = disabled.
+    int autoSaveDwellSeconds() const { return m_autoSaveDwellSeconds; }
+    void setAutoSaveDwellSeconds(int seconds) { m_autoSaveDwellSeconds = seconds; }
+
 private:
     BandStackSettings();
     BandStackSettings(const BandStackSettings&) = delete;
@@ -58,8 +64,9 @@ private:
 
     QMap<QString, QVector<BandStackEntry>> m_entries;
     QString m_filePath;
-    int m_autoExpiryMinutes{0};   // 0 = disabled
+    int m_autoExpiryMinutes{0};      // 0 = disabled
     bool m_groupByBand{false};
+    int m_autoSaveDwellSeconds{0};   // 0 = disabled
 };
 
 } // namespace AetherSDR

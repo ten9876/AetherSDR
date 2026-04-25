@@ -36,6 +36,7 @@ public:
     // Grouping and auto-expiry UI state
     void setGrouped(bool grouped);
     void setAutoExpiryMinutes(int minutes);
+    void setAutoSaveDwellSeconds(int seconds);
 
 signals:
     void addRequested();
@@ -45,6 +46,7 @@ signals:
     void clearBandRequested(double lowMhz, double highMhz);
     void groupByBandChanged(bool grouped);
     void autoExpiryChanged(int minutes);
+    void autoSaveDwellChanged(int seconds);
 
 private:
     void rebuildLayout();
@@ -67,6 +69,7 @@ private:
     QPushButton* m_settingsButton{nullptr};
     bool m_grouped{false};
     int m_autoExpiryMinutes{0};
+    int m_autoSaveDwellSeconds{0};
 };
 
 } // namespace AetherSDR

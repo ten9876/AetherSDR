@@ -53,7 +53,8 @@ BandStackPanel::BandStackPanel(QWidget* parent)
 
     static const char* kSmallBtnStyle =
         "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
-        "border-radius: 3px; color: #8aa8c0; font-size: 13px; font-weight: bold; }"
+        "border-radius: 3px; color: #8aa8c0; font-size: 13px; font-weight: bold; "
+        "padding: 0px; margin: 0px; }"
         "QPushButton:hover { background: #203040; color: #c8d8e8; }";
 
     m_clearAllButton = new QPushButton(QString::fromUtf8("\xc3\x97"), this);  // ×
@@ -68,7 +69,8 @@ BandStackPanel::BandStackPanel(QWidget* parent)
     m_addButton->setFixedSize(26, 26);
     m_addButton->setStyleSheet(
         "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
-        "border-radius: 3px; color: #8aa8c0; font-size: 16px; font-weight: bold; }"
+        "border-radius: 3px; color: #8aa8c0; font-size: 16px; font-weight: bold; "
+        "padding: 0px; margin: 0px; }"
         "QPushButton:hover { background: #203040; color: #c8d8e8; }");
     m_addButton->setToolTip("Save current frequency as a bookmark");
     connect(m_addButton, &QPushButton::clicked, this, &BandStackPanel::addRequested);
@@ -77,7 +79,9 @@ BandStackPanel::BandStackPanel(QWidget* parent)
     m_settingsButton = new QPushButton(QString::fromUtf8("\xe2\x9a\x99"), this);  // gear
     m_settingsButton->setFixedSize(22, 26);
     m_settingsButton->setStyleSheet(kSmallBtnStyle);
-    m_settingsButton->setToolTip("Band stack options");
+    m_settingsButton->setToolTip(
+        "Band stack options.\n"
+        "Pair Auto-save (dwell) with Auto-expiry for a self-pruning rolling history.");
     connect(m_settingsButton, &QPushButton::clicked, this, [this]() {
         QMenu menu;
         menu.setStyleSheet(kMenuStyle);
@@ -99,6 +103,19 @@ BandStackPanel::BandStackPanel(QWidget* parent)
             expiryActions[i]->setChecked(m_autoExpiryMinutes == expiryOpts[i]);
         }
 
+        menu.addSeparator();
+        auto* dwellLabel = menu.addAction("Auto-save dwell:");
+        dwellLabel->setEnabled(false);
+
+        const int dwellOpts[] = {0, 10, 30, 60};
+        const char* dwellNames[] = {"  Off", "  10 sec", "  30 sec", "  60 sec"};
+        QAction* dwellActions[4];
+        for (int i = 0; i < 4; ++i) {
+            dwellActions[i] = menu.addAction(dwellNames[i]);
+            dwellActions[i]->setCheckable(true);
+            dwellActions[i]->setChecked(m_autoSaveDwellSeconds == dwellOpts[i]);
+        }
+
         // Anchor popup at the button's bottom-left so the menu opens below it
         // rather than overlapping the button's top-left corner.
         QAction* result = menu.exec(
@@ -109,13 +126,20 @@ BandStackPanel::BandStackPanel(QWidget* parent)
             m_grouped = !m_grouped;
             emit groupByBandChanged(m_grouped);
             rebuildLayout();
-        } else {
-            for (int i = 0; i < 5; ++i) {
-                if (result == expiryActions[i]) {
-                    m_autoExpiryMinutes = expiryOpts[i];
-                    emit autoExpiryChanged(expiryOpts[i]);
-                    break;
-                }
+            return;
+        }
+        for (int i = 0; i < 5; ++i) {
+            if (result == expiryActions[i]) {
+                m_autoExpiryMinutes = expiryOpts[i];
+                emit autoExpiryChanged(expiryOpts[i]);
+                return;
+            }
+        }
+        for (int i = 0; i < 4; ++i) {
+            if (result == dwellActions[i]) {
+                m_autoSaveDwellSeconds = dwellOpts[i];
+                emit autoSaveDwellChanged(dwellOpts[i]);
+                return;
             }
         }
     });
@@ -311,6 +335,11 @@ void BandStackPanel::setGrouped(bool grouped)
 void BandStackPanel::setAutoExpiryMinutes(int minutes)
 {
     m_autoExpiryMinutes = minutes;
+}
+
+void BandStackPanel::setAutoSaveDwellSeconds(int seconds)
+{
+    m_autoSaveDwellSeconds = seconds;
 }
 
 void BandStackPanel::clear()

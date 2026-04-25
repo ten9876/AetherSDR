@@ -3,6 +3,157 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.8.22] — 2026-04-25
+
+### Connection visibility plus community polish
+
+A connection-focused point release: new login/disconnect notifications
+for remote clients, passive spots mode, find-search in help, plus a
+stack of community-reported regression fixes (TCI WSJT-X TX, RADE
+silent SSB, spectrum-click edge jumps, MultiFlex PTT).
+
+### Features
+
+**Band-stack auto-save on dwell**
+- New "Auto-save dwell" setting in the band-stack ⚙ menu (Off / 10 s
+  / 30 s / 60 s, default Off).  When enabled, the active slice is
+  automatically added to the band stack after dwelling on a frequency
+  for the configured time.  Skips entries within ±100 Hz of an
+  existing bookmark (so you don't re-stack the same station), skips
+  during transmit, and waits 5 s after connect before the first
+  auto-save.  Caps auto-saved entries at **5 per ham band** —
+  overflow drops the oldest auto-saved entry in that band, but
+  manually-added bookmarks are never displaced.  Pairs naturally
+  with the existing Auto-expiry option for a self-pruning rolling
+  history.
+
+**LAN and SmartLink client login notifications (#1892, jensenpat)**
+- New connection-event notifications when remote LAN, SmartLink, and
+  Maestro clients log in to the radio.  Surfaced as toast-style
+  banners in the status bar so operators see Multi-Flex / shared-radio
+  activity without watching the log.
+
+**Remote client disconnect flows (#1889, jensenpat)**
+- Disconnect remote LAN, SmartLink, and Maestro clients from inside
+  AetherSDR.  Operator confirmation prompt + clean protocol teardown
+  so the disconnected client sees a graceful exit rather than a stale
+  session.
+
+**Passive Spots mode (#1897, jensenpat)**
+- New spots mode that ingests spot data without sending any commands
+  to the radio — useful for read-only / observer scenarios where you
+  want spot decorations on the spectrum but don't want the spot
+  source to influence radio state.
+
+**Device details in Slice Troubleshooter (#1898, jensenpat)**
+- Slice Troubleshooter now reports audio and control device details
+  alongside the existing slice diagnostics so support bundle reviewers
+  can see the full I/O path from radio to host without a separate
+  step.  Device-ID values are SHA-256 fingerprinted for privacy.
+
+**Find search in help dialogs (#1899, jensenpat)**
+- Help dialogs gain Ctrl+F find with case-insensitive search, F3 for
+  Find Next, and Shift+F3 for Find Previous — the same shortcut
+  behaviour users expect from any text viewer.
+
+### Bug fixes
+
+**Click-to-tune no longer recentres for clicks inside the visible spectrum (#1906, #1907)**
+- Click-to-tune was triggering a comfort-margin pan recenter even
+  when the click landed well inside the visible spectrum, making
+  the outer 18% of each pan effectively a dead zone that auto-pulled
+  the slice inward.  Two layers of fix: the spectrum-click path
+  itself uses a 5% margin, *and* the `RevealOffscreen` intent that
+  fires from the deferred active-slice change after a click now only
+  reveals when the slice is truly outside the visible window (margin
+  0).  Net behaviour matches SmartSDR — click anywhere visible and
+  the panadapter stays put.
+
+**TCI tx_enable echoes immediately to unblock WSJT-X v3.0.0 TX (#1689, #1691)**
+- WSJT-X v3.0.0 waits for a `tx_enable` ack before keying.  AetherSDR's
+  TCI handler now matches the `cmdTrx` pattern (immediate echo plus
+  pending notification) so WSJT-X TX is unblocked on current builds.
+
+**Fix silent audio in SSB/Digital modes when m_radeMode is active (#1875, #1879, NF0T)**
+- RADE-mode activation toggled a DAX route flag in `AudioEngine` that
+  left SSB and Digital modes silent on TX.  Audio path is now
+  restored when RADE mode is not active.
+
+**MultiFlex PTT label, row-selection, and correct PTT command (#1893, chibondking)**
+- Three related Multi-Flex PTT issues: the PTT button label showed
+  the wrong station (other client's name instead of ours), row
+  selection had no effect, and the wrong protocol command was being
+  sent.  `client set enforce_local_ptt=1` returns `0x50001000` on
+  v1.4.0.0 — the correct command is `client set local_ptt=1`, which
+  is now used and documented in `CLAUDE.md` quirks.
+
+**Network health indicator stabilised for SmartLink and remote paths (#1900, jensenpat)**
+- Status-bar network indicator was twitchy on LTE, SmartLink, and
+  hotel Wi-Fi.  Now uses remote-friendly RTT thresholds, evaluates
+  VITA packet loss over a rolling 10-second window, includes audio
+  inter-arrival jitter, and adds display hysteresis so the label
+  only changes state when the underlying condition is sustained.
+  Tooltip and diagnostics dialog now also show recent packet loss
+  and network jitter.
+
+**Suppress startup client login replays (#1904, jensenpat)**
+- When AetherSDR subscribed to `client all` after connecting, the
+  radio replayed the current client list as `client ... connected`
+  status messages — which the new notification handler from #1892
+  treated as fresh logins.  Existing client handles captured from
+  discovery and the SmartLink radio list are now treated as already
+  present, with a 5-second startup grace window as a fallback.
+
+**Persist CAT/TCI/DAX IQ enabled state across restarts (#1890, chibondking)**
+- CAT, TCI, and DAX IQ enabled flags weren't written to AppSettings,
+  so toggling any of them off and restarting brought them back on.
+  Now persisted under their respective enabled keys and restored at
+  startup.
+
+**Reduce minimum window height (#1793, #1798)**
+- Operators with smaller vertical footprints (low-resolution
+  displays, cramped multi-monitor setups) couldn't shrink the main
+  window below the prior height floor.  Lowered the minimum so
+  small layouts fit.
+
+**What's New release date now visible (#1783, #1785)**
+- The release date line on the What's New dialog was being clipped
+  off the visible area.  Layout now anchors the date inside the
+  dialog frame.
+
+**Restore Flex band-stack selection keys (#1887, jensenpat)**
+- The hardware Flex front-panel band-stack keys had stopped routing
+  to the band-stack selection action after a recent refactor.
+  Re-wired so keypad band selection works again.
+
+**Tighten incremental pan-follow margins**
+- Trigger margin lowered from 12% → 5% and settle from 18% → 6% so
+  trackpad / wheel / arrow-key tuning at the pan edge feels snappier
+  without losing the smooth follow animation.
+
+**Shorten client-connection status message from 10s to 3s**
+- The transient banner shown after a successful connection was
+  staying up too long and obscuring slice activity.
+
+**Fix versioning label issue on Windows**
+- Build version label on Windows could render incorrectly when the
+  build metadata included certain characters.  Resolved.
+
+**Band-stack ⚙ / × / + buttons no longer clip their glyphs**
+- The three control buttons in the band-stack bottom row now have
+  zero internal padding so the multiplication-sign, plus, and gear
+  glyphs render fully inside the small fixed-size buttons regardless
+  of font/DPI.
+
+### Acknowledgements
+
+Big thanks to **jensenpat** (six PRs this cycle), **chibondking**
+(two PRs plus the new About → Contributors entry), and the community
+reporters whose detailed issues drove the AetherClaude fixes —
+especially **NF0T** for the RADE silent-audio diagnosis.
+
+73, Jeremy KK7GWY
+
 ## [v0.8.21] — 2026-04-23
 
 ### Recenter policy unification plus Band Stack management

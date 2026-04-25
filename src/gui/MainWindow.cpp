@@ -5434,6 +5434,19 @@ void MainWindow::buildUI()
         BandStackSettings::instance().save();
     });
 
+    // Auto-save dwell setting changed
+    connect(bsPanel, &BandStackPanel::autoSaveDwellChanged, this, [this](int seconds) {
+        BandStackSettings::instance().setAutoSaveDwellSeconds(seconds);
+        BandStackSettings::instance().save();
+        if (!m_bsAutoSaveTimer) return;
+        if (seconds <= 0) {
+            m_bsAutoSaveTimer->stop();
+        } else {
+            m_bsAutoSaveTimer->setInterval(seconds * 1000);
+            m_bsAutoSaveTimer->start();
+        }
+    });
+
     // Auto-expiry timer — runs every 30s, prunes stale bookmarks.
     // Started on radio connect and stopped on disconnect so the tick doesn't
     // fire in an idle app with no radio to prune bookmarks for.
@@ -5451,6 +5464,88 @@ void MainWindow::buildUI()
             m_panStack->bandStackPanel()->loadBookmarks(
                 m_radioModel.serial(), m_bandPlanMgr);
         }
+    });
+
+    // Band-stack auto-save: single-shot per dwell window.  Reset on every
+    // active-slice frequency change and on active-slice change; fires once
+    // when the slice has been parked on the same freq long enough.
+    m_bsAutoSaveTimer = new QTimer(this);
+    m_bsAutoSaveTimer->setSingleShot(true);
+    connect(m_bsAutoSaveTimer, &QTimer::timeout, this, [this]() {
+        const int dwellSec = BandStackSettings::instance().autoSaveDwellSeconds();
+        if (dwellSec <= 0) return;
+        if (m_radioModel.serial().isEmpty()) return;
+        if (m_radioModel.transmitModel().isTransmitting()) return;
+        if (QDateTime::currentMSecsSinceEpoch() < m_bsConnectGraceUntilMs) return;
+
+        auto* slice = activeSlice();
+        if (!slice) return;
+        const double freqMhz = slice->frequency();
+
+        // Skip if any existing entry is within ±100 Hz on this radio
+        // (avoids re-stacking the exact same station after a brief retune).
+        auto existing = BandStackSettings::instance().entries(m_radioModel.serial());
+        for (const auto& e : existing) {
+            if (std::abs(e.frequencyMhz - freqMhz) < 0.0001) return;
+        }
+
+        // Per-band cap on auto-saved entries: keep at most 5 in the same
+        // band before overwriting the oldest auto-saved entry there.  Manual
+        // entries are never displaced — they hold their slot indefinitely.
+        constexpr int kMaxAutoPerBand = 5;
+        int bandIdx = -1;
+        for (int b = 0; b < kBandCount; ++b) {
+            if (freqMhz >= kBands[b].lowMhz && freqMhz <= kBands[b].highMhz) {
+                bandIdx = b;
+                break;
+            }
+        }
+        if (bandIdx >= 0) {
+            const double bandLow = kBands[bandIdx].lowMhz;
+            const double bandHigh = kBands[bandIdx].highMhz;
+            int autoCount = 0;
+            int oldestAutoIdx = -1;
+            qint64 oldestAutoMs = std::numeric_limits<qint64>::max();
+            for (int i = 0; i < existing.size(); ++i) {
+                const auto& e = existing[i];
+                if (!e.autoSaved) continue;
+                if (e.frequencyMhz < bandLow || e.frequencyMhz > bandHigh) continue;
+                ++autoCount;
+                if (e.createdAtMs > 0 && e.createdAtMs < oldestAutoMs) {
+                    oldestAutoMs = e.createdAtMs;
+                    oldestAutoIdx = i;
+                }
+            }
+            if (autoCount >= kMaxAutoPerBand && oldestAutoIdx >= 0) {
+                BandStackSettings::instance().removeEntry(
+                    m_radioModel.serial(), oldestAutoIdx);
+            }
+        }
+
+        BandStackEntry entry;
+        entry.autoSaved = true;
+        entry.frequencyMhz = freqMhz;
+        entry.mode = slice->mode();
+        entry.filterLow = slice->filterLow();
+        entry.filterHigh = slice->filterHigh();
+        entry.rxAntenna = slice->rxAntenna();
+        entry.txAntenna = slice->txAntenna();
+        entry.agcMode = slice->agcMode();
+        entry.agcThreshold = slice->agcThreshold();
+        entry.audioGain = static_cast<int>(slice->audioGain());
+        entry.nbOn = slice->nbOn();
+        entry.nbLevel = slice->nbLevel();
+        entry.nrOn = slice->nrOn();
+        entry.nrLevel = slice->nrLevel();
+        entry.createdAtMs = QDateTime::currentMSecsSinceEpoch();
+        if (auto* pan = m_radioModel.activePanadapter()) {
+            entry.wnbOn = pan->wnbActive();
+            entry.wnbLevel = pan->wnbLevel();
+        }
+        BandStackSettings::instance().addEntry(m_radioModel.serial(), entry);
+        BandStackSettings::instance().save();
+        m_panStack->bandStackPanel()->loadBookmarks(
+            m_radioModel.serial(), m_bandPlanMgr);
     });
     refreshMemoryBrowsePanel();
 
@@ -6016,6 +6111,12 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_panStack->bandStackPanel()->setGrouped(
             BandStackSettings::instance().groupByBand());
         m_panStack->bandStackPanel()->setAutoExpiryMinutes(expiryMin);
+        m_panStack->bandStackPanel()->setAutoSaveDwellSeconds(
+            BandStackSettings::instance().autoSaveDwellSeconds());
+
+        // 5-second grace window after connect — suppresses an auto-save fire
+        // while the radio finishes pushing initial slice/pan state.
+        m_bsConnectGraceUntilMs = QDateTime::currentMSecsSinceEpoch() + 5000;
         m_panStack->bandStackPanel()->loadBookmarks(
             m_radioModel.serial(), m_bandPlanMgr);
         refreshMemoryBrowsePanel();
@@ -6180,6 +6281,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_panStack->bandStackPanel()->clear();
         if (m_bsExpiryTimer && m_bsExpiryTimer->isActive())
             m_bsExpiryTimer->stop();
+        if (m_bsAutoSaveTimer && m_bsAutoSaveTimer->isActive())
+            m_bsAutoSaveTimer->stop();
         m_panStack->setBandStackVisible(false);
         refreshMemoryBrowsePanel();
         updateBandStackIndicator();
@@ -6756,6 +6859,15 @@ void MainWindow::onSliceAdded(SliceModel* s)
     connect(&m_radioModel, &RadioModel::antListChanged,
             vfo, &VfoWidget::setAntennaList);
 
+    // Reset band-stack auto-save dwell timer on every active-slice tune
+    connect(s, &SliceModel::frequencyChanged, this, [this, s]() {
+        if (s->sliceId() != m_activeSliceId) return;
+        if (!m_bsAutoSaveTimer) return;
+        const int dwellSec = BandStackSettings::instance().autoSaveDwellSeconds();
+        if (dwellSec <= 0) return;
+        m_bsAutoSaveTimer->start(dwellSec * 1000);
+    });
+
     // Direct freq label update for runtime changes
     connect(s, &SliceModel::frequencyChanged, this, [this, s]() {
         auto* sw2 = spectrumForSlice(s);
@@ -7055,6 +7167,15 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
     // (m_updatingFromModel is set in the activeChanged handler).
     if (sliceId != prevId && !m_updatingFromModel)
         s->setActive(true);
+
+    // Active slice changed → restart dwell window for the new active slice
+    if (sliceId != prevId && m_bsAutoSaveTimer) {
+        const int dwellSec = BandStackSettings::instance().autoSaveDwellSeconds();
+        if (dwellSec > 0)
+            m_bsAutoSaveTimer->start(dwellSec * 1000);
+        else
+            m_bsAutoSaveTimer->stop();
+    }
 
     // Update all overlay isActive flags on each slice's correct spectrum
     for (auto* sl : m_radioModel.slices()) {
@@ -8184,8 +8305,11 @@ MainWindow::TuneCenteringResult MainWindow::revealFrequencyIfNeeded(
         return result;
 
     const bool isSpectrumClick = source && qstrcmp(source, "spectrum-click") == 0;
+    const bool revealOffscreen = (intent == TuneIntent::RevealOffscreen);
     const double comfortMargin =
-        isSpectrumClick ? kSpectrumClickEdgeMarginFrac : kRevealComfortEdgeMarginFrac;
+        revealOffscreen   ? 0.0
+        : isSpectrumClick ? kSpectrumClickEdgeMarginFrac
+                          : kRevealComfortEdgeMarginFrac;
     const double triggerEdgeMarginFrac =
         incremental ? kIncrementalTriggerEdgeMarginFrac : comfortMargin;
     const double settleEdgeMarginFrac =

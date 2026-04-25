@@ -115,6 +115,8 @@ void BandStackSettings::load()
                 m_autoExpiryMinutes = xml.readElementText().toInt();
             } else if (name == "GroupByBand") {
                 m_groupByBand = xml.readElementText() == "True";
+            } else if (name == "AutoSaveDwellSeconds") {
+                m_autoSaveDwellSeconds = xml.readElementText().toInt();
             } else if (name.startsWith("Radio_")) {
                 currentRadio = name;
             } else if (name.startsWith("Entry_") && !currentRadio.isEmpty()) {
@@ -155,6 +157,8 @@ void BandStackSettings::load()
                     currentEntry.wnbLevel = text.toInt();
                 } else if (name == "CreatedAtMs") {
                     currentEntry.createdAtMs = text.toLongLong();
+                } else if (name == "AutoSaved") {
+                    currentEntry.autoSaved = text == "True";
                 }
             }
         } else if (xml.isEndElement()) {
@@ -193,6 +197,7 @@ void BandStackSettings::save()
     // Global settings
     xml.writeTextElement("AutoExpiryMinutes", QString::number(m_autoExpiryMinutes));
     xml.writeTextElement("GroupByBand", m_groupByBand ? "True" : "False");
+    xml.writeTextElement("AutoSaveDwellSeconds", QString::number(m_autoSaveDwellSeconds));
 
     QList<QString> radios = m_entries.keys();
     std::sort(radios.begin(), radios.end());
@@ -222,6 +227,9 @@ void BandStackSettings::save()
             xml.writeTextElement("WnbLevel", QString::number(e.wnbLevel));
             if (e.createdAtMs > 0) {
                 xml.writeTextElement("CreatedAtMs", QString::number(e.createdAtMs));
+            }
+            if (e.autoSaved) {
+                xml.writeTextElement("AutoSaved", "True");
             }
             xml.writeEndElement();  // Entry_N
         }
