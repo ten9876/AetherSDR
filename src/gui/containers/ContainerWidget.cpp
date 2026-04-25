@@ -135,12 +135,9 @@ void ContainerWidget::onTitleBarDragStart(const QPoint& /*globalPos*/)
 {
     if (!m_titleBar) return;
 
-#ifndef Q_OS_WIN
-    // Floating frameless window: title-bar drag moves the OS window via
-    // the Qt 6 cross-platform primitive that hands the move off to the
-    // compositor.  Windows pop-outs keep their native frame, so the user
-    // moves the window via the OS title bar instead — fall through to
-    // the QDrag-reorder path below for both docked and floating cases.
+    // Floating window: title-bar drag moves the OS window via the Qt 6
+    // cross-platform primitive that hands the move off to the compositor.
+    // (Pop-out windows are frameless — no native title bar to grab.)
     if (m_dockMode == DockMode::Floating) {
         if (auto* w = window()) {
             if (auto* h = w->windowHandle()) {
@@ -149,7 +146,6 @@ void ContainerWidget::onTitleBarDragStart(const QPoint& /*globalPos*/)
             }
         }
     }
-#endif
 
     // MIME type is shared with AppletDropArea's drag-reorder handling.
     auto* drag = new QDrag(m_titleBar);
