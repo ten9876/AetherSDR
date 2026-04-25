@@ -86,7 +86,7 @@ jobs:
         run: .\setup-deepfilter.ps1
 
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.6
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       # CMAKE_CXX_COMPILER_LAUNCHER is honoured by Ninja and Make
       # generators, NOT by the Visual Studio / MSBuild generator that
