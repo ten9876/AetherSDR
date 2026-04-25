@@ -1123,6 +1123,14 @@ add_executable(device_diagnostics_test
 target_include_directories(device_diagnostics_test PRIVATE src)
 target_link_libraries(device_diagnostics_test PRIVATE Qt6::Core)
 
+add_executable(midi_settings_test
+    tests/midi_settings_test.cpp
+    src/core/MidiSettings.cpp
+)
+target_compile_definitions(midi_settings_test PRIVATE HAVE_MIDI)
+target_include_directories(midi_settings_test PRIVATE src third_party/rtmidi)
+target_link_libraries(midi_settings_test PRIVATE Qt6::Core)
+
 # Container system Phase 1 tests — needs QApplication + Widgets.
 add_executable(container_widget_test
     tests/container_widget_test.cpp

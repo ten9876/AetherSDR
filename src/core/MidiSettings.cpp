@@ -53,6 +53,7 @@ void MidiSettings::save()
 {
     QString path = settingsFilePath();
     QDir().mkpath(QFileInfo(path).absolutePath());
+    auto bindings = loadBindings();
 
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -69,7 +70,6 @@ void MidiSettings::save()
     xml.writeTextElement("AutoConnect", m_autoConnect ? "True" : "False");
 
     // Write bindings inline in the main settings file
-    auto bindings = loadBindings();
     xml.writeStartElement("Bindings");
     for (const auto& b : bindings) {
         xml.writeStartElement("Binding");
