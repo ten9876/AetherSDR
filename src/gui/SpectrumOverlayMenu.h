@@ -8,6 +8,7 @@
 #include <QStringList>
 #include <QPoint>
 #include <QPointer>
+#include <QTimer>
 #include <QWheelEvent>
 #include <QMouseEvent>
 
@@ -64,6 +65,10 @@ public:
     struct XvtrBand { QString name; double rfFreqMhz; };
     void setXvtrBands(const QVector<XvtrBand>& bands);
     void syncDaxIqChannel(int channel);
+
+    // Sub-panel auto-close idle timeout in seconds (0 = disabled).
+    void setSubPanelTimeoutSec(int sec);
+    int subPanelTimeoutSec() const;
     QPushButton* dspNr2Button() const;
     QPushButton* dspRn2Button() const;
     QPushButton* dspBnrButton() const;
@@ -141,6 +146,13 @@ private:
     void toggle();
     void updateLayout();
     void toggleBandPanel();
+
+    // Returns true if any sub-panel is currently visible.
+    bool anySubPanelVisible() const;
+    // Returns true if the given widget is inside a sub-panel or the menu strip.
+    bool isInsideOverlay(QWidget* widget) const;
+    // (Re)start the idle auto-close timer if a sub-panel is visible.
+    void restartIdleTimer();
     void buildBandPanel();
     void toggleAntPanel();
     void buildAntPanel();
@@ -248,6 +260,10 @@ private:
     QPointer<SliceModel> m_slice;
     bool         m_updatingFromModel{false};
     int          m_lastEmittedRfGain{INT_MIN};  // dedupe rfgain emits across drag snap ticks (#1498)
+
+    // Sub-panel auto-close (#1971)
+    QTimer*      m_idleTimer{nullptr};
+    int          m_idleTimeoutSec{0};  // 0 = disabled
 };
 
 } // namespace AetherSDR

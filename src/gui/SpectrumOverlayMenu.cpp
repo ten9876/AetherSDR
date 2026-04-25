@@ -15,6 +15,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QSignalBlocker>
+#include <QApplication>
 #include <QEvent>
 #include <QFrame>
 #include <QColorDialog>
@@ -172,6 +173,14 @@ SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
     for (auto* panel : {m_bandPanel, m_antPanel, m_dspPanel, m_daxPanel, m_displayPanel,
                         static_cast<QWidget*>(m_memoryPanel)})
         if (panel) panel->installEventFilter(this);
+
+    // App-wide event filter for click-outside-to-dismiss (#1971)
+    qApp->installEventFilter(this);
+
+    // Idle auto-close timer (#1971)
+    m_idleTimer = new QTimer(this);
+    m_idleTimer->setSingleShot(true);
+    connect(m_idleTimer, &QTimer::timeout, this, &SpectrumOverlayMenu::hideAllSubPanels);
 
     updateLayout();
 }
@@ -788,6 +797,7 @@ void SpectrumOverlayMenu::toggleDspPanel()
         m_dspPanel->raise();
         m_dspPanel->show();
         m_menuBtns[kBtnDsp]->setStyleSheet(kMenuBtnActive);
+        restartIdleTimer();
     }
 }
 
@@ -851,6 +861,7 @@ void SpectrumOverlayMenu::toggleDaxPanel()
         m_daxPanel->raise();
         m_daxPanel->show();
         m_menuBtns[kBtnDax]->setStyleSheet(kMenuBtnActive);
+        restartIdleTimer();
     }
 }
 
@@ -882,6 +893,7 @@ void SpectrumOverlayMenu::toggleMemoryPanel()
         m_memoryPanel->show();
         m_menuBtns[kBtnMemoryBrowse]->setStyleSheet(kMenuBtnActive);
         m_memoryPanel->focusClosestToFrequency(m_slice ? m_slice->frequency() : -1.0);
+        restartIdleTimer();
     }
 }
 
@@ -908,6 +920,7 @@ void SpectrumOverlayMenu::hideAllSubPanels()
         if (idx >= 0 && idx < m_menuBtns.size())
             m_menuBtns[idx]->setStyleSheet(kMenuBtnNormal);
     }
+    m_idleTimer->stop();  // no panel visible → no timer needed (#1971)
 }
 
 void SpectrumOverlayMenu::showBandPanelAt(const QPoint& pos)
@@ -920,6 +933,7 @@ void SpectrumOverlayMenu::showBandPanelAt(const QPoint& pos)
     m_bandPanel->raise();
     m_bandPanel->show();
     m_menuBtns[kBtnBand]->setStyleSheet(kMenuBtnActive);
+    restartIdleTimer();
 }
 
 void SpectrumOverlayMenu::toggleBandPanel()
@@ -943,6 +957,7 @@ void SpectrumOverlayMenu::toggleAntPanel()
         m_antPanel->raise();
         m_antPanel->show();
         m_menuBtns[kBtnAnt]->setStyleSheet(kMenuBtnActive);
+        restartIdleTimer();
     }
 }
 
@@ -1442,6 +1457,7 @@ void SpectrumOverlayMenu::toggleDisplayPanel()
         m_displayPanel->raise();
         m_displayPanel->show();
         m_menuBtns[kBtnDisplay]->setStyleSheet(kMenuBtnActive);
+        restartIdleTimer();
     }
 }
 
@@ -1713,6 +1729,52 @@ QPushButton* SpectrumOverlayMenu::dspDfnrButton() const
     return m_dspRows.size() > 14 ? m_dspRows[14].btn : nullptr;
 }
 
+// ── Sub-panel auto-close helpers (#1971) ─────────────────────────────────────
+
+bool SpectrumOverlayMenu::anySubPanelVisible() const
+{
+    return m_bandPanelVisible || m_xvtrPanelVisible || m_antPanelVisible
+           || m_dspPanelVisible || m_daxPanelVisible || m_displayPanelVisible
+           || m_memoryPanelVisible;
+}
+
+bool SpectrumOverlayMenu::isInsideOverlay(QWidget* widget) const
+{
+    // Walk up the widget tree to see if the click target is inside any of
+    // our sub-panels or the menu strip itself.
+    for (QWidget* w = widget; w; w = w->parentWidget()) {
+        if (w == const_cast<SpectrumOverlayMenu*>(this))
+            return true;
+        if (w == m_bandPanel || w == m_xvtrPanel || w == m_antPanel
+            || w == m_dspPanel || w == m_daxPanel || w == m_displayPanel
+            || w == m_memoryPanel)
+            return true;
+    }
+    return false;
+}
+
+void SpectrumOverlayMenu::restartIdleTimer()
+{
+    if (m_idleTimeoutSec > 0 && anySubPanelVisible())
+        m_idleTimer->start(m_idleTimeoutSec * 1000);
+    else
+        m_idleTimer->stop();
+}
+
+void SpectrumOverlayMenu::setSubPanelTimeoutSec(int sec)
+{
+    m_idleTimeoutSec = qMax(0, sec);
+    if (m_idleTimeoutSec == 0)
+        m_idleTimer->stop();
+    else if (anySubPanelVisible())
+        m_idleTimer->start(m_idleTimeoutSec * 1000);
+}
+
+int SpectrumOverlayMenu::subPanelTimeoutSec() const
+{
+    return m_idleTimeoutSec;
+}
+
 bool SpectrumOverlayMenu::eventFilter(QObject* obj, QEvent* event)
 {
     if (event->type() == QEvent::MouseButtonDblClick) {
@@ -1721,6 +1783,19 @@ bool SpectrumOverlayMenu::eventFilter(QObject* obj, QEvent* event)
             return true;
         }
     }
+
+    // Click-outside-to-dismiss and idle timer reset (#1971)
+    if (event->type() == QEvent::MouseButtonPress && anySubPanelVisible()) {
+        auto* target = qobject_cast<QWidget*>(obj);
+        if (target && isInsideOverlay(target)) {
+            // Click inside overlay — reset idle timer
+            restartIdleTimer();
+        } else {
+            // Click outside overlay — dismiss all sub-panels
+            hideAllSubPanels();
+        }
+    }
+
     // Consume mouse/wheel events on sub-panels so they don't reach the spectrum
     if (obj == m_bandPanel || obj == m_antPanel || obj == m_dspPanel
         || obj == m_daxPanel || obj == m_displayPanel || obj == m_memoryPanel) {
