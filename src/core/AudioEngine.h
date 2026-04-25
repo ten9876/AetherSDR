@@ -423,7 +423,8 @@ private:
     std::atomic<int>   m_rxBufferCapMs{200}; // RX buffer cap in ms (#1505)
     std::atomic<bool>  m_muted{false};
     bool  m_resampleTo48k{false};      // RX: upsample 24kHz → 48kHz output
-    std::unique_ptr<Resampler> m_rxResampler;  // 24k stereo → 48k stereo (lazy init)
+    std::unique_ptr<Resampler> m_rxResampler;      // 24k stereo → 48k stereo (lazy init)
+    std::unique_ptr<Resampler> m_radeRxResampler;  // separate 24k→48k for RADE decoded speech
     bool  m_txNeedsResample{false};      // TX: input rate != 24kHz, needs resampling
     bool  m_txInputMono{false};          // TX: input device is mono
     int   m_txInputRate{24000};          // TX: actual input sample rate
@@ -550,6 +551,7 @@ private:
     // RX audio buffer handling
     QTimer*       m_rxTimer{nullptr};
     QByteArray    m_rxBuffer;
+    QByteArray    m_radeRxBuffer;  // decoded RADE speech; mixed into drain output, never appended to m_rxBuffer
     std::atomic<qsizetype> m_rxBufferBytes{0};
     std::atomic<qsizetype> m_rxBufferPeakBytes{0};
     std::atomic<quint64>   m_rxBufferUnderrunCount{0};

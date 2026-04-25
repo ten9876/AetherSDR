@@ -159,9 +159,12 @@ AudioEngine::AudioEngine(QObject* parent)
             // Drop oldest samples to keep latency bounded
             m_rxBuffer.remove(0, m_rxBuffer.size() - maxBufBytes);
         }
+        if (m_radeRxBuffer.size() > maxBufBytes) {
+            m_radeRxBuffer.remove(0, m_radeRxBuffer.size() - maxBufBytes);
+        }
 
         const qsizetype freeBytes = m_audioSink->bytesFree();
-        if (freeBytes > 0 && m_rxBuffer.isEmpty()) {
+        if (freeBytes > 0 && m_rxBuffer.isEmpty() && m_radeRxBuffer.isEmpty()) {
             m_rxBufferUnderrunCount.fetch_add(1);
         }
 
@@ -203,12 +206,46 @@ AudioEngine::AudioEngine(QObject* parent)
             return;
         }
 
-        qsizetype len = freeBytes;
-        len = std::min(len, m_rxBuffer.size());
+        // Align to float32 frame boundary before any arithmetic.
+        const qsizetype floatBytes = static_cast<qsizetype>(sizeof(float));
+        qsizetype len = (freeBytes / floatBytes) * floatBytes;
+        len = std::min(len, std::max(m_rxBuffer.size(), m_radeRxBuffer.size()));
         if (len > 0)
         {
-            len = m_audioDevice->write(m_rxBuffer.left(len));
-            m_rxBuffer.remove(0, len);
+            QByteArray chunk;
+            if (m_radeRxBuffer.isEmpty()) {
+                // Fast path: no RADE speech active — write m_rxBuffer directly.
+                chunk = m_rxBuffer.left(len);
+                m_rxBuffer.remove(0, chunk.size());
+            } else {
+                // Mix path: add m_rxBuffer (SSB/CW audio or zero-filled muted-RADE
+                // frames) and m_radeRxBuffer (decoded RADE speech) sample-wise.
+                // Both are float32 stereo at the same rate. Zero-init the output
+                // so that whichever buffer is shorter contributes silence for its
+                // missing tail samples without special-casing.
+                chunk = QByteArray(len, '\0');
+                auto* out = reinterpret_cast<float*>(chunk.data());
+
+                const qsizetype rxTake = (std::min(len, m_rxBuffer.size()) / floatBytes) * floatBytes;
+                if (rxTake > 0) {
+                    const auto* rx = reinterpret_cast<const float*>(m_rxBuffer.constData());
+                    const qsizetype rxSamples = rxTake / floatBytes;
+                    for (qsizetype i = 0; i < rxSamples; ++i)
+                        out[i] += rx[i];
+                    m_rxBuffer.remove(0, rxTake);
+                }
+
+                const qsizetype radeTake = (std::min(len, m_radeRxBuffer.size()) / floatBytes) * floatBytes;
+                if (radeTake > 0) {
+                    const auto* rade = reinterpret_cast<const float*>(m_radeRxBuffer.constData());
+                    const qsizetype radeSamples = radeTake / floatBytes;
+                    for (qsizetype i = 0; i < radeSamples; ++i)
+                        out[i] = std::clamp(out[i] + rade[i], -1.0f, 1.0f);
+                    m_radeRxBuffer.remove(0, radeTake);
+                }
+            }
+
+            len = m_audioDevice->write(chunk);
 
             // Stale session watchdog: if we're writing data but processedUSecs()
             // hasn't advanced, the WASAPI session is silently discarding audio
@@ -547,9 +584,15 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
 {
     if (!m_audioSink) return;  // PC audio disabled
     m_lastAudioFeedTime.start();  // reset liveness watchdog (#1411)
-    // m_radeMode does NOT block feedAudioData — the RADE slice's raw OFDM
-    // noise is muted at the slice level (audio_mute=1) so it never arrives
-    // here. Decoded RADE speech uses feedDecodedSpeech() instead.
+
+    // feedAudioData() handles all remote_audio_rx paths: SSB/CW/digital on any pan,
+    // and the zero-filled frames the radio sends for the muted RADE slice
+    // (audio_mute=1 zeroes the payload — it does NOT suppress packets).
+    // All of these write to m_rxBuffer. Decoded RADE speech is separate:
+    // feedDecodedSpeech() writes to m_radeRxBuffer. The drain timer mixes both
+    // sample-wise before writing to the device, so zero frames from the muted
+    // RADE slice add nothing to the output and SSB audio on a second pan is
+    // heard alongside RADE decoded speech without fill-rate interference.
 
     auto writeAudio = [this](const QByteArray& data) {
         if (!m_audioDevice || !m_audioDevice->isOpen()) return;
@@ -651,10 +694,6 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
             processBnr(pcm);
             // processBnr writes audio and emits level internally
         } else {
-            // No client-side DSP active — write PCM directly.
-            // m_radeMode does NOT gate this path: RADE's raw OFDM noise is
-            // muted at the slice level (audio_mute=1) so it never reaches
-            // feedAudioData, and decoded RADE speech uses feedDecodedSpeech().
             writeAudio(pcm);
             emit levelChanged(computeRMS(pcm));
         }
@@ -2700,6 +2739,8 @@ void AudioEngine::setRadeMode(bool on)
     // use the physical mic and discard every dax_tx packet, producing no
     // TX waveform. feedDaxTxAudio/m_daxTxUseRadioRoute are irrelevant:
     // RADE bypasses feedDaxTxAudio entirely.
+    if (!on)
+        m_radeRxBuffer.clear();
     clearTxAccumulators();
 }
 
@@ -2873,12 +2914,20 @@ void AudioEngine::feedDecodedSpeech(const QByteArray& pcm)
 {
     if (!m_audioSink || !m_audioDevice || !m_audioDevice->isOpen()) return;
 
-    // note: RX timer will handle actual audio device write
-    if (m_resampleTo48k)
-        m_rxBuffer.append(resampleStereo(pcm));
-    else
-        m_rxBuffer.append(pcm);
-    updateRxBufferStats();
+    // Decoded RADE speech goes into its own buffer. The drain timer mixes
+    // m_radeRxBuffer with m_rxBuffer sample-wise so both are heard simultaneously
+    // without doubling the fill rate. A dedicated resampler preserves the filter
+    // state independently from the m_rxResampler used by feedAudioData().
+    if (m_resampleTo48k) {
+        if (!m_radeRxResampler)
+            m_radeRxResampler = std::make_unique<Resampler>(24000, 48000);
+        const auto* src = reinterpret_cast<const float*>(pcm.constData());
+        m_radeRxBuffer.append(
+            m_radeRxResampler->processStereoToStereo(
+                src, pcm.size() / (2 * static_cast<int>(sizeof(float)))));
+    } else {
+        m_radeRxBuffer.append(pcm);
+    }
 }
 
 } // namespace AetherSDR
