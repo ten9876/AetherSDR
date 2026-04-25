@@ -46,7 +46,11 @@ jobs:
   #   * MSVC object files — sccache via GitHub Actions cache backend
   # Net effect: cold cache ~5 min, warm cache ~2-3 min (was ~14 min).
   check-windows:
-    needs: [build, check-paths]
+    # Only depend on check-paths so the conditional resolves; run in
+    # parallel with the Linux build instead of after it.  Linux passes
+    # the vast majority of PRs, so the wall-clock saving (~3 min) is
+    # worth the rare wasted Windows runner time when Linux fails first.
+    needs: [check-paths]
     if: needs.check-paths.outputs.build-changed == 'true'
     runs-on: windows-latest
     env:
