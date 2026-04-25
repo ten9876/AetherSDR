@@ -600,8 +600,14 @@ void RadioModel::sendCwKey(bool down)
 {
     const bool prev = m_cwKeyActive;
     m_cwKeyActive = down;
-    QString cmd = QString("cw key %1").arg(down ? 1 : 0);
-    sendNetCwCommand(cmd);
+    // PTT-then-Key on press, Key-then-unPTT on release.  Per FlexLib's
+    // CWPTT + CWKey pair (Radio.cs:8890–8965): without an explicit
+    // `cw ptt 1` the radio queues key events but doesn't transmit when
+    // break_in=0 (the default on most user setups).  Pairing PTT with
+    // KEY keys reliably regardless of break-in mode.
+    if (down && !prev) sendNetCwCommand(QStringLiteral("cw ptt 1"));
+    sendNetCwCommand(QString("cw key %1").arg(down ? 1 : 0));
+    if (!down && prev) sendNetCwCommand(QStringLiteral("cw ptt 0"));
     if (prev != down)
         emit cwKeyDownChanged(down);
 }
@@ -611,8 +617,11 @@ void RadioModel::sendCwPaddle(bool dit, bool dah)
     const bool active = dit || dah;
     const bool prev = m_cwKeyActive;
     m_cwKeyActive = active;
-    QString cmd = QString("cw key %1 %2").arg(dit ? 1 : 0).arg(dah ? 1 : 0);
-    sendNetCwCommand(cmd);
+    // PTT engaged for the duration any paddle is held — single PTT-on
+    // window across dit/dah transitions.  See sendCwKey() rationale.
+    if (active && !prev) sendNetCwCommand(QStringLiteral("cw ptt 1"));
+    sendNetCwCommand(QString("cw key %1 %2").arg(dit ? 1 : 0).arg(dah ? 1 : 0));
+    if (!active && prev) sendNetCwCommand(QStringLiteral("cw ptt 0"));
     if (prev != active)
         emit cwKeyDownChanged(active);
 }
@@ -621,11 +630,16 @@ void RadioModel::sendCwPaddle(bool dit, bool dah)
 
 QByteArray RadioModel::buildNetCwPacket(const QByteArray& payload)
 {
-    // VITA-49 header: 28 bytes + ASCII command payload
-    // Matches FlexLib NetCWStream.AddTXData() packet format
+    // VITA-49 header (28 bytes) + raw ASCII command payload, no trailing
+    // padding.  FlexLib's NetCWStream.AddTXData ships the payload buffer at
+    // its exact tx_data.Length — so a 57-byte command goes out in an 85-byte
+    // datagram even though packet_size rounds up to a 4-byte boundary.  The
+    // radio uses recv()'s datagram length, not packet_size, to delimit the
+    // command string; trailing zero bytes cause the parser to reject the
+    // packet (no key/PTT change observed and silent error 0x50001000 on TCP).
     const int payloadBytes = payload.size();
     const int packetWords = static_cast<int>(std::ceil(payloadBytes / 4.0) + 7); // 7 header words
-    const int packetBytes = packetWords * 4;
+    const int packetBytes = 28 + payloadBytes;  // header + payload, NO padding
 
     QByteArray pkt(packetBytes, '\0');
     auto* w = reinterpret_cast<quint32*>(pkt.data());
@@ -674,27 +688,35 @@ void RadioModel::sendNetCwCommand(const QString& baseCmd)
         .arg(clientHandle(), 0, 16);
 
     QByteArray payload = fullCmd.toLatin1();
-    QByteArray packet = buildNetCwPacket(payload);
 
-    // Redundant sends via UDP: 0ms, 5ms, 10ms, 15ms
-    // Radio deduplicates by index — processes first arrival, ignores repeats
-    QMetaObject::invokeMethod(m_panStream, [this, packet]() {
-        m_panStream->sendToRadio(packet);
+    // Redundant sends via UDP: 0ms, 5ms, 10ms, 15ms.  The radio dedupes by the
+    // ASCII `index=N` field, but each datagram needs a UNIQUE VITA-49
+    // packet_count — FlexLib's NetCWStream.AddTXData increments packet_count
+    // after each ToBytesTX(), so the four redundant copies arrive with counts
+    // N, N+1, N+2, N+3.  Reusing a single buffer (same packet_count on all
+    // four) makes the radio's VITA stream layer drop them as duplicates.
+    QByteArray packet0 = buildNetCwPacket(payload);
+    QByteArray packet1 = buildNetCwPacket(payload);
+    QByteArray packet2 = buildNetCwPacket(payload);
+    QByteArray packet3 = buildNetCwPacket(payload);
+
+    QMetaObject::invokeMethod(m_panStream, [this, packet0]() {
+        m_panStream->sendToRadio(packet0);
     }, Qt::QueuedConnection);
 
-    QTimer::singleShot(5, this, [this, packet]() {
-        QMetaObject::invokeMethod(m_panStream, [this, packet]() {
-            m_panStream->sendToRadio(packet);
+    QTimer::singleShot(5, this, [this, packet1]() {
+        QMetaObject::invokeMethod(m_panStream, [this, packet1]() {
+            m_panStream->sendToRadio(packet1);
         }, Qt::QueuedConnection);
     });
-    QTimer::singleShot(10, this, [this, packet]() {
-        QMetaObject::invokeMethod(m_panStream, [this, packet]() {
-            m_panStream->sendToRadio(packet);
+    QTimer::singleShot(10, this, [this, packet2]() {
+        QMetaObject::invokeMethod(m_panStream, [this, packet2]() {
+            m_panStream->sendToRadio(packet2);
         }, Qt::QueuedConnection);
     });
-    QTimer::singleShot(15, this, [this, packet]() {
-        QMetaObject::invokeMethod(m_panStream, [this, packet]() {
-            m_panStream->sendToRadio(packet);
+    QTimer::singleShot(15, this, [this, packet3]() {
+        QMetaObject::invokeMethod(m_panStream, [this, packet3]() {
+            m_panStream->sendToRadio(packet3);
         }, Qt::QueuedConnection);
     });
 
