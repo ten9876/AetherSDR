@@ -721,6 +721,13 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
     }
     if (kvs.contains("rtty_mark")) {
         int v = kvs["rtty_mark"].toInt();
+        // The radio resets rtty_mark to 2125 on band changes regardless of the
+        // configured rtty_mark_default. If we know the default differs, push it
+        // back so the slice stays at the user's configured mark frequency.
+        if (v == 2125 && m_rttyMarkDefault != 2125) {
+            v = m_rttyMarkDefault;
+            sendCommand(QString("slice set %1 rtty_mark=%2").arg(m_id).arg(v));
+        }
         if (m_rttyMark != v) { m_rttyMark = v; emit rttyMarkChanged(v); }
     }
     if (kvs.contains("rtty_shift")) {

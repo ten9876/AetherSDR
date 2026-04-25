@@ -2738,6 +2738,8 @@ void RadioModel::handleRadioStatus(const QMap<QString, QString>& kvs)
     }
     if (kvs.contains("rtty_mark_default")) {
         m_rttyMarkDefault = kvs["rtty_mark_default"].toInt();
+        for (SliceModel* s : m_slices)
+            s->setRttyMarkDefault(m_rttyMarkDefault);
         changed = true;
     }
     if (kvs.contains("tnf_enabled")) {
@@ -2855,6 +2857,7 @@ void RadioModel::handleSliceStatus(int id,
             return;
 
         s = new SliceModel(id, this);
+        s->setRttyMarkDefault(m_rttyMarkDefault);
         // Forward slice commands to the radio
         connect(s, &SliceModel::commandReady, this, [this](const QString& cmd){
             sendCmd(cmd);
