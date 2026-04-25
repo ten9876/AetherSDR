@@ -312,8 +312,10 @@ public:
     void setTransmitting(bool tx) {
         if (tx && !m_transmitting)
             m_preTxAutoBlack = m_autoBlackThresh;  // save before TX
-        if (!tx && m_transmitting)
+        if (!tx && m_transmitting) {
             m_autoBlackThresh = m_preTxAutoBlack;  // restore after TX
+            m_hasNativeWaterfall = false;           // force FFT fallback until tiles resume
+        }
         m_transmitting = tx;
     }
     void setShowTxInWaterfall(bool on) { m_showTxInWaterfall = on; }
