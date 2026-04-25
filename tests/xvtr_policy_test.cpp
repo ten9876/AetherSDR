@@ -129,6 +129,25 @@ void testXvtrWaterfallMapsIfToRfBands()
         const QVector<XvtrPolicy::Transverter> xvtrs = {
             xvtr(12, 3, "2m", 144.0, 28.0),
         };
+        const auto match = XvtrPolicy::matchWaterfallTileTransverterOffset(
+            28.125, 28.625, 144.375, xvtrs);
+        report("2m XVTR offset match reports diagnostic details",
+               match.matched &&
+                   match.index == 12 &&
+                   match.order == 3 &&
+                   match.name == "2m" &&
+                   near(match.observedOffsetMhz, 116.0) &&
+                   near(match.expectedOffsetMhz, 116.0) &&
+                   near(match.toleranceMhz, 0.5),
+               QStringLiteral("matched=%1 idx=%2 order=%3 observed=%4 expected=%5 tolerance=%6")
+                   .arg(match.matched)
+                   .arg(match.index)
+                   .arg(match.order)
+                   .arg(match.observedOffsetMhz)
+                   .arg(match.expectedOffsetMhz)
+                   .arg(match.toleranceMhz)
+                   .toStdString());
+
         const auto mapped = XvtrPolicy::mapWaterfallTileRange(
             28.125, 28.625, 144.375, xvtrs, false);
         expectRange("2m XVTR maps IF waterfall range into RF range",

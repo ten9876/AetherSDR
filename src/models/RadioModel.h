@@ -571,6 +571,7 @@ public:
         double  maxPower{10.0};
         bool    rxOnly{false};
         bool    isValid{false};
+        bool    hasIsValid{false};
     };
     const QMap<int, XvtrInfo>& xvtrList() const { return m_xvtrList; }
 

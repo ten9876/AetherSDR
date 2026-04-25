@@ -27,10 +27,24 @@ struct WaterfallTileRange {
     bool   shifted{false};
 };
 
+struct WaterfallTileMatch {
+    bool    matched{false};
+    int     index{-1};
+    int     order{-1};
+    QString name;
+    double  observedOffsetMhz{0.0};
+    double  expectedOffsetMhz{0.0};
+    double  toleranceMhz{0.0};
+};
+
 BandStackKeyResult resolveBandStackKey(const QString& bandName,
                                        const QVector<Transverter>& xvtrs);
 
 bool isWaterfallTileOutsidePan(double lowMhz, double highMhz, double panCenterMhz);
+
+WaterfallTileMatch matchWaterfallTileTransverterOffset(double lowMhz, double highMhz,
+                                                       double panCenterMhz,
+                                                       const QVector<Transverter>& xvtrs);
 
 bool waterfallTileMatchesTransverterOffset(double lowMhz, double highMhz,
                                            double panCenterMhz,

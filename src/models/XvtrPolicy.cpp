@@ -89,26 +89,41 @@ bool isWaterfallTileOutsidePan(double lowMhz, double highMhz, double panCenterMh
     return std::abs(tileCenter(lowMhz, highMhz) - panCenterMhz) > bw;
 }
 
-bool waterfallTileMatchesTransverterOffset(double lowMhz, double highMhz,
-                                           double panCenterMhz,
-                                           const QVector<Transverter>& xvtrs)
+WaterfallTileMatch matchWaterfallTileTransverterOffset(double lowMhz, double highMhz,
+                                                       double panCenterMhz,
+                                                       const QVector<Transverter>& xvtrs)
 {
+    WaterfallTileMatch match;
     const double bw = tileBandwidth(lowMhz, highMhz);
     if (bw <= 0.0 || !isWaterfallTileOutsidePan(lowMhz, highMhz, panCenterMhz))
-        return false;
+        return match;
 
-    const double observedOffset = panCenterMhz - tileCenter(lowMhz, highMhz);
-    const double toleranceMhz = std::max(bw, 0.25);
+    match.observedOffsetMhz = panCenterMhz - tileCenter(lowMhz, highMhz);
+    match.toleranceMhz = std::max(bw, 0.25);
     for (const auto& xvtr : xvtrs) {
         if (!xvtr.isValid || xvtr.rfFreqMhz <= 0.0 || xvtr.ifFreqMhz <= 0.0)
             continue;
 
         const double expectedOffset = xvtr.rfFreqMhz - xvtr.ifFreqMhz;
-        if (std::abs(observedOffset - expectedOffset) <= toleranceMhz)
-            return true;
+        if (std::abs(match.observedOffsetMhz - expectedOffset) <= match.toleranceMhz) {
+            match.matched = true;
+            match.index = xvtr.index;
+            match.order = xvtr.order;
+            match.name = xvtr.name;
+            match.expectedOffsetMhz = expectedOffset;
+            return match;
+        }
     }
 
-    return false;
+    return match;
+}
+
+bool waterfallTileMatchesTransverterOffset(double lowMhz, double highMhz,
+                                           double panCenterMhz,
+                                           const QVector<Transverter>& xvtrs)
+{
+    return matchWaterfallTileTransverterOffset(
+        lowMhz, highMhz, panCenterMhz, xvtrs).matched;
 }
 
 WaterfallTileRange mapWaterfallTileRange(double lowMhz, double highMhz,

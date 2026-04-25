@@ -170,6 +170,7 @@ constexpr double kRevealComfortEdgeMarginFrac = 0.18;
 constexpr double kSpectrumClickEdgeMarginFrac = 0.05;
 constexpr int kPanFollowAnimationDurationMs = 110;
 constexpr int kSliderShortcutLeaseMs = 2000;
+constexpr qint64 kXvtrWaterfallDecisionLogIntervalMs = 20000;
 
 QVector<XvtrPolicy::Transverter> xvtrPolicyBandsFrom(
     const QMap<int, RadioModel::XvtrInfo>& xvtrs)
@@ -181,6 +182,102 @@ QVector<XvtrPolicy::Transverter> xvtrPolicyBandsFrom(
         bands.append({x.index, x.order, x.name, x.rfFreq, x.ifFreq, x.isValid});
     }
     return bands;
+}
+
+QString xvtrSummary(const XvtrPolicy::Transverter& xvtr)
+{
+    return QStringLiteral("%1[idx=%2 order=%3 valid=%4 rf=%5 if=%6 offset=%7]")
+        .arg(xvtr.name.isEmpty() ? QStringLiteral("(unnamed)") : xvtr.name)
+        .arg(xvtr.index)
+        .arg(xvtr.order)
+        .arg(xvtr.isValid ? QStringLiteral("true") : QStringLiteral("false"))
+        .arg(xvtr.rfFreqMhz, 0, 'f', 6)
+        .arg(xvtr.ifFreqMhz, 0, 'f', 6)
+        .arg(xvtr.rfFreqMhz - xvtr.ifFreqMhz, 0, 'f', 6);
+}
+
+QString xvtrListSummary(const QVector<XvtrPolicy::Transverter>& xvtrs)
+{
+    QStringList entries;
+    entries.reserve(xvtrs.size());
+    for (const auto& xvtr : xvtrs)
+        entries << xvtrSummary(xvtr);
+    return entries.isEmpty() ? QStringLiteral("(none)") : entries.join(QStringLiteral("; "));
+}
+
+QString xvtrForBandSummary(const QString& bandName,
+                           const QVector<XvtrPolicy::Transverter>& xvtrs)
+{
+    for (const auto& xvtr : xvtrs) {
+        if (xvtr.name == bandName)
+            return xvtrSummary(xvtr);
+    }
+    return QStringLiteral("(none)");
+}
+
+void logXvtrWaterfallDecision(quint32 streamId,
+                              const QString& panId,
+                              double panCenterMhz,
+                              double originalLowMhz,
+                              double originalHighMhz,
+                              const XvtrPolicy::WaterfallTileRange& mapped,
+                              const XvtrPolicy::WaterfallTileMatch& match,
+                              bool hasXvtrSliceAntenna,
+                              const QVector<XvtrPolicy::Transverter>& xvtrs)
+{
+    if (!lcConnection().isDebugEnabled())
+        return;
+
+    const QString reason = mapped.shifted
+        ? (match.matched ? QStringLiteral("matched_xvtr_offset")
+                         : QStringLiteral("xvt_slice_antenna_fallback"))
+        : QStringLiteral("no_xvtr_evidence");
+    const QString key = QStringLiteral("%1:%2").arg(streamId).arg(panId);
+    const QString signature = QStringLiteral("%1:%2:%3:%4")
+        .arg(reason)
+        .arg(mapped.shifted ? QStringLiteral("shifted") : QStringLiteral("unchanged"))
+        .arg(match.matched ? match.name : QStringLiteral("(none)"))
+        .arg(hasXvtrSliceAntenna ? QStringLiteral("xvt_ant") : QStringLiteral("no_xvt_ant"));
+
+    struct LogState {
+        QString signature;
+        qint64 lastLoggedMs{0};
+    };
+    static QHash<QString, LogState> logStateByStream;
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    auto& state = logStateByStream[key];
+    if (state.signature == signature &&
+        state.lastLoggedMs > 0 &&
+        now - state.lastLoggedMs < kXvtrWaterfallDecisionLogIntervalMs) {
+        return;
+    }
+    state.signature = signature;
+    state.lastLoggedMs = now;
+
+    qCDebug(lcConnection).noquote().nospace()
+        << "WaterfallXVTR: stream=0x" << QString::number(streamId, 16)
+        << " pan=" << panId
+        << " reason=" << reason
+        << " shifted=" << mapped.shifted
+        << " pan_center_mhz=" << QString::number(panCenterMhz, 'f', 6)
+        << " tile_mhz=" << QString::number(originalLowMhz, 'f', 6)
+        << ".." << QString::number(originalHighMhz, 'f', 6)
+        << " mapped_mhz=" << QString::number(mapped.lowMhz, 'f', 6)
+        << ".." << QString::number(mapped.highMhz, 'f', 6)
+        << " observed_offset_mhz=" << QString::number(match.observedOffsetMhz, 'f', 6)
+        << " expected_offset_mhz=" << (match.matched
+               ? QString::number(match.expectedOffsetMhz, 'f', 6)
+               : QStringLiteral("n/a"))
+        << " tolerance_mhz=" << QString::number(match.toleranceMhz, 'f', 6)
+        << " matched_xvtr=" << (match.matched
+               ? QStringLiteral("%1[idx=%2 order=%3]")
+                     .arg(match.name.isEmpty() ? QStringLiteral("(unnamed)") : match.name)
+                     .arg(match.index)
+                     .arg(match.order)
+               : QStringLiteral("(none)"))
+        << " has_xvt_slice_antenna=" << hasXvtrSliceAntenna
+        << " candidates=" << xvtrListSummary(xvtrs);
 }
 
 double quantizeIncrementalFollowDelta(double overshootMhz, double stepMhz)
@@ -1633,9 +1730,10 @@ MainWindow::MainWindow(QWidget* parent)
                     // IF/RF translation. Ordinary HF pans can briefly see stale
                     // tile centers while dragging; shifting those corrupts rows.
                     const auto xvtrs = xvtrPolicyBandsFrom(m_radioModel.xvtrList());
+                    const auto match = XvtrPolicy::matchWaterfallTileTransverterOffset(
+                        low, high, panCenter, xvtrs);
                     bool hasXvtrSliceAntenna = false;
-                    if (!XvtrPolicy::waterfallTileMatchesTransverterOffset(
-                            low, high, panCenter, xvtrs)) {
+                    if (!match.matched) {
                         for (auto* slice : m_radioModel.slices()) {
                             if (!slice || slice->panId() != pan->panId())
                                 continue;
@@ -1648,6 +1746,9 @@ MainWindow::MainWindow(QWidget* parent)
                     }
                     const auto mapped = XvtrPolicy::mapWaterfallTileRange(
                         low, high, panCenter, xvtrs, hasXvtrSliceAntenna);
+                    logXvtrWaterfallDecision(streamId, pan->panId(), panCenter,
+                                             low, high, mapped, match,
+                                             hasXvtrSliceAntenna, xvtrs);
                     low = mapped.lowMhz;
                     high = mapped.highMhz;
                 }
@@ -8243,18 +8344,26 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         // current slice/pan state untouched. Guessing is worse than failing
         // visibly because a wrong tune destroys the very band-stack state this
         // path exists to preserve.
-        const auto stackKeyResult = XvtrPolicy::resolveBandStackKey(
-            bandName, xvtrPolicyBandsFrom(m_radioModel.xvtrList()));
+        const auto xvtrs = xvtrPolicyBandsFrom(m_radioModel.xvtrList());
+        const auto stackKeyResult = XvtrPolicy::resolveBandStackKey(bandName, xvtrs);
         const QString stackKey = stackKeyResult.key;
         QString unsupportedBandReason = stackKeyResult.unsupportedReason;
 
         if (stackKey.isEmpty()) {
-            qWarning() << "MainWindow: refusing unsupported band change:"
-                       << unsupportedBandReason;
+            qCWarning(lcProtocol).noquote().nospace()
+                << "MainWindow: refusing unsupported band change band=" << bandName
+                << " reason=" << unsupportedBandReason
+                << " available_xvtrs=" << xvtrListSummary(xvtrs);
             statusBar()->showMessage(unsupportedBandReason, 5000);
             return;
         } else {
-            qDebug() << "  ↳ Flex band key:" << bandName << "->" << stackKey;
+            qCDebug(lcProtocol).noquote().nospace()
+                << "MainWindow: band switch band=" << bandName
+                << " pan=" << applet->panId()
+                << " key=" << stackKey
+                << " freq_hint_mhz=" << QString::number(freqMhz, 'f', 6)
+                << " mode_hint=" << mode
+                << " xvtr=" << xvtrForBandSummary(bandName, xvtrs);
             m_bandSettings.setCurrentBand(bandName);
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));

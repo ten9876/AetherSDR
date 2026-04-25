@@ -105,6 +105,23 @@ QString formatPanBullet(const QJsonObject& pan)
         .arg(orPlaceholder(pan["waterfall_id"].toString()));
 }
 
+QString formatXvtrBullet(const QJsonObject& xvtr)
+{
+    return QString(
+        "- `%1` idx `%2`, order `%3`, RF `%4 MHz`, IF `%5 MHz`, offset `%6 MHz`, "
+        "valid `%7`, has is_valid `%8`, rx only `%9`, max power `%10`")
+        .arg(orPlaceholder(xvtr["name"].toString()))
+        .arg(xvtr["index"].toInt())
+        .arg(xvtr["order"].toInt())
+        .arg(formatNumber(xvtr["rf_freq_mhz"], 6))
+        .arg(formatNumber(xvtr["if_freq_mhz"], 6))
+        .arg(formatNumber(xvtr["offset_mhz"], 6))
+        .arg(yesNo(xvtr["is_valid"].toBool()))
+        .arg(yesNo(xvtr["has_is_valid"].toBool()))
+        .arg(yesNo(xvtr["rx_only"].toBool()))
+        .arg(formatNumber(xvtr["max_power"], 2));
+}
+
 QString formatClientBullet(const QJsonObject& client)
 {
     return QString("- `%1`: program `%2`, owns TX `%3`, local PTT `%4`, TX ant `%5`, TX freq `%6 MHz`")
@@ -713,6 +730,15 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
     } else {
         for (const QJsonValue& value : snapshot["panadapters"].toArray())
             lines << formatPanBullet(value.toObject());
+    }
+    lines << "";
+
+    lines << "## XVTRs";
+    if (snapshot["xvtrs"].toArray().isEmpty()) {
+        lines << "- None";
+    } else {
+        for (const QJsonValue& value : snapshot["xvtrs"].toArray())
+            lines << formatXvtrBullet(value.toObject());
     }
     lines << "";
 

@@ -134,6 +134,24 @@ QJsonObject panToJson(const PanadapterModel* pan, const QString& activePanId)
     return obj;
 }
 
+QJsonObject xvtrToJson(const RadioModel::XvtrInfo& xvtr)
+{
+    QJsonObject obj;
+    obj["index"] = xvtr.index;
+    obj["order"] = xvtr.order;
+    obj["name"] = xvtr.name;
+    obj["rf_freq_mhz"] = xvtr.rfFreq;
+    obj["if_freq_mhz"] = xvtr.ifFreq;
+    obj["offset_mhz"] = xvtr.rfFreq - xvtr.ifFreq;
+    obj["lo_error"] = xvtr.loError;
+    obj["rx_gain"] = xvtr.rxGain;
+    obj["max_power"] = xvtr.maxPower;
+    obj["rx_only"] = xvtr.rxOnly;
+    obj["is_valid"] = xvtr.isValid;
+    obj["has_is_valid"] = xvtr.hasIsValid;
+    return obj;
+}
+
 QJsonObject clientInfoToJson(quint32 handle,
                              quint32 ourHandle,
                              quint32 txHandle,
@@ -2091,6 +2109,19 @@ void RadioModel::onStatusReceived(const QString& object,
             int idx = m.captured(1).toInt();
             // "in_use=0" means the xvtr was removed
             if (kvs.contains("in_use") && kvs["in_use"] == "0") {
+                const auto existing = m_xvtrList.constFind(idx);
+                if (existing != m_xvtrList.cend()) {
+                    qCDebug(lcProtocol).noquote().nospace()
+                        << "RadioModel: xvtr removed idx=" << idx
+                        << " name=" << (existing->name.isEmpty() ? QStringLiteral("(unnamed)") : existing->name)
+                        << " order=" << existing->order
+                        << " is_valid=" << existing->isValid
+                        << " has_is_valid=" << existing->hasIsValid;
+                } else {
+                    qCDebug(lcProtocol).noquote().nospace()
+                        << "RadioModel: xvtr removed idx=" << idx
+                        << " name=(unknown)";
+                }
                 m_xvtrList.remove(idx);
                 emit infoChanged();
                 return;
@@ -2105,7 +2136,23 @@ void RadioModel::onStatusReceived(const QString& object,
             if (kvs.contains("rx_gain"))   x.rxGain   = kvs["rx_gain"].toDouble();
             if (kvs.contains("max_power")) x.maxPower = kvs["max_power"].toDouble();
             if (kvs.contains("rx_only"))   x.rxOnly   = kvs["rx_only"] == "1";
-            if (kvs.contains("is_valid"))  x.isValid  = kvs["is_valid"] == "1";
+            const bool statusHasIsValid = kvs.contains("is_valid");
+            if (statusHasIsValid) {
+                x.isValid = kvs["is_valid"] == "1";
+                x.hasIsValid = true;
+            }
+            qCDebug(lcProtocol).noquote().nospace()
+                << "RadioModel: xvtr status idx=" << x.index
+                << " name=" << (x.name.isEmpty() ? QStringLiteral("(unnamed)") : x.name)
+                << " order=" << x.order
+                << " rf_mhz=" << x.rfFreq
+                << " if_mhz=" << x.ifFreq
+                << " offset_mhz=" << (x.rfFreq - x.ifFreq)
+                << " rx_only=" << x.rxOnly
+                << " max_power=" << x.maxPower
+                << " is_valid=" << x.isValid
+                << " status_has_is_valid=" << statusHasIsValid
+                << " has_is_valid=" << x.hasIsValid;
             emit infoChanged();
         }
         return;
@@ -3439,6 +3486,11 @@ QJsonObject RadioModel::troubleshootingSnapshot() const
     for (auto it = m_panadapters.cbegin(); it != m_panadapters.cend(); ++it)
         panadapters.append(panToJson(it.value(), m_activePanId));
     snapshot["panadapters"] = panadapters;
+
+    QJsonArray xvtrs;
+    for (auto it = m_xvtrList.cbegin(); it != m_xvtrList.cend(); ++it)
+        xvtrs.append(xvtrToJson(it.value()));
+    snapshot["xvtrs"] = xvtrs;
 
     auto txBandInfoToJson = [](const TxBandInfo& band) {
         QJsonObject obj;
