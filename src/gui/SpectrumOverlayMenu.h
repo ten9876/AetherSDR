@@ -44,7 +44,8 @@ public:
                              int floorPos = 75, bool floorEnable = false,
                              bool heatMap = true, int colorScheme = 0,
                              bool showGrid = true,
-                             float lineWidth = 2.0f);
+                             float lineWidth = 2.0f,
+                             int autoBlackOffset = 4);
     // Sync blanker/cursor/opacity controls not covered by syncDisplaySettings.
     void syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
                                   int bgOpacity,
@@ -114,6 +115,7 @@ signals:
     void wfColorGainChanged(int gain);
     void wfBlackLevelChanged(int level);
     void wfAutoBlackChanged(bool on);
+    void wfAutoBlackOffsetChanged(int offset);
     void wfLineDurationChanged(int ms);
     void wfColorSchemeChanged(int scheme);
     void noiseFloorPositionChanged(int pos);
@@ -229,6 +231,8 @@ private:
     QSlider*     m_blackSlider{nullptr};
     QLabel*      m_blackLabel{nullptr};
     QPushButton* m_autoBlackBtn{nullptr};
+    QSlider*     m_autoBlackOffsetSlider{nullptr};
+    QLabel*      m_autoBlackOffsetLabel{nullptr};
     QComboBox*   m_colorSchemeCmb{nullptr};
     QSlider*     m_rateSlider{nullptr};
     QLabel*      m_rateLabel{nullptr};

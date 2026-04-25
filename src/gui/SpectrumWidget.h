@@ -219,6 +219,7 @@ public:
     void setWfColorGain(int gain);
     void setWfBlackLevel(int level);
     void setWfAutoBlack(bool on);
+    void setWfAutoBlackOffset(int offset);
     void setWfLineDuration(int ms);
     void setWfColorScheme(int scheme);
     void resetWfTimeScale();
@@ -489,6 +490,7 @@ private:
     bool  m_wfAutoBlack{true};
     WfColorScheme m_wfColorScheme{WfColorScheme::Default};
     float m_autoBlackThresh{145.0f}; // client-side auto-black: tracked noise floor
+    float m_autoBlackOffset{4.0f};   // intensity units below noise floor for auto-black
     int   m_wfLineDuration{100};     // ms per waterfall row
 
     // Waterfall colour range for FFT-derived fallback (dBm).

@@ -1176,6 +1176,13 @@ void SpectrumOverlayMenu::buildDisplayPanel()
             emit wfBlackLevelChanged(m_blackSlider->value());
     });
 
+    // Auto-Black Offset — how far below noise floor the threshold sits (#1980)
+    makeRow("Offset:", 0, 10, 4, m_autoBlackOffsetSlider, m_autoBlackOffsetLabel);
+    connect(m_autoBlackOffsetSlider, &QSlider::valueChanged, this, [this](int v) {
+        m_autoBlackOffsetLabel->setText(QString::number(v));
+        emit wfAutoBlackOffsetChanged(v);
+    });
+
     // NB Blank + Off/On
     makeRowWithBtn("NB Blank:", 5, 95, 15, m_wfBlankerThreshSlider, m_wfBlankerThreshLabel,
                    m_wfBlankerBtn, "Off");
@@ -1326,6 +1333,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
     m_gainSlider->setToolTip("Waterfall color gain. Higher values brighten weak signals.");
     m_blackSlider->setToolTip("Waterfall black level. Decrease to darken the noise floor.");
     if (m_autoBlackBtn) m_autoBlackBtn->setToolTip("Automatically adjusts the waterfall black level to match the current noise floor.");
+    if (m_autoBlackOffsetSlider) m_autoBlackOffsetSlider->setToolTip("How far below the noise floor auto-black places the threshold. Higher values make weak signals more visible.");
     m_rateSlider->setToolTip("Waterfall line duration. Higher values scroll faster.");
     if (m_wfBlankerThreshSlider) m_wfBlankerThreshSlider->setToolTip("Waterfall noise blanking threshold. Higher values blank more aggressively.");
     if (m_freqGridSpacingCmb) m_freqGridSpacingCmb->setToolTip("Frequency grid line spacing. Auto adapts to the current span.");
@@ -1343,7 +1351,8 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
                                                int floorPos, bool floorEnable,
                                                bool heatMap, int colorScheme,
                                                bool showGrid,
-                                               float lineWidth)
+                                               float lineWidth,
+                                               int autoBlackOffset)
 {
     if (!m_avgSlider) return;  // panel not built yet
 
@@ -1367,6 +1376,11 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
     m_blackSlider->setValue(black);
     m_blackLabel->setText(QString::number(black));
     m_autoBlackBtn->setChecked(autoBlack);
+    if (m_autoBlackOffsetSlider) {
+        QSignalBlocker bo(m_autoBlackOffsetSlider);
+        m_autoBlackOffsetSlider->setValue(autoBlackOffset);
+        m_autoBlackOffsetLabel->setText(QString::number(autoBlackOffset));
+    }
     int rateSliderVal = std::clamp(rate - 70, 1, 30);  // line_duration 71-100 → slider 1-30
     m_rateSlider->setValue(rateSliderVal);
     m_rateLabel->setText(QString::number(rateSliderVal));
