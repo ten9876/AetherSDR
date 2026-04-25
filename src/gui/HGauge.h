@@ -98,10 +98,14 @@ protected:
         p.setPen(QColor(0x20, 0x30, 0x40));
         p.drawRect(barX, barY, barW - 1, barH - 1);
 
+        const bool available = isEnabled();
+
         // Filled portion (animated)
         int fillW = static_cast<int>(m_smooth.value() * barW);
 
-        if (m_reversed) {
+        if (!available) {
+            // No fill for unavailable meters; the centered label carries state.
+        } else if (m_reversed) {
             // Reversed: bar fills from right to left, single color.
             // frac=1 (max) means empty, frac=0 (min) means full bar.
             int revFillW = barW - fillW;
@@ -134,7 +138,7 @@ protected:
         }
 
         // Peak-hold marker (thin white vertical line)
-        if (m_peakEnabled) {
+        if (available && m_peakEnabled) {
             float peakFrac = qBound(0.0f, (m_peakValue - m_min) / (m_max - m_min), 1.0f);
             int peakX = barX + static_cast<int>(peakFrac * barW);
             if (m_reversed) {
@@ -159,7 +163,8 @@ protected:
         for (const auto& tick : m_ticks) {
             float tf = (tick.value - m_min) / (m_max - m_min);
             int tx = barX + static_cast<int>(tf * barW);
-            QColor tickColor = (tick.value >= m_redStart) ? QColor(0xcc, 0x33, 0x33)
+            QColor tickColor = !available ? QColor(0x50, 0x58, 0x64)
+                             : (tick.value >= m_redStart) ? QColor(0xcc, 0x33, 0x33)
                              : (tick.value >= m_yellowStart) ? QColor(0x99, 0x88, 0x00)
                              : QColor(0xc8, 0xd8, 0xe8);
             p.setPen(tickColor);
@@ -175,10 +180,11 @@ protected:
         lblFont.setPixelSize(10);
         lblFont.setBold(true);
         p.setFont(lblFont);
-        p.setPen(QColor(0xff, 0xff, 0xff));
+        p.setPen(available ? QColor(0xff, 0xff, 0xff) : QColor(0x70, 0x78, 0x84));
         const QFontMetrics lfm(lblFont);
-        int labelW = lfm.horizontalAdvance(m_label);
-        p.drawText((w - labelW) / 2, barY + barH / 2 + lfm.ascent() / 2 - 1, m_label);
+        const QString label = available ? m_label : QStringLiteral("%1 N/A").arg(m_label);
+        int labelW = lfm.horizontalAdvance(label);
+        p.drawText((w - labelW) / 2, barY + barH / 2 + lfm.ascent() / 2 - 1, label);
     }
 
 private:

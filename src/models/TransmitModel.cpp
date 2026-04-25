@@ -307,6 +307,22 @@ void TransmitModel::setTunePower(int power)
     emit commandReady(QString("transmit set tunepower=%1").arg(power));
 }
 
+void TransmitModel::setTuneMode(const QString& mode)
+{
+    QString normalized = mode.trimmed().toLower();
+    normalized.replace(' ', '_');
+    if (normalized != "single_tone" && normalized != "two_tone") {
+        qWarning() << "TransmitModel: unsupported tune mode" << mode;
+        return;
+    }
+
+    if (m_tuneMode != normalized) {
+        m_tuneMode = normalized;
+        emit stateChanged();
+    }
+    emit commandReady(QString("transmit set tune_mode=%1").arg(normalized));
+}
+
 void TransmitModel::startTune()
 {
     emit commandReady("transmit tune 1");

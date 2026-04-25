@@ -10,6 +10,18 @@ namespace AetherSDR {
 
 namespace {
 
+float compressionReductionForGauge(float afterEqDbfs, float compPeakDbfs)
+{
+    // FLEX-8400M captures show COMPPEAK is a dBFS level tap at the speech
+    // processor/clipper stage, while AFTEREQ is the processor input reference.
+    // SmartSDR-style compression tracks the lift through that stage:
+    //   reduction = COMPPEAK - AFTEREQ
+    // The gauge is reversed and uses negative values internally:
+    //   0 = none, -25 = heavy.
+    const float reduction = qMax(0.0f, compPeakDbfs - afterEqDbfs);
+    return -qBound(0.0f, reduction, 25.0f);
+}
+
 QJsonObject meterToJson(const MeterDef& def, bool hasValue, float value)
 {
     QJsonObject obj;
@@ -78,9 +90,9 @@ void MeterModel::defineMeter(const MeterDef& def)
         m_swrIdx = def.index;
     else if (def.name == "MICPEAK")
         m_micPeakIdx = def.index;
-    else if (def.name == "COMPPEAK")
+    else if (def.source.startsWith("TX") && def.name == "COMPPEAK")
         m_compPeakIdx = def.index;
-    else if (def.name == "AFTEREQ")
+    else if (def.source.startsWith("TX") && def.name == "AFTEREQ")
         m_afterEqIdx = def.index;
     else if (def.name == "MIC")
         m_micLevelIdx = def.index;
@@ -134,8 +146,18 @@ void MeterModel::removeMeter(int index)
     if (index == m_fwdPwrIdx)   m_fwdPwrIdx = -1;
     if (index == m_swrIdx)      m_swrIdx = -1;
     if (index == m_micPeakIdx)   m_micPeakIdx = -1;
-    if (index == m_compPeakIdx)  m_compPeakIdx = -1;
-    if (index == m_afterEqIdx)   m_afterEqIdx = -1;
+    if (index == m_compPeakIdx) {
+        m_compPeakIdx = -1;
+        m_compPeak = 0.0f;
+        m_hasCompPeakLevel = false;
+        setCompressionMeterAvailable(false);
+    }
+    if (index == m_afterEqIdx) {
+        m_afterEqIdx = -1;
+        m_compPeak = 0.0f;
+        m_hasAfterEqLevel = false;
+        setCompressionMeterAvailable(false);
+    }
     if (index == m_micLevelIdx)  m_micLevelIdx = -1;
     if (index == m_compLevelIdx) m_compLevelIdx = -1;
     if (index == m_alcIdx)       m_alcIdx = -1;
@@ -158,6 +180,36 @@ float MeterModel::convertRaw(const MeterDef& def, qint16 raw) const
     if (def.unit == "degF" || def.unit == "degC")
         return static_cast<float>(raw) / 64.0f;
     return static_cast<float>(raw);
+}
+
+void MeterModel::setCompressionMeterAvailable(bool available)
+{
+    if (m_hasCompPeakValue == available) return;
+    m_hasCompPeakValue = available;
+    emit compressionMeterAvailabilityChanged(available);
+}
+
+bool MeterModel::updateCompressionReduction()
+{
+    if (!m_hasAfterEqLevel || !m_hasCompPeakLevel) {
+        m_compPeak = 0.0f;
+        setCompressionMeterAvailable(false);
+        return false;
+    }
+
+    m_compPeak = compressionReductionForGauge(m_afterEqLevel, m_compPeakLevel);
+    setCompressionMeterAvailable(true);
+    return true;
+}
+
+float MeterModel::displayedMicLevel() const
+{
+    return m_hasAfterEqLevel ? m_afterEqLevel : m_micLevel;
+}
+
+float MeterModel::displayedMicPeak() const
+{
+    return m_hasAfterEqLevel ? m_afterEqLevel : m_micPeak;
 }
 
 bool MeterModel::hasRecentTxMeters(qint64 maxAgeMs) const
@@ -231,23 +283,17 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         } else if (idx == m_micPeakIdx) {
             m_micPeak = v;
             micChanged = true;
-        } else if (idx == m_afterEqIdx) {
-            // Smooth AFTEREQ to reduce async timing noise with COMPPEAK
-            constexpr float kEqAlpha = 0.3f;
-            m_afterEq = (m_afterEq < -140.0f) ? v : kEqAlpha * v + (1.0f - kEqAlpha) * m_afterEq;
         } else if (idx == m_compPeakIdx) {
-            // COMPPEAK: raw dBFS output level from the radio's compressor.
-            // Smooth it, then compute gain reduction = output - input (negative when compressing).
-            constexpr float kAlpha = 0.3f;
-            m_compPeakRaw = (m_compPeakRaw < -140.0f) ? v : kAlpha * v + (1.0f - kAlpha) * m_compPeakRaw;
-
-            // Gain reduction = compressor output - compressor input.
-            // Both must be valid (> -140 dBFS) for a meaningful result.
-            if (m_afterEq > -140.0f && m_compPeakRaw > -140.0f) {
-                m_compPeak = m_compPeakRaw - m_afterEq;  // 0 = no reduction, negative = compressing
-            } else {
-                m_compPeak = 0.0f;  // silence — no meaningful reduction to display
-            }
+            // COMPPEAK is a dBFS level tap. Pair it with AFTEREQ to derive
+            // SmartSDR-style compression reduction.
+            m_compPeakLevel = v;
+            m_hasCompPeakLevel = true;
+            updateCompressionReduction();
+            micChanged = true;
+        } else if (idx == m_afterEqIdx) {
+            m_afterEqLevel = v;
+            m_hasAfterEqLevel = true;
+            updateCompressionReduction();
             micChanged = true;
         } else if (idx == m_micLevelIdx) {
             m_micLevel = v;
@@ -290,7 +336,8 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
     if (txChanged)
         emit txMetersChanged(m_fwdPower, m_swr);
     if (micChanged)
-        emit micMetersChanged(m_micLevel, m_compLevel, m_micPeak, m_compPeak);
+        emit micMetersChanged(displayedMicLevel(), m_compLevel,
+                              displayedMicPeak(), m_compPeak);
     if (alcChanged)
         emit this->alcChanged(m_alc);
     if (hwChanged)

@@ -96,15 +96,28 @@ void SMeterWidget::setMicMeters(float micLevel, float compLevel, float micPeak, 
     Q_UNUSED(micLevel);
     Q_UNUSED(compLevel);
     m_micLevel = micPeak;
-    // compPeak is raw dBFS from COMPPEAK. Silence gate at -30.
-    const float comp = (compPeak > -30.0f) ? qBound(-25.0f, compPeak, 0.0f) : 0.0f;
-    m_compLevel = comp;
+    if (m_compressionAvailable) {
+        // MeterModel emits derived compressor reduction normalized for this gauge:
+        // 0 = none, negative = active compression.
+        m_compLevel = qBound(-25.0f, compPeak, 0.0f);
+    }
 
     updateNeedleTarget();
 
     if (m_transmitting && (m_txMode == TxMode::Level || m_txMode == TxMode::Compression)) {
         update();
     }
+}
+
+void SMeterWidget::setCompressionAvailable(bool available)
+{
+    if (m_compressionAvailable == available) return;
+    m_compressionAvailable = available;
+    if (!available)
+        m_compLevel = 0.0f;
+
+    updateNeedleTarget();
+    update();
 }
 
 void SMeterWidget::setTransmitting(bool tx)
@@ -269,6 +282,8 @@ float SMeterWidget::txValueToFraction(float value) const
         // -40 to +5
         return qBound(0.0f, (value + 40.0f) / 45.0f, 1.0f);
     case TxMode::Compression:
+        if (!m_compressionAvailable)
+            return 1.0f;
         // Gain reduction: 0 = none, -25 = heavy compression
         return qBound(0.0f, (value + 25.0f) / 25.0f, 1.0f);
     }
@@ -281,7 +296,7 @@ float SMeterWidget::currentTxValue() const
     case TxMode::Power:       return m_txPower;
     case TxMode::SWR:         return m_txSwr;
     case TxMode::Level:       return m_micLevel;
-    case TxMode::Compression: return m_compLevel;
+    case TxMode::Compression: return m_compressionAvailable ? m_compLevel : 0.0f;
     }
     return 0.0f;
 }
@@ -609,7 +624,11 @@ void SMeterWidget::paintEvent(QPaintEvent*)
         case TxMode::Power:       valText = QString("%1 W").arg(m_txPower, 0, 'f', 0); break;
         case TxMode::SWR:         valText = QString("%1").arg(m_txSwr, 0, 'f', 1); break;
         case TxMode::Level:       valText = QString("%1 dB").arg(m_micLevel, 0, 'f', 0); break;
-        case TxMode::Compression: valText = QString("%1 dB").arg(m_compLevel, 0, 'f', 0); break;
+        case TxMode::Compression:
+            valText = m_compressionAvailable
+                ? QString("%1 dB").arg(m_compLevel, 0, 'f', 0)
+                : QStringLiteral("N/A");
+            break;
         }
         p.setPen(QColor(0xc8, 0xd8, 0xe8));
         p.drawText(w - vfm.horizontalAdvance(valText) - 6, topY, valText);

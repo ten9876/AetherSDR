@@ -42,6 +42,7 @@ public slots:
 
     // Update mic/compression meter values.
     void setMicMeters(float micLevel, float compLevel, float micPeak, float compPeak);
+    void setCompressionAvailable(bool available);
 
     // Switch between RX and TX needle source.
     void setTransmitting(bool tx);
@@ -87,6 +88,7 @@ private:
     float   m_txSwr{1.0f};
     float   m_micLevel{-50.0f};
     float   m_compLevel{0.0f};
+    bool    m_compressionAvailable{false};
 
     // Mode state
     TxMode  m_txMode{TxMode::Power};

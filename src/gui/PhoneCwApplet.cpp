@@ -137,8 +137,9 @@ void PhoneCwApplet::buildPhonePanel()
     m_compGauge = new HGauge(-25.0f, 0.0f, 1.0f, "Compression", "",
         {{-25, "-25dB"}, {-20, "-20"}, {-15, "-15"}, {-10, "-10"}, {-5, "-5"}, {0, "0"}});
     m_compGauge->setReversed(true);
+    m_compGauge->setEnabled(false);
     m_compGauge->setAccessibleName("Compression gauge");
-    m_compGauge->setAccessibleDescription("Speech compression amount in dB");
+    m_compGauge->setAccessibleDescription("Compression meter unavailable until AFTEREQ and COMPPEAK data are received");
     vbox->addWidget(m_compGauge);
     vbox->addSpacing(4);
 
@@ -721,10 +722,26 @@ void PhoneCwApplet::updateMeters(float micLevel, float compLevel,
 
 void PhoneCwApplet::updateCompression(float compPeak)
 {
-    // compPeak is raw dBFS from COMPPEAK meter.
-    // Silence (-150) → 0. Speech (-10..+14) → clamp to -25..0 range.
-    float gauge = (compPeak > -30.0f) ? qBound(-25.0f, compPeak, 0.0f) : 0.0f;
-    m_compGauge->setValue(gauge);
+    if (!m_compGauge->isEnabled()) {
+        m_compGauge->setValue(0.0f);
+        return;
+    }
+
+    // MeterModel emits derived compressor reduction normalized for this gauge:
+    // 0 = none, negative = active compression.
+    m_compGauge->setValue(qBound(-25.0f, compPeak, 0.0f));
+}
+
+void PhoneCwApplet::setCompressionAvailable(bool available)
+{
+    m_compGauge->setEnabled(available);
+    if (!available)
+        m_compGauge->setValue(0.0f);
+
+    m_compGauge->setAccessibleDescription(
+        available
+            ? QStringLiteral("Speech compression amount in dB")
+            : QStringLiteral("Compression meter unavailable until AFTEREQ and COMPPEAK data are received"));
 }
 
 void PhoneCwApplet::updateAlc(float alc)

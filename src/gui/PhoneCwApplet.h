@@ -32,6 +32,7 @@ public slots:
     void updateMeters(float micLevel, float compLevel,
                       float micPeak, float compPeak);
     void updateCompression(float compPeak);
+    void setCompressionAvailable(bool available);
 
     // CW meter (ALC 0–100)
     void updateAlc(float alc);

@@ -102,7 +102,7 @@ PC Mic Audio (Opus via remote_audio_tx) — arrives with client-side
 ┌─────────────────────────────┐
 │  Equalizer (8-band)         │  ◄── "eq txsc" command
 │  AFTEREQ (meter 27)         │  ◄── "Signal strength after the EQ"
-│  src=TX-, fps=20            │
+│  src=TX-, fps=20            │      Compression reference tap
 └─────────┬───────────────────┘
           │
           ▼
@@ -110,7 +110,7 @@ PC Mic Audio (Opus via remote_audio_tx) — arrives with client-side
 │  Speech Processor           │  ◄── "transmit set speech_processor_enable/level"
 │  (Compander + Clipper)      │
 │  COMPPEAK (meter 28)        │  ◄── "Signal strength before CLIPPER (Compression)"
-│  src=TX-, fps=20            │      Used for P/CW applet compression gauge
+│  src=TX-, fps=20            │      Paired with AFTEREQ for compression gauge
 └─────────┬───────────────────┘
           │
           ▼
@@ -199,8 +199,8 @@ PC Mic Audio (Opus via remote_audio_tx) — arrives with client-side
 | 24 | TX- | CODEC | dBFS | 10 | CODEC output (post mic gain) | — |
 | 25 | TX- | TXAGC | dBFS | 10 | Post AGC/fixed gain | — |
 | 26 | TX- | SC_MIC | dBFS | 10 | MIC output (PC audio entry point) | P/CW mic gauge (PC mic) |
-| 27 | TX- | AFTEREQ | dBFS | 20 | Post equalizer | — |
-| 28 | TX- | COMPPEAK | dBFS | 20 | Pre-clipper (compression) | P/CW compression gauge |
+| 27 | TX- | AFTEREQ | dBFS | 20 | Post equalizer / processor input reference | P/CW level and compression derivation |
+| 28 | TX- | COMPPEAK | dBFS | 20 | Processor/clipper-stage level tap | P/CW compression derivation |
 | 29 | TX- | SC_FILT_1 | dBFS | 20 | Post TX filter 1 | — |
 | 30 | TX- | ALC | dBFS | 10 | Post SW ALC (SSB peak) | P/CW ALC indicator |
 | 31 | TX- | RM_TX_AGC | dBFS | 10 | Post remote TX AGC | — |
@@ -221,6 +221,20 @@ PC Mic Audio (Opus via remote_audio_tx) — arrives with client-side
   VOX detection and P/CW mic level display.
 - **Meter IDs are dynamic**: The radio assigns meter IDs on connection. The IDs shown
   here are from one session — match by name, not by ID.
+- **Compression meter input**: AetherSDR derives the compression gauge only from
+  radio-provided `AFTEREQ` and `COMPPEAK` TX meters. Captures from the FLEX-8400M
+  show `COMPPEAK` as a dBFS level tap, not a ready-to-display gain-reduction
+  meter, so AetherSDR displays `max(0, COMPPEAK - AFTEREQ)` as a negative
+  right-to-left gauge value. If either meter is missing, the compression meter is
+  unavailable; it does not fall back to local PC mic level, `SC_MIC`, or a raw
+  `COMPPEAK` display.
+- **Compression display gating**: The compression gauge is hidden/zeroed when
+  PROC is off or tune/two-tone is active, because those states should not show
+  voice-correlated compressor activity.
+- **P/CW level display**: When `AFTEREQ` is available, AetherSDR uses it for the
+  P/CW level meter so the level and compression gauges share the same radio-side
+  meter cadence. Radios that do not expose `AFTEREQ` keep the existing hardware
+  mic or local PC mic level path for level display.
 - **Unit conversion**: dBm meters (FWDPWR) need watts = 10^(dBm/10)/1000.
   SWR is raw. degC/degF use raw/64.0f. Volts/Amps use raw/1024.0f.
 

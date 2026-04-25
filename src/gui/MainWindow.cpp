@@ -2283,6 +2283,24 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->sMeterWidget(), &SMeterWidget::setMicMeters);
     connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
             m_appletPanel->sMeterWidget(), &SMeterWidget::setTransmitting);
+    auto updateCompressionUiAvailability = [this]() {
+        const auto& meterModel = m_radioModel.meterModel();
+        const auto& txModel = m_radioModel.transmitModel();
+        const bool available = meterModel.hasCompressionMeterValue()
+            && txModel.speechProcessorEnable()
+            && !txModel.isTuning();
+        m_appletPanel->sMeterWidget()->setCompressionAvailable(available);
+        m_appletPanel->phoneCwApplet()->setCompressionAvailable(available);
+        if (!available)
+            m_appletPanel->phoneCwApplet()->updateCompression(0.0f);
+    };
+    connect(&m_radioModel.meterModel(), &MeterModel::compressionMeterAvailabilityChanged,
+            this, updateCompressionUiAvailability);
+    connect(&m_radioModel.transmitModel(), &TransmitModel::micStateChanged,
+            this, updateCompressionUiAvailability);
+    connect(&m_radioModel.transmitModel(), &TransmitModel::tuneChanged,
+            this, updateCompressionUiAvailability);
+    updateCompressionUiAvailability();
 
     // ── Tuner: MeterModel TX meters → TunerApplet gauges ────────────────
     // Use TGXL-specific meters when available (disambiguated from PGXL by handle)
@@ -2753,21 +2771,23 @@ MainWindow::MainWindow(QWidget* parent)
 #endif
 
     // ── P/CW applet: mic meters + ALC meter + model ────────────────────────
-    // Suppress radio CODEC meters when mic_selection=PC (they just show noise).
-    // Client-side metering handles PC mic display below.
-    // Compression gauge: full 20fps meter rate, gated on speech_processor_enable.
+    // Prefer the radio's AFTEREQ TX-chain meter for level when present so
+    // level and compression share the same radio-side meter cadence.
+    // Fall back to client-side PC metering only on radios without AFTEREQ.
+    // Compression gauge: full 20fps meter rate, gated on PROC and not shown during tune.
     {
         connect(&m_radioModel.meterModel(), &MeterModel::micMetersChanged,
                 this, [this](float micLevel, float compLevel, float micPeak, float compPeak) {
-            // Mic level: hardware mic uses radio meters, PC uses client-side
-            if (m_radioModel.transmitModel().micSelection() != "PC")
+            const bool hasRadioTxLevel = m_radioModel.meterModel().hasRadioTxAudioLevelValue();
+            if (hasRadioTxLevel || m_radioModel.transmitModel().micSelection() != "PC")
                 m_appletPanel->phoneCwApplet()->updateMeters(micLevel, compLevel, micPeak, 0.0f);
 
-            // Compression gauge: full rate (20fps from radio), gated on PROC
-            {
-                float comp = m_radioModel.transmitModel().speechProcessorEnable() ? compPeak : 0.0f;
-                m_appletPanel->phoneCwApplet()->updateCompression(comp);
-            }
+            const auto& txModel = m_radioModel.transmitModel();
+            const bool showCompression = m_radioModel.meterModel().hasCompressionMeterValue()
+                && txModel.speechProcessorEnable()
+                && !txModel.isTuning();
+            const float comp = showCompression ? compPeak : 0.0f;
+            m_appletPanel->phoneCwApplet()->updateCompression(comp);
         });
     }
     connect(&m_radioModel.meterModel(), &MeterModel::alcChanged,
@@ -2780,6 +2800,7 @@ MainWindow::MainWindow(QWidget* parent)
         connect(m_audio, &AudioEngine::pcMicLevelChanged,
                 this, [this, heldLevel, heldPeak](float peakDb, float avgDb) {
             if (m_radioModel.transmitModel().micSelection() != "PC") return;
+            if (m_radioModel.meterModel().hasRadioTxAudioLevelValue()) return;
             constexpr float kDecayPerUpdate = 1.0f;  // ~20 dB/sec at 20 updates/sec
             // Level: fast attack, slow decay
             if (avgDb > *heldLevel)
@@ -9276,6 +9297,17 @@ void MainWindow::registerShortcutActions()
                 m_radioModel.transmitModel().stopTune();
             else
                 m_radioModel.transmitModel().startTune();
+        });
+    m_shortcutManager.registerAction("two_tone_tune", "Two-Tone Tune", "TX",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            if (tx.isTuning()) {
+                tx.stopTune();
+            } else {
+                tx.setTuneMode(QStringLiteral("two_tone"));
+                tx.startTune();
+            }
         });
 
     // ── Audio ───────────────────────────────────────────────────────────
