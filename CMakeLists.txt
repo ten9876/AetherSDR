@@ -414,6 +414,8 @@ set(CORE_SOURCES
     src/core/ClientPudu.cpp
     src/core/ClientPuduMonitor.cpp
     src/core/ClientReverb.cpp
+    src/core/CwSidetoneGenerator.cpp
+    src/core/CwxLocalKeyer.cpp
     src/core/SpectralNR.cpp
     src/core/PanadapterStream.cpp
     src/core/RigctlProtocol.cpp
@@ -1117,6 +1119,13 @@ add_executable(xvtr_policy_test
 )
 target_include_directories(xvtr_policy_test PRIVATE src)
 target_link_libraries(xvtr_policy_test PRIVATE Qt6::Core)
+
+add_executable(cw_sidetone_test
+    tests/cw_sidetone_test.cpp
+    src/core/CwSidetoneGenerator.cpp
+)
+target_include_directories(cw_sidetone_test PRIVATE src)
+target_link_libraries(cw_sidetone_test PRIVATE Qt6::Core)
 
 # Help guide search tests - needs QApplication + Widgets.
 add_executable(help_dialog_test

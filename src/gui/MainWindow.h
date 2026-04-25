@@ -386,6 +386,7 @@ private:
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     QTimer* m_bsExpiryTimer{nullptr};    // band-stack bookmark auto-expiry, started on connect only (#1471)
     QTimer* m_bsAutoSaveTimer{nullptr};  // band-stack dwell auto-save (single-shot per dwell window)
+    class CwxLocalKeyer* m_cwxLocalKeyer{nullptr};  // local Morse keyer for CWX sidetone
     qint64 m_bsConnectGraceUntilMs{0};   // suppress auto-save right after connect
     bool m_keyboardShortcutsEnabled{false}; // global enable for keyboard shortcuts (View menu)
     bool m_spacePttActive{false};          // true while Space is held for PTT

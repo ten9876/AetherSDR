@@ -8,6 +8,7 @@
 #include "ClientPudu.h"
 #include "ClientPuduMonitor.h"
 #include "ClientReverb.h"
+#include "CwSidetoneGenerator.h"
 #include "LogManager.h"
 #include "OpusCodec.h"
 #include "SpectralNR.h"
@@ -25,6 +26,8 @@
 #include "Resampler.h"
 
 #include <cmath>
+#include <limits>
+#include <QIODevice>
 #include <QMediaDevices>
 #include <QAudioDevice>
 #include <QDir>
@@ -66,6 +69,7 @@ AudioEngine::AudioEngine(QObject* parent)
     , m_clientTubeTx(std::make_unique<ClientTube>())
     , m_clientPuduTx(std::make_unique<ClientPudu>())
     , m_clientReverbTx(std::make_unique<ClientReverb>())
+    , m_cwSidetone(std::make_unique<CwSidetoneGenerator>(48000))
 {
     // Prepare client DSP at the native 24 kHz rate. Sink resampling is
     // handled separately after EQ — EQ always runs at radio-native rate.
@@ -505,12 +509,17 @@ bool AudioEngine::startRxStream()
     qCDebug(lcAudio) << "AudioEngine: RX stream started";
     m_rxBufferSampleRate.store(fmt.sampleRate());
     m_rxStreamStarted = true;
+    // Open the dedicated sidetone sink alongside the RX sink.  Cheap when
+    // sidetone is disabled — the timer fires but writes silence to a tiny
+    // primed buffer; no audible output, no extra CPU on the operator side.
+    startSidetoneStream();
     emit rxStarted();
     return true;
 }
 
 void AudioEngine::stopRxStream()
 {
+    stopSidetoneStream();
     m_rxBuffer.clear();
     m_rxBufferBytes.store(0);
     m_rxBufferSampleRate.store(DEFAULT_SAMPLE_RATE);
@@ -545,6 +554,105 @@ void AudioEngine::setMuted(bool muted)
     m_muted.store(muted);
     if (m_audioSink)
         m_audioSink->setVolume(muted ? 0.0f : m_rxVolume.load());
+}
+
+bool AudioEngine::startSidetoneStream()
+{
+    if (m_sidetoneSink) return true;  // already running
+    if (!m_cwSidetone) return false;
+
+    QAudioDevice dev = QMediaDevices::defaultAudioOutput();
+    if (!m_outputDevice.isNull()) {
+        const auto outputs = QMediaDevices::audioOutputs();
+        for (const auto& d : outputs) {
+            if (d.id() == m_outputDevice.id()) { dev = m_outputDevice; break; }
+        }
+    }
+
+    // Try 48 kHz first, fall back to 44.1 kHz then 24 kHz.  Some devices
+    // (DAX, HFP, USB cards) only support a subset of rates.
+    const int kCandidateRates[] = {48000, 44100, 24000};
+    QAudioFormat fmt;
+    fmt.setChannelCount(2);
+    fmt.setSampleFormat(QAudioFormat::Float);
+    int chosenRate = 0;
+    for (int rate : kCandidateRates) {
+        fmt.setSampleRate(rate);
+        if (dev.isFormatSupported(fmt)) {
+            chosenRate = rate;
+            break;
+        }
+    }
+    if (chosenRate == 0) {
+        qCWarning(lcAudio) << "AudioEngine: sidetone device supports no float stereo rate";
+        return false;
+    }
+    fmt.setSampleRate(chosenRate);
+
+    m_sidetoneSink = new QAudioSink(dev, fmt, this);
+    // 50 ms buffer — Pulse/PipeWire happily honour ≥40 ms; <30 ms causes
+    // pull-mode Idle/Active flapping and audible chop.  Real perceived
+    // latency stays low (~25 ms typical) because we keep the buffer about
+    // half-full via the 2 ms timer, not because the buffer itself is small.
+    constexpr int kSidetoneBufferMs = 50;
+    const int sidetoneBufBytes =
+        chosenRate * 2 * static_cast<int>(sizeof(float)) * kSidetoneBufferMs / 1000;
+    m_sidetoneSink->setBufferSize(sidetoneBufBytes);
+
+    m_cwSidetone->setSampleRateHz(chosenRate);
+
+    // Push mode: we feed bytesFree() worth of generated audio every 2 ms,
+    // keeping the sink's buffer constantly half-full.  Tight loop avoids
+    // the Idle/Active state flapping pull mode produced.
+    m_sidetoneDevice = m_sidetoneSink->start();
+    if (!m_sidetoneDevice) {
+        qCWarning(lcAudio) << "AudioEngine: sidetone sink failed to start at" << chosenRate;
+        delete m_sidetoneSink;
+        m_sidetoneSink = nullptr;
+        return false;
+    }
+
+    if (!m_sidetoneTimer) {
+        m_sidetoneTimer = new QTimer(this);
+        m_sidetoneTimer->setTimerType(Qt::PreciseTimer);
+        m_sidetoneTimer->setInterval(2);
+        connect(m_sidetoneTimer, &QTimer::timeout, this, [this]() {
+            if (!m_sidetoneSink || !m_sidetoneDevice) return;
+            if (!m_cwSidetone) return;
+            const qsizetype freeBytes = m_sidetoneSink->bytesFree();
+            if (freeBytes <= 0) return;
+            constexpr qsizetype frameBytes = 2 * sizeof(float);
+            const qsizetype byteCount = (freeBytes / frameBytes) * frameBytes;
+            if (byteCount == 0) return;
+            QByteArray chunk(byteCount, '\0');
+            const int frames = static_cast<int>(byteCount / frameBytes);
+            m_cwSidetone->process(reinterpret_cast<float*>(chunk.data()), frames);
+            m_sidetoneDevice->write(chunk);
+        });
+    }
+    m_sidetoneTimer->start();
+
+    qCDebug(lcAudio) << "AudioEngine: sidetone sink open at"
+                     << m_sidetoneSink->format().sampleRate() << "Hz"
+                     << " ch=" << m_sidetoneSink->format().channelCount()
+                     << " bufferSize=" << m_sidetoneSink->bufferSize() << "bytes (push mode, 2ms timer)";
+    return true;
+}
+
+void AudioEngine::stopSidetoneStream()
+{
+    if (m_sidetoneTimer && m_sidetoneTimer->isActive())
+        m_sidetoneTimer->stop();
+    if (m_sidetoneSink) {
+        auto* sink = m_sidetoneSink;
+        m_sidetoneSink = nullptr;
+        m_sidetoneDevice = nullptr;
+        if (sink->state() != QAudio::StoppedState)
+            sink->stop();
+        sink->deleteLater();
+    }
+    if (m_cwSidetone)
+        m_cwSidetone->reset();
 }
 
 void AudioEngine::setRxPan(int v)

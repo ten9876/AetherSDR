@@ -21,6 +21,7 @@ void CwxModel::send(const QString& text)
     QString encoded = text;
     encoded.replace(' ', QChar(0x7f));
     emit commandReady(QString("cwx send \"%1\" %2").arg(encoded).arg(m_nextBlock++));
+    emit transmissionRequested(text, m_speed);
 }
 
 void CwxModel::sendChar(const QString& ch)
@@ -29,12 +30,18 @@ void CwxModel::sendChar(const QString& ch)
     QString encoded = ch;
     encoded.replace(' ', QChar(0x7f));
     emit commandReady(QString("cwx send \"%1\" %2").arg(encoded).arg(m_nextBlock++));
+    emit transmissionRequested(ch, m_speed);
 }
 
 void CwxModel::sendMacro(int idx)
 {
     if (idx < 1 || idx > 12) return;
     emit commandReady(QString("cwx macro send %1").arg(idx));
+    // Macro text lives in m_macros (0-based); fire local keyer with it
+    // so sidetone matches the radio's expansion.
+    const QString text = m_macros[idx - 1];
+    if (!text.isEmpty())
+        emit transmissionRequested(text, m_speed);
 }
 
 void CwxModel::saveMacro(int idx, const QString& text)
@@ -49,11 +56,13 @@ void CwxModel::saveMacro(int idx, const QString& text)
 void CwxModel::erase(int numChars)
 {
     emit commandReady(QString("cwx erase %1").arg(numChars));
+    emit transmissionCancelled();
 }
 
 void CwxModel::clearBuffer()
 {
     emit commandReady("cwx clear");
+    emit transmissionCancelled();
 }
 
 void CwxModel::setSpeed(int wpm)

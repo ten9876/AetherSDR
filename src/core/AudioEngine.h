@@ -39,6 +39,7 @@ class ClientTube;
 class ClientPudu;
 class ClientPuduMonitor;
 class ClientReverb;
+class CwSidetoneGenerator;
 #ifdef __APPLE__
 class MacNRFilter;
 #endif
@@ -70,6 +71,12 @@ public:
     // Q_INVOKABLE: must run on the audio worker thread (#502)
     Q_INVOKABLE bool startRxStream();
     Q_INVOKABLE void stopRxStream();
+
+    // Dedicated low-latency sidetone sink — independent of the RX sink.
+    // Started alongside the RX sink and on-demand when the user enables
+    // local sidetone for the first time after connect.
+    Q_INVOKABLE bool startSidetoneStream();
+    Q_INVOKABLE void stopSidetoneStream();
 
     // TX (microphone) – capture audio and send VITA-49 packets to radio
     Q_INVOKABLE bool startTxStream(const QHostAddress& radioAddress, quint16 radioPort);
@@ -314,6 +321,10 @@ public:
     quint64 rxBufferUnderrunCount() const { return m_rxBufferUnderrunCount.load(); }
     int rxBufferSampleRate() const { return m_rxBufferSampleRate.load(); }
 
+    // Local CW sidetone generator — accessor used by RadioModel signal
+    // routing and PhoneCwApplet UI bindings.
+    CwSidetoneGenerator* cwSidetone() { return m_cwSidetone.get(); }
+
 public slots:
     // Receives stripped PCM from PanadapterStream::audioDataReady().
     void feedAudioData(const QByteArray& pcm);
@@ -375,6 +386,15 @@ private:
     QAudioSink*   m_audioSink{nullptr};
     QPointer<QIODevice> m_audioDevice;   // sink-owned device, may vanish on hot-unplug
 
+    // Dedicated low-latency sink for the local CW sidetone — kept separate
+    // from the RX sink so the RX path keeps its 200 ms jitter cushion while
+    // sidetone runs at ~50 ms buffer.  Push mode (we feed it via QTimer);
+    // pull mode flapped Idle/Active in 85 ms cycles on Linux/Pulse, leaving
+    // audible silence gaps between buffer refills.
+    QAudioSink*   m_sidetoneSink{nullptr};
+    QPointer<QIODevice> m_sidetoneDevice;
+    QTimer*       m_sidetoneTimer{nullptr};
+
     // TX
     QUdpSocket    m_txSocket;
     QAudioSource* m_audioSource{nullptr};
@@ -425,6 +445,7 @@ private:
     bool  m_resampleTo48k{false};      // RX: upsample 24kHz → 48kHz output
     std::unique_ptr<Resampler> m_rxResampler;      // 24k stereo → 48k stereo (lazy init)
     std::unique_ptr<Resampler> m_radeRxResampler;  // separate 24k→48k for RADE decoded speech
+    std::unique_ptr<CwSidetoneGenerator> m_cwSidetone;  // local CW sidetone, mixed into RX drain
     bool  m_txNeedsResample{false};      // TX: input rate != 24kHz, needs resampling
     bool  m_txInputMono{false};          // TX: input device is mono
     int   m_txInputRate{24000};          // TX: actual input sample rate

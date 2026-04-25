@@ -27,6 +27,14 @@ public:
 signals:
     void micLevelChanged(int level);  // slider value 0-100
 
+    // Local CW sidetone — generated client-side by AudioEngine, independent
+    // of the radio's DAX-fed sidetone.  MainWindow connects these to the
+    // AudioEngine's CwSidetoneGenerator instance.
+    void localSidetoneEnabledChanged(bool on);
+    void localSidetoneVolumeChanged(int pct);     // 0..100
+    void localSidetonePitchFollowChanged(bool follow);
+    void localSidetonePitchChanged(int hz);       // 100..2000 (manual override)
+
 public slots:
     // Phone meters (mic level / compression)
     void updateMeters(float micLevel, float compLevel,
@@ -83,6 +91,14 @@ private:
     QPushButton* m_sidetoneBtn{nullptr};
     QSlider*     m_sidetoneSlider{nullptr};
     QLabel*      m_sidetoneLabel{nullptr};
+
+    // Local sidetone controls
+    QPushButton* m_localSidetoneBtn{nullptr};
+    QSlider*     m_localSidetoneVolSlider{nullptr};
+    QLabel*      m_localSidetoneVolLabel{nullptr};
+    QPushButton* m_localSidetoneFollowBtn{nullptr};
+    QSlider*     m_localSidetonePitchSlider{nullptr};
+    QLabel*      m_localSidetonePitchLabel{nullptr};
 
     QSlider*     m_cwPanSlider{nullptr};
 

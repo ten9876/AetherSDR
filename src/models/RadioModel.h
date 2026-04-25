@@ -304,6 +304,11 @@ public:
 signals:
     void infoChanged();
     void connectionStateChanged(bool connected);
+    // Emitted whenever the local CW key transitions on/off — funnel for
+    // serial CTS/DSR, MIDI Gate, TCI key, CWX, and HID encoder sources.
+    // Wired to AudioEngine's CwSidetoneGenerator for low-latency local
+    // sidetone independent of the radio's own DAX-fed sidetone.
+    void cwKeyDownChanged(bool down);
     void sliceAdded(SliceModel* slice);
     void sliceRemoved(int sliceId);
     void metersChanged();

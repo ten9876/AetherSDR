@@ -43,6 +43,12 @@ signals:
     void erased(int start, int stop);
     void macroChanged(int idx, const QString& text);  // 0-based
     void liveChanged(bool on);
+    // Emitted whenever new text is sent to the radio's keyer — used by
+    // CwxLocalKeyer to drive a sidetone-matching local Morse stream.
+    // Includes the WPM in effect at send time so playback timing is
+    // self-contained even if speed changes mid-transmission.
+    void transmissionRequested(const QString& text, int wpm);
+    void transmissionCancelled();        // erase / clearBuffer / interrupt
 
 private:
     int     m_speed{20};

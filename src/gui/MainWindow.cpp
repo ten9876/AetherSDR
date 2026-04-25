@@ -48,6 +48,8 @@
 #include "core/ClientTube.h"
 #include "core/ClientPudu.h"
 #include "core/ClientReverb.h"
+#include "core/CwSidetoneGenerator.h"
+#include "core/CwxLocalKeyer.h"
 #include "CatControlApplet.h"
 #include "DaxApplet.h"
 #include "TciApplet.h"
@@ -882,6 +884,16 @@ MainWindow::MainWindow(QWidget* parent)
     // AudioEngine so its tap hook picks it up on the audio thread.
     m_puduMonitor = new ClientPuduMonitor(this);
     m_audio->setTxPostDspMonitor(m_puduMonitor);
+
+    // Local CW sidetone — every key source (serial, MIDI, TCI, CWX, HID)
+    // funnels through RadioModel::sendCwKey/sendCwPaddle, which emits
+    // cwKeyDownChanged.  Auto-queued connection so the audio thread sees
+    // the state change via atomic without any blocking.
+    connect(&m_radioModel, &RadioModel::cwKeyDownChanged,
+            this, [this](bool down) {
+        if (m_audio && m_audio->cwSidetone())
+            m_audio->cwSidetone()->setKeyDown(down);
+    });
     // Monitor owns a dedicated QAudioSink in pull mode — no
     // feedDecodedSpeech routing, no timer pacing.  Keeps playback
     // glitch-free on macOS/Windows where QTimer jitter was starving
@@ -1615,6 +1627,93 @@ MainWindow::MainWindow(QWidget* parent)
             s.save();
         }
     });
+
+    // Local CW sidetone — wire UI controls to the AudioEngine generator.
+    // Initial state is loaded into the generator from AppSettings on first
+    // connect; UI signals push subsequent changes live (atomic in DSP).
+    {
+        auto* pca = m_appletPanel->phoneCwApplet();
+        connect(pca, &PhoneCwApplet::localSidetoneEnabledChanged,
+                this, [this](bool on) {
+            if (m_audio && m_audio->cwSidetone())
+                m_audio->cwSidetone()->setEnabled(on);
+        });
+        connect(pca, &PhoneCwApplet::localSidetoneVolumeChanged,
+                this, [this](int pct) {
+            if (m_audio && m_audio->cwSidetone())
+                m_audio->cwSidetone()->setVolume(pct / 100.0f);
+        });
+        connect(pca, &PhoneCwApplet::localSidetonePitchFollowChanged,
+                this, [this](bool follow) {
+            if (!m_audio || !m_audio->cwSidetone()) return;
+            if (follow) {
+                m_audio->cwSidetone()->setPitchHz(
+                    static_cast<float>(m_radioModel.transmitModel().cwPitch()));
+            } else {
+                auto& s = AppSettings::instance();
+                m_audio->cwSidetone()->setPitchHz(static_cast<float>(
+                    s.value("CwLocalSidetonePitchHz", "600").toInt()));
+            }
+        });
+        connect(pca, &PhoneCwApplet::localSidetonePitchChanged,
+                this, [this](int hz) {
+            // Manual pitch slider only — only applied when follow is off.
+            auto& s = AppSettings::instance();
+            const bool follow =
+                s.value("CwLocalSidetonePitchFollow", "True").toString() == "True";
+            if (!follow && m_audio && m_audio->cwSidetone())
+                m_audio->cwSidetone()->setPitchHz(static_cast<float>(hz));
+        });
+
+        // Push persisted state into the generator at startup so the user's
+        // saved enable/volume/pitch take effect without toggling the UI.
+        if (m_audio && m_audio->cwSidetone()) {
+            auto& s = AppSettings::instance();
+            auto* gen = m_audio->cwSidetone();
+            gen->setEnabled(
+                s.value("CwLocalSidetoneEnabled", "False").toString() == "True");
+            gen->setVolume(
+                s.value("CwLocalSidetoneVolume", "50").toInt() / 100.0f);
+            const bool follow =
+                s.value("CwLocalSidetonePitchFollow", "True").toString() == "True";
+            const int manualHz = s.value("CwLocalSidetonePitchHz", "600").toInt();
+            gen->setPitchHz(static_cast<float>(
+                follow ? m_radioModel.transmitModel().cwPitch() : manualHz));
+        }
+
+        // Pitch-follow: when the radio updates cw_pitch, propagate to the
+        // generator if the user has follow enabled.  TransmitModel emits
+        // phoneStateChanged on any CW property change including pitch —
+        // cheap to re-pull on each since cwPitch() is just an int read.
+        connect(&m_radioModel.transmitModel(), &TransmitModel::phoneStateChanged,
+                this, [this]() {
+            if (!m_audio || !m_audio->cwSidetone()) return;
+            auto& ss = AppSettings::instance();
+            const bool follow =
+                ss.value("CwLocalSidetonePitchFollow", "True").toString() == "True";
+            if (follow) {
+                m_audio->cwSidetone()->setPitchHz(
+                    static_cast<float>(m_radioModel.transmitModel().cwPitch()));
+            }
+        });
+
+        // CWX local keyer — when the user fires text/macros via CWX, this
+        // generates a matching dit-dah pattern locally and routes it
+        // through the same sidetone generator.  Keeps in sync with the
+        // radio's keyer because both run at the configured WPM.  Drift
+        // tolerance is high — we're not transmitting, just providing the
+        // operator with audible feedback of what they sent.
+        m_cwxLocalKeyer = new CwxLocalKeyer(this);
+        connect(&m_radioModel.cwxModel(), &CwxModel::transmissionRequested,
+                m_cwxLocalKeyer, &CwxLocalKeyer::start);
+        connect(&m_radioModel.cwxModel(), &CwxModel::transmissionCancelled,
+                m_cwxLocalKeyer, &CwxLocalKeyer::stop);
+        connect(m_cwxLocalKeyer, &CwxLocalKeyer::keyStateChanged,
+                this, [this](bool down) {
+            if (m_audio && m_audio->cwSidetone())
+                m_audio->cwSidetone()->setKeyDown(down);
+        });
+    }
 
     // TX/RX transition → waterfall tile source switching
     connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,

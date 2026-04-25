@@ -598,16 +598,23 @@ QString RadioModel::audioCompressionParam() const
 
 void RadioModel::sendCwKey(bool down)
 {
+    const bool prev = m_cwKeyActive;
     m_cwKeyActive = down;
     QString cmd = QString("cw key %1").arg(down ? 1 : 0);
     sendNetCwCommand(cmd);
+    if (prev != down)
+        emit cwKeyDownChanged(down);
 }
 
 void RadioModel::sendCwPaddle(bool dit, bool dah)
 {
-    m_cwKeyActive = dit || dah;
+    const bool active = dit || dah;
+    const bool prev = m_cwKeyActive;
+    m_cwKeyActive = active;
     QString cmd = QString("cw key %1 %2").arg(dit ? 1 : 0).arg(dah ? 1 : 0);
     sendNetCwCommand(cmd);
+    if (prev != active)
+        emit cwKeyDownChanged(active);
 }
 
 // ── NetCW stream — VITA-49 UDP delivery with redundant sends ────────────────
