@@ -32,7 +32,11 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Qt6 components
-find_package(Qt6 REQUIRED COMPONENTS
+# Qt 6.2 minimum: matches Ubuntu 22.04 LTS (our oldest supported distro)
+# and is the floor where QWindow::startSystemMove() — used by the
+# frameless title-bar drag in TitleBar / ContainerWidget / PanadapterApplet
+# — became available.  Binary distributions bundle Qt 6.7+ for QRhiWidget.
+find_package(Qt6 6.2 REQUIRED COMPONENTS
     Core
     Widgets
     Network
