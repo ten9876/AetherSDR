@@ -84,15 +84,26 @@ jobs:
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.6
 
+      # CMAKE_CXX_COMPILER_LAUNCHER is honoured by Ninja and Make
+      # generators, NOT by the Visual Studio / MSBuild generator that
+      # CMake selects by default on windows-latest.  Switch to Ninja so
+      # cl.exe invocations actually route through sccache.  msvc-dev-cmd
+      # puts the MSVC toolchain on PATH (cl.exe, link.exe, etc.) so
+      # Ninja can find them.
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Configure
         run: >
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_RADE=OFF
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_RADE=OFF
           -DCMAKE_C_COMPILER_LAUNCHER=sccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
           -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
 
       - name: Build
-        run: cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
+        run: cmake --build build -j $env:NUMBER_OF_PROCESSORS
 
       - name: sccache stats
         if: always()
