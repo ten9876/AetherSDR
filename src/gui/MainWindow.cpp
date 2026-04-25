@@ -1590,19 +1590,38 @@ MainWindow::MainWindow(QWidget* parent)
                          double low, double high, quint32 tc) {
         for (auto* pan : m_radioModel.panadapters()) {
             if (pan->wfStreamId() == streamId) {
-                // XVTR support: when a transverter is active the radio reports
-                // the pan center in RF domain (e.g. 144.2 MHz) but the VITA-49
-                // tile header carries the IF-domain frequency range (e.g. ~28
-                // MHz) because tiles come from the FPGA before XVTR offset is
-                // applied.  If the tile's frequency span has no overlap with
-                // the pan's RF range, shift tile low/high by (panCenter -
-                // tileCenter) so the frequency-accurate bin mapping lines up.
-                // Non-XVTR panadapters always overlap → the shift is a no-op.
-                // (#1843)
                 const double tileCenter = (low + high) / 2.0;
                 const double panCenter  = pan->centerMhz();
                 const double tileBw     = high - low;
+                bool xvtrTileNeedsShift = false;
                 if (tileBw > 0 && std::abs(tileCenter - panCenter) > tileBw) {
+                    // Only reinterpret non-overlapping tile ranges for real XVTR
+                    // IF/RF translation. Ordinary HF pans can briefly see stale
+                    // tile centers while dragging; shifting those corrupts rows.
+                    const double observedOffset = panCenter - tileCenter;
+                    const double toleranceMhz = std::max(tileBw, 0.25);
+                    for (const auto& xvtr : m_radioModel.xvtrList()) {
+                        if (!xvtr.isValid || xvtr.rfFreq <= 0.0 || xvtr.ifFreq <= 0.0)
+                            continue;
+                        const double expectedOffset = xvtr.rfFreq - xvtr.ifFreq;
+                        if (std::abs(observedOffset - expectedOffset) <= toleranceMhz) {
+                            xvtrTileNeedsShift = true;
+                            break;
+                        }
+                    }
+                    if (!xvtrTileNeedsShift) {
+                        for (auto* slice : m_radioModel.slices()) {
+                            if (!slice || slice->panId() != pan->panId())
+                                continue;
+                            if (slice->rxAntenna().startsWith(QStringLiteral("XVT"),
+                                                               Qt::CaseInsensitive)) {
+                                xvtrTileNeedsShift = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (xvtrTileNeedsShift) {
                     const double offset = panCenter - tileCenter;
                     low  += offset;
                     high += offset;
