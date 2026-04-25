@@ -366,18 +366,49 @@ void TitleBar::mousePressEvent(QMouseEvent* ev)
     // Children (menu bar items, buttons, sliders) intercept their own
     // clicks before bubbling to TitleBar — so by the time we see the
     // press it landed on bare background.  Hand the move to the
-    // compositor via Qt 6's cross-platform startSystemMove.
+    // compositor via Qt 6's cross-platform startSystemMove (requires 6.2+).
     if (ev->button() == Qt::LeftButton) {
         if (auto* w = window()) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 2, 0)
             if (auto* h = w->windowHandle()) {
                 h->startSystemMove();
                 ev->accept();
                 return;
             }
+#else
+            // Qt < 6.2: no startSystemMove — track the drag manually.
+            m_dragActive = true;
+            m_dragOffset = ev->globalPosition().toPoint() - w->frameGeometry().topLeft();
+            ev->accept();
+            return;
+#endif
         }
     }
     QWidget::mousePressEvent(ev);
 }
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 2, 0)
+void TitleBar::mouseMoveEvent(QMouseEvent* ev)
+{
+    if (m_dragActive) {
+        if (auto* w = window())
+            w->move(ev->globalPosition().toPoint() - m_dragOffset);
+        ev->accept();
+        return;
+    }
+    QWidget::mouseMoveEvent(ev);
+}
+
+void TitleBar::mouseReleaseEvent(QMouseEvent* ev)
+{
+    if (ev->button() == Qt::LeftButton && m_dragActive) {
+        m_dragActive = false;
+        ev->accept();
+        return;
+    }
+    QWidget::mouseReleaseEvent(ev);
+}
+#endif
 
 void TitleBar::mouseDoubleClickEvent(QMouseEvent* ev)
 {
