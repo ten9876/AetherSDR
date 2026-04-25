@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QPoint>
 #include <QWidget>
 
 class QPushButton;
@@ -76,6 +77,10 @@ private:
     bool         m_alarmRed{false};
     bool         m_blinkEnabled{true};  // persisted via AppSettings "HeartbeatBlinkEnabled"
     bool         m_discovering{false};  // solid amber while waiting for connection
+#if QT_VERSION < QT_VERSION_CHECK(6, 2, 0)
+    bool         m_dragActive{false};
+    QPoint       m_dragOffset;
+#endif
 
 protected:
     // Drag-to-move + double-click-to-maximize for frameless main window.
@@ -85,6 +90,10 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent* ev) override;
     bool eventFilter(QObject* obj, QEvent* ev) override;
     void showEvent(QShowEvent* ev) override;
+#if QT_VERSION < QT_VERSION_CHECK(6, 2, 0)
+    void mouseMoveEvent(QMouseEvent* ev) override;
+    void mouseReleaseEvent(QMouseEvent* ev) override;
+#endif
 
 private:
     void updateMaximizeIcon();
