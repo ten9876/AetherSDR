@@ -421,4 +421,38 @@ void ContainerManager::restoreState()
     }
 }
 
+void ContainerManager::closeAllFloatingWindows()
+{
+    for (auto* w : m_floatingWindows) {
+        if (w) w->close();
+    }
+}
+
+void ContainerManager::restoreFloatingState()
+{
+    const QString json = AppSettings::instance()
+        .value(kSettingsKey, "").toString();
+    if (json.isEmpty()) return;
+
+    const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+    if (!doc.isObject()) return;
+    const QJsonObject root = doc.object();
+    if (root.value("version").toInt() != kSchemaVersion) return;
+
+    const QJsonObject containers = root.value("containers").toObject();
+    for (auto it = containers.constBegin(); it != containers.constEnd(); ++it) {
+        const QString id = it.key();
+        const QJsonObject entry = it.value().toObject();
+        if (dockModeFromString(entry.value("mode").toString())
+                == ContainerWidget::DockMode::Floating) {
+            // Only float containers that are already registered and
+            // not already floating (the legacy migration may have
+            // floated some via the old IsFloating keys).
+            ContainerWidget* c = m_containers.value(id).data();
+            if (c && !c->isFloating())
+                floatContainer(id);
+        }
+    }
+}
+
 } // namespace AetherSDR

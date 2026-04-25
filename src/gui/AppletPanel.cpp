@@ -726,9 +726,16 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
     rebuildStackOrder();
 
-    // Float-state restore for individual applets happens per-entry in
-    // makeEntry via the legacy FloatingApplet_<id>_IsFloating migration;
-    // no separate loop needed.
+    // Restore float state from the ContainerTree persistence.  The
+    // legacy FloatingApplet_<id>_IsFloating migration (above) handles
+    // the one-time upgrade from the old system; this covers every
+    // subsequent launch where ContainerManager has saved float state.
+    // Deferred to the next event-loop tick so all widgets are laid
+    // out before we reparent them into floating windows.
+    QTimer::singleShot(0, this, [this]() {
+        if (m_containerMgr)
+            m_containerMgr->restoreFloatingState();
+    });
 }
 
 void AppletPanel::rebuildStackOrder()

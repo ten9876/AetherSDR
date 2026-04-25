@@ -86,6 +86,14 @@ public:
     void floatContainer(const QString& id);
     void dockContainer(const QString& id);
 
+    // ── Shutdown ───────────────────────────────────────────────────
+    //
+    // Close all floating container windows without docking them
+    // (their float state remains saved for restart).  Called from
+    // MainWindow::closeEvent so parentless floating windows don't
+    // outlive the main window.
+    void closeAllFloatingWindows();
+
     // ── Persistence ──────────────────────────────────────────────
     //
     // State is stored as JSON under the AppSettings key
@@ -105,6 +113,13 @@ public:
     // Phase 3 adds "parent" and "children" fields for nesting.
     void saveState() const;
     void restoreState();
+
+    // Restore only the floating state for containers that are
+    // already registered.  Unlike restoreState() this does not
+    // create new containers or re-nest children — it simply reads
+    // the persisted ContainerTree and calls floatContainer() for
+    // every container whose saved mode is "floating".
+    void restoreFloatingState();
 
 signals:
     void containerCreated(const QString& id);
