@@ -7,10 +7,10 @@
 #include <QStringList>
 #include <QVector>
 
+class QBoxLayout;
 class QComboBox;
 class QPushButton;
 class QScrollArea;
-class QVBoxLayout;
 
 namespace AetherSDR {
 class ContainerManager;
@@ -44,15 +44,26 @@ class AntennaGeniusApplet;
 class MeterApplet;
 class MqttApplet;
 
-// AppletPanel — right-side panel with a row of toggle buttons at the top,
+// Dock position for the applet panel (#1984).
+enum class DockSide { Left, Right, Top, Bottom, Floating };
+
+// AppletPanel — side panel with a row of toggle buttons at the top,
 // an S-Meter gauge below them, and a scrollable stack of applets.
 // Multiple applets can be visible simultaneously. Applets can be reordered
 // by dragging their title bars (QDrag with custom MIME type).
+// The panel can be docked to any of the four MainWindow edges; when docked
+// to Top or Bottom the applet stack switches to a horizontal layout.
 class AppletPanel : public QWidget {
     Q_OBJECT
 
 public:
     explicit AppletPanel(QWidget* parent = nullptr);
+
+    // Switch between vertical (Left/Right dock) and horizontal (Top/Bottom
+    // dock) layout.  Reconfigures the internal QBoxLayout direction,
+    // scroll-area policies, and drop-indicator orientation.
+    void setOrientation(Qt::Orientation orientation);
+    Qt::Orientation orientation() const { return m_orientation; }
 
     void setSlice(SliceModel* slice);
     void setAntennaList(const QStringList& ants);
@@ -138,7 +149,7 @@ public:
 private:
     void rebuildStackOrder();
     void saveOrder();
-    int dropIndexFromY(int localY) const;
+    int dropIndexFromPos(int localPos) const;
 
     ContainerManager* m_containerMgr{nullptr};
     ContainerWidget*  m_rootSidebar{nullptr};
@@ -178,7 +189,8 @@ private:
 #endif
     QPushButton* m_tuneBtn{nullptr};
     QPushButton* m_agBtn{nullptr};
-    QVBoxLayout* m_stack{nullptr};
+    QBoxLayout* m_stack{nullptr};
+    Qt::Orientation m_orientation{Qt::Vertical};
     QScrollArea* m_scrollArea{nullptr};
     QWidget*     m_dropIndicator{nullptr};
     QPushButton* m_lockBtn{nullptr};   // controls-lock toggle (#745)

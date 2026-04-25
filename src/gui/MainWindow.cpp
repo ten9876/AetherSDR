@@ -3422,9 +3422,20 @@ MainWindow::MainWindow(QWidget* parent)
         restoreState(QByteArray::fromBase64(stateB64.toLatin1()));
     // Clear stale splitter state — layout has changed across versions.
     s.remove("SplitterState");
-    // Force 4-pane sizing: CWX=0, DVK=0 (hidden), center=stretch, applet=260px
+    // Force initial splitter sizing based on dock side (#1984)
     QTimer::singleShot(0, this, [this]() {
-        m_splitter->setSizes({0, 0, width() - 260, 260});
+        const QString side = AppSettings::instance()
+            .value("AppletPanelDockSide", "Right").toString();
+        if (side == "Left") {
+            const int w = AppSettings::instance().value("AppletPanelDockedWidth", "260").toInt();
+            m_splitter->setSizes({w, 0, 0, width() - w});
+        } else if (side == "Top" || side == "Bottom" || side == "Floating") {
+            // Panel not in horizontal splitter — give all width to center
+            m_splitter->setSizes({0, 0, width()});
+        } else {
+            // Right (default)
+            m_splitter->setSizes({0, 0, width() - 260, 260});
+        }
     });
 
     // Auto-popup connection dialog if no saved radio
@@ -3517,7 +3528,7 @@ void MainWindow::closeEvent(QCloseEvent* event)
     // must do this explicitly because the window has parent=nullptr
     // (Qt::Window, top-level) so Qt won't auto-close it when the
     // main window exits.  m_shuttingDown gates the eventFilter so
-    // AppletPanelFloating stays True for restart persistence.
+    // AppletPanelDockSide stays "Floating" for restart persistence.
     if (m_appletPanelFloatWindow) {
         m_appletPanelFloatWindow->close();
     }
@@ -3928,7 +3939,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                 m_appletPanelFloatWindow->saveGeometry().toBase64());
         } else if (event->type() == QEvent::Close) {
             // Distinguish user-initiated close from app shutdown.
-            // During shutdown, leave AppletPanelFloating=True so the
+            // During shutdown, leave AppletPanelDockSide="Floating" so the
             // next launch re-opens the panel floating — the user
             // didn't "dock it back", the whole app is exiting.
             if (m_shuttingDown) {
@@ -3937,12 +3948,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                     m_appletPanelFloatWindow->saveGeometry().toBase64());
                 // Fall through — let Qt close the window normally.
             } else {
-                // User clicked the X on the floating window.  Flip
-                // the menu action; its toggled handler docks the
-                // panel back and persists AppletPanelFloating=False.
+                // User clicked the X on the floating window.  Dock
+                // back to the previously used side (default Right).
                 QTimer::singleShot(0, this, [this]() {
-                    if (m_popOutSidebarAction)
-                        m_popOutSidebarAction->setChecked(false);
+                    setAppletPanelDockSide(DockSide::Right);
                 });
             }
         }
@@ -5083,24 +5092,47 @@ void MainWindow::buildMenuBar()
         AppSettings::instance().save();
     });
 
-    // Pop out the whole applet panel into its own window (#1713 Phase 6).
-    // Toggles between panel-docked (inside the QSplitter) and floating
-    // (separate Qt::Window).  Ctrl+Shift+S is the keyboard shortcut.
-    m_popOutSidebarAction = viewMenu->addAction("Pop Out Applet Panel");
-    m_popOutSidebarAction->setCheckable(true);
+    // Applet panel docking submenu (#1984).  Replaces the old "Pop Out"
+    // toggle with a full dock-side selector: Left/Right/Top/Bottom/Float.
+    auto* dockMenu = viewMenu->addMenu("Applet Panel Dock");
+    m_dockSideGroup = new QActionGroup(dockMenu);
+    m_dockSideGroup->setExclusive(true);
+
+    const QString savedSide = AppSettings::instance()
+        .value("AppletPanelDockSide", "Right").toString();
+
+    struct DockOption { const char* label; DockSide side; const char* key; };
+    for (auto [label, side, key] : {
+            DockOption{"Dock Left",    DockSide::Left,     "Left"},
+            DockOption{"Dock Right",   DockSide::Right,    "Right"},
+            DockOption{"Dock Top",     DockSide::Top,      "Top"},
+            DockOption{"Dock Bottom",  DockSide::Bottom,   "Bottom"},
+            DockOption{"Float",        DockSide::Floating, "Floating"}}) {
+        auto* act = dockMenu->addAction(label);
+        act->setCheckable(true);
+        act->setChecked(savedSide == key);
+        m_dockSideGroup->addAction(act);
+        connect(act, &QAction::triggered, this, [this, side]() {
+            setAppletPanelDockSide(side);
+        });
+    }
+    // Keep legacy m_popOutSidebarAction pointer for the eventFilter close handler
+    m_popOutSidebarAction = m_dockSideGroup->actions().last(); // "Float"
+
+    // Keyboard shortcut for floating toggle (Ctrl+Shift+S — backward compat)
     m_popOutSidebarAction->setShortcut(QKeySequence("Ctrl+Shift+S"));
-    m_popOutSidebarAction->setChecked(
-        AppSettings::instance().value(
-            "AppletPanelFloating", "False").toString() == "True");
-    connect(m_popOutSidebarAction, &QAction::toggled, this, [this](bool floating) {
-        if (floating) floatAppletPanel();
-        else          dockAppletPanel();
-        AppSettings::instance().setValue(
-            "AppletPanelFloating", floating ? "True" : "False");
-        AppSettings::instance().save();
-    });
-    if (m_popOutSidebarAction->isChecked()) {
-        QTimer::singleShot(0, this, [this]() { floatAppletPanel(); });
+
+    // Apply the saved dock side at startup
+    m_appletDockSide = DockSide::Right;  // default before setAppletPanelDockSide
+    DockSide initialSide = DockSide::Right;
+    if (savedSide == "Left")          initialSide = DockSide::Left;
+    else if (savedSide == "Top")      initialSide = DockSide::Top;
+    else if (savedSide == "Bottom")   initialSide = DockSide::Bottom;
+    else if (savedSide == "Floating") initialSide = DockSide::Floating;
+    if (initialSide != DockSide::Right) {
+        QTimer::singleShot(0, this, [this, initialSide]() {
+            setAppletPanelDockSide(initialSide);
+        });
     }
 
     viewMenu->addSeparator();
@@ -5490,12 +5522,29 @@ void MainWindow::buildUI()
     m_splitter = new QSplitter(Qt::Horizontal, this);
     m_splitter->setHandleWidth(0);
 
+    // Outer vertical splitter: [TopDock | m_splitter | BottomDock] (#1984)
+    m_outerSplitter = new QSplitter(Qt::Vertical, this);
+    m_outerSplitter->setHandleWidth(0);
+    m_topDockSlot = new QWidget;
+    m_topDockSlot->hide();
+    m_bottomDockSlot = new QWidget;
+    m_bottomDockSlot->hide();
+    m_outerSplitter->addWidget(m_topDockSlot);
+    m_outerSplitter->addWidget(m_splitter);
+    m_outerSplitter->addWidget(m_bottomDockSlot);
+    m_outerSplitter->setStretchFactor(0, 0);
+    m_outerSplitter->setStretchFactor(1, 1);
+    m_outerSplitter->setStretchFactor(2, 0);
+    m_outerSplitter->setCollapsible(0, false);
+    m_outerSplitter->setCollapsible(1, false);
+    m_outerSplitter->setCollapsible(2, false);
+
     auto* central = new QWidget(this);
     auto* vbox = new QVBoxLayout(central);
     vbox->setContentsMargins(0, 0, 0, 0);
     vbox->setSpacing(0);
     vbox->addWidget(m_titleBar);
-    vbox->addWidget(m_splitter, 1);
+    vbox->addWidget(m_outerSplitter, 1);
     setCentralWidget(central);
 
     auto* splitter = m_splitter;
@@ -9016,6 +9065,7 @@ void MainWindow::toggleMinimalMode(bool on)
         // Hide the splitter (contains spectrum + applet panel) and reparent
         // the applet panel directly into the central layout
         m_splitter->hide();
+        m_appletPanel->setOrientation(Qt::Vertical);
         m_appletPanel->setParent(centralWidget());
         centralWidget()->layout()->addWidget(m_appletPanel);
         m_appletPanel->show();
@@ -9037,14 +9087,13 @@ void MainWindow::toggleMinimalMode(bool on)
         // Save minimal geometry
         s.setValue("MinimalModeGeometry", saveGeometry().toBase64());
 
-        // Reparent applet panel back into the splitter and restore layout
-        m_splitter->addWidget(m_appletPanel);
-        m_appletPanel->show();
+        // Reparent applet panel back to its dock side and restore layout
+        m_splitter->show();
+        setAppletPanelDockSide(m_appletDockSide);
         QByteArray splitterState = QByteArray::fromBase64(
             s.value("MinimalModeSplitterSizes", "").toByteArray());
         if (!splitterState.isEmpty())
             m_splitter->restoreState(splitterState);
-        m_splitter->show();
 
         // Resume spectrum rendering
         if (m_panStack) {
@@ -10746,18 +10795,82 @@ void MainWindow::registerMidiParams()
 
 // StreamDeck native integration removed — use TCI StreamController plugin instead.
 
-// ─── Applet-panel pop-out (#1713 Phase 6) ───────────────────────────────────
+// ─── Applet-panel docking (#1984) ───────────────────────────────────────────
 //
-// The whole AppletPanel widget (tray buttons + S-Meter + scrollable stack)
-// can live either inside m_splitter at the end of the row, or as the sole
-// content of its own top-level window.  Reparenting transfers Qt ownership
-// cleanly; the splitter pane collapses to zero width when the panel floats,
-// and restores to its remembered width when it docks back.
+// The AppletPanel can dock to any of the four MainWindow edges or float in
+// its own top-level window.  Vertical edges (Left/Right) use a vertical
+// applet stack inside m_splitter; horizontal edges (Top/Bottom) use a
+// horizontal applet row inside m_outerSplitter's top/bottom slots.
+
+static const char* dockSideToString(DockSide s) {
+    switch (s) {
+    case DockSide::Left:     return "Left";
+    case DockSide::Right:    return "Right";
+    case DockSide::Top:      return "Top";
+    case DockSide::Bottom:   return "Bottom";
+    case DockSide::Floating: return "Floating";
+    }
+    return "Right";
+}
+
+void MainWindow::setAppletPanelDockSide(DockSide side)
+{
+    if (!m_appletPanel) return;
+    if (side == m_appletDockSide && side != DockSide::Floating) return;
+
+    auto& s = AppSettings::instance();
+
+    // Save current size before moving
+    if (m_appletDockSide == DockSide::Left || m_appletDockSide == DockSide::Right)
+        s.setValue("AppletPanelDockedWidth", QString::number(m_appletPanel->width()));
+    else if (m_appletDockSide == DockSide::Top || m_appletDockSide == DockSide::Bottom)
+        s.setValue("AppletPanelDockedHeight", QString::number(m_appletPanel->height()));
+
+    // Tear down floating window if active
+    if (m_appletPanelFloatWindow) {
+        s.setValue("AppletPanelFloatGeometry",
+                   m_appletPanelFloatWindow->saveGeometry().toBase64());
+        m_appletPanelFloatWindow->removeEventFilter(this);
+        m_appletPanelFloatWindow->deleteLater();
+        m_appletPanelFloatWindow = nullptr;
+    }
+
+    // Hide the top/bottom dock slots when leaving horizontal dock
+    if (m_appletDockSide == DockSide::Top)    m_topDockSlot->hide();
+    if (m_appletDockSide == DockSide::Bottom) m_bottomDockSlot->hide();
+
+    m_appletDockSide = side;
+
+    // Apply the new dock side
+    if (side == DockSide::Floating) {
+        floatAppletPanel();
+    } else {
+        m_appletPanel->setOrientation(
+            (side == DockSide::Top || side == DockSide::Bottom)
+                ? Qt::Horizontal : Qt::Vertical);
+        reparentAppletToSplitter(side);
+    }
+
+    // Persist and update menu checkmarks
+    s.setValue("AppletPanelDockSide", dockSideToString(side));
+    s.save();
+
+    if (m_dockSideGroup) {
+        const QString key = dockSideToString(side);
+        for (auto* act : m_dockSideGroup->actions()) {
+            QSignalBlocker b(act);
+            act->setChecked(act->text().contains(key, Qt::CaseInsensitive)
+                            || (side == DockSide::Floating && act->text() == "Float"));
+        }
+    }
+}
 
 void MainWindow::floatAppletPanel()
 {
-    if (!m_appletPanel || !m_splitter) return;
-    if (m_appletPanelFloatWindow) return;  // already floating
+    if (!m_appletPanel) return;
+    if (m_appletPanelFloatWindow) return;
+
+    m_appletPanel->setOrientation(Qt::Vertical);
 
     m_appletPanelFloatWindow = new QWidget(nullptr, Qt::Window);
     m_appletPanelFloatWindow->setWindowTitle("AetherSDR — Applet Panel");
@@ -10768,64 +10881,99 @@ void MainWindow::floatAppletPanel()
     m_appletPanel->setParent(m_appletPanelFloatWindow);
     layout->addWidget(m_appletPanel);
     m_appletPanel->show();
-    // Qt auto-redistributes remaining splitter slots once the panel
-    // is reparented out; we don't need to touch the sizes manually.
 
-    // Restore last-known window geometry or default.
     const QByteArray geom = QByteArray::fromBase64(
         AppSettings::instance()
             .value("AppletPanelFloatGeometry", "").toByteArray());
-    if (!geom.isEmpty()) {
+    if (!geom.isEmpty())
         m_appletPanelFloatWindow->restoreGeometry(geom);
-    } else {
+    else
         m_appletPanelFloatWindow->resize(320, 720);
-    }
 
-    // Track geometry changes live so the saved position/size stays
-    // current without a per-tick timer.
     m_appletPanelFloatWindow->installEventFilter(this);
-
-    // On close → dock back (unchecks the menu action via its own
-    // toggled handler, which re-enters dockAppletPanel).  Using
-    // QObject::connect with a lambda so we don't need to subclass.
     connect(m_appletPanelFloatWindow, &QObject::destroyed,
-            this, [this]() {
-        m_appletPanelFloatWindow = nullptr;
-    });
+            this, [this]() { m_appletPanelFloatWindow = nullptr; });
     m_appletPanelFloatWindow->show();
+
+    // Recompute horizontal splitter sizes without the applet panel
+    const int centerWidth = std::max(400, m_splitter->width());
+    m_splitter->setSizes({0, 0, centerWidth});
 }
 
 void MainWindow::dockAppletPanel()
 {
+    // Legacy wrapper — dock to the right side
+    setAppletPanelDockSide(DockSide::Right);
+}
+
+void MainWindow::reparentAppletToSplitter(DockSide side)
+{
     if (!m_appletPanel || !m_splitter) return;
-    if (!m_appletPanelFloatWindow) return;  // already docked
 
-    // Save geometry before tearing the window down.
-    AppSettings::instance().setValue(
-        "AppletPanelFloatGeometry",
-        m_appletPanelFloatWindow->saveGeometry().toBase64());
+    auto& s = AppSettings::instance();
+    const int savedWidth = s.value("AppletPanelDockedWidth", "260").toInt();
+    const int savedHeight = s.value("AppletPanelDockedHeight", "200").toInt();
 
-    // Reparent back to the splitter.  addWidget appends, which is
-    // the correct position (last slot) matching the pre-float layout.
-    m_appletPanel->setParent(m_splitter);
-    m_splitter->addWidget(m_appletPanel);
-    m_appletPanel->show();
+    switch (side) {
+    case DockSide::Left:
+        m_appletPanel->setParent(m_splitter);
+        m_splitter->insertWidget(0, m_appletPanel);
+        m_appletPanel->show();
+        m_splitter->setStretchFactor(0, 0);
+        m_splitter->setCollapsible(0, false);
+        // Sizes: AppletPanel(left) | CWX | DVK | PanStack
+        m_splitter->setSizes({savedWidth, 0, 0, std::max(400, m_splitter->width() - savedWidth)});
+        break;
 
-    // Re-apply the canonical 4-slot layout the app uses at startup:
-    // CWX=0, DVK=0, center=stretch, applet=260px.  Using fixed sizes
-    // instead of saveState()/restoreState() because the saved state
-    // is unreliable in the launch-with-float case — saveState() fires
-    // at a QTimer::singleShot(0) turn before the splitter has fully
-    // laid out, producing captured sizes that don't match the
-    // post-show window width.  The splitter isn't user-draggable for
-    // applet width anyway (startup always forces 260), so recomputing
-    // is both simpler and deterministic.
-    const int centerWidth = std::max(400, m_splitter->width() - 260);
-    m_splitter->setSizes({0, 0, centerWidth, 260});
+    case DockSide::Right:
+        m_appletPanel->setParent(m_splitter);
+        m_splitter->addWidget(m_appletPanel);
+        m_appletPanel->show();
+        {
+            int idx = m_splitter->indexOf(m_appletPanel);
+            m_splitter->setStretchFactor(idx, 0);
+            m_splitter->setCollapsible(idx, false);
+        }
+        // Sizes: CWX | DVK | PanStack | AppletPanel(right)
+        m_splitter->setSizes({0, 0, std::max(400, m_splitter->width() - savedWidth), savedWidth});
+        break;
 
-    m_appletPanelFloatWindow->removeEventFilter(this);
-    m_appletPanelFloatWindow->deleteLater();
-    m_appletPanelFloatWindow = nullptr;
+    case DockSide::Top: {
+        auto* topLayout = m_topDockSlot->layout();
+        if (!topLayout) {
+            topLayout = new QVBoxLayout(m_topDockSlot);
+            topLayout->setContentsMargins(0, 0, 0, 0);
+            topLayout->setSpacing(0);
+        }
+        m_appletPanel->setParent(m_topDockSlot);
+        topLayout->addWidget(m_appletPanel);
+        m_appletPanel->show();
+        m_topDockSlot->show();
+        m_outerSplitter->setSizes({savedHeight, std::max(400, m_outerSplitter->height() - savedHeight), 0});
+        // Horizontal splitter without applet panel: CWX | DVK | PanStack
+        m_splitter->setSizes({0, 0, m_splitter->width()});
+        break;
+    }
+
+    case DockSide::Bottom: {
+        auto* botLayout = m_bottomDockSlot->layout();
+        if (!botLayout) {
+            botLayout = new QVBoxLayout(m_bottomDockSlot);
+            botLayout->setContentsMargins(0, 0, 0, 0);
+            botLayout->setSpacing(0);
+        }
+        m_appletPanel->setParent(m_bottomDockSlot);
+        botLayout->addWidget(m_appletPanel);
+        m_appletPanel->show();
+        m_bottomDockSlot->show();
+        m_outerSplitter->setSizes({0, std::max(400, m_outerSplitter->height() - savedHeight), savedHeight});
+        m_splitter->setSizes({0, 0, m_splitter->width()});
+        break;
+    }
+
+    case DockSide::Floating:
+        break;  // handled by floatAppletPanel()
+    }
 }
 
 } // namespace AetherSDR

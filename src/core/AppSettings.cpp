@@ -127,6 +127,14 @@ void AppSettings::load()
 
     file.close();
     m_loadedCount = m_settings.size();
+
+    // One-shot migration: AppletPanelFloating → AppletPanelDockSide (#1984)
+    if (m_settings.contains("AppletPanelFloating") && !m_settings.contains("AppletPanelDockSide")) {
+        const QString val = m_settings.value("AppletPanelFloating");
+        m_settings.insert("AppletPanelDockSide", val == "True" ? "Floating" : "Right");
+        m_settings.remove("AppletPanelFloating");
+    }
+
     qDebug() << "AppSettings: loaded" << m_settings.size() << "settings +"
              << m_stationSettings.size() << "station settings from" << m_filePath;
 }

@@ -35,7 +35,7 @@
 #include "core/AppSettings.h"
 #include <QPushButton>
 #include <QScrollArea>
-#include <QVBoxLayout>
+#include <QBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QFrame>
@@ -76,30 +76,43 @@ protected:
         ev->acceptProposedAction();
         m_panel->m_dropIndicator->setVisible(true);
 
-        // Position the indicator at the computed drop index
-        int localY = ev->position().toPoint().y() + verticalScrollBar()->value();
-        int idx = m_panel->dropIndexFromY(localY);
+        const bool horiz = m_panel->m_orientation == Qt::Horizontal;
 
-        // Find the Y position for the indicator
-        int indicatorY = 0;
+        // Position the indicator at the computed drop index
+        int localPos = horiz
+            ? ev->position().toPoint().x() + horizontalScrollBar()->value()
+            : ev->position().toPoint().y() + verticalScrollBar()->value();
+        int idx = m_panel->dropIndexFromPos(localPos);
+
+        // Find the indicator position along the primary axis
+        int indicatorPos = 0;
         if (idx < m_panel->m_appletOrder.size()) {
             auto* w = m_panel->m_appletOrder[idx].titleBar;
             if (w) {
                 auto* cw = qobject_cast<ContainerWidget*>(m_panel->m_appletOrder[idx].widget);
-                if (!cw || !cw->isFloating())
-                    indicatorY = w->mapTo(widget(), QPoint(0, 0)).y();
+                if (!cw || !cw->isFloating()) {
+                    auto mapped = w->mapTo(widget(), QPoint(0, 0));
+                    indicatorPos = horiz ? mapped.x() : mapped.y();
+                }
             }
         } else if (!m_panel->m_appletOrder.isEmpty()) {
             auto& last = m_panel->m_appletOrder.back();
             auto* w = last.widget;
             if (w) {
                 auto* cw = qobject_cast<ContainerWidget*>(w);
-                if (!cw || !cw->isFloating())
-                    indicatorY = w->mapTo(widget(), QPoint(0, w->height())).y();
+                if (!cw || !cw->isFloating()) {
+                    auto mapped = w->mapTo(widget(), QPoint(0, w->height()));
+                    indicatorPos = horiz
+                        ? w->mapTo(widget(), QPoint(w->width(), 0)).x()
+                        : mapped.y();
+                }
             }
         }
         m_panel->m_dropIndicator->setParent(widget());
-        m_panel->m_dropIndicator->setGeometry(4, indicatorY - 1, widget()->width() - 8, 2);
+        if (horiz)
+            m_panel->m_dropIndicator->setGeometry(indicatorPos - 1, 4, 2, widget()->height() - 8);
+        else
+            m_panel->m_dropIndicator->setGeometry(4, indicatorPos - 1, widget()->width() - 8, 2);
         m_panel->m_dropIndicator->raise();
     }
 
@@ -112,8 +125,11 @@ protected:
         if (!ev->mimeData()->hasFormat("application/x-aethersdr-applet")) return;
 
         QString draggedId = QString::fromUtf8(ev->mimeData()->data("application/x-aethersdr-applet"));
-        int localY = ev->position().toPoint().y() + verticalScrollBar()->value();
-        int dropIdx = m_panel->dropIndexFromY(localY);
+        const bool horiz = m_panel->m_orientation == Qt::Horizontal;
+        int localPos = horiz
+            ? ev->position().toPoint().x() + horizontalScrollBar()->value()
+            : ev->position().toPoint().y() + verticalScrollBar()->value();
+        int dropIdx = m_panel->dropIndexFromPos(localPos);
 
         // Find the dragged applet's current index
         int srcIdx = -1;
@@ -144,6 +160,8 @@ private:
 
 AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 {
+    // Default orientation is vertical (Left/Right dock); setOrientation()
+    // can switch to horizontal for Top/Bottom dock.
     setFixedWidth(260);
 
     auto* root = new QVBoxLayout(this);
@@ -356,7 +374,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_scrollArea->setWidgetResizable(true);
 
     auto* container = new QWidget;
-    m_stack = new QVBoxLayout(container);
+    m_stack = new QBoxLayout(QBoxLayout::TopToBottom, container);
     m_stack->setContentsMargins(0, 0, 0, 0);
     m_stack->setSpacing(0);
     m_stack->addStretch();
@@ -731,6 +749,35 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // no separate loop needed.
 }
 
+void AppletPanel::setOrientation(Qt::Orientation orientation)
+{
+    if (m_orientation == orientation) return;
+    m_orientation = orientation;
+
+    if (orientation == Qt::Horizontal) {
+        // Top/Bottom dock: horizontal applet row
+        setFixedWidth(QWIDGETSIZE_MAX);
+        setFixedHeight(QWIDGETSIZE_MAX);
+        setMinimumHeight(0);
+        setMinimumWidth(0);
+        m_stack->setDirection(QBoxLayout::LeftToRight);
+        m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        m_dropIndicator->setFixedSize(2, QWIDGETSIZE_MAX);
+        m_dropIndicator->setMinimumSize(2, 0);
+    } else {
+        // Left/Right dock: vertical applet stack (default)
+        setFixedWidth(260);
+        setFixedHeight(QWIDGETSIZE_MAX);
+        setMinimumHeight(0);
+        m_stack->setDirection(QBoxLayout::TopToBottom);
+        m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        m_dropIndicator->setFixedSize(QWIDGETSIZE_MAX, 2);
+        m_dropIndicator->setMinimumSize(0, 2);
+    }
+}
+
 void AppletPanel::rebuildStackOrder()
 {
     // Remove all items from layout without reparenting (avoids visibility issues)
@@ -805,15 +852,18 @@ void AppletPanel::resetOrder()
     AppSettings::instance().save();
 }
 
-int AppletPanel::dropIndexFromY(int localY) const
+int AppletPanel::dropIndexFromPos(int localPos) const
 {
+    const bool horiz = m_orientation == Qt::Horizontal;
     int idx = 0;
     for (int i = 0; i < m_appletOrder.size(); ++i) {
         auto* w = m_appletOrder[i].widget;
         if (!w) continue;
         if (auto* cw = qobject_cast<ContainerWidget*>(w); cw && cw->isFloating()) continue;
-        int mid = w->mapTo(m_scrollArea->widget(), QPoint(0, w->height() / 2)).y();
-        if (localY > mid) idx = i + 1;
+        int mid = horiz
+            ? w->mapTo(m_scrollArea->widget(), QPoint(w->width() / 2, 0)).x()
+            : w->mapTo(m_scrollArea->widget(), QPoint(0, w->height() / 2)).y();
+        if (localPos > mid) idx = i + 1;
     }
     return idx;
 }

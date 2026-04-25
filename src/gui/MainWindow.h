@@ -63,6 +63,7 @@ class SpectrumWidget;
 class PanadapterApplet;
 class PanadapterStack;
 class AppletPanel;
+enum class DockSide;
 class BandPlanManager;
 class WhatsNewDialog;
 class CwxPanel;
@@ -284,7 +285,10 @@ private:
     // GUI — main area
     TitleBar*         m_titleBar{nullptr};
     ::QSizeGrip*      m_sizeGrip{nullptr};
-    QSplitter*        m_splitter{nullptr};
+    QSplitter*        m_splitter{nullptr};         // horizontal: CWX | DVK | PanStack | AppletPanel(right)
+    QSplitter*        m_outerSplitter{nullptr};    // vertical: TopDock | m_splitter | BottomDock (#1984)
+    QWidget*          m_topDockSlot{nullptr};       // populated when DockSide::Top
+    QWidget*          m_bottomDockSlot{nullptr};    // populated when DockSide::Bottom
     PanadapterStack*  m_panStack{nullptr};
     QPointer<PanadapterApplet> m_panApplet;  // backward compat alias to active applet
     QPointer<PanadapterApplet> m_cwDecoderApplet;  // applet receiving CW decoder output
@@ -372,14 +376,16 @@ private:
     class ClientPuduEditor* m_clientPuduEditor{nullptr}; // lazy — created on first Edit… click
     class ClientReverbEditor* m_clientReverbEditor{nullptr}; // lazy — created on first Edit… click
 
-    // Applet-panel pop-out support (#1713 Phase 6).  When floating,
-    // the panel lives inside m_appletPanelFloatWindow and its splitter
-    // slot is removed; re-dock appends a fresh slot and re-applies the
-    // canonical {0, 0, width-260, 260} sizing.
+    // Applet-panel docking (#1984).  The panel can dock to any of the
+    // four MainWindow edges or float in its own window.
+    DockSide    m_appletDockSide{};   // current dock side (initialized from settings)
     QWidget*    m_appletPanelFloatWindow{nullptr};
     QAction*    m_popOutSidebarAction{nullptr};
+    QActionGroup* m_dockSideGroup{nullptr};
+    void setAppletPanelDockSide(DockSide side);
     void floatAppletPanel();
     void dockAppletPanel();
+    void reparentAppletToSplitter(DockSide side);
     bool m_displaySettingsPushed{false};  // one-shot: push saved display settings after pan created
     bool m_applyingLayout{false};        // true during layout tear-down/recreate — suppresses panadapterAdded handler
     QTimer* m_layoutRestoreTimer{nullptr}; // debounced layout rearrange after pans added on connect
