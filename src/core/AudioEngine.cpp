@@ -592,8 +592,8 @@ bool AudioEngine::startSidetoneStream()
     m_sidetoneSink = new QAudioSink(dev, fmt, this);
     // 50 ms buffer — Pulse/PipeWire happily honour ≥40 ms; <30 ms causes
     // pull-mode Idle/Active flapping and audible chop.  Real perceived
-    // latency stays low (~25 ms typical) because we keep the buffer about
-    // half-full via the 2 ms timer, not because the buffer itself is small.
+    // latency stays low (~12 ms target fill) because the 2 ms timer caps
+    // writes to maintain a small target fill, not because the buffer is small.
     constexpr int kSidetoneBufferMs = 50;
     const int sidetoneBufBytes =
         chosenRate * 2 * static_cast<int>(sizeof(float)) * kSidetoneBufferMs / 1000;
@@ -601,9 +601,9 @@ bool AudioEngine::startSidetoneStream()
 
     m_cwSidetone->setSampleRateHz(chosenRate);
 
-    // Push mode: we feed bytesFree() worth of generated audio every 2 ms,
-    // keeping the sink's buffer constantly half-full.  Tight loop avoids
-    // the Idle/Active state flapping pull mode produced.
+    // Push mode: we generate audio every 2 ms, capping writes so the buffer
+    // stays near kTargetFillMs (~12 ms).  The large 50 ms buffer is safety
+    // margin against scheduler jitter; we don't run with it full.
     m_sidetoneDevice = m_sidetoneSink->start();
     if (!m_sidetoneDevice) {
         qCWarning(lcAudio) << "AudioEngine: sidetone sink failed to start at" << chosenRate;
@@ -622,7 +622,19 @@ bool AudioEngine::startSidetoneStream()
             const qsizetype freeBytes = m_sidetoneSink->bytesFree();
             if (freeBytes <= 0) return;
             constexpr qsizetype frameBytes = 2 * sizeof(float);
-            const qsizetype byteCount = (freeBytes / frameBytes) * frameBytes;
+
+            // Keep ~12 ms of audio buffered — enough headroom over 2 ms timer
+            // jitter while staying well below the 50 ms buffer ceiling.
+            constexpr int kTargetFillMs = 12;
+            const qsizetype targetFillBytes =
+                static_cast<qsizetype>(m_sidetoneSink->format().sampleRate())
+                * frameBytes * kTargetFillMs / 1000;
+            const qsizetype currentFill =
+                m_sidetoneSink->bufferSize() - freeBytes;
+            if (currentFill >= targetFillBytes) return;
+
+            const qsizetype byteCount =
+                ((std::min(freeBytes, targetFillBytes - currentFill)) / frameBytes) * frameBytes;
             if (byteCount == 0) return;
             QByteArray chunk(byteCount, '\0');
             const int frames = static_cast<int>(byteCount / frameBytes);
