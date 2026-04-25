@@ -1619,7 +1619,7 @@ MainWindow::MainWindow(QWidget* parent)
                     const double observedOffset = panCenter - tileCenter;
                     const double toleranceMhz = std::max(tileBw, 0.25);
                     for (const auto& xvtr : m_radioModel.xvtrList()) {
-                        if (!xvtr.isValid || xvtr.rfFreq <= 0.0 || xvtr.ifFreq <= 0.0)
+                        if (xvtr.rfFreq <= 0.0 || xvtr.ifFreq <= 0.0)
                             continue;
                         const double expectedOffset = xvtr.rfFreq - xvtr.ifFreq;
                         if (std::abs(observedOffset - expectedOffset) <= toleranceMhz) {
