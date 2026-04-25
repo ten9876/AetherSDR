@@ -48,6 +48,14 @@ static int aetherTolerantX11ErrorHandler(AetherX11Display*, AetherX11ErrorEvent*
 }
 #endif  // __linux__
 
+#ifdef _WIN32
+#include <windows.h>
+// Request discrete GPU on hybrid laptops (NVIDIA Optimus / AMD PowerXpress).
+// Avoids Intel iGPU D3D11 driver bug triggered by QRhiWidget reparenting (#1921).
+extern "C" __declspec(dllexport) DWORD NvOptimusEnablement = 1;
+extern "C" __declspec(dllexport) int   AmdPowerXpressRequestHighPerformance = 1;
+#endif  // _WIN32
+
 static QFile* s_logFile = nullptr;
 
 // Redact PII from log messages before writing to file.
