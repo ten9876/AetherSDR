@@ -7,7 +7,8 @@ namespace AetherSDR {
 
 namespace {
 
-constexpr double kTwoPi = 6.283185307179586476925286766559;
+constexpr double kPi = 3.141592653589793238462643383279;
+constexpr double kTwoPi = 2.0 * kPi;
 
 // Raised-cosine envelope: env(i) = 0.5 * (1 - cos(pi * i / N)) for ramp-up,
 // reversed for ramp-down.  Smooth attack/release prevents the harsh "click"
@@ -16,7 +17,7 @@ inline float raisedCosineUp(int i, int N) noexcept
 {
     if (N <= 0) return 1.0f;
     const double t = static_cast<double>(i) / static_cast<double>(N);
-    return static_cast<float>(0.5 * (1.0 - std::cos(M_PI * t)));
+    return static_cast<float>(0.5 * (1.0 - std::cos(kPi * t)));
 }
 
 inline float raisedCosineDown(int i, int N) noexcept
