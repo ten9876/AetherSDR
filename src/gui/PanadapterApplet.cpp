@@ -31,13 +31,7 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
         "QWidget { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
         "stop:0 #3a4a5a, stop:0.5 #2a3a4a, stop:1 #1a2a38); "
         "border-bottom: 1px solid #0a1a28; }");
-#ifndef Q_OS_WIN
-    // Drag-to-move when floating uses startSystemMove on Linux/macOS.
-    // Windows keeps the native frame, so no title-bar event filter — and
-    // installing one there triggers spurious setActivePan calls that
-    // destabilise the float→dock→re-float cycle.
-    m_titleBar->installEventFilter(this);
-#endif
+    m_titleBar->installEventFilter(this);  // drag-to-move when floating
     auto* titleBar = m_titleBar;
 
     auto* barLayout = new QHBoxLayout(titleBar);
