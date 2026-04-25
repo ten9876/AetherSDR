@@ -312,8 +312,12 @@ public:
     void setTransmitting(bool tx) {
         if (tx && !m_transmitting)
             m_preTxAutoBlack = m_autoBlackThresh;  // save before TX
-        if (!tx && m_transmitting)
+        if (!tx && m_transmitting) {
             m_autoBlackThresh = m_preTxAutoBlack;  // restore after TX
+            // Reset so the FFT fallback doesn't push stale-timestamped rows
+            // before the first native tile arrives after TX (#1927).
+            m_hasNativeWaterfall = false;
+        }
         m_transmitting = tx;
     }
     void setShowTxInWaterfall(bool on) { m_showTxInWaterfall = on; }

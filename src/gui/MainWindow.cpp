@@ -1500,17 +1500,11 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
 
-    // TX/RX transition → waterfall tile source switching
+    // TX/RX transition — audio sources use MOX edge for low latency;
+    // waterfall freeze/unfreeze is driven by radioTransmittingChanged (below)
+    // so we don't unfreeze until the radio confirms it left TRANSMITTING (#1927).
     connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
             this, [this](bool tx) {
-        // Set transmitting on ALL spectrums (multi-pan aware).
-        // Each spectrum's m_hasTxSlice flag determines whether it freezes.
-        for (auto* pan : m_radioModel.panadapters()) {
-            if (auto* sw = m_panStack ? m_panStack->spectrum(pan->panId()) : nullptr)
-                sw->setTransmitting(tx);
-        }
-        if (!m_panStack && m_panApplet)
-            m_panApplet->spectrumWidget()->setTransmitting(tx);
         // Keep TX audio source strictly aligned with the local MOX edge for all
         // modes (SSB + DAX). Waiting for interlock introduces audible lag.
         m_audio->setTransmitting(tx);
@@ -1556,6 +1550,14 @@ MainWindow::MainWindow(QWidget* parent)
     // Multi-Flex TX from other clients.
     connect(&m_radioModel, &RadioModel::radioTransmittingChanged,
             this, [this](bool tx) {
+        // Freeze/unfreeze waterfall based on actual radio interlock state so
+        // TX-contaminated tiles aren't rendered after PTT release (#1927).
+        for (auto* pan : m_radioModel.panadapters()) {
+            if (auto* sw = m_panStack ? m_panStack->spectrum(pan->panId()) : nullptr)
+                sw->setTransmitting(tx);
+        }
+        if (!m_panStack && m_panApplet)
+            m_panApplet->spectrumWidget()->setTransmitting(tx);
         m_audio->setRadioTransmitting(tx);
         // S-Meter: use raw interlock state so Level/Compression modes work
         // during VOX/hardware CW without the effectiveTx power threshold (#877)
