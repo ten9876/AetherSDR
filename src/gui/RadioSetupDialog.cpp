@@ -2998,11 +2998,11 @@ QWidget* RadioSetupDialog::buildSerialTab()
             return combo;
         };
 
-        auto makePolCombo = [this](const QString& savedKey) {
+        auto makePolCombo = [this](const QString& savedKey, const QString& defaultVal = "ActiveHigh") {
             auto* combo = new QComboBox;
             combo->addItem("Active High", "ActiveHigh");
             combo->addItem("Active Low",  "ActiveLow");
-            QString saved = AppSettings::instance().value(savedKey, "ActiveHigh").toString();
+            QString saved = AppSettings::instance().value(savedKey, defaultVal).toString();
             combo->setCurrentIndex(saved == "ActiveLow" ? 1 : 0);
             connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [savedKey, combo]() {
                 auto& s = AppSettings::instance();
@@ -3046,14 +3046,14 @@ QWidget* RadioSetupDialog::buildSerialTab()
         ctsLabel->setStyleSheet("QLabel { color: #60a0c0; }");
         grid->addWidget(ctsLabel, 3, 0);
         grid->addWidget(makeInputFnCombo("SerialCtsFunction"), 3, 1);
-        grid->addWidget(makePolCombo("SerialCtsPolarity"), 3, 2);
+        grid->addWidget(makePolCombo("SerialCtsPolarity", "ActiveLow"), 3, 2);
 
         // DSR row (input)
         auto* dsrLabel = new QLabel("DSR");
         dsrLabel->setStyleSheet("QLabel { color: #60a0c0; }");
         grid->addWidget(dsrLabel, 4, 0);
         grid->addWidget(makeInputFnCombo("SerialDsrFunction"), 4, 1);
-        grid->addWidget(makePolCombo("SerialDsrPolarity"), 4, 2);
+        grid->addWidget(makePolCombo("SerialDsrPolarity", "ActiveLow"), 4, 2);
 
         // Paddle swap
         auto* swapCb = new QCheckBox("Paddle Swap (swap dit/dah)");
@@ -3069,8 +3069,64 @@ QWidget* RadioSetupDialog::buildSerialTab()
         vbox->addWidget(group);
     }
 
-    // ── Auto-open toggle ─────────────────────────────────────────────────
+    // ── Open / Close / Auto-open ────────────────────────────────────────
     {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(8);
+
+        auto* openBtn = new QPushButton("Open");
+        openBtn->setFixedWidth(80);
+        openBtn->setStyleSheet(
+            "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+            "border: 1px solid #008ba8; padding: 3px; border-radius: 3px; }"
+            "QPushButton:hover { background: #00c8f0; }");
+        auto* closeBtn = new QPushButton("Close");
+        closeBtn->setFixedWidth(80);
+        closeBtn->setStyleSheet(openBtn->styleSheet());
+        closeBtn->setEnabled(false);
+
+        auto* statusLabel = new QLabel("Closed");
+        statusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+
+        row->addWidget(openBtn);
+        row->addWidget(closeBtn);
+        row->addWidget(statusLabel);
+        row->addStretch();
+
+        auto updatePortStatus = [openBtn, closeBtn, statusLabel]() {
+            bool open = AppSettings::instance().value("SerialPortOpen", "False").toString() == "True";
+            openBtn->setEnabled(!open);
+            closeBtn->setEnabled(open);
+            if (open) {
+                statusLabel->setText("Open");
+                statusLabel->setStyleSheet("QLabel { color: #30d050; font-size: 11px; }");
+            } else {
+                statusLabel->setText("Closed");
+                statusLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+            }
+        };
+
+        // Open: set the flag so loadSettings() will open the port when dialog closes
+        connect(openBtn, &QPushButton::clicked, this, [updatePortStatus]() {
+            auto& s = AppSettings::instance();
+            s.setValue("SerialPortOpen", "True");
+            s.save();
+            updatePortStatus();
+        });
+
+        // Close: clear the flag so loadSettings() will close the port when dialog closes
+        connect(closeBtn, &QPushButton::clicked, this, [updatePortStatus]() {
+            auto& s = AppSettings::instance();
+            s.setValue("SerialPortOpen", "False");
+            s.save();
+            updatePortStatus();
+        });
+
+        // Reflect current state
+        updatePortStatus();
+
+        vbox->addLayout(row);
+
         auto* autoOpen = new QCheckBox("Auto-open serial port on startup");
         autoOpen->setStyleSheet("QCheckBox { color: #c8d8e8; }");
         autoOpen->setChecked(settings.value("SerialAutoOpen", "False").toString() == "True");
