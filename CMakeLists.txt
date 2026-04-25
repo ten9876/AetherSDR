@@ -1039,7 +1039,7 @@ target_compile_definitions(AetherSDR PRIVATE
 
 # Compiler warnings
 if(MSVC)
-    target_compile_options(AetherSDR PRIVATE /W3 /Zc:__cplusplus /permissive- /utf-8)
+    target_compile_options(AetherSDR PRIVATE /W3 /Zc:__cplusplus /permissive- /utf-8 /bigobj)
 else()
     target_compile_options(AetherSDR PRIVATE
         -Wall -Wextra -Wpedantic
