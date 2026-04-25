@@ -24,6 +24,11 @@ constexpr int kDefaultH = 240;
 FloatingContainerWindow::FloatingContainerWindow(QWidget* parent)
     : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
 {
+    // Windows quirk: the constructor flag bitmask is sometimes ignored
+    // and the native frame still gets drawn.  Re-applying via setWindowFlags
+    // before show() forces the platform plugin to honour FramelessWindowHint
+    // on all Qt versions / widget hierarchies.
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setAttribute(Qt::WA_DeleteOnClose, false);
     setAttribute(Qt::WA_QuitOnClose, false);
     setStyleSheet("QWidget { background: #08121d; }");

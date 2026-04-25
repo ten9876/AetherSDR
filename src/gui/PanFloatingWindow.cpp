@@ -13,6 +13,11 @@ namespace AetherSDR {
 PanFloatingWindow::PanFloatingWindow(QWidget* parent)
     : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
 {
+    // Windows quirk: the constructor flag bitmask is sometimes ignored
+    // and the native frame still gets drawn.  Re-applying via setWindowFlags
+    // before show() forces the platform plugin to honour FramelessWindowHint
+    // on all Qt versions / widget hierarchies.
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
     setMinimumSize(400, 300);
 
     m_layout = new QVBoxLayout(this);
