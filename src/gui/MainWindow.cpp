@@ -120,6 +120,8 @@
 #include <QPushButton>
 #include <QShortcut>
 #include <QScrollArea>
+#include <QSizeGrip>
+#include <QStatusBar>
 #include <QFrame>
 #include <QFileDialog>
 #include <QNetworkAccessManager>
@@ -711,8 +713,23 @@ MainWindow::MainWindow(QWidget* parent)
     // Apply frameless flag before first show() so the window is created
     // without chrome from the start — avoids the flash + re-create that
     // setWindowFlags() after show would cause (#framleess via View menu).
-    if (AppSettings::instance().value("FramelessWindow", "False").toString() == "True")
-        setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
+    // Default ON: TitleBar provides drag, double-click-maximize, and the
+    // min/max/close trio at the far right.  View → Frameless Window can
+    // still toggle it off as an escape hatch.
+    {
+        auto& s = AppSettings::instance();
+        // One-shot migration: existing installs have FramelessWindow=False
+        // saved from when frameless was opt-in.  Force ON for the
+        // transition so users see the new chrome by default; the View
+        // menu toggle still lets them flip it off afterwards.
+        if (!s.contains("FramelessMigratedV0823")) {
+            s.setValue("FramelessWindow", "True");
+            s.setValue("FramelessMigratedV0823", "True");
+            s.save();
+        }
+        if (s.value("FramelessWindow", "True").toString() == "True")
+            setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
+    }
 
     applyDarkTheme();
 
@@ -3344,6 +3361,20 @@ MainWindow::~MainWindow()
 #endif
 }
 
+void MainWindow::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+    // Anchor the frameless-mode size grip to the bottom-right corner,
+    // overlaying the status bar.  Direct child of MainWindow so the
+    // grip's native dotted-texture paint isn't suppressed by the
+    // status-bar stylesheet.
+    if (m_sizeGrip) {
+        const int s = m_sizeGrip->width();
+        m_sizeGrip->move(width() - s - 1, height() - s - 1);
+        m_sizeGrip->raise();
+    }
+}
+
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     m_shuttingDown = true;
@@ -4974,10 +5005,11 @@ void MainWindow::buildMenuBar()
     framelessAct->setCheckable(true);
     framelessAct->setShortcut(QKeySequence("Ctrl+Shift+F"));
     framelessAct->setToolTip(
-        "Hide the OS title bar to gain screen space.\n"
-        "When enabled, move/close via keyboard shortcuts or taskbar.");
+        "Hide the OS title bar.  Drag the AetherSDR title bar to move,\n"
+        "double-click to maximize, or use the min/max/close buttons on\n"
+        "the right.  Toggle off if your compositor mishandles it.");
     framelessAct->setChecked(
-        AppSettings::instance().value("FramelessWindow", "False").toString() == "True");
+        AppSettings::instance().value("FramelessWindow", "True").toString() == "True");
     connect(framelessAct, &QAction::toggled, this, [this](bool on) {
         setFramelessWindow(on);
     });
@@ -5606,6 +5638,14 @@ void MainWindow::buildUI()
     // ── Status bar (SmartSDR-style, double height) ─────────────────────
     statusBar()->setFixedHeight(46);
     statusBar()->setSizeGripEnabled(false);
+    // Bottom-right resize grip — direct child of MainWindow (not parented
+    // into the status bar, whose stylesheet was suppressing the grip's
+    // dotted texture).  Position is maintained in resizeEvent.
+    m_sizeGrip = new QSizeGrip(this);
+    m_sizeGrip->setFixedSize(16, 16);
+    m_sizeGrip->raise();
+    m_sizeGrip->setVisible(
+        AppSettings::instance().value("FramelessWindow", "True").toString() == "True");
     statusBar()->setStyleSheet(
         "QStatusBar { background: #0a0a14; border-top: 1px solid #203040; }"
         "QStatusBar::item { border: none; }"
@@ -8779,6 +8819,9 @@ void MainWindow::setFramelessWindow(bool on)
     setGeometry(geom);
     if (wasVisible)
         show();
+
+    // Keep the bottom-right size grip in sync — only useful when frameless.
+    if (m_sizeGrip) m_sizeGrip->setVisible(on);
 }
 
 void MainWindow::toggleMinimalMode(bool on)

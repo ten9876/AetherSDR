@@ -48,6 +48,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QStatusBar>
+#include <QSizeGrip>
 #include <QHash>
 #include <QJsonObject>
 
@@ -87,6 +88,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -275,6 +277,7 @@ private:
 
     // GUI — main area
     TitleBar*         m_titleBar{nullptr};
+    ::QSizeGrip*      m_sizeGrip{nullptr};
     QSplitter*        m_splitter{nullptr};
     PanadapterStack*  m_panStack{nullptr};
     QPointer<PanadapterApplet> m_panApplet;  // backward compat alias to active applet

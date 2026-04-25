@@ -62,6 +62,12 @@ private:
     QPushButton* m_minimalBtn{nullptr};
     QPushButton* m_featureBtn{nullptr};
 
+    // Window-control trio (frameless mode): minimize, maximize/restore, close.
+    // QLabels (not buttons) for a flat look; click is wired via eventFilter.
+    QLabel*      m_minimizeLbl{nullptr};
+    QLabel*      m_maximizeLbl{nullptr};
+    QLabel*      m_closeLbl{nullptr};
+
     // Heartbeat indicator
     QLabel*      m_heartbeat{nullptr};
     QTimer*      m_heartbeatOffTimer{nullptr};   // 100ms green→grey
@@ -70,6 +76,18 @@ private:
     bool         m_alarmRed{false};
     bool         m_blinkEnabled{true};  // persisted via AppSettings "HeartbeatBlinkEnabled"
     bool         m_discovering{false};  // solid amber while waiting for connection
+
+protected:
+    // Drag-to-move + double-click-to-maximize for frameless main window.
+    // Click hits a child first (menu bar item, button, slider) and only
+    // bubbles to TitleBar when the press lands on bare background.
+    void mousePressEvent(QMouseEvent* ev) override;
+    void mouseDoubleClickEvent(QMouseEvent* ev) override;
+    bool eventFilter(QObject* obj, QEvent* ev) override;
+    void showEvent(QShowEvent* ev) override;
+
+private:
+    void updateMaximizeIcon();
 };
 
 } // namespace AetherSDR

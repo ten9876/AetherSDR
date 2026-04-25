@@ -5,6 +5,7 @@
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QDialog>
+#include <QMouseEvent>
 #include <QPointer>
 #include <QPushButton>
 #include <QSlider>
@@ -15,6 +16,7 @@
 #include <QClipboard>
 #include <QApplication>
 #include <QTimer>
+#include <QWindow>
 #include <QMenu>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -277,6 +279,132 @@ TitleBar::TitleBar(QWidget* parent)
         "QPushButton:hover { background: #504000; color: #ffe080; }");
     connect(featureBtn, &QPushButton::clicked, this, &TitleBar::showFeatureRequestDialog);
     m_hbox->addWidget(featureBtn);
+
+    // ── Window-control trio (min / max / close) ───────────────────────────
+    // Flat labels — click is wired via eventFilter().  Close uses a red
+    // hover for the standard "destructive action" cue.
+    m_hbox->addSpacing(8);
+
+    const QString winLblStyle = QStringLiteral(
+        "QLabel { color: #8aa8c0; font-size: 14px; padding: 0 6px; }"
+        "QLabel:hover { color: #00b4d8; }");
+    const QString winCloseLblStyle = QStringLiteral(
+        "QLabel { color: #8aa8c0; font-size: 14px; padding: 0 6px; }"
+        "QLabel:hover { color: #ff4040; }");
+
+    m_minimizeLbl = new QLabel(QString::fromUtf8("\xe2\x80\x94"));  // — em dash
+    m_minimizeLbl->setAlignment(Qt::AlignCenter);
+    m_minimizeLbl->setCursor(Qt::PointingHandCursor);
+    m_minimizeLbl->setToolTip("Minimize");
+    m_minimizeLbl->setAccessibleName("Minimize window");
+    m_minimizeLbl->setStyleSheet(winLblStyle);
+    m_minimizeLbl->installEventFilter(this);
+    m_hbox->addWidget(m_minimizeLbl);
+
+    m_maximizeLbl = new QLabel(QString::fromUtf8("\xe2\x96\xa1"));  // □ U+25A1
+    m_maximizeLbl->setAlignment(Qt::AlignCenter);
+    m_maximizeLbl->setCursor(Qt::PointingHandCursor);
+    m_maximizeLbl->setToolTip("Maximize");
+    m_maximizeLbl->setAccessibleName("Maximize window");
+    m_maximizeLbl->setStyleSheet(winLblStyle);
+    m_maximizeLbl->installEventFilter(this);
+    m_hbox->addWidget(m_maximizeLbl);
+
+    m_closeLbl = new QLabel(QString::fromUtf8("\xe2\x9c\x95"));  // ✕ U+2715
+    m_closeLbl->setAlignment(Qt::AlignCenter);
+    m_closeLbl->setCursor(Qt::PointingHandCursor);
+    m_closeLbl->setToolTip("Close");
+    m_closeLbl->setAccessibleName("Close window");
+    m_closeLbl->setStyleSheet(winCloseLblStyle);
+    m_closeLbl->installEventFilter(this);
+    m_hbox->addWidget(m_closeLbl);
+}
+
+void TitleBar::showEvent(QShowEvent* ev)
+{
+    QWidget::showEvent(ev);
+    // Install event filter on the host window once it's known so we can
+    // refresh the maximize-button icon when the window state changes.
+    if (auto* w = window()) {
+        w->installEventFilter(this);
+        updateMaximizeIcon();
+    }
+}
+
+bool TitleBar::eventFilter(QObject* obj, QEvent* ev)
+{
+    if (obj == window() && ev->type() == QEvent::WindowStateChange) {
+        updateMaximizeIcon();
+        return QWidget::eventFilter(obj, ev);
+    }
+
+    if (ev->type() == QEvent::MouseButtonPress) {
+        auto* me = static_cast<QMouseEvent*>(ev);
+        if (me->button() == Qt::LeftButton) {
+            if (obj == m_minimizeLbl) {
+                if (auto* w = window()) w->showMinimized();
+                return true;
+            }
+            if (obj == m_maximizeLbl) {
+                if (auto* w = window()) {
+                    if (w->isMaximized()) w->showNormal();
+                    else                  w->showMaximized();
+                }
+                return true;
+            }
+            if (obj == m_closeLbl) {
+                if (auto* w = window()) w->close();
+                return true;
+            }
+        }
+    }
+    return QWidget::eventFilter(obj, ev);
+}
+
+void TitleBar::updateMaximizeIcon()
+{
+    if (!m_maximizeLbl) return;
+    auto* w = window();
+    const bool maxed = w && w->isMaximized();
+    // ❐ U+2750 (overlapped squares) when maximized → "restore down"
+    // □ U+25A1 (single square) when normal → "maximize"
+    m_maximizeLbl->setText(maxed
+        ? QString::fromUtf8("\xe2\x9d\x90")
+        : QString::fromUtf8("\xe2\x96\xa1"));
+    m_maximizeLbl->setToolTip(maxed ? "Restore" : "Maximize");
+}
+
+void TitleBar::mousePressEvent(QMouseEvent* ev)
+{
+    // Children (menu bar items, buttons, sliders) intercept their own
+    // clicks before bubbling to TitleBar — so by the time we see the
+    // press it landed on bare background.  Hand the move to the
+    // compositor via Qt 6's cross-platform startSystemMove.
+    if (ev->button() == Qt::LeftButton) {
+        if (auto* w = window()) {
+            if (auto* h = w->windowHandle()) {
+                h->startSystemMove();
+                ev->accept();
+                return;
+            }
+        }
+    }
+    QWidget::mousePressEvent(ev);
+}
+
+void TitleBar::mouseDoubleClickEvent(QMouseEvent* ev)
+{
+    // Standard Linux/Windows convention: double-click the title bar to
+    // toggle maximize.  Same child-passthrough rule as mousePressEvent.
+    if (ev->button() == Qt::LeftButton) {
+        if (auto* w = window()) {
+            if (w->isMaximized()) w->showNormal();
+            else                  w->showMaximized();
+            ev->accept();
+            return;
+        }
+    }
+    QWidget::mouseDoubleClickEvent(ev);
 }
 
 void TitleBar::setMenuBar(QMenuBar* mb)
