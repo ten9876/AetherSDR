@@ -270,16 +270,8 @@ void ContainerManager::dockContainer(const QString& id)
     saveState();
 }
 
-void ContainerManager::setFramelessMode(bool on)
-{
-    for (auto* win : m_floatingWindows) {
-        if (win) win->setFramelessMode(on);
-    }
-}
-
 void ContainerManager::prepareShutdown()
 {
-    saveState();  // commit current floating/visibility state before closing windows
     for (auto* win : m_floatingWindows) {
         win->prepareShutdown();
     }

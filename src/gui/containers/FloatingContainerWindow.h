@@ -44,9 +44,6 @@ public:
     void setGeometryKey(const QString& key);
     QString geometryKey() const { return m_geometryKey; }
 
-    // Follow the main-window frameless setting.  Preserves position.
-    void setFramelessMode(bool on);
-
     // Called by ContainerManager before the app exits.  Saves geometry,
     // suppresses the dock-on-close behaviour, and closes the window.
     void prepareShutdown();

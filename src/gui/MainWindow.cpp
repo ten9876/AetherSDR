@@ -2003,56 +2003,51 @@ MainWindow::MainWindow(QWidget* parent)
             connect(m_layoutRestoreTimer, &QTimer::timeout, this, [this]() {
                 // The radio restores pans from the GUIClientID session.
                 // Accept whatever the radio gives and arrange based on count.
-                const int panCount = m_panStack->count();
-                if (panCount > 1) {
-                    // Pick a layout based on the number of pans the radio restored
-                    const QString saved = AppSettings::instance()
-                        .value("PanadapterLayout", "1").toString();
-                    // Only rearrange if the saved layout matches the pan count
-                    static const QMap<QString, int> layoutPanCount = {
-                        {"1", 1}, {"2v", 2}, {"2h", 2}, {"2h1", 3}, {"12h", 3}, {"3v", 3}, {"2x2", 4}, {"4v", 4}
-                    };
-                    if (layoutPanCount.value(saved, 1) == panCount)
-                        m_panStack->rearrangeLayout(saved);
-                    else if (panCount == 2)
-                        m_panStack->rearrangeLayout("2v");  // default 2-pan to vertical
-                    else if (panCount == 3)
-                        m_panStack->rearrangeLayout("2h1"); // default 3-pan
-                    else if (panCount >= 4)
-                        m_panStack->rearrangeLayout("2x2"); // default 4-pan
+                int panCount = m_panStack->count();
+                if (panCount <= 1) return;  // single pan, nothing to arrange
+                // Pick a layout based on the number of pans the radio restored
+                const QString saved = AppSettings::instance()
+                    .value("PanadapterLayout", "1").toString();
+                // Only rearrange if the saved layout matches the pan count
+                static const QMap<QString, int> layoutPanCount = {
+                    {"1", 1}, {"2v", 2}, {"2h", 2}, {"2h1", 3}, {"12h", 3}, {"3v", 3}, {"2x2", 4}, {"4v", 4}
+                };
+                if (layoutPanCount.value(saved, 1) == panCount)
+                    m_panStack->rearrangeLayout(saved);
+                else if (panCount == 2)
+                    m_panStack->rearrangeLayout("2v");  // default 2-pan to vertical
+                else if (panCount == 3)
+                    m_panStack->rearrangeLayout("2h1"); // default 3-pan
+                else if (panCount >= 4)
+                    m_panStack->rearrangeLayout("2x2"); // default 4-pan
 
-                    // Optimistically set local yPixels immediately so FFT frames
-                    // arriving before the radio echoes back use correct scaling (#1511).
-                    for (auto* a : m_panStack->allApplets()) {
-                        auto* s = a->spectrumWidget();
-                        auto* p = m_radioModel.panadapter(a->panId());
-                        if (!s || !p || !p->panStreamId()) continue;
-                        int y = s->height();
-                        if (y >= 100)
-                            m_radioModel.panStream()->setYPixels(p->panStreamId(), y);
-                    }
-
-                    // Defensive re-push xpixels for all pans after layout settles.
-                    // Covers race where radio hadn't finished pan init when first push arrived.
-                    QTimer::singleShot(500, this, [this]() {
-                        for (auto* applet : m_panStack->allApplets()) {
-                            auto* sw = applet->spectrumWidget();
-                            auto* pan = m_radioModel.panadapter(applet->panId());
-                            if (!sw || !pan) continue;
-                            int xpix = qMax(sw->width(), 1024);
-                            int ypix = qMax(sw->height(), 200);
-                            m_radioModel.sendCommand(
-                                QString("display pan set %1 xpixels=%2 ypixels=%3")
-                                    .arg(pan->panId()).arg(xpix).arg(ypix));
-                            if (pan->panStreamId())
-                                m_radioModel.panStream()->setYPixels(pan->panStreamId(), ypix);
-                        }
-                    });
+                // Optimistically set local yPixels immediately so FFT frames
+                // arriving before the radio echoes back use correct scaling (#1511).
+                for (auto* a : m_panStack->allApplets()) {
+                    auto* s = a->spectrumWidget();
+                    auto* p = m_radioModel.panadapter(a->panId());
+                    if (!s || !p || !p->panStreamId()) continue;
+                    int y = s->height();
+                    if (y >= 100)
+                        m_radioModel.panStream()->setYPixels(p->panStreamId(), y);
                 }
 
-                // Restore floating-pan state saved from the previous session.
-                // Runs for any pan count so a single floated pan is also restored.
-                m_panStack->restoreFloatingState();
+                // Defensive re-push xpixels for all pans after layout settles.
+                // Covers race where radio hadn't finished pan init when first push arrived.
+                QTimer::singleShot(500, this, [this]() {
+                    for (auto* applet : m_panStack->allApplets()) {
+                        auto* sw = applet->spectrumWidget();
+                        auto* pan = m_radioModel.panadapter(applet->panId());
+                        if (!sw || !pan) continue;
+                        int xpix = qMax(sw->width(), 1024);
+                        int ypix = qMax(sw->height(), 200);
+                        m_radioModel.sendCommand(
+                            QString("display pan set %1 xpixels=%2 ypixels=%3")
+                                .arg(pan->panId()).arg(xpix).arg(ypix));
+                        if (pan->panStreamId())
+                            m_radioModel.panStream()->setYPixels(pan->panStreamId(), ypix);
+                    }
+                });
             });
         }
         m_layoutRestoreTimer->start();  // restart on each new pan
@@ -6109,14 +6104,6 @@ void MainWindow::buildUI()
     splitter->setStretchFactor(3, 0);
     splitter->setCollapsible(3, false);
 
-    // Restore floating-container state from the previous session.  Deferred
-    // one event-loop cycle so AppletPanel's own legacy-migration singleShot(0)
-    // timers fire first (they write ContainerTree) before we read it back.
-    QTimer::singleShot(0, this, [this]() {
-        if (m_appletPanel && m_appletPanel->containerManager())
-            m_appletPanel->containerManager()->restoreState();
-    });
-
     // Set initial splitter sizes: CWX=0, DVK=0 (both hidden), center=stretch, right=310
     const int centerWidth = qMax(400, width() - 310);
     splitter->setSizes({0, 0, centerWidth, 310});
@@ -9278,11 +9265,6 @@ void MainWindow::setFramelessWindow(bool on)
 
     // Keep the bottom-right size grip in sync — only useful when frameless.
     if (m_sizeGrip) m_sizeGrip->setVisible(on);
-
-    // Propagate to all currently-floating child windows so they match.
-    if (m_panStack) m_panStack->setFramelessMode(on);
-    if (m_appletPanel && m_appletPanel->containerManager())
-        m_appletPanel->containerManager()->setFramelessMode(on);
 }
 
 void MainWindow::toggleMinimalMode(bool on)

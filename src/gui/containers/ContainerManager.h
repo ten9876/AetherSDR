@@ -86,9 +86,6 @@ public:
     void floatContainer(const QString& id);
     void dockContainer(const QString& id);
 
-    // Follow the main-window frameless setting for all active floating windows.
-    void setFramelessMode(bool on);
-
     // Save geometry and close all floating windows without triggering
     // dock-back behaviour.  Call from MainWindow::closeEvent().
     void prepareShutdown();
