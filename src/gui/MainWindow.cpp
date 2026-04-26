@@ -2267,7 +2267,10 @@ MainWindow::MainWindow(QWidget* parent)
 
 #ifdef HAVE_RADE
     connect(m_appletPanel->rxApplet(), &RxApplet::radeActivated,
-            this, [this](bool on, int sliceId) { if (on) activateRADE(sliceId); else deactivateRADE(); });
+            this, [this](bool on, int sliceId) {
+        if (on) activateRADE(sliceId);
+        else if (sliceId == m_radeSliceId) deactivateRADE();
+    });
 #endif
 
     // ── Tuning step size → AppSettings + radio command ─────────────────────
@@ -9046,7 +9049,8 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
 
 #ifdef HAVE_RADE
     connect(w, &VfoWidget::radeActivated, this, [this](bool on, int sliceId) {
-        if (on) activateRADE(sliceId); else deactivateRADE();
+        if (on) activateRADE(sliceId);
+        else if (sliceId == m_radeSliceId) deactivateRADE();
     });
 #endif
 
@@ -10499,9 +10503,9 @@ void MainWindow::activateRADE(int sliceId)
     }
 
     // RADE status indicator in VFO widget.
-    // Use vfoWidget(sliceId) — the no-arg alias (m_vfoWidget) may be null
-    // if setActiveVfoWidget() hasn't been called yet for this slice.
-    if (auto* sw = spectrum()) {
+    // Use spectrumForSlice() to find the correct pan — in multi-pan layouts
+    // spectrum() returns the *active* pan, which may not be the RADE slice's pan.
+    if (auto* sw = spectrumForSlice(m_radioModel.slice(sliceId))) {
         if (auto* vfo = sw->vfoWidget(sliceId)) {
             vfo->setRadeActive(true);
             // Show initial unsynchronised state immediately — syncChanged only fires
@@ -10526,7 +10530,7 @@ void MainWindow::deactivateRADE()
         if (auto* s = m_radioModel.slice(m_radeSliceId))
             s->setAudioMute(m_radePrevMute);
         // Clear RADE status label before resetting sliceId
-        if (auto* sw = spectrum()) {
+        if (auto* sw = spectrumForSlice(m_radioModel.slice(m_radeSliceId))) {
             if (auto* vfo = sw->vfoWidget(m_radeSliceId))
                 vfo->setRadeActive(false);
         }

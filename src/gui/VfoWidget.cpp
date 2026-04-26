@@ -1472,7 +1472,12 @@ void VfoWidget::buildTabContent()
                 emit radeActivated(true, m_slice ? m_slice->sliceId() : -1);
                 return;
             }
-            emit radeActivated(false, m_slice ? m_slice->sliceId() : -1);
+            // Only deactivate RADE if it was active on THIS slice's widget —
+            // same guard used by the quick-mode buttons below (line ~1514).
+            // Without this, any slice switching away from a non-RADE mode
+            // would fire radeActivated(false) and kill RADE on a different pan.
+            if (m_radeActive)
+                emit radeActivated(false, m_slice ? m_slice->sliceId() : -1);
 #endif
             if (!m_updatingFromModel && m_slice)
                 m_slice->setMode(mode);
