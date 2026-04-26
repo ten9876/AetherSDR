@@ -116,8 +116,8 @@ MidiMappingDialog::MidiMappingDialog(MidiControlManager* manager, QWidget* paren
         auto* vbox = new QVBoxLayout(group);
 
         m_bindingTable = new QTableWidget;
-        m_bindingTable->setColumnCount(6);
-        m_bindingTable->setHorizontalHeaderLabels({"Parameter", "MIDI Source", "Channel", "Invert", "Relative", ""});
+        m_bindingTable->setColumnCount(7);
+        m_bindingTable->setHorizontalHeaderLabels({"Parameter", "MIDI Source", "Channel", "Invert", "Relative", "Toggle", ""});
         m_bindingTable->horizontalHeader()->setStretchLastSection(false);
         m_bindingTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
         m_bindingTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
@@ -125,6 +125,7 @@ MidiMappingDialog::MidiMappingDialog(MidiControlManager* manager, QWidget* paren
         m_bindingTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
         m_bindingTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
         m_bindingTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
+        m_bindingTable->horizontalHeader()->setSectionResizeMode(6, QHeaderView::ResizeToContents);
         m_bindingTable->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_bindingTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
         m_bindingTable->verticalHeader()->setVisible(false);
@@ -318,6 +319,21 @@ void MidiMappingDialog::refreshBindingTable()
         });
         m_bindingTable->setCellWidget(i, 4, relCheck);
 
+        // Toggle checkbox (momentary→latching for Toggle-type params)
+        auto* toggleCheck = new QCheckBox;
+        toggleCheck->setChecked(b.toggle);
+        toggleCheck->setStyleSheet("QCheckBox { padding-left: 10px; }");
+        bool isToggleParam = p && p->type == MidiParamType::Toggle;
+        toggleCheck->setEnabled(isToggleParam);
+        connect(toggleCheck, &QCheckBox::toggled, this, [this, i](bool on) {
+            if (i < m_manager->bindings().size()) {
+                m_manager->bindings()[i].toggle = on;
+                m_manager->rebuildIndex();
+                MidiSettings::instance().saveBindings(m_manager->bindings());
+            }
+        });
+        m_bindingTable->setCellWidget(i, 5, toggleCheck);
+
         // Delete button
         auto* delBtn = new QPushButton("×");
         delBtn->setFixedSize(24, 24);
@@ -329,7 +345,7 @@ void MidiMappingDialog::refreshBindingTable()
             refreshBindingTable();
             MidiSettings::instance().saveBindings(m_manager->bindings());
         });
-        m_bindingTable->setCellWidget(i, 5, delBtn);
+        m_bindingTable->setCellWidget(i, 6, delBtn);
     }
 }
 

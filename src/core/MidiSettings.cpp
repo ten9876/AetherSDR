@@ -79,6 +79,7 @@ void MidiSettings::save()
         xml.writeAttribute("number", QString::number(b.number));
         xml.writeAttribute("inverted", b.inverted ? "True" : "False");
         if (b.relative) xml.writeAttribute("relative", "True");
+        if (b.toggle) xml.writeAttribute("toggle", "True");
         xml.writeEndElement();
     }
     xml.writeEndElement(); // Bindings
@@ -120,6 +121,7 @@ void MidiSettings::saveBindings(const QVector<MidiBinding>& bindings)
         xml.writeAttribute("number", QString::number(b.number));
         xml.writeAttribute("inverted", b.inverted ? "True" : "False");
         if (b.relative) xml.writeAttribute("relative", "True");
+        if (b.toggle) xml.writeAttribute("toggle", "True");
         xml.writeEndElement();
     }
     xml.writeEndElement();
@@ -146,6 +148,7 @@ QVector<MidiBinding> MidiSettings::parseBindingsFromXml(const QString& filePath)
             b.number   = xml.attributes().value("number").toInt();
             b.inverted = (xml.attributes().value("inverted") == u"True");
             b.relative = (xml.attributes().value("relative") == u"True");
+            b.toggle   = (xml.attributes().value("toggle") == u"True");
             if (!b.paramId.isEmpty())
                 result.append(b);
         }
@@ -172,6 +175,7 @@ void MidiSettings::writeBindingsToXml(const QString& filePath,
         xml.writeAttribute("number", QString::number(b.number));
         xml.writeAttribute("inverted", b.inverted ? "True" : "False");
         if (b.relative) xml.writeAttribute("relative", "True");
+        if (b.toggle) xml.writeAttribute("toggle", "True");
         xml.writeEndElement();
     }
     xml.writeEndElement();

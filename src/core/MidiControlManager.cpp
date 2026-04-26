@@ -314,9 +314,16 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2)
 
         // For toggles: use > 0.5 threshold; for triggers: only fire on > 0.5
         if (param->type == MidiParamType::Toggle) {
-            // NoteOn = toggle (sentinel -1 tells MainWindow to flip current state)
-            // CC = direct threshold
-            if (msgType == MidiBinding::NoteOn) {
+            if (binding.toggle) {
+                // Momentary→latching: ignore release, toggle on press (#2061)
+                if (msgType == MidiBinding::NoteOn) {
+                    if (data2 == 0) return; // NoteOn vel=0 is release
+                } else {
+                    if (value <= 0.5f) return; // CC release
+                }
+                scaled = -1.0f; // sentinel: MainWindow reads getter and toggles
+            } else if (msgType == MidiBinding::NoteOn) {
+                // NoteOn = toggle (sentinel -1 tells MainWindow to flip current state)
                 scaled = -1.0f;  // sentinel: MainWindow reads getter and toggles (#502)
             } else {
                 scaled = (value > 0.5f) ? 1.0f : 0.0f;

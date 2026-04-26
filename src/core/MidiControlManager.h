@@ -42,6 +42,7 @@ struct MidiBinding {
     QString paramId;         // target parameter ID
     bool    inverted{false}; // reverse the value range
     bool    relative{false}; // CC sends relative delta (1-63=CW, 65-127=CCW)
+    bool    toggle{false};   // momentary→latching: only act on press edge, use toggle sentinel
 
     // Unique key for hash lookup
     quint32 key() const {
