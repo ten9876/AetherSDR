@@ -1127,6 +1127,16 @@ add_executable(cw_sidetone_test
 target_include_directories(cw_sidetone_test PRIVATE src)
 target_link_libraries(cw_sidetone_test PRIVATE Qt6::Core)
 
+add_executable(meter_model_test
+    tests/meter_model_test.cpp
+    src/models/MeterModel.cpp
+    src/core/LogManager.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(meter_model_test PRIVATE src)
+target_link_libraries(meter_model_test PRIVATE Qt6::Core)
+set_target_properties(meter_model_test PROPERTIES AUTOMOC ON)
+
 # Help guide search tests - needs QApplication + Widgets.
 add_executable(help_dialog_test
     tests/help_dialog_test.cpp
