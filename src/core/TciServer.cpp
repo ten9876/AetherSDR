@@ -1074,12 +1074,12 @@ void TciServer::startTxChrono(QWebSocket* client, int trx)
     // change — later the DAX/TCI applet split supplies separate UI.
     auto& txGainSettings = AppSettings::instance();
     if (!txGainSettings.contains("TciTxGain")) {
-        const QString legacy = txGainSettings.value("DaxTxGain", "0.5").toString();
+        const QString legacy = txGainSettings.value("DaxTxGain", "1.0").toString();
         txGainSettings.setValue("TciTxGain", legacy);
         txGainSettings.save();
     }
     m_txGain = std::clamp(
-        txGainSettings.value("TciTxGain", "0.5").toString().toFloat(),
+        txGainSettings.value("TciTxGain", "1.0").toString().toFloat(),
         0.0f, 1.0f);
     m_txChronoAccumNs = 0;
     m_txChronoRequestedFrames = 0;

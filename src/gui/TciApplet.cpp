@@ -121,7 +121,7 @@ void TciApplet::buildUI()
             // TciServer owns TciTxGain persistence (with DaxTxGain migration
             // on first read).  Mirror that stored value here for the slider
             // display so UI reflects server state without racing the migration.
-            float saved = settings.value("TciTxGain", "0.5").toString().toFloat();
+            float saved = settings.value("TciTxGain", "1.0").toString().toFloat();
             m_txMeter->setGain(std::clamp(saved, 0.0f, 1.0f));
         }
         connect(m_txMeter, &MeterSlider::gainChanged, this, [this](float g) {
