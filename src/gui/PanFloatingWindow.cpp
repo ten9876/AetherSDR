@@ -142,6 +142,8 @@ void PanFloatingWindow::restoreWindowGeometry()
         }
     }
     // Legacy: base64-encoded QWidget::saveGeometry() blob from older builds.
+    // TODO(post-v0.10): drop this fallback once users have run a build that
+    // saves in the new "x,y,w,h" format.
     restoreGeometry(QByteArray::fromBase64(val.toLatin1()));
 }
 

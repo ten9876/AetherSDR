@@ -6,6 +6,9 @@
 #include "core/AppSettings.h"
 
 #include <QHBoxLayout>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonParseError>
 #include <QLayout>
 #include <QStringList>
 #include <QVBoxLayout>
@@ -611,11 +614,13 @@ void PanadapterStack::setFramelessMode(bool on)
 
 void PanadapterStack::saveFloatingState() const
 {
-    QStringList ids;
+    QJsonArray ids;
     for (const QString& id : m_floatingWindows.keys()) {
-        ids << id;
+        ids.append(id);
     }
-    AppSettings::instance().setValue("FloatingPanIds", ids.join(','));
+    AppSettings::instance().setValue(
+        "FloatingPanIds",
+        QString::fromUtf8(QJsonDocument(ids).toJson(QJsonDocument::Compact)));
 }
 
 void PanadapterStack::restoreFloatingState()
@@ -623,7 +628,22 @@ void PanadapterStack::restoreFloatingState()
     const QString saved =
         AppSettings::instance().value("FloatingPanIds", "").toString();
     if (saved.isEmpty()) return;
-    for (const QString& id : saved.split(',', Qt::SkipEmptyParts)) {
+
+    QStringList ids;
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(saved.toUtf8(), &err);
+    if (err.error == QJsonParseError::NoError && doc.isArray()) {
+        for (const auto& v : doc.array()) {
+            if (v.isString()) ids << v.toString();
+        }
+    } else {
+        // Legacy: comma-separated list from earlier builds.
+        // TODO(post-v0.10): drop this fallback once users have run a build
+        // that saves in the new JSON-array format.
+        ids = saved.split(',', Qt::SkipEmptyParts);
+    }
+
+    for (const QString& id : ids) {
         if (m_pans.contains(id) && !m_floatingWindows.contains(id)) {
             floatPanadapter(id);
         }

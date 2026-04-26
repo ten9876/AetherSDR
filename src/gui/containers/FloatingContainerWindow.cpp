@@ -107,6 +107,8 @@ void FloatingContainerWindow::restoreAndEnsureVisible(QWidget* anchor)
             }
             if (!restored) {
                 // Legacy: base64-encoded QWidget::saveGeometry() blob.
+                // TODO(post-v0.10): drop this fallback once users have run a
+                // build that saves in the new "x,y,w,h" format.
                 const QByteArray blob = QByteArray::fromBase64(val.toUtf8());
                 if (!blob.isEmpty() && restoreGeometry(blob))
                     restored = true;
