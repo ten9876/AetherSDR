@@ -134,6 +134,28 @@ QString RigctlProtocol::handleLine(const QString& line)
         }
     }
 
+    // Pipe separator mode: '|' splits commands and implies extended responses
+    // joined by '|' instead of newlines (standard rigctld wire protocol).
+    const bool pipeMode = trimmed.contains('|');
+    if (pipeMode) {
+        const bool savedExtended = m_extended;
+        m_extended = true;
+
+        QStringList cmds = trimmed.split('|', Qt::SkipEmptyParts);
+        QStringList results;
+        for (const auto& cmd : cmds) {
+            QString r = processCommand(cmd.trimmed());
+            // Each response ends with '\n'; strip trailing newline before joining
+            if (r.endsWith('\n'))
+                r.chop(1);
+            // Replace interior newlines with '|' for pipe-mode formatting
+            r.replace('\n', '|');
+            results << r;
+        }
+        m_extended = savedExtended;
+        return results.join('|') + QChar('\n');
+    }
+
     // Split on ';' for batch commands
     QStringList cmds = trimmed.split(';', Qt::SkipEmptyParts);
     QString response;

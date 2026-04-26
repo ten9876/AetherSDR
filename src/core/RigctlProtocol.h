@@ -15,7 +15,8 @@ class RigctlProtocol {
 public:
     explicit RigctlProtocol(RadioModel* model);
 
-    // Process one command line (may contain ';'-separated batch commands).
+    // Process one command line (may contain ';' or '|'-separated batch commands).
+    // '|' separator enables extended responses joined by '|' (rigctld pipe mode).
     // Returns the complete response string to send back to the client.
     QString handleLine(const QString& line);
 
