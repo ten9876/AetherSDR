@@ -7896,6 +7896,8 @@ void MainWindow::routeCwDecoderOutput()
                    &m_cwDecoder, &CwDecoder::setPitchRange);
         disconnect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
                    &m_cwDecoder, &CwDecoder::stop);
+        disconnect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
+                   this, nullptr);
     }
 
     m_cwDecoderApplet = target;
@@ -7914,6 +7916,10 @@ void MainWindow::routeCwDecoderOutput()
                 &m_cwDecoder, &CwDecoder::setPitchRange);
         connect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
                 &m_cwDecoder, &CwDecoder::stop);
+        connect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
+                this, [this]() {
+            AppSettings::instance().setValue("CwDecodeOverlay", "False");
+        });
     }
 }
 
