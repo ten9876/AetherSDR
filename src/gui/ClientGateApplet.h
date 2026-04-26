@@ -12,21 +12,26 @@ class ClientCompKnob;
 class ClientGateCurveWidget;
 class ClientGateGrBar;
 
-// Docked tile for the client-side TX gate / expander.  View-only —
-// shows the static transfer curve with a live ball at the current
-// input level, plus a compact horizontal gain-reduction strip, plus
-// Enable / Edit… buttons.  The interactive editor lives in a separate
-// floating window (ClientGateEditor).
+// Docked tile for the client-side gate / expander.  View-only — shows
+// the static transfer curve with a live ball at the current input
+// level, plus a compact horizontal gain-reduction strip.  The
+// interactive editor lives in a separate floating window
+// (ClientGateEditor).
 //
-// Single-path (TX only) to match ClientCompApplet — gates on a ham
-// RX feed are a rare configuration and can be added later if asked for.
+// Path is locked at construction; AppletPanel instantiates one Tx-
+// bound copy and one Rx-bound copy for the two PooDoo Audio sub-
+// containers.  All engine accesses route through the gate() / save()
+// helpers below so a single class serves both sides.
 class ClientGateApplet : public QWidget {
     Q_OBJECT
 
 public:
-    explicit ClientGateApplet(QWidget* parent = nullptr);
+    enum class Side { Tx, Rx };
+
+    explicit ClientGateApplet(Side side = Side::Tx, QWidget* parent = nullptr);
 
     void setAudioEngine(AudioEngine* engine);
+    Side side() const { return m_side; }
 
     // Pull the Enable toggle state from the bound ClientGate.  Called
     // by MainWindow after the floating editor toggles its bypass button
@@ -43,6 +48,9 @@ private:
     void tickMeter();
 
     AudioEngine*           m_audio{nullptr};
+    const Side             m_side{Side::Tx};
+    class ClientGate*      gate() const;
+    void                   saveGateSettings() const;
     QPushButton*           m_enable{nullptr};
     QPushButton*           m_edit{nullptr};
     ClientGateCurveWidget* m_curve{nullptr};

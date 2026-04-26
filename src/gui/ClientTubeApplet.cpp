@@ -33,10 +33,26 @@ constexpr const char* kEditStyle =
 
 } // namespace
 
-ClientTubeApplet::ClientTubeApplet(QWidget* parent) : QWidget(parent)
+ClientTubeApplet::ClientTubeApplet(Side side, QWidget* parent)
+    : QWidget(parent)
+    , m_side(side)
 {
     buildUI();
     hide();
+}
+
+ClientTube* ClientTubeApplet::tube() const
+{
+    if (!m_audio) return nullptr;
+    return m_side == Side::Rx ? m_audio->clientTubeRx()
+                              : m_audio->clientTubeTx();
+}
+
+void ClientTubeApplet::saveTubeSettings() const
+{
+    if (!m_audio) return;
+    if (m_side == Side::Rx) m_audio->saveClientTubeRxSettings();
+    else                    m_audio->saveClientTubeSettings();
 }
 
 void ClientTubeApplet::buildUI()
@@ -124,9 +140,9 @@ void ClientTubeApplet::buildUI()
 
     auto wire = [this](ClientCompKnob* k, auto setter) {
         connect(k, &ClientCompKnob::valueChanged, this, [this, setter](float v) {
-            if (!m_audio || !m_audio->clientTubeTx()) return;
-            (m_audio->clientTubeTx()->*setter)(v);
-            m_audio->saveClientTubeSettings();
+            if (!m_audio || !tube()) return;
+            (tube()->*setter)(v);
+            saveTubeSettings();
         });
     };
     wire(m_drive,  &ClientTube::setDriveDb);
@@ -147,7 +163,7 @@ void ClientTubeApplet::setAudioEngine(AudioEngine* engine)
 {
     m_audio = engine;
     if (!m_audio) return;
-    m_curve->setTube(m_audio->clientTubeTx());
+    m_curve->setTube(tube());
     syncEnableFromEngine();
     if (m_syncTimer) m_syncTimer->start();
 }
@@ -155,8 +171,8 @@ void ClientTubeApplet::setAudioEngine(AudioEngine* engine)
 void ClientTubeApplet::syncEnableFromEngine()
 {
     if (m_curve) m_curve->update();
-    if (!m_audio || !m_audio->clientTubeTx()) return;
-    ClientTube* t = m_audio->clientTubeTx();
+    if (!m_audio || !tube()) return;
+    ClientTube* t = tube();
     if (m_drive)  { QSignalBlocker b(m_drive);  m_drive->setValue(t->driveDb()); }
     if (m_tone)   { QSignalBlocker b(m_tone);   m_tone->setValue(t->tone()); }
     if (m_bias)   { QSignalBlocker b(m_bias);   m_bias->setValue(t->biasAmount()); }
@@ -172,10 +188,10 @@ void ClientTubeApplet::refreshEnableFromEngine()
 void ClientTubeApplet::onEnableToggled(bool on)
 {
     if (!m_audio) return;
-    ClientTube* t = m_audio->clientTubeTx();
+    ClientTube* t = tube();
     if (!t) return;
     t->setEnabled(on);
-    m_audio->saveClientTubeSettings();
+    saveTubeSettings();
     if (m_curve) m_curve->update();
 }
 

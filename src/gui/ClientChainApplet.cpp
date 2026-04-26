@@ -1,5 +1,7 @@
 #include "ClientChainApplet.h"
 #include "ClientChainWidget.h"
+#include "ClientRxChainWidget.h"
+#include "core/AppSettings.h"
 #include "core/ClientComp.h"
 #include "core/ClientDeEss.h"
 #include "core/ClientEq.h"
@@ -107,7 +109,7 @@ ClientChainApplet::ClientChainApplet(QWidget* parent) : QWidget(parent)
         m_rxBtn->setCheckable(true);
         m_rxBtn->setStyleSheet(kModeBtnStyle);
         m_rxBtn->setFixedHeight(22);
-        m_rxBtn->setToolTip("Show and edit the RX DSP chain (coming soon)");
+        m_rxBtn->setToolTip("Show and edit the RX DSP chain");
         group->addButton(m_rxBtn, static_cast<int>(ChainMode::Rx));
         row->addWidget(m_rxBtn);
 
@@ -180,18 +182,16 @@ ClientChainApplet::ClientChainApplet(QWidget* parent) : QWidget(parent)
         outer->addLayout(row);
     }
 
-    // ── Chain strip (TX) + RX placeholder, stacked — only one visible
+    // ── Chain strips (TX + RX), stacked — only one visible at a time.
+    // Phase 0: the RX strip ships with three live status tiles
+    // (RADIO / DSP / SPEAK) bracketing five "coming soon" placeholders
+    // for the user-controllable stages.
     m_chain = new ClientChainWidget;
     outer->addWidget(m_chain);
 
-    m_rxPlaceholder = new QLabel("Client RX chain — coming in a future phase");
-    m_rxPlaceholder->setAlignment(Qt::AlignCenter);
-    m_rxPlaceholder->setStyleSheet(
-        "QLabel { color: #607888; font-size: 10px; font-style: italic;"
-        "         background: #0e1b28; border: 1px dashed #243a4e;"
-        "         border-radius: 3px; padding: 14px; }");
-    m_rxPlaceholder->hide();
-    outer->addWidget(m_rxPlaceholder);
+    m_rxChain = new ClientRxChainWidget;
+    m_rxChain->hide();
+    outer->addWidget(m_rxChain);
 
     // ── Hint (below the chain) ──────────────────────────────────
     m_hint = new QLabel(
@@ -208,6 +208,21 @@ ClientChainApplet::ClientChainApplet(QWidget* parent) : QWidget(parent)
             this, &ClientChainApplet::stageEnabledChanged);
     connect(m_chain, &ClientChainWidget::chainReordered,
             this, &ClientChainApplet::chainReordered);
+    connect(m_rxChain, &ClientRxChainWidget::editRequested,
+            this, &ClientChainApplet::rxEditRequested);
+    connect(m_rxChain, &ClientRxChainWidget::stageEnabledChanged,
+            this, &ClientChainApplet::rxStageEnabledChanged);
+    connect(m_rxChain, &ClientRxChainWidget::chainReordered,
+            this, &ClientChainApplet::rxChainReordered);
+
+    // Restore last-active tab now that everything is wired.  Toggling
+    // the button fires the group's idToggled signal which calls
+    // setMode(), swapping widget visibility and saving the setting.
+    const QString savedTab = AppSettings::instance()
+        .value("PooDooAudioActiveTab", "TX").toString();
+    if (savedTab == "RX" && m_rxBtn) {
+        m_rxBtn->setChecked(true);
+    }
 
     hide();  // hidden until toggled on from the applet tray
 }
@@ -215,7 +230,8 @@ ClientChainApplet::ClientChainApplet(QWidget* parent) : QWidget(parent)
 void ClientChainApplet::setAudioEngine(AudioEngine* engine)
 {
     m_audio = engine;
-    if (m_chain) m_chain->setAudioEngine(engine);
+    if (m_chain)   m_chain->setAudioEngine(engine);
+    if (m_rxChain) m_rxChain->setAudioEngine(engine);
 }
 
 void ClientChainApplet::refreshFromEngine()
@@ -331,19 +347,146 @@ void ClientChainApplet::setMode(ChainMode m)
     m_mode = m;
 
     const bool tx = (m == ChainMode::Tx);
-    if (m_chain)          m_chain->setVisible(tx);
-    if (m_rxPlaceholder)  m_rxPlaceholder->setVisible(!tx);
-    // Hint text only makes sense for TX since that's the only
-    // interactive chain today.
-    if (m_hint)           m_hint->setVisible(tx);
+    if (m_chain)      m_chain->setVisible(tx);
+    if (m_rxChain)    m_rxChain->setVisible(!tx);
+    // Monitor record/play buttons capture post-PUDU TX audio; they're
+    // meaningless on the RX chain so hide them when RX is showing.
+    if (m_monRecBtn)  m_monRecBtn->setVisible(tx);
+    if (m_monPlayBtn) m_monPlayBtn->setVisible(tx);
+    // Hint text applies to whichever chain is showing — both sides
+    // now support the click-bypass / double-click-edit gestures.
+    if (m_hint)       m_hint->setVisible(true);
+
+    // BYPASS button visual must reflect the *current* tab's bypass
+    // state — each side has its own snapshot.  QSignalBlocker keeps
+    // the toggled() handler from re-firing onBypassToggled and
+    // touching the engine.
+    if (m_bypassBtn) {
+        const bool bypassed = tx ? !m_bypassSnapshot.isEmpty()
+                                 : !m_rxBypassSnapshot.isEmpty();
+        QSignalBlocker blocker(m_bypassBtn);
+        m_bypassBtn->setChecked(bypassed);
+    }
+
+    AppSettings::instance().setValue(
+        "PooDooAudioActiveTab", tx ? "TX" : "RX");
+
+    emit chainModeChanged(m);
+}
+
+void ClientChainApplet::setActiveTab(ChainMode m)
+{
+    if (m == m_mode) return;
+    // Re-route through the button group so the visual checked state
+    // tracks; setMode() below runs as a side effect of the toggle.
+    QPushButton* btn = (m == ChainMode::Tx) ? m_txBtn : m_rxBtn;
+    if (btn) {
+        QSignalBlocker blocker(btn);
+        btn->setChecked(true);
+    }
+    setMode(m);
+}
+
+void ClientChainApplet::setRxPcAudioEnabled(bool on)
+{
+    if (m_rxChain) m_rxChain->setPcAudioEnabled(on);
+}
+
+void ClientChainApplet::setRxClientDspActive(bool on, const QString& label)
+{
+    if (m_rxChain) m_rxChain->setClientDspActive(on, label);
+}
+
+void ClientChainApplet::setRxOutputUnmuted(bool on)
+{
+    if (m_rxChain) m_rxChain->setOutputUnmuted(on);
 }
 
 void ClientChainApplet::onBypassToggled(bool checked)
 {
     if (!m_audio) return;
-    if (m_mode != ChainMode::Tx) {
-        // RX mode: no DSP yet.  Leave the button in whatever state
-        // the user clicked — it's a no-op until the RX chain ships.
+    if (m_mode == ChainMode::Rx) {
+        // RX BYPASS — same snapshot-and-disable / restore-on-uncheck
+        // behaviour as TX, but routed through the RX engine instances
+        // and per-side AppSettings keys.
+        auto setRxStageEnabled = [&](AudioEngine::RxChainStage stage, bool on) {
+            switch (stage) {
+                case AudioEngine::RxChainStage::Eq:
+                    if (auto* d = m_audio->clientEqRx()) {
+                        d->setEnabled(on);
+                        m_audio->saveClientEqSettings();
+                    }
+                    break;
+                case AudioEngine::RxChainStage::Gate:
+                    if (auto* d = m_audio->clientGateRx()) {
+                        d->setEnabled(on);
+                        m_audio->saveClientGateRxSettings();
+                    }
+                    break;
+                case AudioEngine::RxChainStage::Comp:
+                    if (auto* d = m_audio->clientCompRx()) {
+                        d->setEnabled(on);
+                        m_audio->saveClientCompRxSettings();
+                    }
+                    break;
+                case AudioEngine::RxChainStage::Tube:
+                    if (auto* d = m_audio->clientTubeRx()) {
+                        d->setEnabled(on);
+                        m_audio->saveClientTubeRxSettings();
+                    }
+                    break;
+                case AudioEngine::RxChainStage::Pudu:
+                    if (auto* d = m_audio->clientPuduRx()) {
+                        d->setEnabled(on);
+                        m_audio->saveClientPuduRxSettings();
+                    }
+                    break;
+                case AudioEngine::RxChainStage::None:
+                    break;
+            }
+            emit rxStageEnabledChanged(stage, on);
+        };
+
+        auto isRxEnabled = [&](AudioEngine::RxChainStage stage) {
+            switch (stage) {
+                case AudioEngine::RxChainStage::Eq:
+                    return m_audio->clientEqRx() && m_audio->clientEqRx()->isEnabled();
+                case AudioEngine::RxChainStage::Gate:
+                    return m_audio->clientGateRx() && m_audio->clientGateRx()->isEnabled();
+                case AudioEngine::RxChainStage::Comp:
+                    return m_audio->clientCompRx() && m_audio->clientCompRx()->isEnabled();
+                case AudioEngine::RxChainStage::Tube:
+                    return m_audio->clientTubeRx() && m_audio->clientTubeRx()->isEnabled();
+                case AudioEngine::RxChainStage::Pudu:
+                    return m_audio->clientPuduRx() && m_audio->clientPuduRx()->isEnabled();
+                case AudioEngine::RxChainStage::None:
+                    return false;
+            }
+            return false;
+        };
+
+        static const QVector<AudioEngine::RxChainStage> kAllRxStages{
+            AudioEngine::RxChainStage::Eq,
+            AudioEngine::RxChainStage::Gate,
+            AudioEngine::RxChainStage::Comp,
+            AudioEngine::RxChainStage::Tube,
+            AudioEngine::RxChainStage::Pudu,
+        };
+
+        if (checked) {
+            m_rxBypassSnapshot.clear();
+            for (auto s : kAllRxStages) {
+                if (isRxEnabled(s)) {
+                    m_rxBypassSnapshot.append(s);
+                    setRxStageEnabled(s, false);
+                }
+            }
+        } else {
+            for (auto s : m_rxBypassSnapshot) setRxStageEnabled(s, true);
+            m_rxBypassSnapshot.clear();
+        }
+
+        if (m_rxChain) m_rxChain->update();
         return;
     }
 

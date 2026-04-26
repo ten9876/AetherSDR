@@ -68,7 +68,11 @@ private:
 
     AudioEngine*               m_audio{nullptr};
     ClientEqApplet::Path       m_path{ClientEqApplet::Path::Rx};
-    QLabel*                    m_pathLabel{nullptr};
+    // The frameless title bar carries the active path label (e.g.
+    // "Aetherial Parametric EQ — TX").  Held as a void* + cast at use
+    // site to keep the inline EditorFramelessTitleBar class out of the
+    // public header.
+    QWidget*                   m_titleBar{nullptr};
     QComboBox*                 m_familyCombo{nullptr};
     QPushButton*               m_bypass{nullptr};
     ClientEqIconRow*           m_iconRow{nullptr};

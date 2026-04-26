@@ -18,17 +18,20 @@ class ClientCompKnob;
 // Edit… buttons.  The full interactive editor lives in a separate
 // floating window (ClientCompEditor).
 //
-// Single-path design: unlike the EQ applet there's no RX / TX tab —
-// Phase 1 only exposes the TX-side compressor.  Phase 2+ can extend
-// this if we ever add an RX-side compressor; today that would just be
-// a CPU-waste feature.
+// Path is locked at construction; AppletPanel instantiates one Tx-
+// bound copy and one Rx-bound copy for the two PooDoo Audio sub-
+// containers.  Engine accesses route through comp() / saveCompSettings()
+// so a single class serves both sides.
 class ClientCompApplet : public QWidget {
     Q_OBJECT
 
 public:
-    explicit ClientCompApplet(QWidget* parent = nullptr);
+    enum class Side { Tx, Rx };
+
+    explicit ClientCompApplet(Side side = Side::Tx, QWidget* parent = nullptr);
 
     void setAudioEngine(AudioEngine* engine);
+    Side side() const { return m_side; }
 
     // Pull the Bypass toggle state from the bound ClientComp.  Called
     // by MainWindow after the floating editor toggles its bypass
@@ -47,6 +50,9 @@ private:
     void tickMeter();
 
     AudioEngine*          m_audio{nullptr};
+    const Side            m_side{Side::Tx};
+    class ClientComp*     comp() const;
+    void                  saveCompSettings() const;
     QPushButton*          m_enable{nullptr};
     QPushButton*          m_edit{nullptr};
     ClientCompCurveWidget* m_curve{nullptr};

@@ -77,10 +77,26 @@ QWidget* makeBracketLabel(const QString& text)
 
 } // namespace
 
-ClientPuduApplet::ClientPuduApplet(QWidget* parent) : QWidget(parent)
+ClientPuduApplet::ClientPuduApplet(Side side, QWidget* parent)
+    : QWidget(parent)
+    , m_side(side)
 {
     buildUI();
     hide();
+}
+
+ClientPudu* ClientPuduApplet::pudu() const
+{
+    if (!m_audio) return nullptr;
+    return m_side == Side::Rx ? m_audio->clientPuduRx()
+                              : m_audio->clientPuduTx();
+}
+
+void ClientPuduApplet::savePuduSettings() const
+{
+    if (!m_audio) return;
+    if (m_side == Side::Rx) m_audio->saveClientPuduRxSettings();
+    else                    m_audio->saveClientPuduSettings();
 }
 
 void ClientPuduApplet::buildUI()
@@ -249,14 +265,14 @@ void ClientPuduApplet::setAudioEngine(AudioEngine* engine)
 {
     m_audio = engine;
     if (!m_audio) return;
-    if (m_logo) m_logo->setPudu(m_audio->clientPuduTx());
+    if (m_logo) m_logo->setPudu(pudu());
     syncControlsFromEngine();
 }
 
 void ClientPuduApplet::syncControlsFromEngine()
 {
-    if (!m_audio || !m_audio->clientPuduTx()) return;
-    ClientPudu* p = m_audio->clientPuduTx();
+    if (!m_audio || !pudu()) return;
+    ClientPudu* p = pudu();
 
     m_restoring = true;
     {
@@ -283,55 +299,55 @@ void ClientPuduApplet::refreshEnableFromEngine()
 void ClientPuduApplet::onEnableToggled(bool on)
 {
     if (m_restoring || !m_audio) return;
-    ClientPudu* p = m_audio->clientPuduTx();
+    ClientPudu* p = pudu();
     if (!p) return;
     p->setEnabled(on);
-    m_audio->saveClientPuduSettings();
+    savePuduSettings();
 }
 
 void ClientPuduApplet::onModeToggled(int id)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setMode(
+    pudu()->setMode(
         id == 1 ? ClientPudu::Mode::Behringer : ClientPudu::Mode::Aphex);
-    m_audio->saveClientPuduSettings();
+    savePuduSettings();
 }
 
 void ClientPuduApplet::applyPooDrive(float db)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setPooDriveDb(db);
-    m_audio->saveClientPuduSettings();
+    pudu()->setPooDriveDb(db);
+    savePuduSettings();
 }
 void ClientPuduApplet::applyPooTune(float hz)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setPooTuneHz(hz);
-    m_audio->saveClientPuduSettings();
+    pudu()->setPooTuneHz(hz);
+    savePuduSettings();
 }
 void ClientPuduApplet::applyPooMix(float v)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setPooMix(v);
-    m_audio->saveClientPuduSettings();
+    pudu()->setPooMix(v);
+    savePuduSettings();
 }
 void ClientPuduApplet::applyDooTune(float hz)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setDooTuneHz(hz);
-    m_audio->saveClientPuduSettings();
+    pudu()->setDooTuneHz(hz);
+    savePuduSettings();
 }
 void ClientPuduApplet::applyDooHarmonics(float db)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setDooHarmonicsDb(db);
-    m_audio->saveClientPuduSettings();
+    pudu()->setDooHarmonicsDb(db);
+    savePuduSettings();
 }
 void ClientPuduApplet::applyDooMix(float v)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setDooMix(v);
-    m_audio->saveClientPuduSettings();
+    pudu()->setDooMix(v);
+    savePuduSettings();
 }
 
 } // namespace AetherSDR

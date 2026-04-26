@@ -1,5 +1,6 @@
 #include "ClientReverbEditor.h"
 #include "ClientCompKnob.h"
+#include "EditorFramelessTitleBar.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/ClientReverb.h"
@@ -26,16 +27,21 @@ constexpr const char* kWindowStyle =
 } // namespace
 
 ClientReverbEditor::ClientReverbEditor(AudioEngine* engine, QWidget* parent)
-    : QWidget(parent, Qt::Window)
+    : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
     , m_audio(engine)
 {
-    setWindowTitle(QString::fromUtf8("Client Reverb"));
+    const QString title = QString::fromUtf8("Aetherial FreeVerb \xe2\x80\x94 TX");
+    setWindowTitle(title);
     setStyleSheet(kWindowStyle);
     resize(480, 180);
 
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(16, 14, 16, 14);
+    root->setContentsMargins(16, 0, 16, 14);
     root->setSpacing(8);
+
+    auto* titleBar = new EditorFramelessTitleBar;
+    titleBar->setTitleText(title);
+    root->addWidget(titleBar);
 
     auto* row = new QHBoxLayout;
     row->setSpacing(12);

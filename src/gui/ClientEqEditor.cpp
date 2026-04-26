@@ -4,6 +4,7 @@
 #include "ClientEqIconRow.h"
 #include "ClientEqOutputFader.h"
 #include "ClientEqParamRow.h"
+#include "EditorFramelessTitleBar.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/ClientEq.h"
@@ -56,25 +57,32 @@ const QString kBypassStyle = QStringLiteral(
 } // namespace
 
 ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
-    : QWidget(parent, Qt::Window)
+    : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
     , m_audio(engine)
 {
-    setWindowTitle("Client EQ");
+    setWindowTitle("Aetherial Parametric EQ");
     setStyleSheet(kWindowStyle);
     resize(kDefaultWidth, kDefaultHeight);
 
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(8, 8, 8, 8);
+    // Margin trimmed to 0 at the top so the frameless title bar hugs
+    // the window edge; sides + bottom keep the original 8 px padding.
+    root->setContentsMargins(8, 0, 8, 8);
     root->setSpacing(6);
 
-    // Path indicator + interaction hint + bypass strip.
+    // Custom 20 px-tall title bar with the active path heading on the
+    // left and the min / max / close trio on the right.  Press-and-drag
+    // anywhere on it starts a window move.  Stored as a QWidget* in the
+    // header to avoid leaking the inline class — cast at use sites.
+    auto* titleBar = new EditorFramelessTitleBar;
+    m_titleBar = titleBar;
+    root->addWidget(titleBar);
+
+    // Interaction hint + filter family + bypass strip.  Path heading
+    // lives in the frameless title bar above instead.
     {
         auto* row = new QHBoxLayout;
         row->setSpacing(8);
-        m_pathLabel = new QLabel("RX");
-        m_pathLabel->setStyleSheet(
-            "QLabel { color: #d7e7f2; font-size: 12px; font-weight: bold; }");
-        row->addWidget(m_pathLabel);
         auto* hint = new QLabel(
             "Drag peak/shelf = freq + gain · "
             "drag HP/LP = freq + Q · Shift + drag for Q · "
@@ -275,12 +283,14 @@ void ClientEqEditor::showForPath(ClientEqApplet::Path path)
     // Clear selection on path swap — the previously-selected index
     // almost certainly doesn't correspond to the other path's bands.
     syncSelection(-1);
-    m_pathLabel->setText(path == ClientEqApplet::Path::Rx
-                         ? "Client EQ — RX"
-                         : "Client EQ — TX");
-    setWindowTitle(path == ClientEqApplet::Path::Rx
-                   ? "Client EQ — RX"
-                   : "Client EQ — TX");
+    const QString title = path == ClientEqApplet::Path::Rx
+        ? QStringLiteral("Aetherial Parametric EQ — RX")
+        : QStringLiteral("Aetherial Parametric EQ — TX");
+    // m_titleBar is always an EditorFramelessTitleBar* — kept as
+    // QWidget* in the header so the inline class stays cpp-only.
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    setWindowTitle(title);
 
     if (!isVisible()) {
         show();

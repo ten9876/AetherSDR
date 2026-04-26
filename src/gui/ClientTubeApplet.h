@@ -11,18 +11,23 @@ class AudioEngine;
 class ClientCompKnob;
 class ClientTubeCurveWidget;
 
-// Docked tile for the client-side TX dynamic tube saturator.  Shows
+// Docked tile for the client-side dynamic tube saturator.  Shows
 // the transfer curve (which bends with Drive / Bias / Model) and a
-// live input ball, plus Enable / Edit buttons.  Interactive editor
-// is in ClientTubeEditor.
+// live input ball.  Path is locked at construction; AppletPanel
+// instantiates one Tx-bound copy and one Rx-bound copy for the two
+// PooDoo Audio sub-containers.  Engine accesses route through tube()
+// / saveTubeSettings() so a single class serves both sides.
 class ClientTubeApplet : public QWidget {
     Q_OBJECT
 
 public:
-    explicit ClientTubeApplet(QWidget* parent = nullptr);
+    enum class Side { Tx, Rx };
+
+    explicit ClientTubeApplet(Side side = Side::Tx, QWidget* parent = nullptr);
 
     void setAudioEngine(AudioEngine* engine);
     void refreshEnableFromEngine();
+    Side side() const { return m_side; }
 
 signals:
     void editRequested();
@@ -33,6 +38,9 @@ private:
     void onEnableToggled(bool on);
 
     AudioEngine*           m_audio{nullptr};
+    const Side             m_side{Side::Tx};
+    class ClientTube*      tube() const;
+    void                   saveTubeSettings() const;
     QPushButton*           m_enable{nullptr};
     QPushButton*           m_edit{nullptr};
     ClientTubeCurveWidget* m_curve{nullptr};
