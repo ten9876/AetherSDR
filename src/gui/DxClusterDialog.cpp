@@ -323,17 +323,15 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
 
     // Defer log file loading until after the dialog is shown (#748).
     // Reads only the last 500 lines per file to avoid blocking on large logs.
-    auto clusterLogPath = clusterClient->logFilePath();
-    auto rbnLogPath = rbnClient->logFilePath();
-    auto wsjtxLogPath = wsjtxClient->logFilePath();
-    auto potaLogPath = potaClient->logFilePath();
-    QString freedvLogPath;
+    m_clusterLogPath = clusterClient->logFilePath();
+    m_rbnLogPath = rbnClient->logFilePath();
+    m_wsjtxLogPath = wsjtxClient->logFilePath();
+    m_potaLogPath = potaClient->logFilePath();
 #ifdef HAVE_WEBSOCKETS
-    freedvLogPath = freedvClient->logFilePath();
+    m_freedvLogPath = freedvClient->logFilePath();
 #endif
-    QTimer::singleShot(0, this, [this, clusterLogPath, rbnLogPath,
-                                  wsjtxLogPath, potaLogPath, freedvLogPath]() {
-        loadLogFiles(clusterLogPath, rbnLogPath, wsjtxLogPath, potaLogPath, freedvLogPath);
+    QTimer::singleShot(0, this, [this]() {
+        loadLogFiles(m_clusterLogPath, m_rbnLogPath, m_wsjtxLogPath, m_potaLogPath, m_freedvLogPath);
     });
 
     // ── Live updates from RBN client ──────────────────────────────────
@@ -564,6 +562,14 @@ DxClusterDialog::DxClusterDialog(DxClusterClient* clusterClient, DxClusterClient
     updateStatus();
 }
 
+void DxClusterDialog::truncateLogFile(const QString& path)
+{
+    if (path.isEmpty()) return;
+    QFile f(path);
+    f.open(QIODevice::WriteOnly | QIODevice::Truncate);
+    f.close();
+}
+
 void DxClusterDialog::loadLogFiles(const QString& clusterLog, const QString& rbnLog,
                                     const QString& wsjtxLog, const QString& potaLog,
                                     const QString& freedvLog)
@@ -736,6 +742,15 @@ void DxClusterDialog::buildClusterTab(QTabWidget* tabs)
     auto* consoleLabel = new QLabel("Cluster Console");
     consoleLabel->setStyleSheet("QLabel { color: #00b4d8; font-weight: bold; }");
     consoleRow->addWidget(consoleLabel);
+
+    auto* clusterClearBtn = new QPushButton("Clear");
+    clusterClearBtn->setFixedWidth(50);
+    clusterClearBtn->setToolTip("Clear console text and log file.");
+    connect(clusterClearBtn, &QPushButton::clicked, this, [this] {
+        m_console->clear();
+        truncateLogFile(m_clusterLogPath);
+    });
+    consoleRow->addWidget(clusterClearBtn);
     consoleRow->addStretch();
 
     auto* dxcColorLabel = new QLabel("Spot Color:");
@@ -925,6 +940,15 @@ void DxClusterDialog::buildRbnTab(QTabWidget* tabs)
     auto* rbnConsoleLabel = new QLabel("RBN Console");
     rbnConsoleLabel->setStyleSheet("QLabel { color: #00b4d8; font-weight: bold; }");
     rbnConsoleRow->addWidget(rbnConsoleLabel);
+
+    auto* rbnClearBtn = new QPushButton("Clear");
+    rbnClearBtn->setFixedWidth(50);
+    rbnClearBtn->setToolTip("Clear console text and log file.");
+    connect(rbnClearBtn, &QPushButton::clicked, this, [this] {
+        m_rbnConsole->clear();
+        truncateLogFile(m_rbnLogPath);
+    });
+    rbnConsoleRow->addWidget(rbnClearBtn);
     rbnConsoleRow->addStretch();
 
     auto* rbnColorLabel = new QLabel("Spot Color:");
@@ -1193,6 +1217,15 @@ void DxClusterDialog::buildWsjtxTab(QTabWidget* tabs)
     auto* consoleLabel = new QLabel("WSJT-X Decodes");
     consoleLabel->setStyleSheet("QLabel { color: #00b4d8; font-weight: bold; }");
     decodeRow->addWidget(consoleLabel);
+
+    auto* wsjtxClearBtn = new QPushButton("Clear");
+    wsjtxClearBtn->setFixedWidth(50);
+    wsjtxClearBtn->setToolTip("Clear console text and log file.");
+    connect(wsjtxClearBtn, &QPushButton::clicked, this, [this] {
+        m_wsjtxConsole->clear();
+        truncateLogFile(m_wsjtxLogPath);
+    });
+    decodeRow->addWidget(wsjtxClearBtn);
     decodeRow->addStretch();
 
     auto* lifeLabel = new QLabel("Spot Life:");
@@ -1317,9 +1350,20 @@ void DxClusterDialog::buildSpotCollectorTab(QTabWidget* tabs)
     layout->addWidget(connGroup);
 
     // ── Console output ──────────────────────────────────────────────────
+    auto* scConsoleRow = new QHBoxLayout;
     auto* consoleLabel = new QLabel("SpotCollector Spots");
     consoleLabel->setStyleSheet("QLabel { color: #00b4d8; font-weight: bold; }");
-    layout->addWidget(consoleLabel);
+    scConsoleRow->addWidget(consoleLabel);
+
+    auto* scClearBtn = new QPushButton("Clear");
+    scClearBtn->setFixedWidth(50);
+    scClearBtn->setToolTip("Clear console text.");
+    connect(scClearBtn, &QPushButton::clicked, this, [this] {
+        m_scConsole->clear();
+    });
+    scConsoleRow->addWidget(scClearBtn);
+    scConsoleRow->addStretch();
+    layout->addLayout(scConsoleRow);
 
     m_scConsole = new QPlainTextEdit;
     m_scConsole->setReadOnly(true);
@@ -1435,6 +1479,15 @@ void DxClusterDialog::buildPotaTab(QTabWidget* tabs)
     auto* consoleLabel = new QLabel("POTA Activations");
     consoleLabel->setStyleSheet("QLabel { color: #00b4d8; font-weight: bold; }");
     consoleRow->addWidget(consoleLabel);
+
+    auto* potaClearBtn = new QPushButton("Clear");
+    potaClearBtn->setFixedWidth(50);
+    potaClearBtn->setToolTip("Clear console text and log file.");
+    connect(potaClearBtn, &QPushButton::clicked, this, [this] {
+        m_potaConsole->clear();
+        truncateLogFile(m_potaLogPath);
+    });
+    consoleRow->addWidget(potaClearBtn);
     consoleRow->addStretch();
 
     auto* spotColorLabel = new QLabel("Spot Color:");
@@ -1552,6 +1605,15 @@ void DxClusterDialog::buildFreeDvTab(QTabWidget* tabs)
     auto* consoleLabel = new QLabel("FreeDV Spots");
     consoleLabel->setStyleSheet("QLabel { color: #00b4d8; font-weight: bold; }");
     consoleRow->addWidget(consoleLabel);
+
+    auto* freedvClearBtn = new QPushButton("Clear");
+    freedvClearBtn->setFixedWidth(50);
+    freedvClearBtn->setToolTip("Clear console text and log file.");
+    connect(freedvClearBtn, &QPushButton::clicked, this, [this] {
+        m_freedvConsole->clear();
+        truncateLogFile(m_freedvLogPath);
+    });
+    consoleRow->addWidget(freedvClearBtn);
     consoleRow->addStretch();
 
     auto* spotColorLabel = new QLabel("Spot Color:");
@@ -1697,19 +1759,24 @@ void DxClusterDialog::buildSpotListTab(QTabWidget* tabs)
 
     // Bottom bar: spot count + clear
     auto* bottomRow = new QHBoxLayout;
-    auto* countLabel = new QLabel("0 spots");
-    countLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
-    connect(m_spotModel, &QAbstractTableModel::rowsInserted, this, [this, countLabel] {
-        countLabel->setText(QString("%1 spots").arg(m_spotModel->rowCount()));
-    });
-    bottomRow->addWidget(countLabel);
+    m_spotCountLabel = new QLabel("0 spots");
+    m_spotCountLabel->setStyleSheet("QLabel { color: #808080; font-size: 11px; }");
+    auto updateSpotCount = [this] {
+        if (m_spotCountLabel)
+            m_spotCountLabel->setText(QString("%1 spots").arg(m_spotModel->rowCount()));
+    };
+    connect(m_spotModel, &QAbstractTableModel::rowsInserted, this, updateSpotCount);
+    connect(m_spotModel, &QAbstractTableModel::modelReset, this, updateSpotCount);
+    bottomRow->addWidget(m_spotCountLabel);
     bottomRow->addStretch();
 
-    auto* clearBtn = new QPushButton("Clear");
-    clearBtn->setFixedWidth(60);
-    connect(clearBtn, &QPushButton::clicked, this, [this, countLabel] {
+    auto* clearBtn = new QPushButton("Clear Spot List");
+    clearBtn->setFixedWidth(100);
+    clearBtn->setToolTip("Clear the spot list display and log files.\nDoes not send a command to the radio.");
+    connect(clearBtn, &QPushButton::clicked, this, [this] {
         m_spotModel->clear();
-        countLabel->setText("0 spots");
+        truncateLogFile(m_clusterLogPath);
+        truncateLogFile(m_rbnLogPath);
     });
     bottomRow->addWidget(clearBtn);
     layout->addLayout(bottomRow);
@@ -2134,11 +2201,18 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
     auto* btnRow2 = new QHBoxLayout;
     auto* clearAllBtn = new QPushButton("Clear All Spots");
     clearAllBtn->setFixedWidth(120);
+    clearAllBtn->setToolTip("Clear all spots from the display, truncate all log files,\nand send a clear command to the radio.");
     connect(clearAllBtn, &QPushButton::clicked, this, [this] {
         m_radioModel->sendCommand("spot clear");
         m_spotModel->clear();
         if (m_totalSpotsLabel)
             m_totalSpotsLabel->setText("0");
+        // Truncate all source log files so spots don't return on reopen
+        truncateLogFile(m_clusterLogPath);
+        truncateLogFile(m_rbnLogPath);
+        truncateLogFile(m_wsjtxLogPath);
+        truncateLogFile(m_potaLogPath);
+        truncateLogFile(m_freedvLogPath);
         emit spotsClearedAll();
         emit settingsChanged();
     });

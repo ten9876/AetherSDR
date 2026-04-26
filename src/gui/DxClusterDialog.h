@@ -207,11 +207,21 @@ private:
     SpotTableModel*        m_spotModel;
     QTableView*            m_spotTable;
     BandFilterProxy*       m_proxyModel;
+    QLabel*                m_spotCountLabel{nullptr};
 
     // Display tab
     QLabel*            m_totalSpotsLabel{nullptr};
     QLabel*            m_dxccStatsLabel{nullptr};
     DxccColorProvider* m_dxccProvider{nullptr};
+
+    // Log file paths (stored for truncation on clear)
+    QString m_clusterLogPath;
+    QString m_rbnLogPath;
+    QString m_wsjtxLogPath;
+    QString m_potaLogPath;
+    QString m_freedvLogPath;
+
+    static void truncateLogFile(const QString& path);
 };
 
 } // namespace AetherSDR

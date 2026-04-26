@@ -500,7 +500,6 @@ set(GUI_SOURCES
     src/gui/MemoryCommands.cpp
     src/gui/MemoryBrowsePanel.cpp
     src/gui/MemoryDialog.cpp
-    src/gui/SpotSettingsDialog.cpp
     src/gui/AetherDspDialog.cpp
     src/gui/DspParamPopup.cpp
     src/gui/DxClusterDialog.cpp
