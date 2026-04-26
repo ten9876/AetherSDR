@@ -4289,14 +4289,34 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         return true;
     }
     if (obj == m_cwxIndicator && event->type() == QEvent::MouseButtonPress) {
-        if (!m_cwxIndicator->isEnabled()) return true;
         bool show = !m_cwxPanel->isVisible();
+
+        // Auto-switch to CW mode if not already in one (#2045)
+        if (show) {
+            if (auto* sl = activeSlice()) {
+                const QString mode = sl->mode();
+                if (mode != "CW" && mode != "CWL") {
+                    QString cwMode = (mode == "LSB" || mode == "DIGL") ? "CWL" : "CW";
+                    sl->setMode(cwMode);
+                }
+            }
+        }
+
         // Close DVK (mutual exclusion)
         if (show && m_dvkPanel->isVisible()) {
             m_dvkPanel->hide();
             auto* sl = activeSlice();
             updateKeyerAvailability(sl ? sl->mode() : QString());
         }
+
+        // Auto-enable local sidetone when opening CWX (#2045)
+        if (show && m_audio && m_audio->cwSidetone()
+            && !m_audio->cwSidetone()->isEnabled()) {
+            m_audio->cwSidetone()->setEnabled(true);
+            if (auto* pca = m_appletPanel->phoneCwApplet())
+                pca->setLocalSidetoneEnabled(true);
+        }
+
         m_cwxPanel->setVisible(show);
         m_cwxIndicator->setStyleSheet(show
             ? "QLabel { color: #00b4d8; font-weight: bold; font-size: 24px; }"
@@ -9370,17 +9390,14 @@ void MainWindow::updateKeyerAvailability(const QString& mode)
     bool isSsb = (mode == "USB" || mode == "LSB" || mode == "AM" || mode == "SAM"
                   || mode == "FM" || mode == "NFM" || mode == "DFM");
 
-    // CWX: available in CW modes only
-    m_cwxIndicator->setEnabled(isCw);
-    if (!isCw && m_cwxPanel->isVisible()) {
-        m_cwxPanel->hide();
-        m_cwxIndicator->setStyleSheet(kDisabled);
-    } else if (m_cwxPanel->isVisible()) {
+    // CWX: always clickable — auto-switches to CW on open (#2045)
+    m_cwxIndicator->setEnabled(true);
+    if (m_cwxPanel->isVisible()) {
         m_cwxIndicator->setStyleSheet(kActive);
     } else {
-        m_cwxIndicator->setStyleSheet(isCw ? kAvail : kDisabled);
+        m_cwxIndicator->setStyleSheet(kAvail);
     }
-    m_cwxIndicator->setCursor(isCw ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    m_cwxIndicator->setCursor(Qt::PointingHandCursor);
 
     // DVK: available in voice modes (SSB, AM, FM — not DIGU/DIGL)
     m_dvkIndicator->setEnabled(isSsb);

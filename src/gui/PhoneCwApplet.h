@@ -35,6 +35,10 @@ signals:
     void localSidetonePitchFollowChanged(bool follow);
     void localSidetonePitchChanged(int hz);       // 100..2000 (manual override)
 
+    // Programmatically enable/disable the local sidetone toggle button.
+    // Persists to AppSettings and emits localSidetoneEnabledChanged. (#2045)
+    void setLocalSidetoneEnabled(bool on);
+
 public slots:
     // Phone meters (mic level / compression)
     void updateMeters(float micLevel, float compLevel,

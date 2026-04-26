@@ -688,6 +688,12 @@ void PhoneCwApplet::setMode(const QString& mode)
     m_stack->setCurrentIndex(isCw ? 1 : 0);
 }
 
+void PhoneCwApplet::setLocalSidetoneEnabled(bool on)
+{
+    if (m_localSidetoneBtn && m_localSidetoneBtn->isChecked() != on)
+        m_localSidetoneBtn->setChecked(on);  // triggers toggled → persist + emit
+}
+
 // ── Model binding ────────────────────────────────────────────────────────────
 
 void PhoneCwApplet::setTransmitModel(TransmitModel* model)
