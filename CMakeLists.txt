@@ -532,6 +532,7 @@ set(GUI_SOURCES
     src/gui/ClientEqFftAnalyzer.cpp
     src/gui/ClientEqIconRow.cpp
     src/gui/ClientEqOutputFader.cpp
+    src/gui/ClientLevelMeter.cpp
     src/gui/ClientEqParamRow.cpp
     src/gui/ClientChainApplet.cpp
     src/gui/ClientChainWidget.cpp

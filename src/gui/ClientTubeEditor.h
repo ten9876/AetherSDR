@@ -10,6 +10,7 @@ namespace AetherSDR {
 
 class AudioEngine;
 class ClientCompKnob;         // reused — generic rotary knob
+class ClientLevelMeter;
 class ClientTubeCurveWidget;
 
 // Floating editor for the client-side dynamic tube saturator.
@@ -76,6 +77,7 @@ private:
     ClientCompKnob*        m_envelope{nullptr};
     ClientCompKnob*        m_attack{nullptr};
     ClientCompKnob*        m_release{nullptr};
+    ClientLevelMeter*      m_outMeter{nullptr};
     QPushButton*           m_modelA{nullptr};
     QPushButton*           m_modelB{nullptr};
     QPushButton*           m_modelC{nullptr};

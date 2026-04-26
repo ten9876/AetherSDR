@@ -1,5 +1,6 @@
 #include "ClientTubeEditor.h"
 #include "ClientCompKnob.h"
+#include "ClientLevelMeter.h"
 #include "ClientTubeCurveWidget.h"
 #include "EditorFramelessTitleBar.h"
 #include "core/AppSettings.h"
@@ -281,6 +282,10 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
     right->addStretch();
     body->addLayout(right, 0);
 
+    // ── Output level meter — far-right column, mirrors EQ editor ────
+    m_outMeter = new ClientLevelMeter;
+    body->addWidget(m_outMeter);
+
     root->addLayout(body);
 
     if (m_audio && tube()) {
@@ -365,6 +370,8 @@ void ClientTubeEditor::syncControlsFromEngine()
     { QSignalBlocker b(m_envelope); m_envelope->setValue(t->envelopeAmount()); }
     { QSignalBlocker b(m_attack);   m_attack->setValue(t->attackMs()); }
     { QSignalBlocker b(m_release);  m_release->setValue(t->releaseMs()); }
+
+    if (m_outMeter) m_outMeter->setPeakDb(t->outputPeakDb());
 
     m_restoring = false;
 }

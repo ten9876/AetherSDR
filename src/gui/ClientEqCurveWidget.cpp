@@ -91,7 +91,26 @@ void ClientEqCurveWidget::setFftBinsDb(const std::vector<float>& binsDb,
 {
     m_fftBinsDb = binsDb;
     m_fftSampleRate = sampleRate > 0.0 ? sampleRate : 24000.0;
+
+    // Peak-hold trail: per-bin running max, decaying ~10 dB/sec at 25 Hz
+    // updates so recent resonances stay visible without permanent clutter.
+    // Frozen mode skips decay so the trace sticks at the max.
+    constexpr float kPeakDecayDb = 0.5f;
+    constexpr float kPeakFloorDb = -100.0f;
+    if (m_peakHoldDb.size() != m_fftBinsDb.size()) {
+        m_peakHoldDb.assign(m_fftBinsDb.size(), kPeakFloorDb);
+    }
+    const float decayStep = m_peakHoldFrozen ? 0.0f : kPeakDecayDb;
+    for (size_t i = 0; i < m_fftBinsDb.size(); ++i) {
+        const float decayed = m_peakHoldDb[i] - decayStep;
+        m_peakHoldDb[i] = std::max(decayed, m_fftBinsDb[i]);
+    }
     update();
+}
+
+void ClientEqCurveWidget::setPeakHoldFrozen(bool frozen)
+{
+    m_peakHoldFrozen = frozen;
 }
 
 float ClientEqCurveWidget::freqToX(float hz) const
@@ -228,6 +247,31 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
         p.setPen(Qt::NoPen);
         p.setBrush(grad);
         p.drawPath(fftPath);
+
+        // Peak-hold line — same dBFS scale as the live spectrum.  Drawn
+        // on top so resonances and harsh peaks stand out as the user
+        // tunes.  Soft off-white reads cleanly against the cool-cyan
+        // analyzer.
+        if (!m_peakHoldDb.empty() && m_peakHoldDb.size() == m_fftBinsDb.size()) {
+            QPainterPath peakPath;
+            bool peakStarted = false;
+            for (int i = 1; i < bins; ++i) {
+                const float f = static_cast<float>(i) *
+                                static_cast<float>(m_fftSampleRate) /
+                                static_cast<float>((bins - 1) * 2);
+                const float x = freqToX(f);
+                if (x < 0 || x > r.width()) continue;
+                const float y = dbfsToY(m_peakHoldDb[i]);
+                if (!peakStarted) { peakPath.moveTo(x, y); peakStarted = true; }
+                else              peakPath.lineTo(x, y);
+            }
+            QPen peakPen(QColor(220, 222, 230, 210), 1.4);
+            peakPen.setJoinStyle(Qt::RoundJoin);
+            peakPen.setCapStyle(Qt::RoundCap);
+            p.setPen(peakPen);
+            p.setBrush(Qt::NoBrush);
+            p.drawPath(peakPath);
+        }
     }
 
     if (!m_eq || m_eq->activeBandCount() == 0) {

@@ -494,7 +494,12 @@ void PanadapterStack::floatPanadapter(const QString& panId)
     // nullptr. Using adoptApplet() calls addWidget() internally which sets
     // the parent to the floating window in one step, avoiding the transient
     // top-level NSWindow that corrupts the NSResponder chain (#1668).
-    auto* fw = new PanFloatingWindow(nullptr);
+    // Parenting the floating window to MainWindow keeps it on top of the
+    // main window without becoming WindowStaysOnTopHint (which would
+    // float above other apps too).  Qt::Window inside PanFloatingWindow
+    // keeps it as a top-level window — the parent only affects z-order
+    // and lifetime.
+    auto* fw = new PanFloatingWindow(window());
     fw->adoptApplet(applet);
     applet->spectrumWidget()->setFloating(true);
 

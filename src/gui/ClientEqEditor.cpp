@@ -90,6 +90,32 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
         hint->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
         row->addWidget(hint, 1);
 
+        // Peak Hold — when checked, the analyzer's per-bin peak trace
+        // stops decaying so the highest level seen at each frequency
+        // stays put.  Useful for spotting resonances while tuning.
+        auto* peakHoldBtn = new QPushButton("Peak Hold");
+        peakHoldBtn->setCheckable(true);
+        peakHoldBtn->setFixedHeight(24);
+        peakHoldBtn->setToolTip(
+            "Freeze the analyzer peak-hold trace at its highest level.\n"
+            "Toggle off to resume normal decay.");
+        peakHoldBtn->setStyleSheet(
+            "QPushButton {"
+            "  background: #0e1b28; color: #c8d8e8;"
+            "  border: 1px solid #243a4e; border-radius: 3px;"
+            "  padding: 2px 12px; font-size: 11px; font-weight: bold;"
+            "}"
+            "QPushButton:hover { background: #1a2a3a; }"
+            "QPushButton:checked {"
+            "  background: #c8a040; color: #0a0a18;"
+            "  border-color: #d4b050;"
+            "}"
+            "QPushButton:checked:hover { background: #d4b050; }");
+        connect(peakHoldBtn, &QPushButton::toggled, this, [this](bool on) {
+            if (m_canvas) m_canvas->setPeakHoldFrozen(on);
+        });
+        row->addWidget(peakHoldBtn);
+
         // Global filter-family selector — applies to HP/LP cascade math.
         // Shelves and peaks keep their native 2nd-order topology.
         m_familyCombo = new QComboBox;
@@ -131,6 +157,42 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
             if (m_canvas) m_canvas->update();
         });
         row->addWidget(m_familyCombo);
+
+        // Reset — drops every band back to ClientEq::defaultBand(i),
+        // restores the default 10-band count, and resets the filter
+        // family to Butterworth.  Saves immediately so the wipe
+        // survives a restart.
+        auto* resetBtn = new QPushButton("Reset");
+        resetBtn->setFixedHeight(24);
+        resetBtn->setToolTip("Reset all bands to default values");
+        resetBtn->setStyleSheet(
+            "QPushButton {"
+            "  background: #0e1b28; color: #c8d8e8;"
+            "  border: 1px solid #243a4e; border-radius: 3px;"
+            "  padding: 2px 12px; font-size: 11px; font-weight: bold;"
+            "}"
+            "QPushButton:hover { background: #1a2a3a; }"
+            "QPushButton:pressed { background: #243a4e; }");
+        connect(resetBtn, &QPushButton::clicked, this, [this]() {
+            ClientEq* eq = (m_path == ClientEqApplet::Path::Rx)
+                ? m_audio->clientEqRx() : m_audio->clientEqTx();
+            if (!eq) return;
+            eq->setActiveBandCount(ClientEq::kDefaultBandCount);
+            for (int i = 0; i < ClientEq::kDefaultBandCount; ++i) {
+                eq->setBand(i, ClientEq::defaultBand(i));
+            }
+            eq->setFilterFamily(ClientEq::FilterFamily::Butterworth);
+            if (m_audio) m_audio->saveClientEqSettings();
+
+            if (m_familyCombo) {
+                QSignalBlocker b(m_familyCombo);
+                m_familyCombo->setCurrentIndex(0);   // Butterworth
+            }
+            if (m_canvas)   m_canvas->update();
+            if (m_iconRow)  m_iconRow->update();
+            if (m_paramRow) m_paramRow->update();
+        });
+        row->addWidget(resetBtn);
 
         // Bypass button moved to the CHAIN widget's single-click
         // gesture.  Keyboard shortcut retired along with the button.

@@ -217,7 +217,15 @@ void ContainerManager::floatContainer(const QString& id)
         c->setParent(nullptr);
     }
 
-    auto* win = new FloatingContainerWindow;
+    // Parent the popped-out window to the main application window so it
+    // stays on top of MainWindow without becoming WindowStaysOnTopHint
+    // (which would float above all apps, including others when the user
+    // alt-tabs away).  Qt::Window inside FloatingContainerWindow keeps
+    // it as a separate top-level — the parent only affects z-order and
+    // lifetime.
+    QWidget* parentWindow = nullptr;
+    if (auto* pw = qobject_cast<QWidget*>(parent())) parentWindow = pw->window();
+    auto* win = new FloatingContainerWindow(parentWindow);
     win->setGeometryKey(geometryKeyFor(id));
     win->takeContainer(c);
     connect(win, &FloatingContainerWindow::dockRequested,
