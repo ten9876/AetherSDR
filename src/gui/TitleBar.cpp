@@ -254,6 +254,23 @@ TitleBar::TitleBar(QWidget* parent)
         emit headphoneVolumeChanged(v);
     });
 
+    // ── Minimal-mode toggle ────────────────────────────────────────────────
+    // Always visible so the user can exit minimal mode even when the menu
+    // bar is hidden.  Uses ↗ (expand) / ↙ (shrink) glyphs.  Click is
+    // wired via eventFilter().
+    m_minimalToggleLbl = new QLabel(QString::fromUtf8("\xe2\x86\x99"));  // ↙ U+2199
+    m_minimalToggleLbl->setFixedHeight(24);
+    m_minimalToggleLbl->setAlignment(Qt::AlignCenter);
+    m_minimalToggleLbl->setCursor(Qt::PointingHandCursor);
+    m_minimalToggleLbl->setToolTip("Toggle Minimal Mode (Ctrl+M)");
+    m_minimalToggleLbl->setAccessibleName("Toggle minimal mode");
+    m_minimalToggleLbl->setStyleSheet(
+        "QLabel { color: #8aa8c0; font-size: 18px; padding: 0 10px; "
+        "border-radius: 4px; }"
+        "QLabel:hover { color: #ffffff; background: #203040; }");
+    m_minimalToggleLbl->installEventFilter(this);
+    m_hbox->addWidget(m_minimalToggleLbl);
+
     // ── Window-control trio (min / max / close) ───────────────────────────
     // Discord-style: thin 1 px vertical separator before the trio, larger
     // flat labels with a subtle hover background.  Click is wired via
@@ -328,6 +345,10 @@ bool TitleBar::eventFilter(QObject* obj, QEvent* ev)
     if (ev->type() == QEvent::MouseButtonPress) {
         auto* me = static_cast<QMouseEvent*>(ev);
         if (me->button() == Qt::LeftButton) {
+            if (obj == m_minimalToggleLbl) {
+                emit minimalModeRequested();
+                return true;
+            }
             if (obj == m_minimizeLbl) {
                 if (auto* w = window()) w->showMinimized();
                 return true;
@@ -750,6 +771,14 @@ void TitleBar::setMinimalMode(bool on)
     m_hpLabel->setVisible(!on);
     // Don't touch m_otherTxLabel or m_mfBtn — their visibility is
     // managed by setOtherClientTx() and setMultiFlexStatus() respectively
+
+    // Swap the toggle icon: ↗ (expand) when minimized, ↙ (shrink) when normal
+    m_minimalToggleLbl->setText(on
+        ? QString::fromUtf8("\xe2\x86\x97")   // ↗ U+2197
+        : QString::fromUtf8("\xe2\x86\x99")); // ↙ U+2199
+    m_minimalToggleLbl->setToolTip(on
+        ? "Exit Minimal Mode (Ctrl+M)"
+        : "Toggle Minimal Mode (Ctrl+M)");
 }
 
 } // namespace AetherSDR

@@ -62,6 +62,9 @@ private:
     QLabel*      m_masterLabel{nullptr};
     QLabel*      m_hpLabel{nullptr};
 
+    // Minimal-mode toggle — always visible so the user can exit minimal mode.
+    QLabel*      m_minimalToggleLbl{nullptr};
+
     // Window-control trio (frameless mode): minimize, maximize/restore, close.
     // QLabels (not buttons) for a flat look; click is wired via eventFilter.
     QLabel*      m_minimizeLbl{nullptr};
