@@ -432,6 +432,9 @@ bool AudioEngine::startRxStream()
     qCWarning(lcAudio) << "AudioEngine: RX stream started at" << fmt.sampleRate() << "Hz"
                        << "device:" << dev.description();
     m_rxStreamStarted = true;
+    // Open the dedicated sidetone sink alongside the RX sink (mirrors the
+    // non-Windows path at the end of this function).
+    startSidetoneStream();
     emit rxStarted();
     return true;
 #else
