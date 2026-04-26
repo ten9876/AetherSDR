@@ -254,6 +254,20 @@ TitleBar::TitleBar(QWidget* parent)
         emit headphoneVolumeChanged(v);
     });
 
+    // ── Minimal-mode toggle ──────────────────────────────────────────────
+    m_minimalBtn = new QPushButton(QString::fromUtf8("\xe2\x86\x99"));  // ↙
+    m_minimalBtn->setFixedSize(22, 22);
+    m_minimalBtn->setFlat(true);
+    m_minimalBtn->setCursor(Qt::PointingHandCursor);
+    m_minimalBtn->setToolTip("Toggle Minimal Mode (Ctrl+M)");
+    m_minimalBtn->setAccessibleName("Toggle Minimal Mode");
+    m_minimalBtn->setStyleSheet(
+        "QPushButton { color: #8aa8c0; font-size: 14px; background: transparent; "
+        "border: none; border-radius: 3px; }"
+        "QPushButton:hover { color: #ffffff; background: #203040; }");
+    connect(m_minimalBtn, &QPushButton::clicked, this, &TitleBar::minimalModeRequested);
+    m_hbox->addWidget(m_minimalBtn);
+
     // ── Window-control trio (min / max / close) ───────────────────────────
     // Discord-style: thin 1 px vertical separator before the trio, larger
     // flat labels with a subtle hover background.  Click is wired via
@@ -739,7 +753,7 @@ void TitleBar::setBlinkEnabled(bool enabled)
 
 void TitleBar::setMinimalMode(bool on)
 {
-    // Hide everything except heartbeat, logo, ↗/↙ button, and 💡
+    // Hide everything except heartbeat, logo, ↗/↙ button, and window controls
     if (m_menuBar) m_menuBar->setVisible(!on);
     m_pcBtn->setVisible(!on);
     m_speakerBtn->setVisible(!on);
@@ -750,6 +764,11 @@ void TitleBar::setMinimalMode(bool on)
     m_hpLabel->setVisible(!on);
     // Don't touch m_otherTxLabel or m_mfBtn — their visibility is
     // managed by setOtherClientTx() and setMultiFlexStatus() respectively
+
+    // Swap the arrow glyph: ↗ when in minimal (click to restore), ↙ when normal
+    m_minimalBtn->setText(on
+        ? QString::fromUtf8("\xe2\x86\x97")    // ↗
+        : QString::fromUtf8("\xe2\x86\x99"));   // ↙
 }
 
 } // namespace AetherSDR
