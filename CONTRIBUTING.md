@@ -208,6 +208,20 @@ The mechanical tier exists so the @AetherClaude bot can land low-risk
 changes (test additions, documentation tweaks, dependency bumps,
 template updates) without queueing on human review.
 
+### Draft PR conventions
+
+Draft status carries different meaning depending on who opened the PR:
+
+- **Human-authored draft** — work-in-progress; reviewers should skip
+  these until the author marks Ready for Review.
+- **`@AetherClaude` / `aethersdr-agent[bot]` draft** — auto-generated
+  from an issue and **awaiting human review**. The draft state holds
+  the PR back from auto-merge; it is not "WIP". Treat it like a
+  ready-to-review PR for triage purposes.
+
+Triage scripts and review agents should include bot drafts in their
+sweep and skip only human drafts.
+
 ## What We Will Not Accept
 
 - **Wine/Crossover workarounds.** The goal is fully native.
