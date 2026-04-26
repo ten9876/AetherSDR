@@ -1635,8 +1635,14 @@ MainWindow::MainWindow(QWidget* parent)
         auto* pca = m_appletPanel->phoneCwApplet();
         connect(pca, &PhoneCwApplet::localSidetoneEnabledChanged,
                 this, [this](bool on) {
-            if (m_audio && m_audio->cwSidetone())
-                m_audio->cwSidetone()->setEnabled(on);
+            if (m_audio) {
+                // Use setSidetoneEnabled to manage the dedicated QAudioSink
+                // lifecycle — avoids keeping a second CoreAudio sink alive
+                // when sidetone is off (crashes on macOS Tahoe). (#2006)
+                QMetaObject::invokeMethod(m_audio, [this, on]() {
+                    m_audio->setSidetoneEnabled(on);
+                }, Qt::QueuedConnection);
+            }
         });
         connect(pca, &PhoneCwApplet::localSidetoneVolumeChanged,
                 this, [this](int pct) {
@@ -1667,11 +1673,12 @@ MainWindow::MainWindow(QWidget* parent)
 
         // Push persisted state into the generator at startup so the user's
         // saved enable/volume/pitch take effect without toggling the UI.
+        // Use setSidetoneEnabled() to manage the sink lifecycle. (#2006)
         if (m_audio && m_audio->cwSidetone()) {
             auto& s = AppSettings::instance();
             auto* gen = m_audio->cwSidetone();
-            gen->setEnabled(
-                s.value("CwLocalSidetoneEnabled", "False").toString() == "True");
+            const bool enabled =
+                s.value("CwLocalSidetoneEnabled", "False").toString() == "True";
             gen->setVolume(
                 s.value("CwLocalSidetoneVolume", "50").toInt() / 100.0f);
             const bool follow =
@@ -1679,6 +1686,9 @@ MainWindow::MainWindow(QWidget* parent)
             const int manualHz = s.value("CwLocalSidetonePitchHz", "600").toInt();
             gen->setPitchHz(static_cast<float>(
                 follow ? m_radioModel.transmitModel().cwPitch() : manualHz));
+            // Set enabled last so that when startRxStream() checks
+            // isEnabled(), the generator already has the persisted state.
+            gen->setEnabled(enabled);
         }
 
         // Pitch-follow: when the radio updates cw_pitch, propagate to the

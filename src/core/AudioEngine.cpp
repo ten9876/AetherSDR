@@ -522,10 +522,13 @@ bool AudioEngine::startRxStream()
     qCDebug(lcAudio) << "AudioEngine: RX stream started";
     m_rxBufferSampleRate.store(fmt.sampleRate());
     m_rxStreamStarted = true;
-    // Open the dedicated sidetone sink alongside the RX sink.  Cheap when
-    // sidetone is disabled — the timer fires but writes silence to a tiny
-    // primed buffer; no audible output, no extra CPU on the operator side.
-    startSidetoneStream();
+    // Sidetone sink is started lazily — only when the user enables local
+    // CW sidetone via setSidetoneEnabled(true).  Running two QAudioSinks
+    // on the same CoreAudio output device unconditionally corrupts the
+    // heap on macOS Tahoe (xzone malloc detects the damage). (#2006)
+    if (m_cwSidetone && m_cwSidetone->isEnabled()) {
+        startSidetoneStream();
+    }
     emit rxStarted();
     return true;
 }
@@ -669,6 +672,23 @@ void AudioEngine::stopSidetoneStream()
     }
     if (m_cwSidetone)
         m_cwSidetone->reset();
+}
+
+void AudioEngine::setSidetoneEnabled(bool on)
+{
+    if (m_cwSidetone) {
+        m_cwSidetone->setEnabled(on);
+    }
+    if (on) {
+        // Only open the dedicated sink when the RX stream is already active.
+        // If the RX stream hasn't started yet, startRxStream() will call
+        // startSidetoneStream() itself when it detects sidetone is enabled.
+        if (m_audioSink && !m_sidetoneSink) {
+            startSidetoneStream();
+        }
+    } else {
+        stopSidetoneStream();
+    }
 }
 
 void AudioEngine::setRxPan(int v)

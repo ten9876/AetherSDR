@@ -73,10 +73,16 @@ public:
     Q_INVOKABLE void stopRxStream();
 
     // Dedicated low-latency sidetone sink — independent of the RX sink.
-    // Started alongside the RX sink and on-demand when the user enables
-    // local sidetone for the first time after connect.
+    // Started on-demand when the user enables local sidetone; stopped when
+    // disabled.  Running two QAudioSinks on the same CoreAudio device
+    // unconditionally corrupts the heap on macOS Tahoe. (#2006)
     Q_INVOKABLE bool startSidetoneStream();
     Q_INVOKABLE void stopSidetoneStream();
+
+    // Toggle sidetone sink lifecycle from the UI.  Starts the dedicated
+    // sink when enabled (if the RX stream is active) and stops it when
+    // disabled — avoids keeping a second QAudioSink alive when not needed.
+    Q_INVOKABLE void setSidetoneEnabled(bool on);
 
     // TX (microphone) – capture audio and send VITA-49 packets to radio
     Q_INVOKABLE bool startTxStream(const QHostAddress& radioAddress, quint16 radioPort);
