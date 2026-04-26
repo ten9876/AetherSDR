@@ -10,6 +10,7 @@
 #include <QResizeEvent>
 #include <QScreen>
 #include <QSizeGrip>
+#include <QStringList>
 #include <QVBoxLayout>
 
 namespace AetherSDR {
@@ -93,11 +94,29 @@ void FloatingContainerWindow::restoreAndEnsureVisible(QWidget* anchor)
     m_restoring = true;
     bool restored = false;
     if (!m_geometryKey.isEmpty()) {
-        const QByteArray geom = QByteArray::fromBase64(
-            AppSettings::instance()
-                .value(m_geometryKey, "").toByteArray());
-        if (!geom.isEmpty() && restoreGeometry(geom)) {
-            restored = true;
+        const QString val = AppSettings::instance()
+            .value(m_geometryKey, "").toString();
+        if (!val.isEmpty()) {
+            // New format: "x,y,w,h" — frame-agnostic, works across
+            // frameless ↔ decorated mode changes.
+            const QStringList parts = val.split(',');
+            if (parts.size() == 4) {
+                bool ok0, ok1, ok2, ok3;
+                const int x = parts[0].toInt(&ok0);
+                const int y = parts[1].toInt(&ok1);
+                const int w = parts[2].toInt(&ok2);
+                const int h = parts[3].toInt(&ok3);
+                if (ok0 && ok1 && ok2 && ok3 && w > 0 && h > 0) {
+                    setGeometry(x, y, w, h);
+                    restored = true;
+                }
+            }
+            if (!restored) {
+                // Legacy: base64-encoded QWidget::saveGeometry() blob.
+                const QByteArray blob = QByteArray::fromBase64(val.toUtf8());
+                if (!blob.isEmpty() && restoreGeometry(blob))
+                    restored = true;
+            }
         }
     }
     if (!restored) {
@@ -114,8 +133,8 @@ void FloatingContainerWindow::restoreAndEnsureVisible(QWidget* anchor)
             resize(kDefaultW, kDefaultH);
         }
     } else {
-        // Clamp to any visible screen — saved geometry may reference
-        // a monitor that's no longer connected.
+        // Clamp top-left to a visible screen — saved position may
+        // reference a monitor that's no longer connected.
         bool onScreen = false;
         const QPoint tl = geometry().topLeft();
         for (QScreen* s : QGuiApplication::screens()) {
@@ -137,8 +156,12 @@ void FloatingContainerWindow::restoreAndEnsureVisible(QWidget* anchor)
 void FloatingContainerWindow::saveGeometryToKey() const
 {
     if (m_geometryKey.isEmpty()) return;
+    // Store client-area rect as "x,y,w,h" — frame-agnostic so geometry
+    // restores correctly whether the window is frameless or decorated.
+    const QRect r = geometry();
     AppSettings::instance().setValue(
-        m_geometryKey, saveGeometry().toBase64());
+        m_geometryKey,
+        QString("%1,%2,%3,%4").arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height()));
 }
 
 void FloatingContainerWindow::prepareShutdown()
