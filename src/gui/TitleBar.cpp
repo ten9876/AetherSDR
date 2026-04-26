@@ -101,7 +101,8 @@ TitleBar::TitleBar(QWidget* parent)
     m_hbox->addSpacing(4);
 #endif
 
-    auto* appName = new QLabel("AetherSDR");
+    auto* appName = new QLabel(
+        QString("AetherSDR v%1").arg(QCoreApplication::applicationVersion()));
     appName->setStyleSheet("QLabel { color: #00b4d8; font-size: 14px; font-weight: bold; }");
     appName->setAlignment(Qt::AlignCenter);
     m_hbox->addWidget(appName);
