@@ -549,9 +549,10 @@ void RadioModel::disconnectFromRadio()
         QString streamId = m_rxAudioStreamId;
         QMetaObject::invokeMethod(m_connection, [this, handle, streamId]() {
             m_connection->gracefulDisconnect(handle, streamId);
-        });
+        }, Qt::BlockingQueuedConnection);
     } else {
-        QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
+        QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio,
+                                  Qt::BlockingQueuedConnection);
     }
 }
 
