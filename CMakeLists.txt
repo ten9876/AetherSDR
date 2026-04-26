@@ -1152,6 +1152,15 @@ target_compile_definitions(midi_settings_test PRIVATE HAVE_MIDI)
 target_include_directories(midi_settings_test PRIVATE src third_party/rtmidi)
 target_link_libraries(midi_settings_test PRIVATE Qt6::Core)
 
+add_executable(transmit_model_test
+    tests/transmit_model_test.cpp
+    src/models/TransmitModel.cpp
+    src/core/AppSettings.cpp
+    src/core/LogManager.cpp
+)
+target_include_directories(transmit_model_test PRIVATE src)
+target_link_libraries(transmit_model_test PRIVATE Qt6::Core)
+
 # Container system Phase 1 tests — needs QApplication + Widgets.
 add_executable(container_widget_test
     tests/container_widget_test.cpp

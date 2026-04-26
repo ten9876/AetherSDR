@@ -129,7 +129,10 @@ public:
     // ── Command methods (emit commandReady) ─────────────────────────────────
     void setRfPower(int power);
     void setTunePower(int power);
+    void setTuneMode(const QString& mode);
     void startTune();
+    void startTwoToneTune();
+    void toggleTwoToneTune();
     void stopTune();
     void setMox(bool on);
     void atuStart();
