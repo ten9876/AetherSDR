@@ -1311,7 +1311,23 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                                                    << Qt::hex << code << "body:" << body;
                                 });
                         } else {
-                            qCDebug(lcProtocol) << "RadioModel: PC audio disabled, no TCI — skipping remote_audio_rx";
+                            // PC audio is off and TCI autostart is off, but SmartConnect
+                            // may have restored a stale remote_audio_rx stream from a
+                            // prior session (the GUIClientID persists across runs).
+                            // That orphan stream tells the radio to route audio to PC,
+                            // but we never start the local audio sink — so audio goes
+                            // nowhere.  Create-then-immediately-remove flushes the stale
+                            // stream exactly like the manual PC Audio ON→OFF toggle. (#2037)
+                            qCDebug(lcProtocol) << "RadioModel: PC audio disabled, no TCI — flushing any stale remote_audio_rx";
+                            sendCmd(
+                                QString("stream create type=remote_audio_rx compression=%1").arg(audioCompressionParam()),
+                                [this](int code, const QString& body) {
+                                    if (code == 0) {
+                                        QString tmpId = body.trimmed();
+                                        sendCmd(QString("stream remove 0x%1").arg(tmpId));
+                                        qCDebug(lcProtocol) << "RadioModel: flushed stale remote_audio_rx" << tmpId;
+                                    }
+                                });
                         }
                         }
 
