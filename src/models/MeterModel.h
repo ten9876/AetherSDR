@@ -126,8 +126,7 @@ signals:
 
 private:
     float convertRaw(const MeterDef& def, qint16 raw) const;
-    void setCompressionMeterAvailable(bool available);
-    bool updateCompressionReduction();
+    void updateCompressionReduction();
     bool compressionSamplesFresh(qint64 referenceUpdatedMs) const;
 
     QMap<int, MeterDef> m_defs;        // meter index → definition

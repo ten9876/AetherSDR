@@ -154,7 +154,7 @@ void MeterModel::removeMeter(int index)
         m_compPeak = 0.0f;
         m_hasCompPeakLevel = false;
         m_compPeakUpdatedMs = 0;
-        setCompressionMeterAvailable(false);
+        m_hasCompPeakValue = false;
     }
     if (index == m_afterEqIdx) {
         m_afterEqIdx = -1;
@@ -193,18 +193,12 @@ float MeterModel::convertRaw(const MeterDef& def, qint16 raw) const
     return static_cast<float>(raw);
 }
 
-void MeterModel::setCompressionMeterAvailable(bool available)
-{
-    if (m_hasCompPeakValue == available) return;
-    m_hasCompPeakValue = available;
-}
-
-bool MeterModel::updateCompressionReduction()
+void MeterModel::updateCompressionReduction()
 {
     if (!m_hasCompPeakLevel) {
         m_compPeak = 0.0f;
-        setCompressionMeterAvailable(false);
-        return false;
+        m_hasCompPeakValue = false;
+        return;
     }
 
     float referenceLevel = 0.0f;
@@ -222,34 +216,33 @@ bool MeterModel::updateCompressionReduction()
     if (m_afterEqIdx >= 0) {
         if (!m_hasAfterEqLevel) {
             m_compPeak = 0.0f;
-            setCompressionMeterAvailable(false);
-            return false;
+            m_hasCompPeakValue = false;
+            return;
         }
         referenceLevel = m_afterEqLevel;
         referenceUpdatedMs = m_afterEqUpdatedMs;
     } else if (m_scMicIdx >= 0) {
         if (!m_hasScMicLevel) {
             m_compPeak = 0.0f;
-            setCompressionMeterAvailable(false);
-            return false;
+            m_hasCompPeakValue = false;
+            return;
         }
         referenceLevel = m_scMicLevel;
         referenceUpdatedMs = m_scMicUpdatedMs;
     } else {
         m_compPeak = 0.0f;
-        setCompressionMeterAvailable(false);
-        return false;
+        m_hasCompPeakValue = false;
+        return;
     }
 
     if (!compressionSamplesFresh(referenceUpdatedMs)) {
         m_compPeak = 0.0f;
-        setCompressionMeterAvailable(false);
-        return false;
+        m_hasCompPeakValue = false;
+        return;
     }
 
     m_compPeak = compressionReductionForGauge(referenceLevel, m_compPeakLevel);
-    setCompressionMeterAvailable(true);
-    return true;
+    m_hasCompPeakValue = true;
 }
 
 bool MeterModel::compressionSamplesFresh(qint64 referenceUpdatedMs) const
