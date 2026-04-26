@@ -675,6 +675,15 @@ void RadioModel::sendNetCwCommand(const QString& baseCmd)
         return;
     }
 
+    // cw ptt is a plain TCP command — FlexLib sends it without timing
+    // metadata (Radio.cs:8890).  Routing it through the netcw UDP path
+    // appends time=/index=/client_handle= which the radio doesn't expect
+    // on cw ptt, causing it to silently reject the command (no TX).
+    if (baseCmd.startsWith(QLatin1String("cw ptt"))) {
+        sendCmd(baseCmd);
+        return;
+    }
+
     // Build the full command with timing metadata and dedup index
     // FlexLib format: "cw key 1 time=0x<hex_ms> index=<N> client_handle=0x<handle>"
     quint64 timeMs = static_cast<quint64>(
