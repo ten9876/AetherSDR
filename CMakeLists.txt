@@ -669,6 +669,7 @@ add_executable(AetherSDR ${ALL_SOURCES} ${RNNOISE_SOURCES} ${GGMORSE_SOURCES} ${
 # Windows: GUI app (no console window) + icon resource
 if(WIN32)
     set_target_properties(AetherSDR PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_link_libraries(AetherSDR PRIVATE dwmapi)
 endif()
 
 # macOS app bundle

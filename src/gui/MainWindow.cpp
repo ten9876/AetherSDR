@@ -156,6 +156,8 @@
 #ifdef Q_OS_WIN
 #define NOMINMAX
 #include <windows.h>
+#include <windowsx.h>
+#include <dwmapi.h>
 #include <psapi.h>
 #else
 #include <sys/resource.h>
@@ -848,6 +850,11 @@ MainWindow::MainWindow(QWidget* parent)
         if (s.value("FramelessWindow", "True").toString() == "True")
             setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
     }
+
+#ifdef Q_OS_WIN
+    if (windowFlags() & Qt::FramelessWindowHint)
+        enableDwmSnapSupport();
+#endif
 
     applyDarkTheme();
 
@@ -9260,12 +9267,66 @@ void MainWindow::setFramelessWindow(bool on)
         flags &= ~Qt::FramelessWindowHint;
     setWindowFlags(flags);
     setGeometry(geom);
+#ifdef Q_OS_WIN
+    if (on)
+        enableDwmSnapSupport();
+#endif
     if (wasVisible)
         show();
 
     // Keep the bottom-right size grip in sync — only useful when frameless.
     if (m_sizeGrip) m_sizeGrip->setVisible(on);
 }
+
+#ifdef Q_OS_WIN
+void MainWindow::enableDwmSnapSupport()
+{
+    // Extend the DWM frame by 1 px into the client area so that DWM regains
+    // Aero Snap / shadow awareness even though the window is visually frameless.
+    MARGINS margins = {1, 1, 1, 1};
+    DwmExtendFrameIntoClientArea(reinterpret_cast<HWND>(winId()), &margins);
+}
+
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+    MSG *msg = static_cast<MSG *>(message);
+    if (msg->message == WM_NCHITTEST && (windowFlags() & Qt::FramelessWindowHint)) {
+        // Map screen coordinates to client coordinates.
+        POINT pt = { GET_X_LPARAM(msg->lParam), GET_Y_LPARAM(msg->lParam) };
+        ScreenToClient(msg->hwnd, &pt);
+
+        // Check for resize borders (8 px grip) so edge-resize still works.
+        constexpr int border = 8;
+        RECT rc;
+        GetClientRect(msg->hwnd, &rc);
+        if (pt.y < border) {
+            if (pt.x < border)      { *result = HTTOPLEFT;    return true; }
+            if (pt.x > rc.right - border) { *result = HTTOPRIGHT;   return true; }
+            *result = HTTOP;    return true;
+        }
+        if (pt.y > rc.bottom - border) {
+            if (pt.x < border)      { *result = HTBOTTOMLEFT;  return true; }
+            if (pt.x > rc.right - border) { *result = HTBOTTOMRIGHT; return true; }
+            *result = HTBOTTOM; return true;
+        }
+        if (pt.x < border) { *result = HTLEFT;  return true; }
+        if (pt.x > rc.right - border) { *result = HTRIGHT; return true; }
+
+        // If the hit point is within the TitleBar widget, return HTCAPTION
+        // so that DWM can initiate Aero Snap on drag.
+        if (m_titleBar && m_titleBar->geometry().contains(pt.x, pt.y)) {
+            // Don't override hits on child widgets (buttons, menus, etc.).
+            QWidget *child = m_titleBar->childAt(
+                m_titleBar->mapFromParent(QPoint(pt.x, pt.y)));
+            if (!child) {
+                *result = HTCAPTION;
+                return true;
+            }
+        }
+    }
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+#endif
 
 void MainWindow::toggleMinimalMode(bool on)
 {
