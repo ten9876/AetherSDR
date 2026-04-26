@@ -26,6 +26,7 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
+#include "WaveApplet.h"
 #include "ClientEqApplet.h"
 #include "ClientEqEditor.h"
 #include "ClientCompApplet.h"
@@ -922,6 +923,16 @@ MainWindow::MainWindow(QWidget* parent)
     buildMenuBar();
     buildUI();
     registerShortcutActions();
+
+    if (auto* wave = m_appletPanel ? m_appletPanel->waveApplet() : nullptr) {
+        connect(m_audio, &AudioEngine::scopeSamplesReady,
+                wave, &WaveApplet::appendScopeSamples,
+                Qt::QueuedConnection);
+        connect(m_audio, &AudioEngine::radioTransmittingChanged,
+                wave, &WaveApplet::setTransmitting,
+                Qt::QueuedConnection);
+    }
+
     m_paTempUseFahrenheit =
         AppSettings::instance().value(kPaTempUnitSettingKey, "Fahrenheit").toString() != "Celsius";
     updatePaTempLabel();

@@ -376,6 +376,8 @@ signals:
     void txPacketReady(const QByteArray& vitaPacket);  // VITA-49 TX packet for PanadapterStream
 
     void pcMicLevelChanged(float peakDbfs, float avgDbfs);  // client-side PC mic metering
+    void scopeSamplesReady(const QByteArray& monoFloat32Pcm, int sampleRate, bool tx);
+    void radioTransmittingChanged(bool tx);
     void mutedChanged(bool muted);                          // local audio output mute state
 
 private slots:
@@ -387,6 +389,8 @@ private:
     QByteArray applyBoost(const QByteArray& pcm, float gain) const;
     QByteArray buildVitaTxPacket(const float* samples, int numStereoSamples);
     void sendVoiceTxPacket(const QByteArray& pcmData, quint32 streamId);
+    void emitScopeFromFloat32Stereo(const QByteArray& pcm, int sampleRate, bool tx);
+    void emitScopeFromInt16Stereo(const QByteArray& pcm, int sampleRate, bool tx);
     QByteArray resampleStereo(const QByteArray& pcm);
     void processNr2(const QByteArray& stereoPcm);
     void updateRxBufferStats();
@@ -481,6 +485,11 @@ private:
     double        m_pcMicSumSq{0.0};
     int           m_pcMicSampleCount{0};
     static constexpr int kMicMeterWindowSamples = 24000 / 20;  // ~50ms at 24kHz
+
+    QElapsedTimer m_lastRxScopeEmit;
+    QElapsedTimer m_lastTxScopeEmit;
+    QByteArray    m_scopeRxScratch;
+    QByteArray    m_scopeTxScratch;
 
     QAudioDevice m_outputDevice;
     QAudioDevice m_inputDevice;

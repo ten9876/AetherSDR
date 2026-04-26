@@ -12,6 +12,7 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
+#include "WaveApplet.h"
 #include "ClientEqApplet.h"
 #include "ClientCompApplet.h"
 #include "ClientGateApplet.h"
@@ -54,7 +55,7 @@
 namespace AetherSDR {
 
 const QStringList AppletPanel::kDefaultOrder = {
-    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "TXDSP", "CAT", "DAX", "TCI", "IQ", "MTR", "AG"
+    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "WAVE", "TXDSP", "CAT", "DAX", "TCI", "IQ", "MTR", "AG"
 };
 
 // ── Drop-aware scroll area ──────────────────────────────────────────────────
@@ -82,20 +83,32 @@ protected:
 
         // Find the Y position for the indicator
         int indicatorY = 0;
-        if (idx < m_panel->m_appletOrder.size()) {
-            auto* w = m_panel->m_appletOrder[idx].titleBar;
-            if (w) {
-                auto* cw = qobject_cast<ContainerWidget*>(m_panel->m_appletOrder[idx].widget);
-                if (!cw || !cw->isFloating())
-                    indicatorY = w->mapTo(widget(), QPoint(0, 0)).y();
+        bool indicatorPlaced = false;
+        auto isDockedVisible = [](const AppletPanel::AppletEntry& entry) {
+            auto* w = entry.widget;
+            if (!w || !w->isVisible()) return false;
+            if (auto* cw = qobject_cast<ContainerWidget*>(w); cw && cw->isFloating())
+                return false;
+            return true;
+        };
+        for (int i = idx; i < m_panel->m_appletOrder.size(); ++i) {
+            const auto& entry = m_panel->m_appletOrder[i];
+            if (!isDockedVisible(entry)) continue;
+            if (auto* title = entry.titleBar) {
+                indicatorY = title->mapTo(widget(), QPoint(0, 0)).y();
+                indicatorPlaced = true;
+                break;
             }
-        } else if (!m_panel->m_appletOrder.isEmpty()) {
-            auto& last = m_panel->m_appletOrder.back();
-            auto* w = last.widget;
-            if (w) {
-                auto* cw = qobject_cast<ContainerWidget*>(w);
-                if (!cw || !cw->isFloating())
+        }
+        if (!indicatorPlaced) {
+            for (int i = m_panel->m_appletOrder.size() - 1; i >= 0; --i) {
+                const auto& entry = m_panel->m_appletOrder[i];
+                if (!isDockedVisible(entry)) continue;
+                if (auto* w = entry.widget) {
                     indicatorY = w->mapTo(widget(), QPoint(0, w->height())).y();
+                    indicatorPlaced = true;
+                    break;
+                }
             }
         }
         m_panel->m_dropIndicator->setParent(widget());
@@ -604,6 +617,9 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_eqApplet = new EqApplet;
     m_appletOrder.append(makeEntry("EQ", "Equalizer", m_eqApplet, true, btnRow1, btnLayout1));
 
+    m_waveApplet = new WaveApplet;
+    m_appletOrder.append(makeEntry("WAVE", "Waveform", m_waveApplet, true, btnRow1, btnLayout1));
+
     // CEQ and CMP intentionally have no toggle button in the tray —
     // their visibility follows DSP bypass state, driven externally
     // from the CHAIN widget and the respective floating editors.
@@ -732,9 +748,37 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
                 }
             }
         }
+
+        // One-shot migration for saved layouts from before WAVE existed:
+        // place WAVE immediately after EQ instead of letting the generic
+        // "new applets" append path put it at the very end.
+        bool migratedWaveOrder = false;
+        if (ids.contains("EQ") && !ids.contains("WAVE")) {
+            int waveIdx = -1;
+            for (int i = 0; i < m_appletOrder.size(); ++i) {
+                if (m_appletOrder[i].id == "WAVE") {
+                    waveIdx = i;
+                    break;
+                }
+            }
+            if (waveIdx >= 0) {
+                const AppletEntry waveEntry = m_appletOrder[waveIdx];
+                m_appletOrder.remove(waveIdx);
+                for (int i = 0; i < reordered.size(); ++i) {
+                    if (reordered[i].id == "EQ") {
+                        reordered.insert(i + 1, waveEntry);
+                        migratedWaveOrder = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         // Append any remaining (new applets not in saved order)
         reordered.append(m_appletOrder);
         m_appletOrder = reordered;
+        if (migratedWaveOrder)
+            saveOrder();
     }
 
     rebuildStackOrder();
@@ -862,6 +906,7 @@ int AppletPanel::dropIndexFromY(int localY) const
         auto* w = m_appletOrder[i].widget;
         if (!w) continue;
         if (auto* cw = qobject_cast<ContainerWidget*>(w); cw && cw->isFloating()) continue;
+        if (!w->isVisible()) continue;
         int mid = w->mapTo(m_scrollArea->widget(), QPoint(0, w->height() / 2)).y();
         if (localY > mid) idx = i + 1;
     }

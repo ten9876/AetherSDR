@@ -40,6 +40,7 @@ namespace AetherSDR {
 
 namespace {
 constexpr qint64 kTxAutoRestartMinRuntimeMs = 60000;
+constexpr qint64 kScopeEmitMinIntervalMs = 25;  // ~40 fps, per RX/TX source
 
 bool devicePresent(const QList<QAudioDevice>& devices, const QAudioDevice& target)
 {
@@ -51,6 +52,81 @@ bool devicePresent(const QList<QAudioDevice>& devices, const QAudioDevice& targe
         return device.id() == target.id();
     });
 }
+}
+
+void AudioEngine::emitScopeFromFloat32Stereo(const QByteArray& pcm,
+                                             int sampleRate,
+                                             bool tx)
+{
+    const int floatSamples = pcm.size() / static_cast<int>(sizeof(float));
+    if (floatSamples <= 0)
+        return;
+
+    QElapsedTimer& throttle = tx ? m_lastTxScopeEmit : m_lastRxScopeEmit;
+    if (throttle.isValid() && throttle.elapsed() < kScopeEmitMinIntervalMs)
+        return;
+
+    const bool stereo = (floatSamples % 2) == 0;
+    const int monoSamples = stereo ? floatSamples / 2 : floatSamples;
+    QByteArray& mono = tx ? m_scopeTxScratch : m_scopeRxScratch;
+    mono.resize(monoSamples * static_cast<int>(sizeof(float)));
+
+    const auto* src = reinterpret_cast<const float*>(pcm.constData());
+    auto* dst = reinterpret_cast<float*>(mono.data());
+    if (stereo) {
+        for (int i = 0; i < monoSamples; ++i) {
+            const float avg = (src[i * 2] + src[i * 2 + 1]) * 0.5f;
+            dst[i] = std::clamp(std::isfinite(avg) ? avg : 0.0f, -1.0f, 1.0f);
+        }
+    } else {
+        for (int i = 0; i < monoSamples; ++i) {
+            const float s = src[i];
+            dst[i] = std::clamp(std::isfinite(s) ? s : 0.0f, -1.0f, 1.0f);
+        }
+    }
+
+    if (throttle.isValid())
+        throttle.restart();
+    else
+        throttle.start();
+    emit scopeSamplesReady(mono, sampleRate > 0 ? sampleRate : DEFAULT_SAMPLE_RATE, tx);
+}
+
+void AudioEngine::emitScopeFromInt16Stereo(const QByteArray& pcm,
+                                           int sampleRate,
+                                           bool tx)
+{
+    const int intSamples = pcm.size() / static_cast<int>(sizeof(int16_t));
+    if (intSamples <= 0)
+        return;
+
+    QElapsedTimer& throttle = tx ? m_lastTxScopeEmit : m_lastRxScopeEmit;
+    if (throttle.isValid() && throttle.elapsed() < kScopeEmitMinIntervalMs)
+        return;
+
+    const bool stereo = (intSamples % 2) == 0;
+    const int monoSamples = stereo ? intSamples / 2 : intSamples;
+    QByteArray& mono = tx ? m_scopeTxScratch : m_scopeRxScratch;
+    mono.resize(monoSamples * static_cast<int>(sizeof(float)));
+
+    const auto* src = reinterpret_cast<const int16_t*>(pcm.constData());
+    auto* dst = reinterpret_cast<float*>(mono.data());
+    if (stereo) {
+        for (int i = 0; i < monoSamples; ++i) {
+            const float l = src[i * 2] / 32768.0f;
+            const float r = src[i * 2 + 1] / 32768.0f;
+            dst[i] = std::clamp((l + r) * 0.5f, -1.0f, 1.0f);
+        }
+    } else {
+        for (int i = 0; i < monoSamples; ++i)
+            dst[i] = std::clamp(src[i] / 32768.0f, -1.0f, 1.0f);
+    }
+
+    if (throttle.isValid())
+        throttle.restart();
+    else
+        throttle.start();
+    emit scopeSamplesReady(mono, sampleRate > 0 ? sampleRate : DEFAULT_SAMPLE_RATE, tx);
 }
 
 void AudioEngine::updateRxBufferStats()
@@ -782,22 +858,25 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
             puduSource = &m_clientPuduRxScratch;
         }
 
+        const int scopeSampleRate = m_resampleTo48k ? 48000 : DEFAULT_SAMPLE_RATE;
         const QByteArray& resampled = m_resampleTo48k ? resampleStereo(*puduSource) : *puduSource;
+        const QByteArray* output = &resampled;
+        QByteArray boosted;
         if (m_rxBoost.load()) {
             // Soft-knee boost — increases perceived loudness without hard clipping.
             // Uses tanh compression: loud signals are gently limited while quiet
             // signals get ~2x gain.  tanh(2*x) ≈ 2*x for small x, ≈ 1.0 for large x.
-            QByteArray boosted(resampled.size(), Qt::Uninitialized);
+            boosted.resize(resampled.size());
             const auto* src = reinterpret_cast<const float*>(resampled.constData());
             auto* dst = reinterpret_cast<float*>(boosted.data());
             const int nSamples = resampled.size() / static_cast<int>(sizeof(float));
             for (int i = 0; i < nSamples; ++i) {
                 dst[i] = std::tanh(src[i] * 2.0f);
             }
-            m_rxBuffer.append(boosted);
-        } else {
-            m_rxBuffer.append(resampled);
+            output = &boosted;
         }
+        m_rxBuffer.append(*output);
+        emitScopeFromFloat32Stereo(*output, scopeSampleRate, false);
         updateRxBufferStats();
     };
 
@@ -2545,10 +2624,10 @@ void AudioEngine::processBnr(const QByteArray& stereoPcm)
         m_bnrOutBuf.remove(0, wantBytes);
 
         if (m_audioDevice && m_audioDevice->isOpen()) {
-            if (m_resampleTo48k)
-                m_rxBuffer.append(resampleStereo(chunk));
-            else
-                m_rxBuffer.append(chunk);
+            const int scopeSampleRate = m_resampleTo48k ? 48000 : DEFAULT_SAMPLE_RATE;
+            const QByteArray& output = m_resampleTo48k ? resampleStereo(chunk) : chunk;
+            m_rxBuffer.append(output);
+            emitScopeFromFloat32Stereo(output, scopeSampleRate, false);
             updateRxBufferStats();
         }
         emit levelChanged(computeRMS(chunk));
@@ -3055,6 +3134,8 @@ void AudioEngine::onTxAudioReady()
         }
     }
 
+    emitScopeFromInt16Stereo(data, DEFAULT_SAMPLE_RATE, true);
+
     // ── Opus TX path: always active for remote_audio_tx ────────────────
     // Sends Opus during both RX (VOX/met_in_rx metering) and TX (voice).
     // The radio requires Opus on remote_audio_tx (enforces compression=OPUS).
@@ -3300,6 +3381,9 @@ void AudioEngine::sendModemTxAudio(const QByteArray& float32pcm)
 {
     if (m_txStreamId == 0) return;
 
+    if (m_radioTransmitting)
+        emitScopeFromFloat32Stereo(float32pcm, DEFAULT_SAMPLE_RATE, true);
+
     m_txFloatAccumulator.append(float32pcm);
 
     constexpr int FLOAT_BYTES_PER_PKT = TX_SAMPLES_PER_PACKET * 2 * sizeof(float); // 1024
@@ -3332,7 +3416,9 @@ void AudioEngine::setTransmitting(bool tx)
 
 void AudioEngine::setRadioTransmitting(bool tx)
 {
-    m_radioTransmitting = tx;
+    const bool previous = m_radioTransmitting.exchange(tx);
+    if (previous != tx)
+        emit radioTransmittingChanged(tx);
 }
 
 void AudioEngine::setDaxTxUseRadioRoute(bool on)
@@ -3381,6 +3467,11 @@ void AudioEngine::feedDaxTxAudio(const QByteArray& inPcm)
             m_pcMicSampleCount = 0;
         }
     }
+
+    const bool daxAudioWillTransmit = m_radioTransmitting
+        && (!m_daxTxUseRadioRoute || !(m_transmitting && !m_daxTxMode));
+    if (daxAudioWillTransmit)
+        emitScopeFromFloat32Stereo(float32pcm, DEFAULT_SAMPLE_RATE, true);
 
     if (!m_daxTxUseRadioRoute) {
         // Low-latency route: keep radio on mic path (dax=0) and packetize
