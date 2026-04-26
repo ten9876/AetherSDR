@@ -186,6 +186,28 @@ If `gpg` hangs, set `export GPG_TTY=$(tty)` in your shell profile.
 
 ---
 
+## Reviews and merging
+
+PR review responsibility is divided into three tiers via
+[`.github/CODEOWNERS`](.github/CODEOWNERS). Self-approval is blocked by
+GitHub on every tier — your own PR always needs review from someone else.
+
+| Tier | Paths | Who can approve |
+|---|---|---|
+| **Default** | Everything not listed below | @ten9876, @jensenpat |
+| **Mechanical / safe** | `tests/`, `docs/`, `*.md`, `.github/dependabot.yml`, `.github/docker/`, `.github/ISSUE_TEMPLATE/` | @ten9876, @jensenpat, @AetherClaude |
+| **Maintainer-only** | `src/gui/MainWindow.{h,cpp}`, `src/core/RadioModel.{h,cpp}`, `src/core/AudioEngine.{h,cpp}`, `src/core/PanadapterStream.{h,cpp}`, `CMakeLists.txt`, `CLAUDE.md`, `CONTRIBUTING.md`, `.github/CODEOWNERS`, `.github/workflows/` | @ten9876 |
+
+The maintainer-only tier covers *direction-impacting* paths: visual/UX,
+threading and central-state architecture, protocol bedrock, build
+configuration, and project policy. Per
+[CLAUDE.md](CLAUDE.md#autonomous-agent-boundaries), changes here need
+maintainer eyes regardless of who wrote them.
+
+The mechanical tier exists so the @AetherClaude bot can land low-risk
+changes (test additions, documentation tweaks, dependency bumps,
+template updates) without queueing on human review.
+
 ## What We Will Not Accept
 
 - **Wine/Crossover workarounds.** The goal is fully native.
