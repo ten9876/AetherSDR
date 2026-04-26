@@ -432,6 +432,10 @@ bool AudioEngine::startRxStream()
     qCWarning(lcAudio) << "AudioEngine: RX stream started at" << fmt.sampleRate() << "Hz"
                        << "device:" << dev.description();
     m_rxStreamStarted = true;
+    // Open the dedicated sidetone sink alongside the RX sink, matching
+    // the non-Windows path.  Without this, CW/CWX local sidetone is
+    // silently discarded on Windows because no audio device exists. (#2047)
+    startSidetoneStream();
     emit rxStarted();
     return true;
 #else
