@@ -329,10 +329,14 @@ void TransmitModel::startTwoToneTune()
 
 void TransmitModel::toggleTwoToneTune()
 {
-    if (isTuning())
+    if (isTuning()) {
         stopTune();
-    else
+        // Restore single-tone so the next regular Tune press isn't surprised
+        // by sticky two-tone state on the radio.
+        setTuneMode("single_tone");
+    } else {
         startTwoToneTune();
+    }
 }
 
 void TransmitModel::stopTune()

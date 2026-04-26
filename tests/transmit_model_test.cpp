@@ -39,8 +39,11 @@ int main(int argc, char** argv)
     tx.applyTransmitStatus({{"tune", "1"}});
     commands.clear();
     tx.toggleTwoToneTune();
-    ok &= expect(commands == QStringList({"transmit tune 0"}),
-                 "two-tone tune toggle stops when already tuning");
+    ok &= expect(commands == QStringList({
+                     "transmit tune 0",
+                     "transmit set tune_mode=single_tone",
+                 }),
+                 "two-tone tune toggle stops and restores single-tone mode");
 
     tx.applyTransmitStatus({{"tune", "0"}});
     commands.clear();
