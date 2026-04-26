@@ -1,4 +1,8 @@
 #include "MainWindow.h"
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <windowsx.h>
+#endif
 #ifdef HAVE_MQTT
 #include "MqttApplet.h"
 #endif
@@ -3777,6 +3781,45 @@ void MainWindow::resizeEvent(QResizeEvent* event)
         m_sizeGrip->raise();
     }
 }
+
+#ifdef Q_OS_WIN
+bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr* result)
+{
+    if (!result)
+        return false;
+
+    auto* msg = static_cast<MSG*>(message);
+    if (msg->message != WM_NCHITTEST)
+        return QMainWindow::nativeEvent(eventType, message, result);
+
+    // Only handle hit-testing in frameless mode and when not maximized
+    if (!(windowFlags() & Qt::FramelessWindowHint) || isMaximized())
+        return QMainWindow::nativeEvent(eventType, message, result);
+
+    const int borderWidth = 6; // px — matches typical Windows resize margin
+    RECT winRect;
+    GetWindowRect(msg->hwnd, &winRect);
+    const int x = GET_X_LPARAM(msg->lParam) - winRect.left;
+    const int y = GET_Y_LPARAM(msg->lParam) - winRect.top;
+    const int w = winRect.right - winRect.left;
+    const int h = winRect.bottom - winRect.top;
+
+    if (y < borderWidth) {
+        if (x < borderWidth)      { *result = HTTOPLEFT;     return true; }
+        if (x >= w - borderWidth)  { *result = HTTOPRIGHT;    return true; }
+        *result = HTTOP;           return true;
+    }
+    if (y >= h - borderWidth) {
+        if (x < borderWidth)      { *result = HTBOTTOMLEFT;  return true; }
+        if (x >= w - borderWidth)  { *result = HTBOTTOMRIGHT; return true; }
+        *result = HTBOTTOM;        return true;
+    }
+    if (x < borderWidth)          { *result = HTLEFT;        return true; }
+    if (x >= w - borderWidth)     { *result = HTRIGHT;       return true; }
+
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+#endif
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
