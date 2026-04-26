@@ -52,6 +52,14 @@ public:
     void floatPanadapter(const QString& panId);
     void dockPanadapter(const QString& panId);
     bool isFloating(const QString& panId) const;
+
+    // Persist / restore which pans are currently floating (AppSettings key
+    // "FloatingPanIds").  saveFloatingState is called automatically on every
+    // float/dock transition and at shutdown; restoreFloatingState is called
+    // once after all pans have been added following a radio connect.
+    void saveFloatingState() const;
+    void restoreFloatingState();
+
     void prepareShutdown();
 
 signals:

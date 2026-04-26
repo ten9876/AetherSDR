@@ -3,9 +3,11 @@
 #include "PanFloatingWindow.h"
 #include "PanadapterApplet.h"
 #include "SpectrumWidget.h"
+#include "core/AppSettings.h"
 
 #include <QHBoxLayout>
 #include <QLayout>
+#include <QStringList>
 #include <QVBoxLayout>
 #include <QTimer>
 #include <QWindow>
@@ -502,6 +504,7 @@ void PanadapterStack::floatPanadapter(const QString& panId)
     fw->restoreWindowGeometry();
     fw->show();
     fw->raise();
+    saveFloatingState();
 
     connect(fw, &PanFloatingWindow::dockRequested,
             this, &PanadapterStack::dockPanadapter);
@@ -539,6 +542,7 @@ void PanadapterStack::dockPanadapter(const QString& panId)
     applet = fw->takeApplet();
     fw->hide();
     fw->deleteLater();
+    saveFloatingState();
 
     if (!applet) return;
 
@@ -590,10 +594,32 @@ bool PanadapterStack::isFloating(const QString& panId) const
 
 void PanadapterStack::prepareShutdown()
 {
+    saveFloatingState();
     for (auto* fw : m_floatingWindows) {
         fw->saveWindowGeometry();
         fw->setShuttingDown(true);
         fw->close();
+    }
+}
+
+void PanadapterStack::saveFloatingState() const
+{
+    QStringList ids;
+    for (const QString& id : m_floatingWindows.keys()) {
+        ids << id;
+    }
+    AppSettings::instance().setValue("FloatingPanIds", ids.join(','));
+}
+
+void PanadapterStack::restoreFloatingState()
+{
+    const QString saved =
+        AppSettings::instance().value("FloatingPanIds", "").toString();
+    if (saved.isEmpty()) return;
+    for (const QString& id : saved.split(',', Qt::SkipEmptyParts)) {
+        if (m_pans.contains(id) && !m_floatingWindows.contains(id)) {
+            floatPanadapter(id);
+        }
     }
 }
 
