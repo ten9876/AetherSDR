@@ -1,4 +1,5 @@
 #include "VfoWidget.h"
+#include "FilterEditorPopup.h"
 #include "PhaseKnob.h"
 #include "ComboStyle.h"
 #include "GuardedSlider.h"
@@ -330,10 +331,13 @@ void VfoWidget::buildUI()
     });
     hdr->addWidget(m_txAntBtn);
 
+    // Click to open Lo/Hi Hz direct-entry popup (#2053)
     m_filterWidthLbl = new QLabel("2.7K");
     m_filterWidthLbl->setStyleSheet("QLabel { background: transparent; border: none; "
                                      "color: #00c8ff; font-size: 13px; font-weight: bold; "
                                      "margin: 0; padding: 0; }");
+    m_filterWidthLbl->setCursor(Qt::PointingHandCursor);
+    m_filterWidthLbl->installEventFilter(this);
     hdr->addWidget(m_filterWidthLbl);
 
     hdr->addStretch(1);
@@ -625,6 +629,7 @@ void VfoWidget::buildUI()
     m_rxAntBtn->setAccessibleName("RX antenna");
     m_txAntBtn->setAccessibleName("TX antenna");
     m_filterWidthLbl->setAccessibleName("Filter width");
+    m_filterWidthLbl->setToolTip("Click to enter exact filter Lo/Hi frequencies in Hz.");
     m_splitBadge->setAccessibleName("Split mode");
     m_splitBadge->setAccessibleDescription("Toggle split transmit frequency");
     m_txBadge->setAccessibleName("TX slice selector");
@@ -3402,6 +3407,23 @@ bool VfoWidget::eventFilter(QObject* obj, QEvent* event)
                 emit addSpotRequested(m_slice->frequency());
             });
             menu.exec(me->globalPosition().toPoint());
+            return true;
+        }
+    }
+
+    // Click on filter width label → open Lo/Hi Hz editor popup (#2053)
+    if (obj == m_filterWidthLbl && event->type() == QEvent::MouseButtonPress) {
+        auto* me = static_cast<QMouseEvent*>(event);
+        if (me->button() == Qt::LeftButton && m_slice) {
+            auto* popup = new FilterEditorPopup(this);
+            popup->setFilter(m_slice->filterLow(), m_slice->filterHigh());
+            connect(popup, &FilterEditorPopup::filterChanged, this, [this](int lo, int hi) {
+                if (m_slice) {
+                    m_slice->setFilterWidth(lo, hi);
+                }
+            });
+            popup->showAt(m_filterWidthLbl->mapToGlobal(
+                QPoint(0, m_filterWidthLbl->height())));
             return true;
         }
     }

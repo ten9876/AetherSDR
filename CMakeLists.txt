@@ -503,6 +503,7 @@ set(GUI_SOURCES
     src/gui/SpotSettingsDialog.cpp
     src/gui/AetherDspDialog.cpp
     src/gui/DspParamPopup.cpp
+    src/gui/FilterEditorPopup.cpp
     src/gui/DxClusterDialog.cpp
     src/gui/CwxPanel.cpp
     src/gui/BandStackPanel.cpp

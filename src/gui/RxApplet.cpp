@@ -1,4 +1,5 @@
 #include "RxApplet.h"
+#include "FilterEditorPopup.h"
 #include "FilterPassbandWidget.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
@@ -332,10 +333,13 @@ void RxApplet::buildUI()
         row->addStretch(1);
 
         // Filter width label (e.g. "2.7K") — centered between ANT and QSK
+        // Click to open Lo/Hi Hz direct-entry popup (#2053)
         m_filterWidthLbl = new QLabel("2.7K");
         m_filterWidthLbl->setAlignment(Qt::AlignCenter);
         m_filterWidthLbl->setStyleSheet(
             "QLabel { color: #00c8ff; font-size: 11px; font-weight: bold; }");
+        m_filterWidthLbl->setCursor(Qt::PointingHandCursor);
+        m_filterWidthLbl->installEventFilter(this);
         row->addWidget(m_filterWidthLbl);
 
         row->addStretch(1);
@@ -933,6 +937,7 @@ void RxApplet::buildUI()
     m_txAntBtn->setAccessibleName("TX antenna");
     m_txAntBtn->setAccessibleDescription("Select transmit antenna port");
     m_filterWidthLbl->setAccessibleName("Filter width");
+    m_filterWidthLbl->setToolTip("Click to enter exact filter Lo/Hi frequencies in Hz.");
     m_qskBtn->setAccessibleName("QSK indicator");
     m_qskBtn->setAccessibleDescription("Full break-in CW indicator");
     m_txBadge->setAccessibleName("TX slice selector");
@@ -1839,6 +1844,23 @@ bool RxApplet::eventFilter(QObject* obj, QEvent* ev)
         m_freqStack->setCurrentIndex(1);
         m_freqEdit->setFocus();
         return true;
+    }
+
+    // Click on filter width label → open Lo/Hi Hz editor popup (#2053)
+    if (obj == m_filterWidthLbl && ev->type() == QEvent::MouseButtonPress) {
+        auto* me = static_cast<QMouseEvent*>(ev);
+        if (me->button() == Qt::LeftButton && m_slice) {
+            auto* popup = new FilterEditorPopup(this);
+            popup->setFilter(m_slice->filterLow(), m_slice->filterHigh());
+            connect(popup, &FilterEditorPopup::filterChanged, this, [this](int lo, int hi) {
+                if (m_slice) {
+                    m_slice->setFilterWidth(lo, hi);
+                }
+            });
+            popup->showAt(m_filterWidthLbl->mapToGlobal(
+                QPoint(0, m_filterWidthLbl->height())));
+            return true;
+        }
     }
 
     if (obj == m_freqLabel && ev->type() == QEvent::Wheel) {
