@@ -9561,7 +9561,7 @@ void MainWindow::registerShortcutActions()
     m_shortcutManager.registerAction("vox_toggle", "VOX Toggle", "TX",
         QKeySequence(), [this]() {
             if (!m_radioModel.isConnected()) return;
-            auto tx = m_radioModel.transmitModel();
+            auto& tx = m_radioModel.transmitModel();
             tx.setVoxEnable(!tx.voxEnable());
         });
 
