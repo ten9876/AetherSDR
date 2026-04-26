@@ -25,6 +25,9 @@ public:
     void restoreWindowGeometry();
     void setShuttingDown(bool on) { m_shuttingDown = on; }
 
+    // Follow the main-window frameless setting.  Preserves position.
+    void setFramelessMode(bool on);
+
 signals:
     void dockRequested(const QString& panId);
 
