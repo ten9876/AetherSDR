@@ -294,9 +294,14 @@ void TxApplet::buildUI()
             m_model->setMox(on);
     });
 
-    // ATU button — start ATU tune
+    // ATU button — toggle between tune and bypass
     connect(m_atuBtn, &QPushButton::clicked, this, [this]() {
-        if (m_model) m_model->atuStart();
+        if (!m_model) return;
+        const auto status = m_model->atuStatus();
+        if (status == ATUStatus::Successful || status == ATUStatus::OK)
+            m_model->atuBypass();
+        else
+            m_model->atuStart();
     });
 
     // MEM button — toggle ATU memories
