@@ -633,6 +633,10 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
     auto* txDsp = m_containerMgr->createContainer(
         "tx_dsp", QString::fromUtf8("Aetherial Audio\xe2\x84\xa2"));
+    // Cap the column width so popped-out floating windows don't grow
+    // wider than the chain visualisation needs.  Docked columns are
+    // already narrower so this is a no-op there.
+    if (txDsp) txDsp->setMaximumWidth(280);
 
     auto makeChildContainer = [this, txDsp](const QString& id,
                                             const QString& title,
@@ -833,6 +837,22 @@ void AppletPanel::setPooDooActiveSide(PooDooSide side)
     };
     applyVisibility(kTxOnly, txActive);
     applyVisibility(kRxOnly, !txActive);
+
+    // If the parent tx_dsp container is currently floating, the set of
+    // visible children just changed — its sizeHint shrank or grew but
+    // the floating window won't refit on its own.  Defer one event-loop
+    // tick so child layouts (e.g. ClientChainWidget, which dynamically
+    // setFixedHeight()s itself based on row count) finish recalculating
+    // before we read sizeHint.
+    if (auto* parent = m_containerMgr->container("tx_dsp")) {
+        if (parent->isFloating()) {
+            if (QWidget* win = parent->window()) {
+                QTimer::singleShot(0, win, [win]() {
+                    win->adjustSize();
+                });
+            }
+        }
+    }
 }
 
 void AppletPanel::resetOrder()

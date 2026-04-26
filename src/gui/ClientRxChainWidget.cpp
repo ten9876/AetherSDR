@@ -66,13 +66,13 @@ const QColor kDropIndicator  ("#4db8d4");
 // can't be dropped on the other.
 constexpr const char* kMimeFormat = "application/x-aethersdr-rx-chain-stage";
 
-// Short label per RX stage — kept ≤4 chars to fit inside the narrow box.
+// Short label per RX stage — kept ≤5 chars to fit inside the narrow box.
 QString stageLabel(AudioEngine::RxChainStage s)
 {
     switch (s) {
         case AudioEngine::RxChainStage::Eq:   return "EQ";
-        case AudioEngine::RxChainStage::Gate: return "GATE";
-        case AudioEngine::RxChainStage::Comp: return "COMP";
+        case AudioEngine::RxChainStage::Gate: return "AGC-T";
+        case AudioEngine::RxChainStage::Comp: return "AGC-C";
         case AudioEngine::RxChainStage::Tube: return "TUBE";
         case AudioEngine::RxChainStage::Pudu: return "PUDU";
         case AudioEngine::RxChainStage::None: return "";

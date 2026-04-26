@@ -101,17 +101,21 @@ void FloatingContainerWindow::restoreAndEnsureVisible(QWidget* anchor)
         }
     }
     if (!restored) {
-        // Default: centre on the anchor's screen at a reasonable size.
+        // Default: size to the container's natural sizeHint so we don't
+        // open with dead space above and below the children.  Width
+        // falls back to kDefaultW when the hint is too narrow to read.
+        adjustSize();
+        const QSize hint = sizeHint();
+        const int w = std::max(kDefaultW, hint.width());
+        const int h = std::max(hint.height(), 80);  // tiny floor
+        resize(w, h);
         QScreen* screen = anchor && anchor->screen()
             ? anchor->screen()
             : QGuiApplication::primaryScreen();
         if (screen) {
             const QRect g = screen->availableGeometry();
-            resize(kDefaultW, kDefaultH);
-            move(g.center().x() - kDefaultW / 2,
-                 g.center().y() - kDefaultH / 2);
-        } else {
-            resize(kDefaultW, kDefaultH);
+            move(g.center().x() - w / 2,
+                 g.center().y() - h / 2);
         }
     } else {
         // Clamp to any visible screen — saved geometry may reference

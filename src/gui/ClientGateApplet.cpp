@@ -177,19 +177,15 @@ void ClientGateApplet::buildUI()
         });
         row->addWidget(m_ratio);
 
-        m_attack = makeKnob("Attack");
-        m_attack->setRange(0.1f, 100.0f);
-        m_attack->setDefault(0.5f);
-        m_attack->setValueFromNorm([](float n) {
-            return 0.1f * std::pow(1000.0f, n);
+        m_return = makeKnob("Return");
+        m_return->setRange(0.0f, 20.0f);
+        m_return->setDefault(2.0f);
+        m_return->setValueFromNorm([](float n) { return n * 20.0f; });
+        m_return->setNormFromValue([](float v) { return v / 20.0f; });
+        m_return->setLabelFormat([](float v) {
+            return QString::number(v, 'f', 2) + " dB";
         });
-        m_attack->setNormFromValue([](float v) {
-            return std::log(std::max(0.1f, v) / 0.1f) / std::log(1000.0f);
-        });
-        m_attack->setLabelFormat([](float v) {
-            return QString::number(v, 'f', v < 10.0f ? 2 : 1) + " ms";
-        });
-        row->addWidget(m_attack);
+        row->addWidget(m_return);
 
         m_release = makeKnob("Release");
         m_release->setRange(5.0f, 2000.0f);
@@ -230,7 +226,7 @@ void ClientGateApplet::buildUI()
     };
     wire(m_thresh,  &ClientGate::setThresholdDb);
     wire(m_ratio,   &ClientGate::setRatio);
-    wire(m_attack,  &ClientGate::setAttackMs);
+    wire(m_return,  &ClientGate::setReturnDb);
     wire(m_release, &ClientGate::setReleaseMs);
     wire(m_floor,   &ClientGate::setFloorDb);
 
@@ -255,7 +251,7 @@ void ClientGateApplet::syncEnableFromEngine()
     ClientGate* g = gate();
     if (m_thresh)  { QSignalBlocker b(m_thresh);  m_thresh->setValue(g->thresholdDb()); }
     if (m_ratio)   { QSignalBlocker b(m_ratio);   m_ratio->setValue(g->ratio()); }
-    if (m_attack)  { QSignalBlocker b(m_attack);  m_attack->setValue(g->attackMs()); }
+    if (m_return)  { QSignalBlocker b(m_return);  m_return->setValue(g->returnDb()); }
     if (m_release) { QSignalBlocker b(m_release); m_release->setValue(g->releaseMs()); }
     if (m_floor)   { QSignalBlocker b(m_floor);   m_floor->setValue(g->floorDb()); }
 }
@@ -289,7 +285,7 @@ void ClientGateApplet::tickMeter()
     // prevents the setValue from re-driving the engine.
     if (m_thresh)  { QSignalBlocker b(m_thresh);  m_thresh->setValue(g->thresholdDb()); }
     if (m_ratio)   { QSignalBlocker b(m_ratio);   m_ratio->setValue(g->ratio()); }
-    if (m_attack)  { QSignalBlocker b(m_attack);  m_attack->setValue(g->attackMs()); }
+    if (m_return)  { QSignalBlocker b(m_return);  m_return->setValue(g->returnDb()); }
     if (m_release) { QSignalBlocker b(m_release); m_release->setValue(g->releaseMs()); }
     if (m_floor)   { QSignalBlocker b(m_floor);   m_floor->setValue(g->floorDb()); }
 }

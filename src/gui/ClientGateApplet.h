@@ -56,11 +56,11 @@ private:
     ClientGateCurveWidget* m_curve{nullptr};
     ClientGateGrBar*       m_grBar{nullptr};
     // Five most-tuned knobs mirroring the editor: threshold, ratio,
-    // attack, release, floor.  Saves a trip to the floating editor for
+    // return, release, floor.  Saves a trip to the floating editor for
     // everyday tuning.
     ClientCompKnob*        m_thresh{nullptr};
     ClientCompKnob*        m_ratio{nullptr};
-    ClientCompKnob*        m_attack{nullptr};
+    ClientCompKnob*        m_return{nullptr};
     ClientCompKnob*        m_release{nullptr};
     ClientCompKnob*        m_floor{nullptr};
     QTimer*                m_meterTimer{nullptr};
