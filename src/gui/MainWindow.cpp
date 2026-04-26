@@ -9558,6 +9558,12 @@ void MainWindow::registerShortcutActions()
             if (!m_radioModel.isConnected()) return;
             m_radioModel.transmitModel().toggleTwoToneTune();
         });
+    m_shortcutManager.registerAction("vox_toggle", "VOX Toggle", "TX",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto tx = m_radioModel.transmitModel();
+            tx.setVoxEnable(!tx.voxEnable());
+        });
 
     // ── Audio ───────────────────────────────────────────────────────────
     m_shortcutManager.registerAction("af_gain_up", "AF Gain Up", "Audio",
