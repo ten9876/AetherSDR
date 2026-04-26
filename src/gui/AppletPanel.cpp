@@ -614,17 +614,25 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // the three sub-containers live inside a parent "tx_dsp"
     // container whose own titlebar is hidden (the outer AppletEntry
     // wrapper provides the group's drag-handle + tray-toggle).
-    m_clientEqApplet    = new ClientEqApplet;
-    m_clientCompApplet  = new ClientCompApplet;
-    m_clientGateApplet  = new ClientGateApplet;
+    // Phase 7.1: CEQ split — one Tx-bound copy + one Rx-bound copy.
+    // No internal Rx/Tx tab anymore; each tile owns one path for its
+    // entire lifetime.
+    m_clientEqTxApplet  = new ClientEqApplet(ClientEqApplet::Path::Tx);
+    m_clientEqRxApplet  = new ClientEqApplet(ClientEqApplet::Path::Rx);
+    m_clientCompApplet   = new ClientCompApplet(ClientCompApplet::Side::Tx);
+    m_clientCompRxApplet = new ClientCompApplet(ClientCompApplet::Side::Rx);
+    m_clientGateApplet   = new ClientGateApplet(ClientGateApplet::Side::Tx);
+    m_clientGateRxApplet = new ClientGateApplet(ClientGateApplet::Side::Rx);
     m_clientDeEssApplet = new ClientDeEssApplet;
-    m_clientTubeApplet  = new ClientTubeApplet;
-    m_clientPuduApplet  = new ClientPuduApplet;
+    m_clientTubeApplet   = new ClientTubeApplet(ClientTubeApplet::Side::Tx);
+    m_clientTubeRxApplet = new ClientTubeApplet(ClientTubeApplet::Side::Rx);
+    m_clientPuduApplet   = new ClientPuduApplet(ClientPuduApplet::Side::Tx);
+    m_clientPuduRxApplet = new ClientPuduApplet(ClientPuduApplet::Side::Rx);
     m_clientReverbApplet = new ClientReverbApplet;
     m_clientChainApplet = new ClientChainApplet;
 
     auto* txDsp = m_containerMgr->createContainer(
-        "tx_dsp", QString::fromUtf8("PooDoo\xe2\x84\xa2 Audio"));
+        "tx_dsp", QString::fromUtf8("Aetherial Audio\xe2\x84\xa2"));
 
     auto makeChildContainer = [this, txDsp](const QString& id,
                                             const QString& title,
@@ -641,13 +649,18 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // pop-outable sub-containers since users commonly want them
     // floating while working on the chain.)
     if (txDsp) txDsp->insertChildWidget(-1, m_clientChainApplet);
-    makeChildContainer("gate",  "GATE",  m_clientGateApplet,   -1);
-    makeChildContainer("ceq",   "CEQ",   m_clientEqApplet,     -1);
-    makeChildContainer("dess",  "DESS",  m_clientDeEssApplet,  -1);
-    makeChildContainer("cmp",   "COMPRESSOR",   m_clientCompApplet,   -1);
-    makeChildContainer("tube",  "TUBE",  m_clientTubeApplet,   -1);
-    makeChildContainer("pudu",  "PUDU",  m_clientPuduApplet,   -1);
-    makeChildContainer("reverb","REVERB",m_clientReverbApplet, -1);
+    makeChildContainer("gate",    "Aetherial TX Gate",       m_clientGateApplet,   -1);
+    makeChildContainer("gate-rx", "Aetherial AGC-T",          m_clientGateRxApplet, -1);
+    makeChildContainer("ceq",     "Aetherial TX EQ",          m_clientEqTxApplet,   -1);
+    makeChildContainer("ceq-rx",  "Aetherial RX EQ",          m_clientEqRxApplet,   -1);
+    makeChildContainer("dess",    "Aetherial De-Esser",       m_clientDeEssApplet,  -1);
+    makeChildContainer("cmp",     "Aetherial Compressor",     m_clientCompApplet,   -1);
+    makeChildContainer("cmp-rx",  "Aetherial AGC-C",          m_clientCompRxApplet, -1);
+    makeChildContainer("tube",    "Aetherial Mic-PreAmp",     m_clientTubeApplet,   -1);
+    makeChildContainer("tube-rx", "Aetherial Dynamic Tube",   m_clientTubeRxApplet, -1);
+    makeChildContainer("pudu",    QString::fromUtf8("Aetherial TX Poodoo\xe2\x84\xa2"), m_clientPuduApplet,   -1);
+    makeChildContainer("pudu-rx", QString::fromUtf8("Aetherial RX Poodoo\xe2\x84\xa2"), m_clientPuduRxApplet, -1);
+    makeChildContainer("reverb",  "Aetherial FreeVerb",       m_clientReverbApplet, -1);
 
     // One-shot settings migration (#1713 Phase 4b): carry over the
     // legacy Applet_CHAIN visibility to the new Applet_TXDSP key so
@@ -785,6 +798,43 @@ void AppletPanel::setAppletVisible(const QString& id, bool visible)
     }
 }
 
+void AppletPanel::setPooDooActiveSide(PooDooSide side)
+{
+    if (!m_containerMgr) return;
+    // Containers tagged as TX-only or RX-only.  CEQ has dedicated
+    // tiles per side ("ceq" = TX, "ceq-rx" = RX), as do GATE / CMP /
+    // TUBE / PUDU once Phases 7.2-7.5 ship (their RX siblings will
+    // join this list as they're added).  DESS and REVERB are TX-only
+    // — they hide entirely on RX and reappear on TX.
+    static const QStringList kTxOnly{
+        QStringLiteral("ceq"),
+        QStringLiteral("dess"),
+        QStringLiteral("gate"),
+        QStringLiteral("cmp"),
+        QStringLiteral("tube"),
+        QStringLiteral("pudu"),
+        QStringLiteral("reverb"),
+    };
+    static const QStringList kRxOnly{
+        QStringLiteral("ceq-rx"),
+        QStringLiteral("gate-rx"),
+        QStringLiteral("cmp-rx"),
+        QStringLiteral("tube-rx"),
+        QStringLiteral("pudu-rx"),
+    };
+    const bool txActive = (side == PooDooSide::Tx);
+
+    auto applyVisibility = [this](const QStringList& ids, bool visible) {
+        for (const auto& id : ids) {
+            if (auto* c = m_containerMgr->container(id)) {
+                c->setContainerVisible(visible);
+            }
+        }
+    };
+    applyVisibility(kTxOnly, txActive);
+    applyVisibility(kRxOnly, !txActive);
+}
+
 void AppletPanel::resetOrder()
 {
     // Reorder m_appletOrder to match kDefaultOrder
@@ -893,6 +943,35 @@ void AppletPanel::setMaxSlices(int maxSlices)
 void AppletPanel::updateSliceButtons(const QList<SliceModel*>& slices, int activeSliceId)
 {
     m_rxApplet->updateSliceButtons(slices, activeSliceId);
+}
+
+void AppletPanel::setRxDspChainOrder(
+    const QVector<AudioEngine::RxChainStage>& stages)
+{
+    if (!m_containerMgr) return;
+    auto* parent = m_containerMgr->container("tx_dsp");
+    if (!parent) return;
+
+    auto idFor = [](AudioEngine::RxChainStage s) -> QString {
+        switch (s) {
+            case AudioEngine::RxChainStage::Eq:   return "ceq-rx";
+            case AudioEngine::RxChainStage::Gate: return "gate-rx";
+            case AudioEngine::RxChainStage::Comp: return "cmp-rx";
+            case AudioEngine::RxChainStage::Tube: return "tube-rx";
+            case AudioEngine::RxChainStage::Pudu: return "pudu-rx";
+            case AudioEngine::RxChainStage::None: return {};
+        }
+        return {};
+    };
+
+    for (auto s : stages) {
+        const QString id = idFor(s);
+        if (id.isEmpty()) continue;
+        auto* child = m_containerMgr->container(id);
+        if (!child) continue;
+        parent->removeChildWidget(child);
+        parent->insertChildWidget(-1, child);
+    }
 }
 
 void AppletPanel::setTxDspChainOrder(

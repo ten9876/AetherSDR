@@ -1,5 +1,6 @@
 #include "ClientPuduEditor.h"
 #include "ClientCompKnob.h"
+#include "EditorFramelessTitleBar.h"
 #include "PooDooLogo.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
@@ -86,16 +87,20 @@ QWidget* makeBracketLabel(const QString& text)
 } // namespace
 
 ClientPuduEditor::ClientPuduEditor(AudioEngine* engine, QWidget* parent)
-    : QWidget(parent, Qt::Window)
+    : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
     , m_audio(engine)
 {
-    setWindowTitle(QString::fromUtf8("PooDoo\xe2\x84\xa2 Audio — PUDU"));
+    setWindowTitle(QString::fromUtf8("Aetherial Poodoo\xe2\x84\xa2"));
     setStyleSheet(kWindowStyle);
     resize(kDefaultWidth, kDefaultHeight);
 
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(12, 10, 12, 10);
+    root->setContentsMargins(12, 0, 12, 10);
     root->setSpacing(8);
+
+    auto* titleBar = new EditorFramelessTitleBar;
+    m_titleBar = titleBar;
+    root->addWidget(titleBar);
 
     // ── Logo (big in the editor) ────────────────────────────────
     m_logo = new PooDooLogo;
@@ -257,8 +262,8 @@ ClientPuduEditor::ClientPuduEditor(AudioEngine* engine, QWidget* parent)
 
     root->addStretch();
 
-    if (m_audio && m_audio->clientPuduTx()) {
-        m_logo->setPudu(m_audio->clientPuduTx());
+    if (m_audio && pudu()) {
+        m_logo->setPudu(pudu());
     }
 
     syncControlsFromEngine();
@@ -266,8 +271,43 @@ ClientPuduEditor::ClientPuduEditor(AudioEngine* engine, QWidget* parent)
 
 ClientPuduEditor::~ClientPuduEditor() = default;
 
+ClientPudu* ClientPuduEditor::pudu() const
+{
+    if (!m_audio) return nullptr;
+    return m_side == Side::Rx ? m_audio->clientPuduRx()
+                              : m_audio->clientPuduTx();
+}
+
+void ClientPuduEditor::savePuduSettings() const
+{
+    if (!m_audio) return;
+    if (m_side == Side::Rx) m_audio->saveClientPuduRxSettings();
+    else                    m_audio->saveClientPuduSettings();
+}
+
 void ClientPuduEditor::showForTx()
 {
+    m_side = Side::Tx;
+    if (m_logo && pudu()) m_logo->setPudu(pudu());
+    const QString title = QString::fromUtf8("Aetherial Poodoo\xe2\x84\xa2 \xe2\x80\x94 TX");
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    setWindowTitle(title);
+    syncControlsFromEngine();
+    restoreGeometryFromSettings();
+    show();
+    raise();
+    activateWindow();
+}
+
+void ClientPuduEditor::showForRx()
+{
+    m_side = Side::Rx;
+    if (m_logo && pudu()) m_logo->setPudu(pudu());
+    const QString title = QString::fromUtf8("Aetherial Poodoo\xe2\x84\xa2 \xe2\x80\x94 RX");
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    setWindowTitle(title);
     syncControlsFromEngine();
     restoreGeometryFromSettings();
     show();
@@ -277,8 +317,8 @@ void ClientPuduEditor::showForTx()
 
 void ClientPuduEditor::syncControlsFromEngine()
 {
-    if (!m_audio || !m_audio->clientPuduTx()) return;
-    ClientPudu* p = m_audio->clientPuduTx();
+    if (!m_audio || !pudu()) return;
+    ClientPudu* p = pudu();
     m_restoring = true;
 
     {
@@ -301,46 +341,46 @@ void ClientPuduEditor::syncControlsFromEngine()
 void ClientPuduEditor::onModeToggled(int id)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setMode(
+    pudu()->setMode(
         id == 1 ? ClientPudu::Mode::Behringer : ClientPudu::Mode::Aphex);
-    m_audio->saveClientPuduSettings();
+    savePuduSettings();
 }
 
 void ClientPuduEditor::applyPooDrive(float db)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setPooDriveDb(db);
-    m_audio->saveClientPuduSettings();
+    pudu()->setPooDriveDb(db);
+    savePuduSettings();
 }
 void ClientPuduEditor::applyPooTune(float hz)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setPooTuneHz(hz);
-    m_audio->saveClientPuduSettings();
+    pudu()->setPooTuneHz(hz);
+    savePuduSettings();
 }
 void ClientPuduEditor::applyPooMix(float v)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setPooMix(v);
-    m_audio->saveClientPuduSettings();
+    pudu()->setPooMix(v);
+    savePuduSettings();
 }
 void ClientPuduEditor::applyDooTune(float hz)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setDooTuneHz(hz);
-    m_audio->saveClientPuduSettings();
+    pudu()->setDooTuneHz(hz);
+    savePuduSettings();
 }
 void ClientPuduEditor::applyDooHarmonics(float db)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setDooHarmonicsDb(db);
-    m_audio->saveClientPuduSettings();
+    pudu()->setDooHarmonicsDb(db);
+    savePuduSettings();
 }
 void ClientPuduEditor::applyDooMix(float v)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientPuduTx()->setDooMix(v);
-    m_audio->saveClientPuduSettings();
+    pudu()->setDooMix(v);
+    savePuduSettings();
 }
 
 void ClientPuduEditor::saveGeometryToSettings()

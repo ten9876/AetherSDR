@@ -18,13 +18,16 @@ class ClientPuduEditor : public QWidget {
     Q_OBJECT
 
 public:
+    enum class Side { Tx, Rx };
+
     explicit ClientPuduEditor(AudioEngine* engine, QWidget* parent = nullptr);
     ~ClientPuduEditor() override;
 
     void showForTx();
+    void showForRx();
 
 signals:
-    void bypassToggled(bool bypassed);
+    void bypassToggled(Side side, bool bypassed);
 
 protected:
     void closeEvent(QCloseEvent* ev) override;
@@ -47,6 +50,10 @@ private:
     void applyDooMix(float v);
 
     AudioEngine*    m_audio{nullptr};
+    Side            m_side{Side::Tx};
+    QWidget*        m_titleBar{nullptr};   // EditorFramelessTitleBar*
+    class ClientPudu* pudu() const;
+    void              savePuduSettings() const;
     PooDooLogo*     m_logo{nullptr};
     QPushButton*    m_bypass{nullptr};
     QPushButton*    m_modeA{nullptr};

@@ -4,6 +4,7 @@
 #include "ClientCompLimiterButton.h"
 #include "ClientCompMeter.h"
 #include "ClientCompThresholdFader.h"
+#include "EditorFramelessTitleBar.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/ClientComp.h"
@@ -63,16 +64,20 @@ const QString kLimBtnStyle = QStringLiteral(
 } // namespace
 
 ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
-    : QWidget(parent, Qt::Window)
+    : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
     , m_audio(engine)
 {
-    setWindowTitle("Client Compressor");
+    setWindowTitle("Aetherial Compressor");
     setStyleSheet(kWindowStyle);
     resize(kDefaultWidth, kDefaultHeight);
 
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(8, 8, 8, 8);
+    root->setContentsMargins(8, 0, 8, 8);
     root->setSpacing(6);
+
+    auto* titleBar = new EditorFramelessTitleBar;
+    m_titleBar = titleBar;
+    root->addWidget(titleBar);
 
     // Bypass moved to the CHAIN widget's single-click gesture — nothing
     // here in the header.
@@ -234,8 +239,8 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
     }
 
     // ── Signal wiring ───────────────────────────────────────────────
-    if (m_audio && m_audio->clientCompTx()) {
-        m_canvas->setComp(m_audio->clientCompTx());
+    if (m_audio && comp()) {
+        m_canvas->setComp(comp());
     }
 
     connect(m_canvas, &ClientCompEditorCanvas::thresholdChanged,
@@ -270,8 +275,44 @@ ClientCompEditor::ClientCompEditor(AudioEngine* engine, QWidget* parent)
 
 ClientCompEditor::~ClientCompEditor() = default;
 
+ClientComp* ClientCompEditor::comp() const
+{
+    if (!m_audio) return nullptr;
+    return m_side == Side::Rx ? m_audio->clientCompRx()
+                              : m_audio->clientCompTx();
+}
+
+void ClientCompEditor::saveCompSettings() const
+{
+    if (!m_audio) return;
+    if (m_side == Side::Rx) m_audio->saveClientCompRxSettings();
+    else                    m_audio->saveClientCompSettings();
+}
+
 void ClientCompEditor::showForTx()
 {
+    m_side = Side::Tx;
+    if (m_canvas && comp()) m_canvas->setComp(comp());
+    const QString title = QString::fromUtf8("Aetherial Compressor \xe2\x80\x94 TX");
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    setWindowTitle(title);
+    restoreGeometryFromSettings();
+    syncControlsFromEngine();
+    if (m_meterTimer) m_meterTimer->start();
+    show();
+    raise();
+    activateWindow();
+}
+
+void ClientCompEditor::showForRx()
+{
+    m_side = Side::Rx;
+    if (m_canvas && comp()) m_canvas->setComp(comp());
+    const QString title = QString::fromUtf8("Aetherial Compressor \xe2\x80\x94 RX");
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    setWindowTitle(title);
     restoreGeometryFromSettings();
     syncControlsFromEngine();
     if (m_meterTimer) m_meterTimer->start();
@@ -283,7 +324,7 @@ void ClientCompEditor::showForTx()
 void ClientCompEditor::syncControlsFromEngine()
 {
     if (!m_audio) return;
-    ClientComp* c = m_audio->clientCompTx();
+    ClientComp* c = comp();
     if (!c) return;
     QSignalBlocker br(m_ratio);
     QSignalBlocker ba(m_attack);
@@ -307,7 +348,7 @@ void ClientCompEditor::syncControlsFromEngine()
 void ClientCompEditor::tickMeters()
 {
     if (!m_audio) return;
-    ClientComp* c = m_audio->clientCompTx();
+    ClientComp* c = comp();
     if (!c) return;
     if (m_threshFader) m_threshFader->setInputPeakDb(c->inputPeakDb());
     if (m_grMeter)     m_grMeter    ->setValueDb(c->gainReductionDb());
@@ -343,10 +384,10 @@ void ClientCompEditor::tickMeters()
 void ClientCompEditor::applyThreshold(float db)
 {
     if (!m_audio) return;
-    ClientComp* c = m_audio->clientCompTx();
+    ClientComp* c = comp();
     if (!c) return;
     c->setThresholdDb(db);
-    m_audio->saveClientCompSettings();
+    saveCompSettings();
     // Mirror the value onto whichever control didn't originate the
     // change.  Canvas chevron drags land here too, so this keeps the
     // fader handle in sync.  Signal blocking avoids a feedback loop.
@@ -360,10 +401,10 @@ void ClientCompEditor::applyThreshold(float db)
 void ClientCompEditor::applyRatio(float ratio)
 {
     if (!m_audio) return;
-    ClientComp* c = m_audio->clientCompTx();
+    ClientComp* c = comp();
     if (!c) return;
     c->setRatio(ratio);
-    m_audio->saveClientCompSettings();
+    saveCompSettings();
     // Mirror to the knob if the change came from the canvas.
     if (m_ratio && std::fabs(m_ratio->value() - ratio) > 0.001f) {
         QSignalBlocker b(m_ratio);
@@ -375,45 +416,45 @@ void ClientCompEditor::applyRatio(float ratio)
 void ClientCompEditor::applyAttack(float ms)
 {
     if (!m_audio) return;
-    if (auto* c = m_audio->clientCompTx()) c->setAttackMs(ms);
-    m_audio->saveClientCompSettings();
+    if (auto* c = comp()) c->setAttackMs(ms);
+    saveCompSettings();
 }
 
 void ClientCompEditor::applyRelease(float ms)
 {
     if (!m_audio) return;
-    if (auto* c = m_audio->clientCompTx()) c->setReleaseMs(ms);
-    m_audio->saveClientCompSettings();
+    if (auto* c = comp()) c->setReleaseMs(ms);
+    saveCompSettings();
 }
 
 void ClientCompEditor::applyKnee(float db)
 {
     if (!m_audio) return;
-    if (auto* c = m_audio->clientCompTx()) c->setKneeDb(db);
-    m_audio->saveClientCompSettings();
+    if (auto* c = comp()) c->setKneeDb(db);
+    saveCompSettings();
     if (m_canvas) m_canvas->update();
 }
 
 void ClientCompEditor::applyMakeup(float db)
 {
     if (!m_audio) return;
-    if (auto* c = m_audio->clientCompTx()) c->setMakeupDb(db);
-    m_audio->saveClientCompSettings();
+    if (auto* c = comp()) c->setMakeupDb(db);
+    saveCompSettings();
     if (m_canvas) m_canvas->update();
 }
 
 void ClientCompEditor::applyLimiterEnabled(bool on)
 {
     if (!m_audio) return;
-    if (auto* c = m_audio->clientCompTx()) c->setLimiterEnabled(on);
-    m_audio->saveClientCompSettings();
+    if (auto* c = comp()) c->setLimiterEnabled(on);
+    saveCompSettings();
 }
 
 void ClientCompEditor::applyLimiterCeiling(float db)
 {
     if (!m_audio) return;
-    if (auto* c = m_audio->clientCompTx()) c->setLimiterCeilingDb(db);
-    m_audio->saveClientCompSettings();
+    if (auto* c = comp()) c->setLimiterCeilingDb(db);
+    saveCompSettings();
 }
 
 void ClientCompEditor::saveGeometryToSettings()

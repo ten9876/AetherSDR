@@ -29,13 +29,16 @@ class ClientTubeEditor : public QWidget {
     Q_OBJECT
 
 public:
+    enum class Side { Tx, Rx };
+
     explicit ClientTubeEditor(AudioEngine* engine, QWidget* parent = nullptr);
     ~ClientTubeEditor() override;
 
     void showForTx();
+    void showForRx();
 
 signals:
-    void bypassToggled(bool bypassed);
+    void bypassToggled(Side side, bool bypassed);
 
 protected:
     void closeEvent(QCloseEvent* ev) override;
@@ -60,6 +63,10 @@ private:
     void applyRelease(float ms);
 
     AudioEngine*           m_audio{nullptr};
+    Side                   m_side{Side::Tx};
+    QWidget*               m_titleBar{nullptr};   // EditorFramelessTitleBar*
+    class ClientTube*      tube() const;
+    void                   saveTubeSettings() const;
     ClientTubeCurveWidget* m_curve{nullptr};
     ClientCompKnob*        m_dryWet{nullptr};
     ClientCompKnob*        m_output{nullptr};

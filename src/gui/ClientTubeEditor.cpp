@@ -1,6 +1,7 @@
 #include "ClientTubeEditor.h"
 #include "ClientCompKnob.h"
 #include "ClientTubeCurveWidget.h"
+#include "EditorFramelessTitleBar.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/ClientTube.h"
@@ -62,16 +63,20 @@ const QString kModelStyle = QStringLiteral(
 } // namespace
 
 ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
-    : QWidget(parent, Qt::Window)
+    : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
     , m_audio(engine)
 {
-    setWindowTitle("Dynamic Tube");
+    setWindowTitle("Aetherial Tube");
     setStyleSheet(kWindowStyle);
     resize(kDefaultWidth, kDefaultHeight);
 
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(8, 8, 8, 8);
+    root->setContentsMargins(8, 0, 8, 8);
     root->setSpacing(6);
+
+    auto* titleBar = new EditorFramelessTitleBar;
+    m_titleBar = titleBar;
+    root->addWidget(titleBar);
 
     // Bypass moved to the CHAIN widget's single-click gesture.
     // Exclusive model group — buttons are created below in the Tone/Bias
@@ -278,8 +283,8 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
 
     root->addLayout(body);
 
-    if (m_audio && m_audio->clientTubeTx()) {
-        m_curve->setTube(m_audio->clientTubeTx());
+    if (m_audio && tube()) {
+        m_curve->setTube(tube());
     }
 
     syncControlsFromEngine();
@@ -292,8 +297,44 @@ ClientTubeEditor::ClientTubeEditor(AudioEngine* engine, QWidget* parent)
 
 ClientTubeEditor::~ClientTubeEditor() = default;
 
+ClientTube* ClientTubeEditor::tube() const
+{
+    if (!m_audio) return nullptr;
+    return m_side == Side::Rx ? m_audio->clientTubeRx()
+                              : m_audio->clientTubeTx();
+}
+
+void ClientTubeEditor::saveTubeSettings() const
+{
+    if (!m_audio) return;
+    if (m_side == Side::Rx) m_audio->saveClientTubeRxSettings();
+    else                    m_audio->saveClientTubeSettings();
+}
+
 void ClientTubeEditor::showForTx()
 {
+    m_side = Side::Tx;
+    if (m_curve && tube()) m_curve->setTube(tube());
+    const QString title = QString::fromUtf8("Aetherial Tube \xe2\x80\x94 TX");
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    setWindowTitle(title);
+    syncControlsFromEngine();
+    restoreGeometryFromSettings();
+    show();
+    raise();
+    activateWindow();
+    if (m_syncTimer) m_syncTimer->start();
+}
+
+void ClientTubeEditor::showForRx()
+{
+    m_side = Side::Rx;
+    if (m_curve && tube()) m_curve->setTube(tube());
+    const QString title = QString::fromUtf8("Aetherial Tube \xe2\x80\x94 RX");
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    setWindowTitle(title);
     syncControlsFromEngine();
     restoreGeometryFromSettings();
     show();
@@ -304,8 +345,8 @@ void ClientTubeEditor::showForTx()
 
 void ClientTubeEditor::syncControlsFromEngine()
 {
-    if (!m_audio || !m_audio->clientTubeTx()) return;
-    ClientTube* t = m_audio->clientTubeTx();
+    if (!m_audio || !tube()) return;
+    ClientTube* t = tube();
     m_restoring = true;
 
     {
@@ -331,70 +372,70 @@ void ClientTubeEditor::syncControlsFromEngine()
 void ClientTubeEditor::applyModel(int idx)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientTubeTx()->setModel(
+    tube()->setModel(
         idx == 1 ? ClientTube::Model::B :
         idx == 2 ? ClientTube::Model::C :
                    ClientTube::Model::A);
-    m_audio->saveClientTubeSettings();
+    saveTubeSettings();
     if (m_curve) m_curve->update();
 }
 
 void ClientTubeEditor::applyDrive(float db)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientTubeTx()->setDriveDb(db);
-    m_audio->saveClientTubeSettings();
+    tube()->setDriveDb(db);
+    saveTubeSettings();
     if (m_curve) m_curve->update();
 }
 
 void ClientTubeEditor::applyBias(float v)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientTubeTx()->setBiasAmount(v);
-    m_audio->saveClientTubeSettings();
+    tube()->setBiasAmount(v);
+    saveTubeSettings();
     if (m_curve) m_curve->update();
 }
 
 void ClientTubeEditor::applyTone(float v)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientTubeTx()->setTone(v);
-    m_audio->saveClientTubeSettings();
+    tube()->setTone(v);
+    saveTubeSettings();
 }
 
 void ClientTubeEditor::applyOutput(float db)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientTubeTx()->setOutputGainDb(db);
-    m_audio->saveClientTubeSettings();
+    tube()->setOutputGainDb(db);
+    saveTubeSettings();
 }
 
 void ClientTubeEditor::applyDryWet(float v)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientTubeTx()->setDryWet(v);
-    m_audio->saveClientTubeSettings();
+    tube()->setDryWet(v);
+    saveTubeSettings();
 }
 
 void ClientTubeEditor::applyEnvelope(float v)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientTubeTx()->setEnvelopeAmount(v);
-    m_audio->saveClientTubeSettings();
+    tube()->setEnvelopeAmount(v);
+    saveTubeSettings();
 }
 
 void ClientTubeEditor::applyAttack(float ms)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientTubeTx()->setAttackMs(ms);
-    m_audio->saveClientTubeSettings();
+    tube()->setAttackMs(ms);
+    saveTubeSettings();
 }
 
 void ClientTubeEditor::applyRelease(float ms)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientTubeTx()->setReleaseMs(ms);
-    m_audio->saveClientTubeSettings();
+    tube()->setReleaseMs(ms);
+    saveTubeSettings();
 }
 
 void ClientTubeEditor::saveGeometryToSettings()

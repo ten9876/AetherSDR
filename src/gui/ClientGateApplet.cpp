@@ -101,10 +101,26 @@ constexpr const char* kEditStyle =
 
 } // namespace
 
-ClientGateApplet::ClientGateApplet(QWidget* parent) : QWidget(parent)
+ClientGateApplet::ClientGateApplet(Side side, QWidget* parent)
+    : QWidget(parent)
+    , m_side(side)
 {
     buildUI();
     hide();
+}
+
+ClientGate* ClientGateApplet::gate() const
+{
+    if (!m_audio) return nullptr;
+    return m_side == Side::Rx ? m_audio->clientGateRx()
+                              : m_audio->clientGateTx();
+}
+
+void ClientGateApplet::saveGateSettings() const
+{
+    if (!m_audio) return;
+    if (m_side == Side::Rx) m_audio->saveClientGateRxSettings();
+    else                    m_audio->saveClientGateSettings();
 }
 
 void ClientGateApplet::buildUI()
@@ -207,9 +223,9 @@ void ClientGateApplet::buildUI()
     // connect lines read cleanly.
     auto wire = [this](ClientCompKnob* k, auto setter) {
         connect(k, &ClientCompKnob::valueChanged, this, [this, setter](float v) {
-            if (!m_audio || !m_audio->clientGateTx()) return;
-            (m_audio->clientGateTx()->*setter)(v);
-            m_audio->saveClientGateSettings();
+            if (!m_audio || !gate()) return;
+            (gate()->*setter)(v);
+            saveGateSettings();
         });
     };
     wire(m_thresh,  &ClientGate::setThresholdDb);
@@ -227,7 +243,7 @@ void ClientGateApplet::setAudioEngine(AudioEngine* engine)
 {
     m_audio = engine;
     if (!m_audio) return;
-    m_curve->setGate(m_audio->clientGateTx());
+    m_curve->setGate(gate());
     syncEnableFromEngine();
     m_meterTimer->start();
 }
@@ -235,8 +251,8 @@ void ClientGateApplet::setAudioEngine(AudioEngine* engine)
 void ClientGateApplet::syncEnableFromEngine()
 {
     if (m_curve) m_curve->update();
-    if (!m_audio || !m_audio->clientGateTx()) return;
-    ClientGate* g = m_audio->clientGateTx();
+    if (!m_audio || !gate()) return;
+    ClientGate* g = gate();
     if (m_thresh)  { QSignalBlocker b(m_thresh);  m_thresh->setValue(g->thresholdDb()); }
     if (m_ratio)   { QSignalBlocker b(m_ratio);   m_ratio->setValue(g->ratio()); }
     if (m_attack)  { QSignalBlocker b(m_attack);  m_attack->setValue(g->attackMs()); }
@@ -252,17 +268,17 @@ void ClientGateApplet::refreshEnableFromEngine()
 void ClientGateApplet::onEnableToggled(bool on)
 {
     if (!m_audio) return;
-    ClientGate* g = m_audio->clientGateTx();
+    ClientGate* g = gate();
     if (!g) return;
     g->setEnabled(on);
-    m_audio->saveClientGateSettings();
+    saveGateSettings();
     if (m_curve) m_curve->update();
 }
 
 void ClientGateApplet::tickMeter()
 {
     if (!m_audio || !m_grBar) return;
-    ClientGate* g = m_audio->clientGateTx();
+    ClientGate* g = gate();
     if (!g) return;
     const float gr = g->gainReductionDb();
     m_grBar->setGrDb(gr);

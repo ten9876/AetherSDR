@@ -533,6 +533,8 @@ set(GUI_SOURCES
     src/gui/ClientEqParamRow.cpp
     src/gui/ClientChainApplet.cpp
     src/gui/ClientChainWidget.cpp
+    src/gui/ClientRxChainWidget.cpp
+    src/gui/EditorFramelessTitleBar.cpp
     src/gui/containers/ContainerManager.cpp
     src/gui/containers/ContainerTitleBar.cpp
     src/gui/containers/ContainerWidget.cpp

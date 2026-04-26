@@ -1,6 +1,7 @@
 #include "ClientGateEditor.h"
 #include "ClientCompKnob.h"
 #include "ClientGateLevelView.h"
+#include "EditorFramelessTitleBar.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/ClientGate.h"
@@ -72,16 +73,20 @@ const QList<float> kLookaheadOptions{ 0.0f, 1.0f, 1.5f, 3.0f, 5.0f };
 } // namespace
 
 ClientGateEditor::ClientGateEditor(AudioEngine* engine, QWidget* parent)
-    : QWidget(parent, Qt::Window)
+    : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
     , m_audio(engine)
 {
-    setWindowTitle("Client Gate");
+    setWindowTitle("Aetherial Gate");
     setStyleSheet(kWindowStyle);
     resize(kDefaultWidth, kDefaultHeight);
 
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(8, 8, 8, 8);
+    root->setContentsMargins(8, 0, 8, 8);
     root->setSpacing(6);
+
+    auto* titleBar = new EditorFramelessTitleBar;
+    m_titleBar = titleBar;
+    root->addWidget(titleBar);
 
     // Bypass moved to the CHAIN widget's single-click gesture.
 
@@ -277,8 +282,8 @@ ClientGateEditor::ClientGateEditor(AudioEngine* engine, QWidget* parent)
     root->addLayout(body);
 
     // Bind the level view to the gate once so it starts polling.
-    if (m_audio && m_audio->clientGateTx()) {
-        m_levelView->setGate(m_audio->clientGateTx());
+    if (m_audio && gate()) {
+        m_levelView->setGate(gate());
     }
 
     // Initial sync from the engine state.
@@ -295,8 +300,44 @@ ClientGateEditor::ClientGateEditor(AudioEngine* engine, QWidget* parent)
 
 ClientGateEditor::~ClientGateEditor() = default;
 
+ClientGate* ClientGateEditor::gate() const
+{
+    if (!m_audio) return nullptr;
+    return m_side == Side::Rx ? m_audio->clientGateRx()
+                              : m_audio->clientGateTx();
+}
+
+void ClientGateEditor::saveGateSettings() const
+{
+    if (!m_audio) return;
+    if (m_side == Side::Rx) m_audio->saveClientGateRxSettings();
+    else                    m_audio->saveClientGateSettings();
+}
+
 void ClientGateEditor::showForTx()
 {
+    m_side = Side::Tx;
+    if (m_levelView && gate()) m_levelView->setGate(gate());
+    const QString title = QString::fromUtf8("Aetherial Gate \xe2\x80\x94 TX");
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    setWindowTitle(title);
+    syncControlsFromEngine();
+    restoreGeometryFromSettings();
+    show();
+    raise();
+    activateWindow();
+    if (m_syncTimer) m_syncTimer->start();
+}
+
+void ClientGateEditor::showForRx()
+{
+    m_side = Side::Rx;
+    if (m_levelView && gate()) m_levelView->setGate(gate());
+    const QString title = QString::fromUtf8("Aetherial Gate \xe2\x80\x94 RX");
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    setWindowTitle(title);
     syncControlsFromEngine();
     restoreGeometryFromSettings();
     show();
@@ -307,8 +348,8 @@ void ClientGateEditor::showForTx()
 
 void ClientGateEditor::syncControlsFromEngine()
 {
-    if (!m_audio || !m_audio->clientGateTx()) return;
-    ClientGate* g = m_audio->clientGateTx();
+    if (!m_audio || !gate()) return;
+    ClientGate* g = gate();
 
     m_restoring = true;
 
@@ -356,67 +397,67 @@ void ClientGateEditor::syncControlsFromEngine()
 void ClientGateEditor::applyThreshold(float db)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientGateTx()->setThresholdDb(db);
-    m_audio->saveClientGateSettings();
+    gate()->setThresholdDb(db);
+    saveGateSettings();
     if (m_levelView) m_levelView->update();
 }
 
 void ClientGateEditor::applyReturn(float db)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientGateTx()->setReturnDb(db);
-    m_audio->saveClientGateSettings();
+    gate()->setReturnDb(db);
+    saveGateSettings();
     if (m_levelView) m_levelView->update();
 }
 
 void ClientGateEditor::applyRatio(float ratio)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientGateTx()->setRatio(ratio);
-    m_audio->saveClientGateSettings();
+    gate()->setRatio(ratio);
+    saveGateSettings();
 }
 
 void ClientGateEditor::applyAttack(float ms)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientGateTx()->setAttackMs(ms);
-    m_audio->saveClientGateSettings();
+    gate()->setAttackMs(ms);
+    saveGateSettings();
 }
 
 void ClientGateEditor::applyHold(float ms)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientGateTx()->setHoldMs(ms);
-    m_audio->saveClientGateSettings();
+    gate()->setHoldMs(ms);
+    saveGateSettings();
 }
 
 void ClientGateEditor::applyRelease(float ms)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientGateTx()->setReleaseMs(ms);
-    m_audio->saveClientGateSettings();
+    gate()->setReleaseMs(ms);
+    saveGateSettings();
 }
 
 void ClientGateEditor::applyFloor(float db)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientGateTx()->setFloorDb(db);
-    m_audio->saveClientGateSettings();
+    gate()->setFloorDb(db);
+    saveGateSettings();
 }
 
 void ClientGateEditor::applyLookahead(float ms)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientGateTx()->setLookaheadMs(ms);
-    m_audio->saveClientGateSettings();
+    gate()->setLookaheadMs(ms);
+    saveGateSettings();
 }
 
 void ClientGateEditor::applyMode(int modeIdx)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientGateTx()->setMode(
+    gate()->setMode(
         modeIdx == 1 ? ClientGate::Mode::Gate : ClientGate::Mode::Expander);
-    m_audio->saveClientGateSettings();
+    saveGateSettings();
     // Mode snaps ratio + floor; re-sync so the knobs show the new values.
     syncControlsFromEngine();
 }
