@@ -29,6 +29,7 @@ Q_LOGGING_CATEGORY(lcMqtt,       "aether.mqtt",        QtWarningMsg)
 Q_LOGGING_CATEGORY(lcRbn,        "aether.rbn",         QtWarningMsg)
 Q_LOGGING_CATEGORY(lcDevices,    "aether.devices",     QtWarningMsg)
 Q_LOGGING_CATEGORY(lcPerf,       "aether.perf",        QtWarningMsg)
+Q_LOGGING_CATEGORY(lcWebApi,    "aether.webapi",      QtWarningMsg)
 
 LogManager::LogManager()
 {
@@ -53,6 +54,7 @@ LogManager::LogManager()
         {"aether.rbn",        "RBN",          "Reverse Beacon Network connection and spots"},
         {"aether.devices",    "Ext Devices",  "Serial port, FlexControl, MIDI, HID encoder"},
         {"aether.perf",       "Performance",  "Render timing and CPU profiling data"},
+        {"aether.webapi",     "Web API",      "REST/WebSocket remote monitoring server"},
     };
 
     // QLoggingCategory objects are defined above via Q_LOGGING_CATEGORY macros.

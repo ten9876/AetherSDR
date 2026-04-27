@@ -460,6 +460,7 @@ set(CORE_SOURCES
     src/core/SleepInhibitor.cpp
     src/core/MemoryCsvCompat.cpp
     src/core/MemoryRecallPolicy.cpp
+    src/core/WebApiServer.cpp
 )
 
 if(APPLE)

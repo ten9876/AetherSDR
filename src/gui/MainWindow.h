@@ -9,6 +9,7 @@
 #ifdef HAVE_WEBSOCKETS
 #include "core/TciServer.h"
 #endif
+#include "core/WebApiServer.h"
 #include "core/RigctlPty.h"
 #include "core/SmartLinkClient.h"
 #include "core/WanConnection.h"
@@ -224,6 +225,7 @@ private:
 #ifdef HAVE_WEBSOCKETS
     TciServer*        m_tciServer{nullptr};
 #endif
+    WebApiServer*     m_webApiServer{nullptr};
     SmartLinkClient   m_smartLink;
     WanConnection     m_wanConnection;
     AntennaGeniusModel m_antennaGenius;

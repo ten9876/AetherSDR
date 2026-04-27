@@ -3492,6 +3492,15 @@ MainWindow::MainWindow(QWidget* parent)
     // TCI audio (WSJT-X) should enable PC Audio manually. (#1071)
 #endif
 
+    // ── Web API server for remote monitoring (#2089) ────────────────────────
+    m_webApiServer = new WebApiServer(&m_radioModel, this);
+    connect(&m_radioModel, &RadioModel::sliceAdded, this, [this](SliceModel* s) {
+        if (m_webApiServer)
+            m_webApiServer->wireSlice(s);
+    });
+    for (auto* s : m_radioModel.slices())
+        m_webApiServer->wireSlice(s);
+
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
     // DAX enable button in DaxApplet → start/stop DAX bridge
     connect(m_appletPanel->daxApplet(), &DaxApplet::daxToggled,
@@ -5311,6 +5320,25 @@ void MainWindow::buildMenuBar()
 #endif
     });
 
+    // Web API server menu entry (#2089)
+    auto* autoWebApiAction = settingsMenu->addAction("Autostart Web API with AetherSDR");
+    autoWebApiAction->setCheckable(true);
+    autoWebApiAction->setChecked(
+        AppSettings::instance().value("AutoStartWebApi", "False").toString() == "True");
+    connect(autoWebApiAction, &QAction::toggled, this, [this](bool on) {
+        auto& s = AppSettings::instance();
+        s.setValue("AutoStartWebApi", on ? "True" : "False");
+        s.save();
+        if (m_webApiServer) {
+            if (on && !m_webApiServer->isRunning()) {
+                int port = s.value("WebApiPort", "8089").toInt();
+                m_webApiServer->start(static_cast<quint16>(port));
+            } else if (!on && m_webApiServer->isRunning()) {
+                m_webApiServer->stop();
+            }
+        }
+    });
+
 #if !defined(Q_OS_MAC) && !defined(HAVE_PIPEWIRE)
     // DAX audio bridge requires macOS CoreAudio or Linux with PipeWire.
     // Force off and omit the menu entry on platforms without a bridge (#1556).
@@ -6762,6 +6790,15 @@ void MainWindow::onConnectionStateChanged(bool connected)
                     m_tciServer && m_tciServer->isRunning());
         }
 #endif
+        // Auto-start Web API server if enabled (#2089)
+        if (as.value("AutoStartWebApi", "False").toString() == "True") {
+            if (m_webApiServer && !m_webApiServer->isRunning()) {
+                int webApiPort = as.value("WebApiPort", "8089").toInt();
+                m_webApiServer->start(static_cast<quint16>(webApiPort));
+                qDebug() << "AutoStart: Web API on port" << webApiPort
+                         << " running=" << m_webApiServer->isRunning();
+            }
+        }
         // Populate XVTR bands after radio status settles, and refresh
         // whenever XVTR config changes (add/remove/rename). (#571)
         auto refreshXvtr = [this]() {

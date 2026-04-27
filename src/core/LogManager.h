@@ -30,6 +30,7 @@ Q_DECLARE_LOGGING_CATEGORY(lcMqtt)
 Q_DECLARE_LOGGING_CATEGORY(lcRbn)
 Q_DECLARE_LOGGING_CATEGORY(lcDevices)
 Q_DECLARE_LOGGING_CATEGORY(lcPerf)
+Q_DECLARE_LOGGING_CATEGORY(lcWebApi)
 
 // Central registry for toggling per-module diagnostic logging at runtime.
 // The Support dialog (Help → Support) uses this to let users enable/disable
