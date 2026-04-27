@@ -66,14 +66,6 @@ QWidget* ContainerWidget::setContent(QWidget* content)
 void ContainerWidget::insertChildWidget(int index, QWidget* child)
 {
     if (!child || !m_bodyLayout) return;
-    // If the child is already in this layout, leave it where AppletPanel
-    // placed it.  Without this guard, ContainerManager::restoreState()'s
-    // second pass would re-insert each saved child at indices 0..N-1,
-    // displacing non-container peers (e.g. ClientChainApplet) that
-    // AppletPanel inserted directly without recording them in the
-    // ContainerTree JSON.  Drag-reorder persistence flows through the
-    // packed-atomic chain order, not through this path.
-    if (m_bodyLayout->indexOf(child) >= 0) return;
     child->setParent(m_body);
     if (index < 0 || index > m_bodyLayout->count())
         index = m_bodyLayout->count();
