@@ -2,6 +2,7 @@
 #include "ContainerWidget.h"
 #include "core/AppSettings.h"
 #include "gui/FramelessResizer.h"
+#include "gui/Theme.h"
 
 #include <QByteArray>
 #include <QCloseEvent>
@@ -32,7 +33,7 @@ FloatingContainerWindow::FloatingContainerWindow(QWidget* parent)
     setWindowFlags(flags);
     setAttribute(Qt::WA_DeleteOnClose, false);
     setAttribute(Qt::WA_QuitOnClose, false);
-    setStyleSheet("QWidget { background: #08121d; }");
+    setStyleSheet(darkThemeStylesheet());
     m_layout = new QVBoxLayout(this);
     m_layout->setContentsMargins(0, 0, 0, 0);
     m_layout->setSpacing(0);

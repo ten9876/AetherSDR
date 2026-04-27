@@ -1,6 +1,7 @@
 #include "PanFloatingWindow.h"
 #include "FramelessResizer.h"
 #include "PanadapterApplet.h"
+#include "Theme.h"
 #include "core/AppSettings.h"
 
 #include <QCloseEvent>
@@ -19,6 +20,7 @@ PanFloatingWindow::PanFloatingWindow(QWidget* parent)
     // constructor bitmask and need an explicit call before show().
     setWindowFlags(flags);
     setMinimumSize(400, 300);
+    setStyleSheet(darkThemeStylesheet());
 
     m_layout = new QVBoxLayout(this);
     m_layout->setContentsMargins(0, 0, 0, 0);
