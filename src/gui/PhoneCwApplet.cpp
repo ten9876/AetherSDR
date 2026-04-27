@@ -717,8 +717,10 @@ void PhoneCwApplet::updateMeters(float micLevel, float compLevel,
     Q_UNUSED(compLevel);
     Q_UNUSED(compPeak);
 
-    // Suppress mic meter when met_in_rx is off and not transmitting
-    if (m_model && !m_model->metInRx() && !m_model->isTransmitting()) {
+    // Suppress mic meter when met_in_rx is off and not transmitting.
+    // Exception: PC mic uses client-side metering independent of met_in_rx.
+    if (m_model && !m_model->metInRx() && !m_model->isTransmitting()
+        && m_model->micSelection() != QStringLiteral("PC")) {
         m_levelGauge->setValue(-150.0f);
         m_levelGauge->setPeakValue(-150.0f);
         return;
