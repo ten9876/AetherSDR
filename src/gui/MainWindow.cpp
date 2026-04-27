@@ -7537,6 +7537,8 @@ void MainWindow::onSliceRemoved(int id)
         if (auto* s = activeSlice())
             s->setTxSlice(true);
         updateSplitState();
+        // Restore the slice that was displaced when entering split (#2102)
+        restoreDisplacedSlice();
     }
 
     // Remove overlay from all panadapter spectrums (slice model is already gone,
@@ -7913,6 +7915,32 @@ void MainWindow::disableSplit()
     if (auto* sw = spectrum()) sw->setSplitPair(-1, -1);
 
     updateSplitState();
+
+    // Restore the slice that was displaced when entering split (#2102)
+    restoreDisplacedSlice();
+}
+
+void MainWindow::restoreDisplacedSlice()
+{
+    if (!m_hasDisplacedSlice) return;
+
+    const DisplacedSlice ds = m_displacedSlice;
+    m_hasDisplacedSlice = false;
+
+    // Use the original pan if it still exists, otherwise fall back
+    QString panId = ds.panId;
+    if (!m_radioModel.panadapter(panId)) {
+        panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
+    }
+
+    qDebug() << "MainWindow: restoring displaced slice"
+             << ds.frequency << ds.mode << "on pan" << panId << "(#2102)";
+
+    m_radioModel.sendCommand(
+        QString("slice create pan=%1 freq=%2 mode=%3")
+            .arg(panId)
+            .arg(ds.frequency, 0, 'f', 6)
+            .arg(ds.mode));
 }
 
 void MainWindow::updateSplitState()
@@ -9056,8 +9084,6 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     connect(w, &VfoWidget::splitToggled, this, [this, sliceId]() {
         if (!m_splitActive) {
             // Entering split: this slice becomes RX, create a new TX slice
-            if (m_radioModel.slices().size() >= m_radioModel.maxSlices())
-                return;
             auto* rxSlice = m_radioModel.slice(sliceId);
             if (!rxSlice) return;
 
@@ -9071,6 +9097,36 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
             bool isCw = mode == "CW" || mode == "CWL";
             double offsetMhz = isCw ? 0.001 : 0.005;
             double txFreq = rxSlice->frequency() + offsetMhz;
+
+            // At max capacity: auto-displace a non-active slice to free a
+            // slot for the TX slice.  The displaced slice is restored when
+            // split is disabled (#2102).
+            if (m_radioModel.slices().size() >= m_radioModel.maxSlices()) {
+                SliceModel* victim = nullptr;
+                for (auto* s : m_radioModel.slices()) {
+                    if (s->sliceId() != sliceId) { victim = s; break; }
+                }
+                if (!victim) return;
+                m_displacedSlice = {victim->frequency(), victim->mode(), victim->panId()};
+                m_hasDisplacedSlice = true;
+                m_splitActive = true;
+                m_splitRxSliceId = sliceId;
+                int victimId = victim->sliceId();
+                m_radioModel.sendCmdPublic(
+                    QString("slice remove %1").arg(victimId),
+                    [this, panId, txFreq](int code, const QString&) {
+                        if (code != 0) {
+                            m_splitActive = false;
+                            m_splitRxSliceId = -1;
+                            m_hasDisplacedSlice = false;
+                            return;
+                        }
+                        m_radioModel.sendCommand(
+                            QString("slice create pan=%1 freq=%2")
+                                .arg(panId).arg(txFreq, 0, 'f', 6));
+                    });
+                return;
+            }
 
             m_splitActive = true;
             m_splitRxSliceId = sliceId;
@@ -9691,7 +9747,6 @@ void MainWindow::registerShortcutActions()
     m_shortcutManager.registerAction("split_toggle", "Split Toggle", "Slice",
         QKeySequence(), [this]() {
             if (!m_splitActive) {
-                if (m_radioModel.slices().size() >= m_radioModel.maxSlices()) return;
                 auto* s = activeSlice();
                 if (!s) return;
                 QString panId = s->panId();
@@ -9699,8 +9754,38 @@ void MainWindow::registerShortcutActions()
                     panId = m_panStack ? m_panStack->activePanId() : m_radioModel.panId();
                 bool isCw = s->mode() == "CW" || s->mode() == "CWL";
                 double txFreq = s->frequency() + (isCw ? 0.001 : 0.005);
+                int rxId = s->sliceId();
+
+                // At max capacity: auto-displace a non-active slice (#2102)
+                if (m_radioModel.slices().size() >= m_radioModel.maxSlices()) {
+                    SliceModel* victim = nullptr;
+                    for (auto* sl : m_radioModel.slices()) {
+                        if (sl->sliceId() != rxId) { victim = sl; break; }
+                    }
+                    if (!victim) return;
+                    m_displacedSlice = {victim->frequency(), victim->mode(), victim->panId()};
+                    m_hasDisplacedSlice = true;
+                    m_splitActive = true;
+                    m_splitRxSliceId = rxId;
+                    int victimId = victim->sliceId();
+                    m_radioModel.sendCmdPublic(
+                        QString("slice remove %1").arg(victimId),
+                        [this, panId, txFreq](int code, const QString&) {
+                            if (code != 0) {
+                                m_splitActive = false;
+                                m_splitRxSliceId = -1;
+                                m_hasDisplacedSlice = false;
+                                return;
+                            }
+                            m_radioModel.sendCommand(
+                                QString("slice create pan=%1 freq=%2")
+                                    .arg(panId).arg(txFreq, 0, 'f', 6));
+                        });
+                    return;
+                }
+
                 m_splitActive = true;
-                m_splitRxSliceId = s->sliceId();
+                m_splitRxSliceId = rxId;
                 m_radioModel.sendCommand(
                     QString("slice create pan=%1 freq=%2").arg(panId).arg(txFreq, 0, 'f', 6));
             } else {

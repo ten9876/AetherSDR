@@ -354,6 +354,18 @@ private:
     int  m_pendingMemoryRevealSliceId{-1};
     int  m_pendingSpectrumTargetSliceId{-1};
 
+    // Slice displaced by split mode on capacity-limited radios (#2102).
+    // Saved when entering split requires removing a non-active slice to
+    // free a slot; restored automatically when split is disabled.
+    struct DisplacedSlice {
+        double frequency{0.0};
+        QString mode;
+        QString panId;
+    };
+    DisplacedSlice m_displacedSlice;
+    bool m_hasDisplacedSlice{false};
+    void restoreDisplacedSlice();
+
     // Guard: set true while updating controls from the model so shared tune
     // helpers do not echo model-driven changes back to the radio.
     bool m_updatingFromModel{false};
