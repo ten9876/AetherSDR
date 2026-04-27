@@ -280,6 +280,7 @@ void ContainerManager::dockContainer(const QString& id)
 
 void ContainerManager::prepareShutdown()
 {
+    saveState();  // commit current floating/visibility state before closing windows
     for (auto* win : m_floatingWindows) {
         win->prepareShutdown();
     }
