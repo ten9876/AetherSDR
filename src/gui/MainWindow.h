@@ -180,6 +180,7 @@ private:
     void applyPanLayout(const QString& layoutId);
     void createPansSequentially(const QString& layoutId, int total,
                                 std::shared_ptr<QStringList> panIds, int created);
+    void showPanadapterSliceCapacityMessage();
     void updatePaTempLabel();
     void showNetworkDiagnosticsDialog();
     QJsonObject buildControlDevicesSnapshot() const;
