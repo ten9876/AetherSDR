@@ -3,6 +3,156 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.9.1] — 2026-04-27
+
+### Local iambic CW keyer, unified sidetone controls, and CW transmit reliability
+
+A focused follow-up to v0.9.0.  The headline feature is a software
+iambic keyer that turns any MIDI / serial paddle into a sub-5 ms
+sidetone source via the new PortAudio backend (issue #2079) — the
+radio still produces the on-air signal, but the local sidetone
+gate fires the moment the paddle moves instead of waiting for the
+radio's keyed-back signal.  Three latent bugs in the netcw protocol
+path that prevented CW from ever transmitting on FLEX-8600 v4.1.5
+firmware are also fixed.  Plus the CW panel collapses three sidetone
+widget groups into one set of controls and finally wires up the L/R
+pan slider that's been a placeholder since the panel was first added.
+
+### Features
+
+**Local iambic keyer for sub-5 ms paddle sidetone (#2079)**
+- Software iambic state machine that runs alongside the radio's RF
+  iambic engine.  Both engines see the same paddle inputs at the same
+  WPM and produce identical Morse timing — but the local keyer drives
+  the sidetone gate directly, avoiding the 50–200 ms round-trip
+  through the radio's keyed-back signal.
+- Modes A and B implemented (Ultimatic / Bug / Straight follow in a
+  later phase).  Hooked into both MIDI Gate params (`cw.dit`,
+  `cw.dah`) and serial paddle paths (DTR/CTS via SerialPortController).
+- Driven by the existing radio Iambic toggle — no new UI clutter.
+  The keyer mirrors the radio's iambic state, mode, and WPM via the
+  TransmitModel `phoneStateChanged` signal.
+- Dedicated worker thread with `std::chrono::steady_clock` timing
+  and a lock-free atomic key gate on the audio side.  9 unit tests
+  covering single dit/dah timing, squeeze alternation, inter-element
+  gap, mode A release behaviour, WPM scaling, paddle swap, idempotent
+  start, and idle behaviour.
+
+**Sidetone controls unified (#2079)**
+- The CW panel previously had three separate sidetone widget groups:
+  the radio's "Sidetone" toggle/volume, a "Local STn" toggle/volume
+  for the local PortAudio sidetone, and a "Follow" pitch row with a
+  manual override slider.  All three are now collapsed into the
+  single existing **Sidetone** button, which drives both engines in
+  lockstep.  The volume slider drives `mon_gain_cw` on the radio and
+  the local sidetone identically.  Pitch always follows the radio's
+  `cw_pitch`.
+
+**CW pan slider wired up (#2079)**
+- The L/R pan slider in the CW panel was a dead UI element with a
+  TODO comment.  Now drives both the radio's `mon_pan_cw` (radio-side
+  sidetone pan within the RX audio stream) and the local sidetone
+  with constant-power pan law (cosine/sine for equal-loudness sweep,
+  no center dip).  Double-click on the slider recenters to 50.
+
+**Slice capacity notification (#48)**
+- Status-bar warning when adding another panadapter would exceed the
+  radio's slice limit.  Three guard points cover the pre-flight check
+  in the layout dialog, the runtime check in `applyPanLayout`, and
+  the async fallback when the radio rejects a `panafall create`.
+  Includes the radio model name and slice count in the message.
+
+**PortAudio sidetone via JACK on Linux (#2075 follow-up)**
+- The PortAudio sidetone backend (introduced in v0.9.0) now prefers
+  the JACK host API on Linux when available, with `paFramesPerBuffer
+  = 128` + `suggestedLatency = 0` for sub-5 ms quantum.  PipeWire's
+  ALSA shim silently breaks callback-mode streams on some setups
+  (`Pa_StartStream` returns success but the audio thread never
+  schedules the callback); pipewire-jack delivers reliable callbacks
+  at the device's native sample rate.  48 kHz is now the universal
+  preference, with `Pa_IsFormatSupported` guarding fallback.
+
+### Bug fixes
+
+**CW transmit: invalid paddle command form**
+- `RadioModel::sendCwPaddle` was emitting `cw key 1 0` (a 2-arg paddle
+  form) which the radio's protocol does not accept — FlexLib only
+  ever sends single-state `cw key 1` or `cw key 0` and expects the
+  client to do iambic timing locally.  The 2-arg form was silently
+  dropped, so paddle keying produced no RF.  Now collapses to a
+  straight-key form when the local iambic keyer isn't running, or
+  routes through the new `sendCwKeyEdge` + `sendCwPtt` primitives
+  when it is.
+
+**CW transmit: lowercase hex in netcw payload**
+- FlexLib formats `time=0x...` and `client_handle=0x...` with C#
+  `ToString("X")` (uppercase), and the radio's status messages do
+  too (e.g. `S23A59BDF|...`).  Firmware v4.1.5's netcw parser is
+  case-sensitive on these fields and silently dropped lowercase
+  packets.  Now formatted explicitly uppercase.
+
+**CW transmit: dead TCP fallback**
+- The post-UDP TCP fallback was sending the netcw-decorated form
+  (`cw key 1 time=0x... index=... client_handle=0x...`) which the
+  radio rejects with `0x50001000` ("command syntax error") on TCP.
+  Removed when the netcw stream is up; the no-netcw fallback (for
+  firmware that doesn't support netcw stream creation) is preserved
+  separately.
+
+**Optimistic updates for CW model setters**
+- `setCwIambic`, `setCwIambicMode`, `setCwSpeed`, and `setCwPitch`
+  on `TransmitModel` previously sent the command to the radio
+  without updating local state, on the assumption that the radio
+  would echo the new value back.  Firmware v1.4.0.0 doesn't reliably
+  echo iambic flags, WPM, or pitch in transmit status messages, so
+  any code reading these properties after a UI toggle saw stale
+  values until the next periodic transmit status arrived (or never).
+  Now follow the same optimistic-update pattern as `setCwBreakIn`.
+
+**Block on graceful disconnect (#1996, openstreem)**
+- `RadioModel::disconnectFromRadio` now uses `Qt::BlockingQueued
+  Connection` for both the `gracefulDisconnect` lambda and the
+  fallback `disconnectFromRadio` call, matching the destructor's
+  pattern.  Without this, the queued work could be cancelled before
+  it ran during app teardown — leaving the radio with a stale
+  session that required a power cycle.
+
+**Memory recall: restore repeater offset and tone (#1871, #1965, jensenpat)**
+- Recalled FM repeater memories properly restore `repeater_offset_dir`,
+  `fm_repeater_offset_freq`, derived `tx_offset_freq`, and CTCSS tone
+  state.  Previously, switching from a repeater memory to simplex
+  could leave stale TX offset state on the slice.
+
+**`m_activeTxSlice` initializer mismatch (#2076)**
+- Default-init was `0` but `clear()` sets to `-1`.  Now both default
+  to `-1` so a fresh `MeterModel` and a cleared one have identical
+  `activeTxSlice()` state.
+
+**Per-slice compression meter resolution (#2073)**
+- TX-chain `COMPPEAK`, `AFTEREQ`, and `SC_MIC` meters are now
+  resolved per active slice instead of last-match-wins, fixing
+  Multi-Flex setups where the wrong slice's compression value was
+  surfaced in the UI.
+
+**ContainerWidget restoreState displaces children**
+- `restoreState` re-inserted children at indices 0..N–1 even when
+  they were already in the layout, displacing non-saved children
+  like the CHAIN widget.  `insertChildWidget` is now a no-op when
+  the child is already present.
+
+### Build and CI
+
+- `M_PI_2` replaced with a local `kPiOver2` constexpr in
+  `CwSidetoneGenerator.cpp` so the Windows MSVC build doesn't
+  fail (`<cmath>` doesn't define `M_PI_2` without `_USE_MATH_DEFINES`).
+
+### Acknowledgements
+
+Thanks to the operators who tested CW workflows on real hardware
+and surfaced the netcw protocol issues that had been silent since
+the netcw backend landed, and to **jensenpat** and **openstreem**
+for the community fixes bundled in.
+
 ## [v0.9.0] — 2026-04-25
 
 ### Aetherial RX Audio Suite, frameless UI, and local CW sidetone
