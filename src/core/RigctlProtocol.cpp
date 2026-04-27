@@ -197,9 +197,12 @@ QString RigctlProtocol::processCommand(const QString& cmd)
     case 't': return cmdGetPtt();
     case 'T': return cmdSetPtt(args);
     case '_': return cmdGetInfo();
-    case 'S': return cmdGetSplitVfo();
-    case 'I': return cmdGetSplitFreq();
-    case 'X': return cmdGetSplitMode();
+    case 's': return cmdGetSplitVfo();
+    case 'S': return cmdSetSplitVfo(args);
+    case 'i': return cmdGetSplitFreq();
+    case 'I': return cmdSetSplitFreq(args);
+    case 'x': return cmdGetSplitMode();
+    case 'X': return cmdSetSplitMode(args);
     case 'l': return cmdGetLevel(args);
     case 'L': return cmdSetLevel(args);
     case '1': return cmdDumpState();       // \dump_state
