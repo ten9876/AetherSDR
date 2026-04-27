@@ -340,6 +340,15 @@ SliceModel* RadioModel::slice(int id) const
     return nullptr;
 }
 
+int RadioModel::activeTxSliceNum() const
+{
+    for (auto* s : m_slices) {
+        if (s && s->isTxSlice())
+            return s->sliceId();
+    }
+    return -1;
+}
+
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
 void RadioModel::connectToRadio(const RadioInfo& info)
@@ -1511,6 +1520,7 @@ void RadioModel::onDisconnected()
     }
     m_transmitModel.setTransmitting(false);
     m_transmitModel.resetState();
+    m_meterModel.clear();
 
     // Reset radio-model-specific state — different radios have different
     // capabilities (APD, max power, pan count, TGXL, amplifier, XVTR, etc.)
@@ -2853,9 +2863,12 @@ void RadioModel::handleSliceStatus(int id,
             m_ownedSliceIds.remove(id);
             // If we already have a SliceModel for this ID, remove it
             if (SliceModel* existing = slice(id)) {
+                const bool wasTxSlice = existing->isTxSlice();
                 m_slices.removeOne(existing);
                 emit sliceRemoved(id);
                 existing->deleteLater();
+                if (wasTxSlice)
+                    m_meterModel.setActiveTxSlice(activeTxSliceNum());
             }
             return;  // slice belongs to another client
         }
@@ -2871,9 +2884,12 @@ void RadioModel::handleSliceStatus(int id,
 
     if (removed) {
         if (s) {
+            const bool wasTxSlice = s->isTxSlice();
             m_slices.removeOne(s);
             emit sliceRemoved(id);
             s->deleteLater();
+            if (wasTxSlice)
+                m_meterModel.setActiveTxSlice(activeTxSliceNum());
         }
         return;
     }
@@ -2891,13 +2907,18 @@ void RadioModel::handleSliceStatus(int id,
         connect(s, &SliceModel::commandReady, this, [this](const QString& cmd){
             sendCmd(cmd);
         });
+        connect(s, &SliceModel::txSliceChanged, this, [this](bool) {
+            m_meterModel.setActiveTxSlice(activeTxSliceNum());
+        });
         m_slices.append(s);
         s->applyStatus(kvs);  // populate frequency/mode before notifying UI
+        m_meterModel.setActiveTxSlice(activeTxSliceNum());
         emit sliceAdded(s);
         return;                // applyStatus already called below; skip second call
     }
 
     s->applyStatus(kvs);
+    m_meterModel.setActiveTxSlice(activeTxSliceNum());
 
     // Aurora/AU-520: max_internal_pa_power in slice status reports the true
     // system power capability (e.g. 500W) while transmit status max_power_level

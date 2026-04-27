@@ -261,6 +261,7 @@ public:
 
     QList<SliceModel*> slices() const { return m_slices; }
     SliceModel* slice(int id) const;
+    int activeTxSliceNum() const;
 
     // High-level actions
     void connectToRadio(const RadioInfo& info);

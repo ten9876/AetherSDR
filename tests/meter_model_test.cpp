@@ -29,13 +29,28 @@ qint16 rawDb(float db)
     return static_cast<qint16>(std::lround(db * 128.0f));
 }
 
-MeterDef txMeter(int index, const QString& name, const QString& unit = QStringLiteral("dBFS"))
+MeterDef txMeter(int index, const QString& name, const QString& unit = QStringLiteral("dBFS"),
+                 int sourceIndex = 8)
 {
     MeterDef def;
     def.index = index;
     def.source = "TX-";
+    def.sourceIndex = sourceIndex;
     def.name = name;
     def.unit = unit;
+    def.low = -150.0;
+    def.high = 20.0;
+    return def;
+}
+
+MeterDef slcMeter(int index, int sliceIndex)
+{
+    MeterDef def;
+    def.index = index;
+    def.source = "SLC";
+    def.sourceIndex = sliceIndex;
+    def.name = "LEVEL";
+    def.unit = "dBm";
     def.low = -150.0;
     def.high = 20.0;
     return def;
@@ -95,6 +110,88 @@ void testCompPeakMinusScMicDrivesGaugeWhenAfterEqMissing()
     model.updateValues({22, 23}, {rawDb(-42.0f), rawDb(-22.0f)});
 
     report("COMPPEAK minus SC_MIC maps 6000-series compression",
+           model.hasCompressionMeterValue() && nearlyEqual(model.compPeak(), -20.0f));
+}
+
+void testActiveTxSliceSelects6000CompressionPair()
+{
+    MeterModel model;
+    model.defineMeter(slcMeter(15, 0));
+    model.defineMeter(txMeter(22, "SC_MIC", "dBFS", 8));
+    model.defineMeter(txMeter(23, "COMPPEAK", "dBFS", 8));
+    model.defineMeter(slcMeter(37, 1));
+    model.defineMeter(txMeter(44, "SC_MIC", "dBFS", 9));
+    model.defineMeter(txMeter(45, "COMPPEAK", "dBFS", 9));
+
+    model.setActiveTxSlice(0);
+    model.updateValues({22, 23}, {rawDb(-42.0f), rawDb(-22.0f)});
+    report("active TX slice 0 uses its 6000-series compression pair",
+           model.hasCompressionMeterValue() && nearlyEqual(model.compPeak(), -20.0f));
+
+    model.updateValues({44, 45}, {rawDb(-80.0f), rawDb(-40.0f)});
+    report("inactive 6000-series compression pair is ignored",
+           model.hasCompressionMeterValue() && nearlyEqual(model.compPeak(), -20.0f));
+
+    model.setActiveTxSlice(1);
+    report("changing active TX slice clears stale compression",
+           !model.hasCompressionMeterValue() && nearlyEqual(model.compPeak(), 0.0f));
+
+    model.updateValues({44, 45}, {rawDb(-80.0f), rawDb(-40.0f)});
+    report("active TX slice 1 uses its 6000-series compression pair",
+           model.hasCompressionMeterValue() && nearlyEqual(model.compPeak(), -25.0f));
+}
+
+void testActiveTxSliceSelects8000CompressionPair()
+{
+    MeterModel model;
+    model.defineMeter(slcMeter(21, 0));
+    model.defineMeter(txMeter(27, "AFTEREQ", "dBFS", 8));
+    model.defineMeter(txMeter(28, "COMPPEAK", "dBFS", 8));
+    model.defineMeter(slcMeter(43, 1));
+    model.defineMeter(txMeter(49, "AFTEREQ", "dBFS", 9));
+    model.defineMeter(txMeter(50, "COMPPEAK", "dBFS", 9));
+
+    model.setActiveTxSlice(1);
+    model.updateValues({27, 28}, {rawDb(-80.0f), rawDb(-40.0f)});
+    report("inactive 8000-series compression pair is ignored",
+           !model.hasCompressionMeterValue() && nearlyEqual(model.compPeak(), 0.0f));
+
+    model.updateValues({49, 50}, {rawDb(-30.0f), rawDb(-15.0f)});
+    report("active TX slice 1 uses its 8000-series compression pair",
+           model.hasCompressionMeterValue() && nearlyEqual(model.compPeak(), -15.0f));
+}
+
+void testZeroSource8000MetersUseSliceContext()
+{
+    MeterModel model;
+    model.defineMeter(slcMeter(14, 0));
+    model.defineMeter(txMeter(19, "AFTEREQ", "dBFS", 0));
+    model.defineMeter(txMeter(20, "COMPPEAK", "dBFS", 0));
+    model.defineMeter(slcMeter(32, 1));
+    model.defineMeter(txMeter(43, "AFTEREQ", "dBFS", 0));
+    model.defineMeter(txMeter(44, "COMPPEAK", "dBFS", 0));
+
+    model.setActiveTxSlice(1);
+    model.updateValues({19, 20}, {rawDb(-80.0f), rawDb(-40.0f)});
+    report("inactive zero-source 8000 compression pair is ignored",
+           !model.hasCompressionMeterValue() && nearlyEqual(model.compPeak(), 0.0f));
+
+    model.updateValues({43, 44}, {rawDb(-30.0f), rawDb(-15.0f)});
+    report("zero-source 8000 compression pair follows active slice context",
+           model.hasCompressionMeterValue() && nearlyEqual(model.compPeak(), -15.0f));
+}
+
+void testSparseSliceIdsUseManifestDerivedWaveformBase()
+{
+    MeterModel model;
+    model.defineMeter(slcMeter(37, 1));
+    model.defineMeter(txMeter(44, "SC_MIC", "dBFS", 9));
+    model.defineMeter(txMeter(45, "COMPPEAK", "dBFS", 9));
+
+    model.setActiveTxSlice(1);
+    model.updateValues({44, 45}, {rawDb(-42.0f), rawDb(-22.0f)});
+
+    report("sparse slice IDs use manifest-derived TX waveform base",
            model.hasCompressionMeterValue() && nearlyEqual(model.compPeak(), -20.0f));
 }
 
@@ -239,6 +336,10 @@ int main(int argc, char** argv)
     testAfterEqRequiresCompPeak();
     testCompPeakMinusAfterEqDrivesGauge();
     testCompPeakMinusScMicDrivesGaugeWhenAfterEqMissing();
+    testActiveTxSliceSelects6000CompressionPair();
+    testActiveTxSliceSelects8000CompressionPair();
+    testZeroSource8000MetersUseSliceContext();
+    testSparseSliceIdsUseManifestDerivedWaveformBase();
     testScMicCompressionDerivationIsOrderIndependent();
     testAfterEqPreferredOverScMicWhenBothAreDefined();
     testAfterEqDefinitionDoesNotFallbackToScMicWithoutAfterEqValue();

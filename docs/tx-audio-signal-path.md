@@ -224,6 +224,14 @@ PC Mic Audio (Opus via remote_audio_tx) — arrives with client-side
   VOX detection and P/CW mic level display.
 - **Meter IDs are dynamic**: The radio assigns meter IDs on connection. The IDs shown
   here are from one session — match by name, not by ID.
+- **Multi-slice TX chains**: Radios can expose one TX waveform meter block per
+  active slice. AetherSDR resolves compression meters through the active TX
+  slice. FLEX-6600 captures expose distinct TX waveform `sourceIndex` values,
+  while FLEX-8000 captures can repeat `TX- num=0` blocks after each `SLC`
+  slice block. In both cases `COMPPEAK` is paired with the matching `AFTEREQ`
+  or `SC_MIC` from the same slice. The code derives the active TX source or
+  implicit slice context first, then looks up the manifest IDs for that slice;
+  it never assumes fixed IDs like `22/23`.
 - **Compression meter input**: AetherSDR derives the compression gauge from
   radio-provided TX meters only. FLEX-8000 series radios use
   `max(0, COMPPEAK - AFTEREQ)`. 6000-series radios that do not expose `AFTEREQ`

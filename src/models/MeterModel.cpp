@@ -11,6 +11,8 @@ namespace AetherSDR {
 namespace {
 
 constexpr qint64 kCompressionReferenceMaxSkewMs = 250;
+constexpr qint64 kCompressionSummaryLogIntervalMs = 500;
+constexpr int kMinTxWaveformSourceIndex = 8;
 
 float compressionReductionForGauge(float referenceDbfs, float compPeakDbfs)
 {
@@ -79,6 +81,8 @@ void MeterModel::setTgxlHandle(quint32 handle)
 void MeterModel::defineMeter(const MeterDef& def)
 {
     m_defs[def.index] = def;
+    if (def.source == "SLC")
+        m_manifestSliceContext = def.sourceIndex;
 
     // Cache indices for high-frequency lookups
     if (def.source == "SLC" && def.name == "LEVEL")
@@ -91,12 +95,24 @@ void MeterModel::defineMeter(const MeterDef& def)
         m_swrIdx = def.index;
     else if (def.name == "MICPEAK")
         m_micPeakIdx = def.index;
-    else if (def.source.startsWith("TX") && def.name == "COMPPEAK")
-        m_compPeakIdx = def.index;
-    else if (def.source.startsWith("TX") && def.name == "AFTEREQ")
-        m_afterEqIdx = def.index;
-    else if (def.source.startsWith("TX") && def.name == "SC_MIC")
-        m_scMicIdx = def.index;
+    else if (isTxWaveformMeter(def) && def.name == "COMPPEAK") {
+        if (hasExplicitTxWaveformSourceIndex(def))
+            m_compPeakIdxByTxSource[def.sourceIndex] = def.index;
+        else
+            m_compPeakIdxBySlice[implicitTxWaveformSliceIndex()] = def.index;
+    }
+    else if (isTxWaveformMeter(def) && def.name == "AFTEREQ") {
+        if (hasExplicitTxWaveformSourceIndex(def))
+            m_afterEqIdxByTxSource[def.sourceIndex] = def.index;
+        else
+            m_afterEqIdxBySlice[implicitTxWaveformSliceIndex()] = def.index;
+    }
+    else if (isTxWaveformMeter(def) && def.name == "SC_MIC") {
+        if (hasExplicitTxWaveformSourceIndex(def))
+            m_scMicIdxByTxSource[def.sourceIndex] = def.index;
+        else
+            m_scMicIdxBySlice[implicitTxWaveformSliceIndex()] = def.index;
+    }
     else if (def.name == "MIC")
         m_micLevelIdx = def.index;
     else if (def.name == "COMP")
@@ -127,9 +143,15 @@ void MeterModel::defineMeter(const MeterDef& def)
     else if (def.source == "AMP" && def.name == "TEMP")
         m_ampTempIdx = def.index;
 
+    recomputeSourceIndexMins();
+
     qCDebug(lcMeters) << "MeterModel: defined meter" << def.index
              << def.source << def.sourceIndex << def.name
              << def.unit << "[" << def.low << "->" << def.high << "]";
+    if (isTxWaveformMeter(def)
+        && (def.name == "COMPPEAK" || def.name == "AFTEREQ" || def.name == "SC_MIC")) {
+        logCompressionMeterMap(def);
+    }
 }
 
 void MeterModel::removeMeter(int index)
@@ -146,29 +168,58 @@ void MeterModel::removeMeter(int index)
         if (it.value() == index) it = m_escLevelIdxBySlice.erase(it);
         else ++it;
     }
+    bool compressionMapChanged = false;
+    for (auto it = m_compPeakIdxByTxSource.begin(); it != m_compPeakIdxByTxSource.end(); ) {
+        if (it.value() == index) {
+            it = m_compPeakIdxByTxSource.erase(it);
+            compressionMapChanged = true;
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = m_compPeakIdxBySlice.begin(); it != m_compPeakIdxBySlice.end(); ) {
+        if (it.value() == index) {
+            it = m_compPeakIdxBySlice.erase(it);
+            compressionMapChanged = true;
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = m_afterEqIdxByTxSource.begin(); it != m_afterEqIdxByTxSource.end(); ) {
+        if (it.value() == index) {
+            it = m_afterEqIdxByTxSource.erase(it);
+            compressionMapChanged = true;
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = m_afterEqIdxBySlice.begin(); it != m_afterEqIdxBySlice.end(); ) {
+        if (it.value() == index) {
+            it = m_afterEqIdxBySlice.erase(it);
+            compressionMapChanged = true;
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = m_scMicIdxByTxSource.begin(); it != m_scMicIdxByTxSource.end(); ) {
+        if (it.value() == index) {
+            it = m_scMicIdxByTxSource.erase(it);
+            compressionMapChanged = true;
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = m_scMicIdxBySlice.begin(); it != m_scMicIdxBySlice.end(); ) {
+        if (it.value() == index) {
+            it = m_scMicIdxBySlice.erase(it);
+            compressionMapChanged = true;
+        } else {
+            ++it;
+        }
+    }
     if (index == m_fwdPwrIdx)   m_fwdPwrIdx = -1;
     if (index == m_swrIdx)      m_swrIdx = -1;
     if (index == m_micPeakIdx)   m_micPeakIdx = -1;
-    if (index == m_compPeakIdx) {
-        m_compPeakIdx = -1;
-        m_compPeak = 0.0f;
-        m_hasCompPeakLevel = false;
-        m_compPeakUpdatedMs = 0;
-        m_hasCompPeakValue = false;
-    }
-    if (index == m_afterEqIdx) {
-        m_afterEqIdx = -1;
-        m_compPeak = 0.0f;
-        m_hasAfterEqLevel = false;
-        m_afterEqUpdatedMs = 0;
-        updateCompressionReduction();
-    }
-    if (index == m_scMicIdx) {
-        m_scMicIdx = -1;
-        m_hasScMicLevel = false;
-        m_scMicUpdatedMs = 0;
-        updateCompressionReduction();
-    }
     if (index == m_micLevelIdx)  m_micLevelIdx = -1;
     if (index == m_compLevelIdx) m_compLevelIdx = -1;
     if (index == m_alcIdx)       m_alcIdx = -1;
@@ -177,6 +228,12 @@ void MeterModel::removeMeter(int index)
     if (index == m_ampFwdPwrIdx) m_ampFwdPwrIdx = -1;
     if (index == m_ampSwrIdx)    m_ampSwrIdx = -1;
     if (index == m_ampTempIdx)   m_ampTempIdx = -1;
+
+    recomputeSourceIndexMins();
+    if (compressionMapChanged) {
+        clearCompressionState();
+        updateCompressionReduction();
+    }
 }
 
 float MeterModel::convertRaw(const MeterDef& def, qint16 raw) const
@@ -193,11 +250,167 @@ float MeterModel::convertRaw(const MeterDef& def, qint16 raw) const
     return static_cast<float>(raw);
 }
 
+void MeterModel::clear()
+{
+    m_defs.clear();
+    m_values.clear();
+    m_sLevelIdxBySlice.clear();
+    m_escLevelIdxBySlice.clear();
+    m_compPeakIdxByTxSource.clear();
+    m_afterEqIdxByTxSource.clear();
+    m_scMicIdxByTxSource.clear();
+    m_compPeakIdxBySlice.clear();
+    m_afterEqIdxBySlice.clear();
+    m_scMicIdxBySlice.clear();
+    m_minSliceSourceIndex = -1;
+    m_minTxWaveformSourceIndex = -1;
+    m_manifestSliceContext = -1;
+    m_activeTxSlice = -1;
+    m_fwdPwrIdx = -1;
+    m_swrIdx = -1;
+    m_micPeakIdx = -1;
+    m_micLevelIdx = -1;
+    m_compLevelIdx = -1;
+    m_alcIdx = -1;
+    m_paTempIdx = -1;
+    m_supplyIdx = -1;
+    m_ampFwdPwrIdx = -1;
+    m_ampSwrIdx = -1;
+    m_ampTempIdx = -1;
+    m_tgxlFwdIdx = -1;
+    m_tgxlSwrIdx = -1;
+    m_tgxlHandle = 0;
+    m_tgxlFwdPwr = 0.0f;
+    m_tgxlSwr = 1.0f;
+    m_sLevel = -130.0f;
+    m_fwdPower = 0.0f;
+    m_swr = 1.0f;
+    m_lastTxMeterUpdateMs = 0;
+    m_micPeak = -50.0f;
+    clearCompressionState();
+    m_micLevel = -50.0f;
+    m_compLevel = 0.0f;
+    m_alc = 0.0f;
+    m_paTemp = 0.0f;
+    m_supplyVolts = 0.0f;
+    m_ampFwdPwr = 0.0f;
+    m_ampSwr = 1.0f;
+    m_ampTemp = 0.0f;
+}
+
+void MeterModel::setActiveTxSlice(int sliceIndex)
+{
+    if (m_activeTxSlice == sliceIndex)
+        return;
+
+    m_activeTxSlice = sliceIndex;
+    clearCompressionState();
+    logCompressionSummary("active-slice-change", true);
+    emit micMetersChanged(m_micLevel, m_compLevel, m_micPeak, m_compPeak);
+}
+
+void MeterModel::clearCompressionState()
+{
+    m_compPeak = 0.0f;
+    m_hasCompPeakValue = false;
+    m_afterEqLevel = -150.0f;
+    m_scMicLevel = -150.0f;
+    m_compPeakLevel = -150.0f;
+    m_hasAfterEqLevel = false;
+    m_hasScMicLevel = false;
+    m_hasCompPeakLevel = false;
+    m_afterEqUpdatedMs = 0;
+    m_scMicUpdatedMs = 0;
+    m_compPeakUpdatedMs = 0;
+    m_lastCompressionSummaryLogMs = 0;
+    m_lastCompressionSummaryReason.clear();
+}
+
+bool MeterModel::isTxWaveformMeter(const MeterDef& def) const
+{
+    return def.source.startsWith("TX");
+}
+
+bool MeterModel::hasExplicitTxWaveformSourceIndex(const MeterDef& def) const
+{
+    return isTxWaveformMeter(def) && def.sourceIndex >= kMinTxWaveformSourceIndex;
+}
+
+int MeterModel::implicitTxWaveformSliceIndex() const
+{
+    if (m_manifestSliceContext >= 0)
+        return m_manifestSliceContext;
+    return 0;
+}
+
+void MeterModel::recomputeSourceIndexMins()
+{
+    m_minSliceSourceIndex = -1;
+    m_minTxWaveformSourceIndex = -1;
+
+    for (auto it = m_defs.constBegin(); it != m_defs.constEnd(); ++it) {
+        const MeterDef& def = *it;
+        if (def.source == "SLC") {
+            if (m_minSliceSourceIndex < 0 || def.sourceIndex < m_minSliceSourceIndex)
+                m_minSliceSourceIndex = def.sourceIndex;
+        } else if (hasExplicitTxWaveformSourceIndex(def)) {
+            if (m_minTxWaveformSourceIndex < 0 || def.sourceIndex < m_minTxWaveformSourceIndex)
+                m_minTxWaveformSourceIndex = def.sourceIndex;
+        }
+    }
+}
+
+int MeterModel::txWaveformBase() const
+{
+    if (m_minTxWaveformSourceIndex < 0)
+        return -1;
+    if (m_minSliceSourceIndex >= 0)
+        return m_minTxWaveformSourceIndex - m_minSliceSourceIndex;
+    return m_minTxWaveformSourceIndex;
+}
+
+int MeterModel::activeTxWaveformSourceIndex() const
+{
+    if (m_activeTxSlice < 0)
+        return -1;
+
+    const int base = txWaveformBase();
+    if (base < 0)
+        return -1;
+
+    return base + m_activeTxSlice;
+}
+
+int MeterModel::compPeakIndexForActiveTxSlice() const
+{
+    const int txSource = activeTxWaveformSourceIndex();
+    if (txSource >= 0 && m_compPeakIdxByTxSource.contains(txSource))
+        return m_compPeakIdxByTxSource.value(txSource);
+    return m_compPeakIdxBySlice.value(m_activeTxSlice, -1);
+}
+
+int MeterModel::afterEqIndexForActiveTxSlice() const
+{
+    const int txSource = activeTxWaveformSourceIndex();
+    if (txSource >= 0 && m_afterEqIdxByTxSource.contains(txSource))
+        return m_afterEqIdxByTxSource.value(txSource);
+    return m_afterEqIdxBySlice.value(m_activeTxSlice, -1);
+}
+
+int MeterModel::scMicIndexForActiveTxSlice() const
+{
+    const int txSource = activeTxWaveformSourceIndex();
+    if (txSource >= 0 && m_scMicIdxByTxSource.contains(txSource))
+        return m_scMicIdxByTxSource.value(txSource);
+    return m_scMicIdxBySlice.value(m_activeTxSlice, -1);
+}
+
 void MeterModel::updateCompressionReduction()
 {
     if (!m_hasCompPeakLevel) {
         m_compPeak = 0.0f;
         m_hasCompPeakValue = false;
+        logCompressionSummary("missing-comppeak");
         return;
     }
 
@@ -213,18 +426,23 @@ void MeterModel::updateCompressionReduction()
     //   cadence can compare a fresh COMPPEAK against a stale SC_MIC sample, so
     //   compressionSamplesFresh() gates the derived 6000-series value. If an
     //   8000-style AFTEREQ exists, prefer it over SC_MIC.
-    if (m_afterEqIdx >= 0) {
+    const int afterEqIdx = afterEqIndexForActiveTxSlice();
+    const int scMicIdx = scMicIndexForActiveTxSlice();
+
+    if (afterEqIdx >= 0) {
         if (!m_hasAfterEqLevel) {
             m_compPeak = 0.0f;
             m_hasCompPeakValue = false;
+            logCompressionSummary("missing-aftereq");
             return;
         }
         referenceLevel = m_afterEqLevel;
         referenceUpdatedMs = m_afterEqUpdatedMs;
-    } else if (m_scMicIdx >= 0) {
+    } else if (scMicIdx >= 0) {
         if (!m_hasScMicLevel) {
             m_compPeak = 0.0f;
             m_hasCompPeakValue = false;
+            logCompressionSummary("missing-scmic");
             return;
         }
         referenceLevel = m_scMicLevel;
@@ -232,17 +450,20 @@ void MeterModel::updateCompressionReduction()
     } else {
         m_compPeak = 0.0f;
         m_hasCompPeakValue = false;
+        logCompressionSummary("missing-reference");
         return;
     }
 
     if (!compressionSamplesFresh(referenceUpdatedMs)) {
         m_compPeak = 0.0f;
         m_hasCompPeakValue = false;
+        logCompressionSummary("stale-reference");
         return;
     }
 
     m_compPeak = compressionReductionForGauge(referenceLevel, m_compPeakLevel);
     m_hasCompPeakValue = true;
+    logCompressionSummary("ok");
 }
 
 bool MeterModel::compressionSamplesFresh(qint64 referenceUpdatedMs) const
@@ -254,6 +475,84 @@ bool MeterModel::compressionSamplesFresh(qint64 referenceUpdatedMs) const
         ? m_compPeakUpdatedMs - referenceUpdatedMs
         : referenceUpdatedMs - m_compPeakUpdatedMs;
     return skewMs <= kCompressionReferenceMaxSkewMs;
+}
+
+void MeterModel::logCompressionMeterMap(const MeterDef& def) const
+{
+    if (!lcMeters().isDebugEnabled())
+        return;
+
+    const int base = txWaveformBase();
+    const int slice = hasExplicitTxWaveformSourceIndex(def)
+        ? (base >= 0 ? def.sourceIndex - base : -1)
+        : implicitTxWaveformSliceIndex();
+    qCDebug(lcMeters) << "MeterModel: compression meter map"
+                      << "name" << def.name
+                      << "id" << def.index
+                      << "txSource" << def.sourceIndex
+                      << "txBase" << base
+                      << "slice" << slice
+                      << "explicitTxSource" << hasExplicitTxWaveformSourceIndex(def)
+                      << "description" << def.description;
+}
+
+void MeterModel::logCompressionSummary(const char* reason, bool force)
+{
+    if (!lcMeters().isDebugEnabled())
+        return;
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const QString reasonText = QString::fromLatin1(reason ? reason : "");
+    const bool reasonChanged = reasonText != m_lastCompressionSummaryReason;
+    if (!force && !reasonChanged && now - m_lastCompressionSummaryLogMs < kCompressionSummaryLogIntervalMs)
+        return;
+
+    m_lastCompressionSummaryLogMs = now;
+    m_lastCompressionSummaryReason = reasonText;
+
+    const int afterEqIdx = afterEqIndexForActiveTxSlice();
+    const int scMicIdx = scMicIndexForActiveTxSlice();
+    const bool useAfterEq = afterEqIdx >= 0;
+    const bool useScMic = !useAfterEq && scMicIdx >= 0;
+    const QString referenceName = useAfterEq
+        ? QStringLiteral("AFTEREQ")
+        : (useScMic ? QStringLiteral("SC_MIC") : QStringLiteral("none"));
+    const int referenceIdx = useAfterEq ? afterEqIdx : (useScMic ? scMicIdx : -1);
+    const float referenceDbfs = useAfterEq ? m_afterEqLevel : (useScMic ? m_scMicLevel : 0.0f);
+    const bool hasReference = useAfterEq ? m_hasAfterEqLevel : (useScMic && m_hasScMicLevel);
+    const qint64 referenceUpdatedMs = useAfterEq ? m_afterEqUpdatedMs : (useScMic ? m_scMicUpdatedMs : 0);
+
+    qint64 skewMs = -1;
+    if (m_compPeakUpdatedMs > 0 && referenceUpdatedMs > 0) {
+        skewMs = m_compPeakUpdatedMs > referenceUpdatedMs
+            ? m_compPeakUpdatedMs - referenceUpdatedMs
+            : referenceUpdatedMs - m_compPeakUpdatedMs;
+    }
+
+    const float liftDb = (m_hasCompPeakLevel && hasReference)
+        ? qMax(0.0f, m_compPeakLevel - referenceDbfs)
+        : 0.0f;
+
+    qCDebug(lcMeters) << "MeterModel: compression summary"
+                      << "reason" << reasonText
+                      << "activeSlice" << m_activeTxSlice
+                      << "txBase" << txWaveformBase()
+                      << "txSource" << activeTxWaveformSourceIndex()
+                      << "usingImplicitSliceMap"
+                      << (!m_compPeakIdxByTxSource.contains(activeTxWaveformSourceIndex())
+                          && m_compPeakIdxBySlice.contains(m_activeTxSlice))
+                      << "reference" << referenceName
+                      << "referenceId" << referenceIdx
+                      << "referenceDbfs" << referenceDbfs
+                      << "hasReference" << hasReference
+                      << "compPeakId" << compPeakIndexForActiveTxSlice()
+                      << "compPeakDbfs" << m_compPeakLevel
+                      << "hasCompPeak" << m_hasCompPeakLevel
+                      << "skewMs" << skewMs
+                      << "fresh" << compressionSamplesFresh(referenceUpdatedMs)
+                      << "liftDb" << liftDb
+                      << "displayDb" << m_compPeak
+                      << "available" << m_hasCompPeakValue;
 }
 
 bool MeterModel::hasRecentTxMeters(qint64 maxAgeMs) const
@@ -269,6 +568,9 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
 {
     const int n = qMin(ids.size(), vals.size());
     const qint64 packetUpdatedMs = QDateTime::currentMSecsSinceEpoch();
+    const int activeCompPeakIdx = compPeakIndexForActiveTxSlice();
+    const int activeAfterEqIdx = afterEqIndexForActiveTxSlice();
+    const int activeScMicIdx = scMicIndexForActiveTxSlice();
     // sLevelChanged is emitted per-slice inline in the loop below
     bool txChanged = false;
     bool micChanged = false;
@@ -328,7 +630,7 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         } else if (idx == m_micPeakIdx) {
             m_micPeak = v;
             micChanged = true;
-        } else if (idx == m_compPeakIdx) {
+        } else if (idx == activeCompPeakIdx) {
             // COMPPEAK is a dBFS level tap. Pair it with AFTEREQ on 8000
             // series radios, or SC_MIC on 6000-series radios that do not
             // expose AFTEREQ.
@@ -337,13 +639,13 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             m_compPeakUpdatedMs = packetUpdatedMs;
             updateCompressionReduction();
             micChanged = true;
-        } else if (idx == m_afterEqIdx) {
+        } else if (idx == activeAfterEqIdx) {
             m_afterEqLevel = v;
             m_hasAfterEqLevel = true;
             m_afterEqUpdatedMs = packetUpdatedMs;
             updateCompressionReduction();
             micChanged = true;
-        } else if (idx == m_scMicIdx) {
+        } else if (idx == activeScMicIdx) {
             m_scMicLevel = v;
             m_hasScMicLevel = true;
             m_scMicUpdatedMs = packetUpdatedMs;

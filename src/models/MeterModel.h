@@ -47,6 +47,14 @@ public:
     // Remove a meter by index.
     void removeMeter(int index);
 
+    // Clear all meter definitions and cached values on disconnect/reconnect.
+    void clear();
+
+    // Track which radio slice currently owns TX. Compression TX-chain meters
+    // are repeated per slice, so MeterModel must resolve COMPPEAK/reference
+    // indexes against this slice instead of using last-match-wins globals.
+    void setActiveTxSlice(int sliceIndex);
+
     // Process a batch of raw meter values from a VITA-49 packet.
     // ids[i] is the meter index, vals[i] is the raw int16 value.
     void updateValues(const QVector<quint16>& ids, const QVector<qint16>& vals);
@@ -126,8 +134,20 @@ signals:
 
 private:
     float convertRaw(const MeterDef& def, qint16 raw) const;
+    void clearCompressionState();
+    void recomputeSourceIndexMins();
+    bool isTxWaveformMeter(const MeterDef& def) const;
+    bool hasExplicitTxWaveformSourceIndex(const MeterDef& def) const;
+    int implicitTxWaveformSliceIndex() const;
+    int txWaveformBase() const;
+    int activeTxWaveformSourceIndex() const;
+    int compPeakIndexForActiveTxSlice() const;
+    int afterEqIndexForActiveTxSlice() const;
+    int scMicIndexForActiveTxSlice() const;
     void updateCompressionReduction();
     bool compressionSamplesFresh(qint64 referenceUpdatedMs) const;
+    void logCompressionMeterMap(const MeterDef& def) const;
+    void logCompressionSummary(const char* reason, bool force = false);
 
     QMap<int, MeterDef> m_defs;        // meter index → definition
     QMap<int, float>    m_values;      // meter index → last converted value
@@ -135,12 +155,19 @@ private:
     // Cached indices for fast lookup of important meters
     QMap<int, int> m_sLevelIdxBySlice;  // sliceIndex → meter index for "SLC"/"LEVEL"
     QMap<int, int> m_escLevelIdxBySlice; // sliceIndex → meter index for "SLC"/"ESC"
+    QMap<int, int> m_compPeakIdxByTxSource; // TX waveform sourceIndex → "COMPPEAK"
+    QMap<int, int> m_afterEqIdxByTxSource;  // TX waveform sourceIndex → "AFTEREQ"
+    QMap<int, int> m_scMicIdxByTxSource;    // TX waveform sourceIndex → "SC_MIC"
+    QMap<int, int> m_compPeakIdxBySlice;    // active slice → "COMPPEAK" for TX blocks with num=0
+    QMap<int, int> m_afterEqIdxBySlice;     // active slice → "AFTEREQ" for TX blocks with num=0
+    QMap<int, int> m_scMicIdxBySlice;       // active slice → "SC_MIC" for TX blocks with num=0
+    int m_minSliceSourceIndex{-1};
+    int m_minTxWaveformSourceIndex{-1};
+    int m_manifestSliceContext{-1};
+    int m_activeTxSlice{0};
     int m_fwdPwrIdx{-1};     // "FWDPWR"
     int m_swrIdx{-1};        // "SWR"
     int m_micPeakIdx{-1};    // "COD-" / "MICPEAK" (hardware mic)
-    int m_compPeakIdx{-1};   // "TX" / "COMPPEAK" (processor/clipper-stage dBFS tap)
-    int m_afterEqIdx{-1};    // "TX" / "AFTEREQ" (processor input reference)
-    int m_scMicIdx{-1};      // "TX" / "SC_MIC" (6000-series compression reference)
     int m_micLevelIdx{-1};   // "COD-" / "MIC" (hardware mic RX level)
     int m_compLevelIdx{-1};  // "TX" / "COMP" (instantaneous)
     int m_alcIdx{-1};        // "TX" / "HWALC"
@@ -172,6 +199,8 @@ private:
     qint64 m_afterEqUpdatedMs{0};
     qint64 m_scMicUpdatedMs{0};
     qint64 m_compPeakUpdatedMs{0};
+    qint64 m_lastCompressionSummaryLogMs{0};
+    QString m_lastCompressionSummaryReason;
     float m_micLevel{-50.0f};
     float m_compLevel{0.0f};
     float m_alc{0.0f};

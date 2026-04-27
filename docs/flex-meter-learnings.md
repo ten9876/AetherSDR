@@ -10,6 +10,10 @@ Related implementation context lives in `docs/tx-audio-signal-path.md`.
 
 - Match meters by `source` and `name`, not by numeric ID. Flex meter IDs are
   assigned per session and differ by platform.
+- Compression TX-chain meters are repeated per active slice on multi-slice
+  radios. Track `COMPPEAK`, `AFTEREQ`, and `SC_MIC` by active slice. Some
+  radios expose distinct TX waveform `sourceIndex` values, while 8000-series
+  captures can repeat `TX- num=0` blocks after each `SLC` slice block.
 - Do not synthesize compression when required radio meters are unavailable. A
   missing compression input should make the compression meter unavailable, not
   approximate a value from local mic audio.
@@ -72,6 +76,45 @@ The remaining engineering caution is timing. On the 6600, `SC_MIC` advertises
 `10 fps` while `COMPPEAK` advertises `20 fps`. AetherSDR guards the derived
 6600 compression value by requiring the reference sample and `COMPPEAK` sample
 to be close in time before marking the compression meter available.
+
+## Multi-Slice Meter Resolution
+
+FLEX radios can repeat the TX waveform meter block once per active slice. In a
+captured FLEX-6600 four-slice manifest, `SC_MIC` / `COMPPEAK` appeared as
+`22/23`, `44/45`, `66/67`, and `88/89`. Those numeric IDs are not stable API
+contracts; they are manifest slots for that session.
+
+AetherSDR stores compression meter IDs by explicit TX waveform `sourceIndex`
+when the manifest provides one. In 8000-series captures where repeated TX
+blocks all report `num=0`, AetherSDR keys those block-local meters to the most
+recent `SLC` slice context from the manifest. The formula remains
+family-specific by available meter name: use active-slice `AFTEREQ` when
+present, otherwise active-slice `SC_MIC`, paired with active-slice `COMPPEAK`.
+
+The implementation intentionally derives a slice/source key and then looks up
+the manifest IDs for that key. It does not calculate the final meter IDs
+directly.
+
+| Radio family / manifest shape | Slice/source resolution | Reference meter | Compression meter | Gauge formula |
+|---|---|---|---|---|
+| FLEX-6600 / 6000-style explicit TX source | `txBase = min(TX sourceIndex >= 8) - min(SLC sourceIndex)`, then `activeTxSource = txBase + activeTxSlice` | `SC_MIC` at `activeTxSource` | `COMPPEAK` at `activeTxSource` | `-clamp(max(0, COMPPEAK - SC_MIC), 0, 25)` |
+| FLEX-8000-style explicit TX source | Same explicit TX-source lookup when the manifest provides per-slice TX source indices | `AFTEREQ` at `activeTxSource` | `COMPPEAK` at `activeTxSource` | `-clamp(max(0, COMPPEAK - AFTEREQ), 0, 25)` |
+| FLEX-8000-style repeated `TX- num=0` blocks | Use the most recent `SLC` source index as manifest context, then resolve by `activeTxSlice` at runtime | `AFTEREQ` mapped to `activeTxSlice` | `COMPPEAK` mapped to `activeTxSlice` | `-clamp(max(0, COMPPEAK - AFTEREQ), 0, 25)` |
+
+Issue #2040 describes the 6600 failure mode this avoids: the old scalar
+indexes were last-match-wins, so a multi-slice 6600 session could bind to the
+highest-numbered slice's `SC_MIC` / `COMPPEAK` pair while the VITA meter stream
+was publishing values for a different active TX slice.
+
+## Diagnostic Logging
+
+Enable `Meters` in Help > Support to capture compression diagnostics. The log
+emits a `compression meter map` row for each discovered `COMPPEAK`, `AFTEREQ`,
+or `SC_MIC` meter, then throttles live `compression summary` rows to twice per
+second unless the state changes. The summary includes active TX slice,
+waveform `sourceIndex`, selected reference meter, reference and `COMPPEAK`
+values, sample skew, computed lift, displayed gauge value, and availability
+reason.
 
 ## Meter FPS Comparison
 
