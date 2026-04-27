@@ -258,6 +258,12 @@ RadioModel::RadioModel(QObject* parent)
         sendCmd(cmd);
     });
     connect(&m_cwxModel, &CwxModel::commandReady, this, [this](const QString& cmd){
+        // Track CWX send state so the interlock handler recognises local
+        // CWX TX and doesn't force the audio gate off. (#2047, #2097)
+        if (cmd.startsWith("cwx send") || cmd.startsWith("cwx macro send"))
+            m_cwxActive = true;
+        else if (cmd.startsWith("cwx clear"))
+            m_cwxActive = false;
         sendCmd(cmd);
     });
     connect(&m_dvkModel, &DvkModel::commandReady, this, [this](const QString& cmd){
@@ -1536,6 +1542,7 @@ void RadioModel::onDisconnected()
 
     m_txRequested = false;
     m_cwKeyActive = false;
+    m_cwxActive = false;
     if (m_txAudioGate) {
         m_txAudioGate = false;
         emit txAudioGateChanged(false);
@@ -2660,7 +2667,7 @@ void RadioModel::onStatusReceived(const QString& object,
             const bool radioTx = (state == "TRANSMITTING");
             emit radioTransmittingChanged(radioTx);
 
-            if (!m_txOwnedByUs || (!m_txRequested && !m_cwKeyActive && !m_transmitModel.isTuning())) {
+            if (!m_txOwnedByUs || (!m_txRequested && !m_cwKeyActive && !m_cwxActive && !m_transmitModel.isTuning())) {
                 // Another client owns TX, or local unkey requested:
                 // force local TX/audio gate off through all interlock states.
                 m_transmitModel.setTransmitting(false);
@@ -2681,8 +2688,10 @@ void RadioModel::onStatusReceived(const QString& object,
                 // modem/PTT edge alignment.
                 const bool transitioningToTx =
                     state.contains("REQUESTED") || state.contains("DELAY");
-                if (!transitioningToTx)
+                if (!transitioningToTx) {
                     m_transmitModel.setTransmitting(false);
+                    m_cwxActive = false; // CWX send complete (#2097)
+                }
                 if (!transitioningToTx && m_txAudioGate) {
                     m_txAudioGate = false;
                     emit txAudioGateChanged(false);
