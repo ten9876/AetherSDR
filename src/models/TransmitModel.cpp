@@ -483,18 +483,23 @@ void TransmitModel::loadMicProfile(const QString& name)
 void TransmitModel::setVoxEnable(bool on)
 {
     m_voxEnable = on;  // optimistic update — radio may not echo
+    emit phoneStateChanged();
     emit commandReady(QString("transmit set vox_enable=%1").arg(on ? 1 : 0));
 }
 
 void TransmitModel::setVoxLevel(int level)
 {
     level = qBound(0, level, 100);
+    m_voxLevel = level;
+    emit phoneStateChanged();
     emit commandReady(QString("transmit set vox_level=%1").arg(level));
 }
 
 void TransmitModel::setVoxDelay(int delay)
 {
     delay = qBound(0, delay, 100);
+    m_voxDelay = delay;
+    emit phoneStateChanged();
     emit commandReady(QString("transmit set vox_delay=%1").arg(delay));
 }
 
