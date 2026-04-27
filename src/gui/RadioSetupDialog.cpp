@@ -8,6 +8,8 @@
 #ifdef HAVE_SERIALPORT
 #include "core/SerialPortController.h"
 #include "core/FlexControlManager.h"
+#include "core/LdgTunerConnection.h"
+#include "models/LdgTunerModel.h"
 #include <QSerialPortInfo>
 #endif
 #include "core/FirmwareUploader.h"
@@ -3080,6 +3082,159 @@ QWidget* RadioSetupDialog::buildSerialTab()
             s.save();
         });
         vbox->addWidget(autoOpen);
+    }
+
+    // ── LDG USB-Serial-TTL Tuner (#2092) ──────────────────────────────
+    {
+        auto* group = new QGroupBox("LDG USB-Serial-TTL Tuner");
+        group->setStyleSheet(kGroupStyle);
+        auto* grid = new QGridLayout(group);
+        grid->setSpacing(4);
+
+        auto& ldg = m_model->ldgTunerModel();
+
+        // Enable checkbox
+        auto* enableCb = new QCheckBox("Enable LDG tuner integration");
+        enableCb->setStyleSheet("QCheckBox { color: #c8d8e8; }");
+        enableCb->setChecked(ldg.isEnabled());
+        connect(enableCb, &QCheckBox::toggled, this, [&ldg](bool on) {
+            ldg.setEnabled(on);
+            ldg.saveSettings();
+        });
+        grid->addWidget(enableCb, 0, 0, 1, 4);
+
+        // Serial port selector
+        grid->addWidget(new QLabel("Serial port:"), 1, 0);
+        auto* ldgPortCombo = new QComboBox;
+        ldgPortCombo->setMinimumWidth(200);
+        for (const auto& info : QSerialPortInfo::availablePorts())
+            ldgPortCombo->addItem(QString("%1 — %2").arg(info.portName(), info.description()),
+                                 info.portName());
+        QString savedLdgPort = ldg.portName();
+        for (int i = 0; i < ldgPortCombo->count(); ++i) {
+            if (ldgPortCombo->itemData(i).toString() == savedLdgPort) {
+                ldgPortCombo->setCurrentIndex(i);
+                break;
+            }
+        }
+        grid->addWidget(ldgPortCombo, 1, 1, 1, 2);
+
+        connect(ldgPortCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [&ldg, ldgPortCombo]() {
+            ldg.setPortName(ldgPortCombo->currentData().toString());
+            ldg.saveSettings();
+        });
+
+        // Connect / Disconnect button
+        auto* ldgConnBtn = new QPushButton(ldg.isConnected() ? "Disconnect" : "Connect");
+        ldgConnBtn->setFixedWidth(90);
+        ldgConnBtn->setStyleSheet(
+            "QPushButton { background: #00b4d8; color: #0f0f1a; font-weight: bold; "
+            "border: 1px solid #008ba8; padding: 3px; border-radius: 3px; }"
+            "QPushButton:hover { background: #00c8f0; }");
+        grid->addWidget(ldgConnBtn, 1, 3);
+
+        // Status label
+        auto* ldgStatusLbl = new QLabel(ldg.isConnected() ? "Connected" : "Not connected");
+        ldgStatusLbl->setStyleSheet(ldg.isConnected()
+            ? "QLabel { color: #00e060; font-size: 11px; }"
+            : "QLabel { color: #8aa8c0; font-size: 11px; }");
+        grid->addWidget(ldgStatusLbl, 2, 0, 1, 4);
+
+        connect(ldgConnBtn, &QPushButton::clicked, this, [&ldg, ldgPortCombo]() {
+            if (ldg.isConnected()) {
+                ldg.disconnectFromTuner();
+            } else {
+                QString port = ldgPortCombo->currentData().toString();
+                if (port.isEmpty()) return;
+                ldg.setPortName(port);
+                ldg.connectToTuner();
+            }
+        });
+
+        auto updateLdgStatus = [ldgConnBtn, ldgStatusLbl, &ldg]() {
+            bool conn = ldg.isConnected();
+            ldgConnBtn->setText(conn ? "Disconnect" : "Connect");
+            ldgStatusLbl->setText(conn ? "Connected" : "Not connected");
+            ldgStatusLbl->setStyleSheet(conn
+                ? "QLabel { color: #00e060; font-size: 11px; }"
+                : "QLabel { color: #8aa8c0; font-size: 11px; }");
+        };
+        connect(&ldg, &LdgTunerModel::connectedChanged, this, updateLdgStatus);
+        connect(&ldg, &LdgTunerModel::connectionLost, this,
+                [ldgStatusLbl](const QString& reason) {
+            ldgStatusLbl->setText("Error: " + reason);
+            ldgStatusLbl->setStyleSheet("QLabel { color: #e06060; font-size: 11px; }");
+        });
+
+        // Tuner model preset
+        grid->addWidget(new QLabel("Model:"), 3, 0);
+        auto* presetCombo = new QComboBox;
+        presetCombo->addItem("Generic LDG Serial", static_cast<int>(LdgTunerModel::TunerPreset::Generic));
+        presetCombo->addItem("LDG-1000ProII",      static_cast<int>(LdgTunerModel::TunerPreset::LDG1000ProII));
+        presetCombo->addItem("LDG-600ProII",       static_cast<int>(LdgTunerModel::TunerPreset::LDG600ProII));
+        presetCombo->setCurrentIndex(static_cast<int>(ldg.tunerPreset()));
+        grid->addWidget(presetCombo, 3, 1, 1, 2);
+        connect(presetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [&ldg, presetCombo]() {
+            ldg.setTunerPreset(static_cast<LdgTunerModel::TunerPreset>(
+                presetCombo->currentData().toInt()));
+            ldg.saveSettings();
+        });
+
+        // Tune-button integration mode
+        grid->addWidget(new QLabel("TUNE button:"), 4, 0);
+        auto* modeCombo = new QComboBox;
+        modeCombo->addItem("Disabled (radio-only tune)",
+                           static_cast<int>(LdgTunerModel::TuneMode::Disabled));
+        modeCombo->addItem("LDG Full Tune + radio TUNE",
+                           static_cast<int>(LdgTunerModel::TuneMode::FullTune));
+        modeCombo->addItem("LDG Memory Tune + radio TUNE",
+                           static_cast<int>(LdgTunerModel::TuneMode::MemoryTune));
+        modeCombo->setCurrentIndex(static_cast<int>(ldg.tuneMode()));
+        grid->addWidget(modeCombo, 4, 1, 1, 2);
+        connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [&ldg, modeCombo]() {
+            ldg.setTuneMode(static_cast<LdgTunerModel::TuneMode>(
+                modeCombo->currentData().toInt()));
+            ldg.saveSettings();
+        });
+
+        // Tune delay
+        grid->addWidget(new QLabel("Tune delay (ms):"), 5, 0);
+        auto* delaySpin = new QSpinBox;
+        delaySpin->setRange(0, 5000);
+        delaySpin->setSingleStep(50);
+        delaySpin->setValue(ldg.tuneDelayMs());
+        delaySpin->setStyleSheet(
+            "QSpinBox { background: #1a2a3a; border: 1px solid #304050; "
+            "border-radius: 3px; color: #c8d8e8; font-size: 12px; padding: 2px; }");
+        grid->addWidget(delaySpin, 5, 1);
+        connect(delaySpin, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [&ldg](int ms) {
+            ldg.setTuneDelayMs(ms);
+            ldg.saveSettings();
+        });
+
+        // Auto-stop carrier on tune completion
+        auto* autoStopCb = new QCheckBox("Auto-stop carrier on LDG tune completion/timeout");
+        autoStopCb->setStyleSheet("QCheckBox { color: #c8d8e8; }");
+        autoStopCb->setChecked(ldg.autoStop());
+        connect(autoStopCb, &QCheckBox::toggled, this, [&ldg](bool on) {
+            ldg.setAutoStop(on);
+            ldg.saveSettings();
+        });
+        grid->addWidget(autoStopCb, 6, 0, 1, 4);
+
+        // Warning note
+        auto* warnLabel = new QLabel(
+            "⚠ LDG tuner control requires a TTL-level USB serial adapter (not RS-232).\n"
+            "Some cheap S-Video/DIN cables may tie ground pins — check wiring carefully.");
+        warnLabel->setWordWrap(true);
+        warnLabel->setStyleSheet("QLabel { color: #c09040; font-size: 10px; padding: 4px; }");
+        grid->addWidget(warnLabel, 7, 0, 1, 4);
+
+        vbox->addWidget(group);
     }
 
     // ── FlexControl tuning knob ────────────────────────────────────────

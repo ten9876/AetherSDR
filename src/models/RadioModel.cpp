@@ -243,9 +243,37 @@ RadioModel::RadioModel(QObject* parent)
                 emit txAudioGateChanged(false);
             }
         }
-        if (cmd == "transmit tune 1" || cmd == "atu start")
+        // LDG tune integration (#2092): when the user presses TUNE and LDG
+        // integration is active, send the LDG tune command first, then defer
+        // the radio carrier until the configurable delay elapses.
+        if (cmd == "transmit tune 1") {
+            if (m_ldgTunerModel.beginLdgTune()) {
+                // LDG tune initiated — the carrier will be started by
+                // LdgTunerModel::startRadioTuneCarrier after the delay.
+                // Apply tune inhibit now so it's ready when the carrier starts.
+                applyTuneInhibit();
+                return;
+            }
             applyTuneInhibit();
+        } else if (cmd == "atu start") {
+            applyTuneInhibit();
+        }
         sendCmd(cmd);
+    });
+
+    // LDG tune integration (#2092): start radio carrier after LDG delay
+    connect(&m_ldgTunerModel, &LdgTunerModel::startRadioTuneCarrier, this, [this]() {
+        qCDebug(lcTuner) << "RadioModel: LDG delay elapsed, starting radio tune carrier";
+        sendCmd("transmit tune 1");
+    });
+
+    // LDG tune integration (#2092): auto-stop carrier on LDG tune completion
+    connect(&m_ldgTunerModel, &LdgTunerModel::tuneFinished, this, [this](bool success) {
+        Q_UNUSED(success)
+        if (m_ldgTunerModel.autoStop() && m_transmitModel.isTuning()) {
+            qCInfo(lcTuner) << "RadioModel: LDG tune finished, auto-stopping carrier";
+            m_transmitModel.stopTune();
+        }
     });
 
     // Forward equalizer model commands to the radio
@@ -272,6 +300,9 @@ RadioModel::RadioModel(QObject* parent)
         if (!tuning && m_tuneInhibitActive && m_tuneInhibitBandId >= 0)
             restoreTuneInhibit();
     });
+
+    // Load LDG tuner settings (#2092)
+    m_ldgTunerModel.loadSettings();
 
     m_reconnectTimer.setInterval(5000);
     connect(&m_reconnectTimer, &QTimer::timeout, this, [this]() {

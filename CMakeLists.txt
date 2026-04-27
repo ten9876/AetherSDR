@@ -404,6 +404,7 @@ set(CORE_SOURCES
     src/core/RadioConnection.cpp
     src/core/NetworkPathResolver.cpp
     src/core/TgxlConnection.cpp
+    src/core/LdgTunerConnection.cpp
     src/core/CommandParser.cpp
     src/core/AudioEngine.cpp
     src/core/ClientEq.cpp
@@ -476,6 +477,7 @@ set(MODEL_SOURCES
     src/models/PanadapterModel.cpp
     src/models/MeterModel.cpp
     src/models/TunerModel.cpp
+    src/models/LdgTunerModel.cpp
     src/models/TransmitModel.cpp
     src/models/EqualizerModel.cpp
     src/models/TnfModel.cpp

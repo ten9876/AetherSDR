@@ -17,6 +17,7 @@
 #include "DvkModel.h"
 #include "UsbCableModel.h"
 #include "DaxIqModel.h"
+#include "LdgTunerModel.h"
 #include "MemoryEntry.h"
 
 #include <QObject>
@@ -63,6 +64,7 @@ public:
     DvkModel&         dvkModel()         { return m_dvkModel; }
     UsbCableModel&    usbCableModel()    { return m_usbCableModel; }
     DaxIqModel&       daxIqModel()       { return m_daxIqModel; }
+    LdgTunerModel&    ldgTunerModel()    { return m_ldgTunerModel; }
     bool              hasAmplifier() const { return m_hasAmplifier; }
     bool              ampOperate()   const { return m_ampOperate; }
     QString           ampHandle()    const { return m_ampHandle; }
@@ -437,6 +439,7 @@ private:
     DvkModel         m_dvkModel;
     UsbCableModel    m_usbCableModel;
     DaxIqModel       m_daxIqModel;
+    LdgTunerModel    m_ldgTunerModel;
 
     // NetCW stream — VITA-49 UDP delivery for low-latency CW keying
     quint32  m_netCwStreamId{0};

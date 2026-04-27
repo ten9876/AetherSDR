@@ -30,6 +30,7 @@
 #ifdef HAVE_SERIALPORT
 #include "core/SerialPortController.h"
 #include "core/FlexControlManager.h"
+#include "core/LdgTunerConnection.h"
 #endif
 #ifdef HAVE_MIDI
 #include "core/MidiControlManager.h"
@@ -261,6 +262,7 @@ private:
 #ifdef HAVE_SERIALPORT
     SerialPortController* m_serialPort{nullptr};
     FlexControlManager*   m_flexControl{nullptr};
+    LdgTunerConnection*   m_ldgTunerConn{nullptr};
     QTimer               m_flexCoalesceTimer;
     double               m_flexTargetMhz{-1.0};
     FlexWheelMode        m_flexWheelMode{FlexWheelMode::Frequency};

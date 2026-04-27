@@ -2698,6 +2698,11 @@ MainWindow::MainWindow(QWidget* parent)
     m_flexControl = new FlexControlManager;
     m_flexControl->moveToThread(m_extCtrlThread);
 
+    // LDG tuner connection (#2092) — runs on worker thread for serial I/O
+    m_ldgTunerConn = new LdgTunerConnection;
+    m_ldgTunerConn->moveToThread(m_extCtrlThread);
+    m_radioModel.ldgTunerModel().setConnection(m_ldgTunerConn);
+
     // Serial port signals (auto-queued from worker → main)
     connect(m_serialPort, &SerialPortController::externalPttChanged,
             this, [this](bool active) {
@@ -2958,6 +2963,16 @@ MainWindow::MainWindow(QWidget* parent)
         if (!fcPort.isEmpty()) {
             QMetaObject::invokeMethod(m_flexControl, [this, fcPort] {
                 m_flexControl->open(fcPort);
+            });
+        }
+    }
+    // LDG auto-connect on startup (#2092)
+    {
+        auto& ldg = m_radioModel.ldgTunerModel();
+        if (ldg.isEnabled() && !ldg.portName().isEmpty()) {
+            QMetaObject::invokeMethod(m_ldgTunerConn, [this]() {
+                auto& ldg = m_radioModel.ldgTunerModel();
+                m_ldgTunerConn->connectToTuner(ldg.portName());
             });
         }
     }
@@ -3697,6 +3712,7 @@ MainWindow::~MainWindow()
 #ifdef HAVE_SERIALPORT
     delete m_serialPort;
     delete m_flexControl;
+    delete m_ldgTunerConn;
 #endif
 #ifdef HAVE_MIDI
     delete m_midiControl;
