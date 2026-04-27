@@ -44,7 +44,33 @@ bool CwSidetonePortAudioSink::start(const QAudioDevice& /*device*/,
     // user reports that sidetone goes to the wrong device we'll add a
     // mapping pass; until then `paNoDevice → use default` is the right
     // call.
-    const PaDeviceIndex devIdx = Pa_GetDefaultOutputDevice();
+    //
+    // Linux exception: PipeWire's ALSA compatibility shim (the `default`
+    // ALSA device on a PipeWire system) silently breaks callback-mode
+    // streams — Pa_OpenStream returns success but the audio thread never
+    // schedules the callback.  PipeWire's JACK shim (`pipewire-jack`),
+    // which is what professional audio apps use, exposes the same physical
+    // device at the native sample rate with reliable callbacks.  Prefer
+    // the JACK host API on Linux when available.
+    PaDeviceIndex devIdx = paNoDevice;
+#ifdef Q_OS_LINUX
+    {
+        const PaHostApiIndex apiCount = Pa_GetHostApiCount();
+        for (PaHostApiIndex i = 0; i < apiCount; ++i) {
+            const PaHostApiInfo* api = Pa_GetHostApiInfo(i);
+            if (!api || !api->name) continue;
+            if (qstrncmp(api->name, "JACK", 4) == 0
+                && api->defaultOutputDevice != paNoDevice) {
+                devIdx = api->defaultOutputDevice;
+                qCInfo(lcAudio) << "CwSidetonePortAudioSink: using JACK host API"
+                                << "(device" << devIdx << ")";
+                break;
+            }
+        }
+    }
+#endif
+    if (devIdx == paNoDevice)
+        devIdx = Pa_GetDefaultOutputDevice();
     if (devIdx == paNoDevice) {
         qCWarning(lcAudio) << "CwSidetonePortAudioSink: no default output device";
         return false;
@@ -56,16 +82,29 @@ bool CwSidetonePortAudioSink::start(const QAudioDevice& /*device*/,
         return false;
     }
 
-    const double sampleRate = desiredRateHz > 0 ? desiredRateHz : 48000;
-
+    // Prefer 48 kHz; fall back to the device's native rate only if the
+    // device explicitly rejects 48 kHz.
     PaStreamParameters outParams{};
     outParams.device = devIdx;
     outParams.channelCount = 2;
     outParams.sampleFormat = paFloat32;
-    // Lowest latency the device supports.  PortAudio uses this as a hint
-    // and may give us a smaller actual latency.
-    outParams.suggestedLatency = devInfo->defaultLowOutputLatency;
     outParams.hostApiSpecificStreamInfo = nullptr;
+
+    double sampleRate = desiredRateHz > 0 ? desiredRateHz : 48000;
+    outParams.suggestedLatency = 0.0;  // ask for smallest the host can deliver
+    if (Pa_IsFormatSupported(nullptr, &outParams, sampleRate) != paFormatIsSupported) {
+        sampleRate = devInfo->defaultSampleRate > 0
+            ? devInfo->defaultSampleRate
+            : 48000;
+        qCInfo(lcAudio) << "CwSidetonePortAudioSink: 48000 unsupported, using"
+                        << sampleRate;
+    }
+
+    // Push for sub-5 ms total latency.  On JACK / PipeWire the actual
+    // value is bounded by the server quantum — passing 0 + a small
+    // framesPerBuffer asks the host for the smallest it can deliver per
+    // client, which PipeWire honours as a per-stream latency request.
+    constexpr unsigned long kFramesPerBuffer = 128;
 
     // Store generator BEFORE opening so the very first callback (which
     // can fire before Pa_OpenStream returns on some platforms) sees it.
@@ -76,7 +115,7 @@ bool CwSidetonePortAudioSink::start(const QAudioDevice& /*device*/,
                                 /*input*/  nullptr,
                                 /*output*/ &outParams,
                                 sampleRate,
-                                paFramesPerBufferUnspecified,
+                                kFramesPerBuffer,
                                 paNoFlag,
                                 &CwSidetonePortAudioSink::paCallback,
                                 this);

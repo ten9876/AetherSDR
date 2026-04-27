@@ -59,6 +59,11 @@ void CwSidetoneGenerator::setShapingMs(float ms) noexcept
     m_shapingMs.store(clampf(ms, 0.0f, 50.0f), std::memory_order_relaxed);
 }
 
+void CwSidetoneGenerator::setPan(float p) noexcept
+{
+    m_pan.store(clampf(p, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
 void CwSidetoneGenerator::setKeyDown(bool down) noexcept
 {
     m_keyDown.store(down, std::memory_order_relaxed);
@@ -142,6 +147,10 @@ bool CwSidetoneGenerator::process(float* out, int frames) noexcept
         return false;
 
     const double phaseInc = kTwoPi * pitch / m_sampleRateHz;
+    // Constant-power pan: equal perceived loudness across the L↔R sweep.
+    const float pan = m_pan.load(std::memory_order_relaxed);
+    const float gainL = std::cos(pan * static_cast<float>(M_PI_2));
+    const float gainR = std::sin(pan * static_cast<float>(M_PI_2));
     bool wroteAny = false;
 
     for (int i = 0; i < frames; ++i) {
@@ -171,8 +180,8 @@ bool CwSidetoneGenerator::process(float* out, int frames) noexcept
 
         const float sample = env * vol *
             static_cast<float>(std::sin(m_phase));
-        out[2 * i + 0] += sample;  // L
-        out[2 * i + 1] += sample;  // R
+        out[2 * i + 0] += sample * gainL;  // L
+        out[2 * i + 1] += sample * gainR;  // R
 
         m_phase += phaseInc;
         if (m_phase >= kTwoPi) m_phase -= kTwoPi;

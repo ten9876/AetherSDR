@@ -27,6 +27,7 @@ public:
     void setPitchHz(float hz) noexcept;       // clamped to [100, 4000]
     void setVolume(float v) noexcept;         // 0.0..1.0
     void setShapingMs(float ms) noexcept;     // raised-cosine ramp, [0, 50]
+    void setPan(float p) noexcept;            // 0.0=L, 0.5=center, 1.0=R
 
     // Sample-rate change — call only when audio output is paused / not
     // racing process().  Resets phase + ramp state to avoid mid-cycle
@@ -43,6 +44,7 @@ public:
     bool  isEnabled() const noexcept { return m_enabled.load(std::memory_order_relaxed); }
     float pitchHz() const noexcept   { return m_pitchHz.load(std::memory_order_relaxed); }
     float volume() const noexcept    { return m_volume.load(std::memory_order_relaxed); }
+    float pan() const noexcept       { return m_pan.load(std::memory_order_relaxed); }
 
     // Audio-thread: add sidetone samples to interleaved stereo float32
     // output (frames * 2 floats).  Mixes additively, so existing audio
@@ -61,6 +63,7 @@ private:
     std::atomic<bool>  m_keyDown{false};
     std::atomic<float> m_pitchHz{600.0f};
     std::atomic<float> m_volume{0.5f};
+    std::atomic<float> m_pan{0.5f};
     std::atomic<float> m_shapingMs{5.0f};
 
     // Audio-thread state — only touched in process()/reset().

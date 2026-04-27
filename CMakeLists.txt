@@ -417,6 +417,7 @@ set(CORE_SOURCES
     src/core/CwSidetoneGenerator.cpp
     src/core/CwSidetoneQAudioSink.cpp
     src/core/CwxLocalKeyer.cpp
+    src/core/IambicKeyer.cpp
     src/core/SpectralNR.cpp
     src/core/PanadapterStream.cpp
     src/core/RigctlProtocol.cpp
@@ -1113,6 +1114,15 @@ add_executable(client_reverb_test
     src/core/ClientReverb.cpp
 )
 target_include_directories(client_reverb_test PRIVATE src)
+
+add_executable(iambic_keyer_test
+    tests/iambic_keyer_test.cpp
+    src/core/IambicKeyer.cpp
+)
+target_include_directories(iambic_keyer_test PRIVATE src)
+if(UNIX)
+    target_link_libraries(iambic_keyer_test PRIVATE pthread)
+endif()
 
 add_executable(passive_spots_policy_test
     tests/passive_spots_policy_test.cpp

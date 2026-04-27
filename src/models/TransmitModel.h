@@ -79,6 +79,7 @@ public:
     bool    cwSwapPaddles() const { return m_cwSwapPaddles; }
     bool    cwlEnabled()    const { return m_cwlEnabled; }
     int     monGainCw()     const { return m_monGainCw; }
+    int     monPanCw()      const { return m_monPanCw; }
 
     // ── Interlock / TX settings getters ──────────────────────────────────────
     int     accTxDelay()     const { return m_accTxDelay; }
@@ -175,6 +176,7 @@ public:
     void setCwSwapPaddles(bool on);
     void setCwlEnabled(bool on);
     void setMonGainCw(int gain);
+    void setMonPanCw(int pan);
 
 signals:
     void stateChanged();
@@ -242,6 +244,7 @@ private:
     bool m_cwSwapPaddles{false};
     bool m_cwlEnabled{false};
     int  m_monGainCw{50};
+    int  m_monPanCw{50};
 
     // Interlock / TX settings
     int     m_accTxDelay{0};

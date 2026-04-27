@@ -192,6 +192,10 @@ void TransmitModel::applyTransmitStatus(const QMap<QString, QString>& kvs)
         int v = qBound(0, kvs["mon_gain_cw"].toInt(), 100);
         if (m_monGainCw != v) { m_monGainCw = v; phoneChanged = true; }
     }
+    if (kvs.contains("mon_pan_cw")) {
+        int v = qBound(0, kvs["mon_pan_cw"].toInt(), 100);
+        if (m_monPanCw != v) { m_monPanCw = v; phoneChanged = true; }
+    }
 
     if (kvs.contains("max_power_level")) {
         int v = kvs["max_power_level"].toInt();
@@ -550,13 +554,20 @@ void TransmitModel::setTxFilterHigh(int hz)
 void TransmitModel::setCwSpeed(int wpm)
 {
     wpm = qBound(5, wpm, 100);
+    if (m_cwSpeed != wpm) {
+        m_cwSpeed = wpm;
+        emit phoneStateChanged();
+    }
     emit commandReady(QString("cw wpm %1").arg(wpm));
 }
 
 void TransmitModel::setCwPitch(int hz)
 {
     hz = qBound(100, hz, 6000);
-    m_cwPitch = hz;  // update local cache so rapid steppers accumulate
+    if (m_cwPitch != hz) {
+        m_cwPitch = hz;  // update local cache so rapid steppers accumulate
+        emit phoneStateChanged();
+    }
     emit commandReady(QString("cw pitch %1").arg(hz));
 }
 
@@ -582,12 +593,23 @@ void TransmitModel::setCwSidetone(bool on)
 
 void TransmitModel::setCwIambic(bool on)
 {
+    // Optimistic update — radio firmware v1.4.0.0 doesn't echo `iambic`
+    // back in subsequent transmit statuses, so without this our local
+    // state goes stale after every user toggle.
+    if (m_cwIambic != on) {
+        m_cwIambic = on;
+        emit phoneStateChanged();
+    }
     emit commandReady(QString("cw iambic %1").arg(on ? 1 : 0));
 }
 
 void TransmitModel::setCwIambicMode(int mode)
 {
     mode = qBound(0, mode, 1);
+    if (m_cwIambicMode != mode) {
+        m_cwIambicMode = mode;
+        emit phoneStateChanged();
+    }
     emit commandReady(QString("cw mode %1").arg(mode));
 }
 
@@ -604,7 +626,21 @@ void TransmitModel::setCwlEnabled(bool on)
 void TransmitModel::setMonGainCw(int gain)
 {
     gain = qBound(0, gain, 100);
+    if (m_monGainCw != gain) {
+        m_monGainCw = gain;
+        emit phoneStateChanged();
+    }
     emit commandReady(QString("transmit set mon_gain_cw=%1").arg(gain));
+}
+
+void TransmitModel::setMonPanCw(int pan)
+{
+    pan = qBound(0, pan, 100);
+    if (m_monPanCw != pan) {
+        m_monPanCw = pan;
+        emit phoneStateChanged();
+    }
+    emit commandReady(QString("transmit set mon_pan_cw=%1").arg(pan));
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

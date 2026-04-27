@@ -624,16 +624,28 @@ void RadioModel::sendCwKey(bool down)
 
 void RadioModel::sendCwPaddle(bool dit, bool dah)
 {
-    const bool active = dit || dah;
+    // The radio's CW protocol does NOT accept a 2-arg paddle form like
+    // `cw key dit dah` — FlexLib only ever sends `cw key 1` or `cw key 0`
+    // (single state) and expects the client to do iambic timing locally.
+    // Treat any paddle press as a straight-key down so this path still
+    // works when the local iambic keyer is disabled.  When the keyer IS
+    // running it intercepts upstream and uses sendCwPtt + sendCwKeyEdge
+    // directly, bypassing this method.
+    sendCwKey(dit || dah);
+}
+
+void RadioModel::sendCwPtt(bool on)
+{
+    sendNetCwCommand(on ? QStringLiteral("cw ptt 1") : QStringLiteral("cw ptt 0"));
+}
+
+void RadioModel::sendCwKeyEdge(bool down)
+{
     const bool prev = m_cwKeyActive;
-    m_cwKeyActive = active;
-    // PTT engaged for the duration any paddle is held — single PTT-on
-    // window across dit/dah transitions.  See sendCwKey() rationale.
-    if (active && !prev) sendNetCwCommand(QStringLiteral("cw ptt 1"));
-    sendNetCwCommand(QString("cw key %1 %2").arg(dit ? 1 : 0).arg(dah ? 1 : 0));
-    if (!active && prev) sendNetCwCommand(QStringLiteral("cw ptt 0"));
-    if (prev != active)
-        emit cwKeyDownChanged(active);
+    m_cwKeyActive = down;
+    sendNetCwCommand(QString("cw key %1").arg(down ? 1 : 0));
+    if (prev != down)
+        emit cwKeyDownChanged(down);
 }
 
 // ── NetCW stream — VITA-49 UDP delivery with redundant sends ────────────────
@@ -691,11 +703,14 @@ void RadioModel::sendNetCwCommand(const QString& baseCmd)
         QDateTime::currentMSecsSinceEpoch() & 0xFFFFFFFF);
     int index = m_netCwIndex++;
 
+    // FlexLib formats hex values UPPERCASE (C# ToString("X")), and the
+    // radio's status messages do too (e.g. `S23A59BDF|...`) — the netcw
+    // parser appears to be case-sensitive on `client_handle`.  Match that
+    // by formatting both hex values uppercase explicitly.
+    const QString tsHex = QString("%1").arg(timeMs, 8, 16, QChar('0')).toUpper();
+    const QString chHex = QString("%1").arg(clientHandle(), 0, 16).toUpper();
     QString fullCmd = QString("%1 time=0x%2 index=%3 client_handle=0x%4")
-        .arg(baseCmd)
-        .arg(timeMs, 8, 16, QChar('0'))
-        .arg(index)
-        .arg(clientHandle(), 0, 16);
+        .arg(baseCmd, tsHex, QString::number(index), chHex);
 
     QByteArray payload = fullCmd.toLatin1();
 
@@ -730,8 +745,14 @@ void RadioModel::sendNetCwCommand(const QString& baseCmd)
         }, Qt::QueuedConnection);
     });
 
-    // TCP fallback — guarantees delivery if all UDP packets are lost
-    sendCmd(fullCmd);
+    // No TCP fallback when netcw is up.  Radio v4.1.5 rejects every CW
+    // command sent over TCP with 0x50001000 ("command syntax error") —
+    // both the netcw form and `cw key immediate` form — so the fallback
+    // was producing log noise without doing useful work.  The four
+    // redundant UDP sends above are the reliability mechanism.  If
+    // netcw stream creation failed at startup, the early-return path
+    // above falls back to `cw key immediate` over TCP for that case
+    // (no-netcw firmware), which is a separate scenario.
 }
 
 void RadioModel::cwAutoTune(int sliceId, bool intermittent)

@@ -52,6 +52,7 @@
 #include "core/ClientReverb.h"
 #include "core/CwSidetoneGenerator.h"
 #include "core/CwxLocalKeyer.h"
+#include "core/IambicKeyer.h"
 #include "CatControlApplet.h"
 #include "DaxApplet.h"
 #include "TciApplet.h"
@@ -1655,69 +1656,56 @@ MainWindow::MainWindow(QWidget* parent)
     // connect; UI signals push subsequent changes live (atomic in DSP).
     {
         auto* pca = m_appletPanel->phoneCwApplet();
-        connect(pca, &PhoneCwApplet::localSidetoneEnabledChanged,
+        // The single Sidetone toggle drives both engines at once.
+        connect(pca, &PhoneCwApplet::sidetoneEnabledChanged,
                 this, [this](bool on) {
             if (m_audio && m_audio->cwSidetone())
                 m_audio->cwSidetone()->setEnabled(on);
         });
-        connect(pca, &PhoneCwApplet::localSidetoneVolumeChanged,
+        connect(pca, &PhoneCwApplet::sidetoneVolumeChanged,
                 this, [this](int pct) {
             if (m_audio && m_audio->cwSidetone())
                 m_audio->cwSidetone()->setVolume(pct / 100.0f);
         });
-        connect(pca, &PhoneCwApplet::localSidetonePitchFollowChanged,
-                this, [this](bool follow) {
-            if (!m_audio || !m_audio->cwSidetone()) return;
-            if (follow) {
-                m_audio->cwSidetone()->setPitchHz(
-                    static_cast<float>(m_radioModel.transmitModel().cwPitch()));
-            } else {
-                auto& s = AppSettings::instance();
-                m_audio->cwSidetone()->setPitchHz(static_cast<float>(
-                    s.value("CwLocalSidetonePitchHz", "600").toInt()));
+        // Mirror the radio's iambic state into our local keyer — when the
+        // operator toggles the existing "Iambic" button, we run the local
+        // state machine for sub-5 ms sidetone latency.  The radio still
+        // produces the on-air signal; we just drive the sidetone gate
+        // ahead of the round trip.
+        auto syncLocalKeyerToRadio = [this]() {
+            if (!m_iambicKeyer) return;
+            auto& tx = m_radioModel.transmitModel();
+            const bool wantOn = tx.cwIambic();
+            m_iambicKeyer->setMode(tx.cwIambicMode() == 0
+                                       ? IambicKeyer::Mode::IambicA
+                                       : IambicKeyer::Mode::IambicB);
+            m_iambicKeyer->setWpm(tx.cwSpeed());
+            if (wantOn && !m_iambicKeyer->isRunning()) {
+                m_iambicKeyer->start();
+            } else if (!wantOn && m_iambicKeyer->isRunning()) {
+                m_iambicKeyer->stop();
             }
-        });
-        connect(pca, &PhoneCwApplet::localSidetonePitchChanged,
-                this, [this](int hz) {
-            // Manual pitch slider only — only applied when follow is off.
-            auto& s = AppSettings::instance();
-            const bool follow =
-                s.value("CwLocalSidetonePitchFollow", "True").toString() == "True";
-            if (!follow && m_audio && m_audio->cwSidetone())
-                m_audio->cwSidetone()->setPitchHz(static_cast<float>(hz));
-        });
-
-        // Push persisted state into the generator at startup so the user's
-        // saved enable/volume/pitch take effect without toggling the UI.
-        if (m_audio && m_audio->cwSidetone()) {
-            auto& s = AppSettings::instance();
-            auto* gen = m_audio->cwSidetone();
-            gen->setEnabled(
-                s.value("CwLocalSidetoneEnabled", "False").toString() == "True");
-            gen->setVolume(
-                s.value("CwLocalSidetoneVolume", "50").toInt() / 100.0f);
-            const bool follow =
-                s.value("CwLocalSidetonePitchFollow", "True").toString() == "True";
-            const int manualHz = s.value("CwLocalSidetonePitchHz", "600").toInt();
-            gen->setPitchHz(static_cast<float>(
-                follow ? m_radioModel.transmitModel().cwPitch() : manualHz));
-        }
-
-        // Pitch-follow: when the radio updates cw_pitch, propagate to the
-        // generator if the user has follow enabled.  TransmitModel emits
-        // phoneStateChanged on any CW property change including pitch —
-        // cheap to re-pull on each since cwPitch() is just an int read.
+        };
         connect(&m_radioModel.transmitModel(), &TransmitModel::phoneStateChanged,
-                this, [this]() {
+                this, syncLocalKeyerToRadio);
+        // Initial sync once the radio reports its state.
+        syncLocalKeyerToRadio();
+
+        // Mirror the radio's CW state into the local sidetone generator —
+        // sidetone enable, volume (mon_gain_cw), and pitch all follow the
+        // radio.  The radio is authoritative; we just stay in lockstep.
+        auto syncLocalSidetoneToRadio = [this]() {
             if (!m_audio || !m_audio->cwSidetone()) return;
-            auto& ss = AppSettings::instance();
-            const bool follow =
-                ss.value("CwLocalSidetonePitchFollow", "True").toString() == "True";
-            if (follow) {
-                m_audio->cwSidetone()->setPitchHz(
-                    static_cast<float>(m_radioModel.transmitModel().cwPitch()));
-            }
-        });
+            auto& tx = m_radioModel.transmitModel();
+            auto* gen = m_audio->cwSidetone();
+            gen->setEnabled(tx.cwSidetone());
+            gen->setVolume(tx.monGainCw() / 100.0f);
+            gen->setPitchHz(static_cast<float>(tx.cwPitch()));
+            gen->setPan(tx.monPanCw() / 100.0f);
+        };
+        connect(&m_radioModel.transmitModel(), &TransmitModel::phoneStateChanged,
+                this, syncLocalSidetoneToRadio);
+        syncLocalSidetoneToRadio();
 
         // CWX local keyer — when the user fires text/macros via CWX, this
         // generates a matching dit-dah pattern locally and routes it
@@ -1735,6 +1723,37 @@ MainWindow::MainWindow(QWidget* parent)
             if (m_audio && m_audio->cwSidetone())
                 m_audio->cwSidetone()->setKeyDown(down);
         });
+
+        // Local iambic keyer — when the radio's iambic mode is on, this
+        // state machine runs in parallel and drives the local sidetone gate
+        // at sub-5 ms latency (the radio's keyed-back signal carries 50–200
+        // ms of round-trip jitter that's painful for paddle ops).  The radio
+        // still produces the on-air signal; we forward paddle states to it,
+        // and both engines run at the same WPM to stay phase-aligned.
+        m_iambicKeyer = std::make_unique<IambicKeyer>();
+        m_iambicKeyer->setOnKeyDownChange([this](bool down) {
+            // Drive the local sidetone gate (lock-free atomic on the audio
+            // thread) and the radio's per-element key edge in parallel.
+            // The radio sees `cw key 1` / `cw key 0` matching our element
+            // timing — same RF pattern the radio's own iambic engine
+            // would have produced from a hardware paddle.
+            if (m_audio && m_audio->cwSidetone())
+                m_audio->cwSidetone()->setKeyDown(down);
+            QMetaObject::invokeMethod(this, [this, down]() {
+                m_radioModel.sendCwKeyEdge(down);
+            }, Qt::QueuedConnection);
+        });
+        m_iambicKeyer->setOnPaddleEvent([this](bool dit, bool dah) {
+            // PTT engaged for the entire squeeze — one cycle per
+            // press/release, not one per element, so the radio doesn't
+            // thrash through TX/RX gates between dits.
+            const bool active = dit || dah;
+            QMetaObject::invokeMethod(this, [this, active]() {
+                m_radioModel.sendCwPtt(active);
+            }, Qt::QueuedConnection);
+        });
+        // Mode/WPM/start are driven by the radio's iambic state — see
+        // syncLocalKeyerToRadio below.
     }
 
     // TX/RX transition → waterfall tile source switching
@@ -2690,7 +2709,15 @@ MainWindow::MainWindow(QWidget* parent)
     });
     connect(m_serialPort, &SerialPortController::cwPaddleChanged,
             this, [this](bool dit, bool dah) {
-        m_radioModel.sendCwPaddle(dit, dah);
+        // When the local iambic keyer is running, feed it the raw paddle
+        // state — it forwards to the radio AND drives the sidetone gate
+        // directly.  Otherwise pass straight through to the radio (radio's
+        // RF iambic is still authoritative for the on-air signal).
+        if (m_iambicKeyer && m_iambicKeyer->isRunning()) {
+            m_iambicKeyer->setPaddleState(dit, dah);
+        } else {
+            m_radioModel.sendCwPaddle(dit, dah);
+        }
     });
 
     // FlexControl coalesce timer stays on main thread (accesses activeSlice)
@@ -10998,22 +11025,32 @@ void MainWindow::registerMidiParams()
         [this](float v) { m_radioModel.sendCwKey(v > 0.5f); });
 
     // Iambic paddle: dit and dah are separate MIDI notes.
-    // The radio handles iambic A/B mode and timing — we just send both states.
+    // When the local iambic keyer is running, paddle states feed into it
+    // (drives sidetone with sub-5 ms latency, then forwards to radio).
+    // Otherwise pass straight to the radio's RF iambic engine.
     {
         auto dit = std::make_shared<bool>(false);
         auto dah = std::make_shared<bool>(false);
 
-        reg("cw.dit", "CW Paddle Dit", "Phone/CW", P::Gate, 0, 1,
-            [this, dit, dah](float v) {
-                *dit = (v > 0.5f);
+        auto pushPaddle = [this, dit, dah]() {
+            if (m_iambicKeyer && m_iambicKeyer->isRunning()) {
+                m_iambicKeyer->setPaddleState(*dit, *dah);
+            } else {
                 m_radioModel.sendCwPaddle(*dit, *dah);
+            }
+        };
+
+        reg("cw.dit", "CW Paddle Dit", "Phone/CW", P::Gate, 0, 1,
+            [dit, pushPaddle](float v) {
+                *dit = (v > 0.5f);
+                pushPaddle();
             },
             [dit]() -> float { return *dit ? 1.0f : 0.0f; });
 
         reg("cw.dah", "CW Paddle Dah", "Phone/CW", P::Gate, 0, 1,
-            [this, dit, dah](float v) {
+            [dah, pushPaddle](float v) {
                 *dah = (v > 0.5f);
-                m_radioModel.sendCwPaddle(*dit, *dah);
+                pushPaddle();
             },
             [dah]() -> float { return *dah ? 1.0f : 0.0f; });
     }

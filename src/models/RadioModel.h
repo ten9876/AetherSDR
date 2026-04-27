@@ -250,6 +250,11 @@ public:
     QString audioCompressionParam() const;        // "none" or "opus" based on settings
     void sendCwKey(bool down);                    // straight key via netcw stream
     void sendCwPaddle(bool dit, bool dah);        // iambic paddle via netcw stream
+    // Lower-level pieces used by the local iambic keyer: PTT and key
+    // edges are managed separately so PTT stays asserted across the whole
+    // squeeze while key transitions on each element boundary.
+    void sendCwPtt(bool on);
+    void sendCwKeyEdge(bool down);
     void cwAutoTune(int sliceId, bool intermittent); // int=1 start loop, int=0 stop
     void cwAutoTuneOnce(int sliceId);                // one-shot (no int= param)
     void addSlice();           // Create a new slice on the active panadapter

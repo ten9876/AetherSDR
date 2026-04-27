@@ -30,10 +30,11 @@ signals:
     // Local CW sidetone — generated client-side by AudioEngine, independent
     // of the radio's DAX-fed sidetone.  MainWindow connects these to the
     // AudioEngine's CwSidetoneGenerator instance.
-    void localSidetoneEnabledChanged(bool on);
-    void localSidetoneVolumeChanged(int pct);     // 0..100
-    void localSidetonePitchFollowChanged(bool follow);
-    void localSidetonePitchChanged(int hz);       // 100..2000 (manual override)
+    // The single Sidetone toggle and volume slider drive both the radio's
+    // DAX-fed sidetone and the local PortAudio-fed sidetone.  Pitch always
+    // follows the radio's cw_pitch (no separate override).
+    void sidetoneEnabledChanged(bool on);
+    void sidetoneVolumeChanged(int pct);     // 0..100
 
 public slots:
     // Phone meters (mic level / compression)
@@ -46,6 +47,9 @@ public slots:
 
     // Switch between Phone and CW sub-panels based on slice mode.
     void setMode(const QString& mode);
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* ev) override;
 
 private:
     void buildPhonePanel();
@@ -91,14 +95,6 @@ private:
     QPushButton* m_sidetoneBtn{nullptr};
     QSlider*     m_sidetoneSlider{nullptr};
     QLabel*      m_sidetoneLabel{nullptr};
-
-    // Local sidetone controls
-    QPushButton* m_localSidetoneBtn{nullptr};
-    QSlider*     m_localSidetoneVolSlider{nullptr};
-    QLabel*      m_localSidetoneVolLabel{nullptr};
-    QPushButton* m_localSidetoneFollowBtn{nullptr};
-    QSlider*     m_localSidetonePitchSlider{nullptr};
-    QLabel*      m_localSidetonePitchLabel{nullptr};
 
     QSlider*     m_cwPanSlider{nullptr};
 
