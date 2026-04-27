@@ -3,9 +3,11 @@
 #include "PanFloatingWindow.h"
 #include "PanadapterApplet.h"
 #include "SpectrumWidget.h"
+#include "core/AppSettings.h"
 
 #include <QHBoxLayout>
 #include <QLayout>
+#include <QStringList>
 #include <QVBoxLayout>
 #include <QTimer>
 #include <QWindow>
@@ -494,7 +496,12 @@ void PanadapterStack::floatPanadapter(const QString& panId)
     // nullptr. Using adoptApplet() calls addWidget() internally which sets
     // the parent to the floating window in one step, avoiding the transient
     // top-level NSWindow that corrupts the NSResponder chain (#1668).
-    auto* fw = new PanFloatingWindow(nullptr);
+    // Parenting the floating window to MainWindow keeps it on top of the
+    // main window without becoming WindowStaysOnTopHint (which would
+    // float above other apps too).  Qt::Window inside PanFloatingWindow
+    // keeps it as a top-level window — the parent only affects z-order
+    // and lifetime.
+    auto* fw = new PanFloatingWindow(window());
     fw->adoptApplet(applet);
     applet->spectrumWidget()->setFloating(true);
 
@@ -502,6 +509,7 @@ void PanadapterStack::floatPanadapter(const QString& panId)
     fw->restoreWindowGeometry();
     fw->show();
     fw->raise();
+    saveFloatingState();
 
     connect(fw, &PanFloatingWindow::dockRequested,
             this, &PanadapterStack::dockPanadapter);
@@ -539,6 +547,7 @@ void PanadapterStack::dockPanadapter(const QString& panId)
     applet = fw->takeApplet();
     fw->hide();
     fw->deleteLater();
+    saveFloatingState();
 
     if (!applet) return;
 
@@ -588,12 +597,41 @@ bool PanadapterStack::isFloating(const QString& panId) const
     return m_floatingWindows.contains(panId);
 }
 
+void PanadapterStack::setFramelessMode(bool on)
+{
+    for (auto* fw : m_floatingWindows) {
+        fw->setFramelessMode(on);
+    }
+}
+
 void PanadapterStack::prepareShutdown()
 {
+    saveFloatingState();
     for (auto* fw : m_floatingWindows) {
         fw->saveWindowGeometry();
         fw->setShuttingDown(true);
         fw->close();
+    }
+}
+
+void PanadapterStack::saveFloatingState() const
+{
+    QStringList ids;
+    for (const QString& id : m_floatingWindows.keys()) {
+        ids << id;
+    }
+    AppSettings::instance().setValue("FloatingPanIds", ids.join(','));
+}
+
+void PanadapterStack::restoreFloatingState()
+{
+    const QString saved =
+        AppSettings::instance().value("FloatingPanIds", "").toString();
+    if (saved.isEmpty()) return;
+    for (const QString& id : saved.split(',', Qt::SkipEmptyParts)) {
+        if (m_pans.contains(id) && !m_floatingWindows.contains(id)) {
+            floatPanadapter(id);
+        }
     }
 }
 

@@ -77,9 +77,10 @@ public:
     qint64 txMetersUpdatedAtMs() const { return m_lastTxMeterUpdateMs; }
     bool hasRecentTxMeters(qint64 maxAgeMs) const;
 
-    // Convenience: mic peak level (dBFS) and compression peak (dB).
+    // Convenience: mic peak level (dBFS) and derived compression reduction (dB).
     float micPeak()  const { return m_micPeak; }
     float compPeak() const { return m_compPeak; }
+    bool hasCompressionMeterValue() const { return m_hasCompPeakValue; }
 
     // Convenience: instantaneous mic level and compression (non-peak).
     float micLevel() const { return m_micLevel; }
@@ -125,6 +126,8 @@ signals:
 
 private:
     float convertRaw(const MeterDef& def, qint16 raw) const;
+    void updateCompressionReduction();
+    bool compressionSamplesFresh(qint64 referenceUpdatedMs) const;
 
     QMap<int, MeterDef> m_defs;        // meter index → definition
     QMap<int, float>    m_values;      // meter index → last converted value
@@ -135,8 +138,9 @@ private:
     int m_fwdPwrIdx{-1};     // "FWDPWR"
     int m_swrIdx{-1};        // "SWR"
     int m_micPeakIdx{-1};    // "COD-" / "MICPEAK" (hardware mic)
-    int m_compPeakIdx{-1};   // "TX" / "COMPPEAK"
-    int m_afterEqIdx{-1};    // "TX" / "AFTEREQ" (compressor input)
+    int m_compPeakIdx{-1};   // "TX" / "COMPPEAK" (processor/clipper-stage dBFS tap)
+    int m_afterEqIdx{-1};    // "TX" / "AFTEREQ" (processor input reference)
+    int m_scMicIdx{-1};      // "TX" / "SC_MIC" (6000-series compression reference)
     int m_micLevelIdx{-1};   // "COD-" / "MIC" (hardware mic RX level)
     int m_compLevelIdx{-1};  // "TX" / "COMP" (instantaneous)
     int m_alcIdx{-1};        // "TX" / "HWALC"
@@ -157,9 +161,17 @@ private:
     float m_swr{1.0f};
     qint64 m_lastTxMeterUpdateMs{0};
     float m_micPeak{-50.0f};
-    float m_compPeak{0.0f};      // computed gain reduction (displayed)
-    float m_compPeakRaw{-150.0f}; // smoothed COMPPEAK value
-    float m_afterEq{-150.0f};    // smoothed AFTEREQ (compressor input)
+    float m_compPeak{0.0f};       // derived compression reduction for the reversed gauge
+    bool m_hasCompPeakValue{false};
+    float m_afterEqLevel{-150.0f};
+    float m_scMicLevel{-150.0f};
+    float m_compPeakLevel{-150.0f};
+    bool m_hasAfterEqLevel{false};
+    bool m_hasScMicLevel{false};
+    bool m_hasCompPeakLevel{false};
+    qint64 m_afterEqUpdatedMs{0};
+    qint64 m_scMicUpdatedMs{0};
+    qint64 m_compPeakUpdatedMs{0};
     float m_micLevel{-50.0f};
     float m_compLevel{0.0f};
     float m_alc{0.0f};

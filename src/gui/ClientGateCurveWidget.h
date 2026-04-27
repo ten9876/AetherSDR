@@ -45,6 +45,7 @@ protected:
     float curveOutputDb(float inDb) const;
 
     void drawGrid(QPainter& p, const QRectF& rect) const;
+    void drawHysteresisBand(QPainter& p, const QRectF& rect) const;
     void drawCurve(QPainter& p, const QRectF& rect) const;
     void drawBall(QPainter& p, const QRectF& rect) const;
 

@@ -71,6 +71,7 @@ The shortcut editor also includes many actions that ship **unassigned** until yo
 - Band jumps for `160m`, `80m`, `60m`, `40m`, `30m`, `20m`, `17m`, `15m`, `12m`, `10m`, `6m`, and `2m`
 - Mode changes such as `USB`, `LSB`, `CW`, `CWL`, `AM`, `SAM`, `FM`, `NFM`, `DFM`, `DIGU`, `DIGL`, and `RTTY`
 - `TUNE` toggle
+- `Two-Tone Tune`
 - Next or previous slice
 - Split toggle
 - Filter widen and narrow

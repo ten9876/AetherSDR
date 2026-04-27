@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AetherSDR VERSION 0.8.22 LANGUAGES C CXX)
+project(AetherSDR VERSION 0.9.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -506,6 +506,7 @@ set(GUI_SOURCES
     src/gui/DxClusterDialog.cpp
     src/gui/CwxPanel.cpp
     src/gui/BandStackPanel.cpp
+    src/gui/FramelessResizer.cpp
     src/gui/PanFloatingWindow.cpp
     src/gui/DvkPanel.cpp
     src/gui/AmpApplet.cpp
@@ -523,6 +524,8 @@ set(GUI_SOURCES
     src/gui/PhoneCwApplet.cpp
     src/gui/PhoneApplet.cpp
     src/gui/EqApplet.cpp
+    src/gui/WaveApplet.cpp
+    src/gui/WaveformWidget.cpp
     src/gui/ClientEqApplet.cpp
     src/gui/ClientEqCurveWidget.cpp
     src/gui/ClientEqEditor.cpp
@@ -530,9 +533,12 @@ set(GUI_SOURCES
     src/gui/ClientEqFftAnalyzer.cpp
     src/gui/ClientEqIconRow.cpp
     src/gui/ClientEqOutputFader.cpp
+    src/gui/ClientLevelMeter.cpp
     src/gui/ClientEqParamRow.cpp
     src/gui/ClientChainApplet.cpp
     src/gui/ClientChainWidget.cpp
+    src/gui/ClientRxChainWidget.cpp
+    src/gui/EditorFramelessTitleBar.cpp
     src/gui/containers/ContainerManager.cpp
     src/gui/containers/ContainerTitleBar.cpp
     src/gui/containers/ContainerWidget.cpp
@@ -1127,6 +1133,16 @@ add_executable(cw_sidetone_test
 target_include_directories(cw_sidetone_test PRIVATE src)
 target_link_libraries(cw_sidetone_test PRIVATE Qt6::Core)
 
+add_executable(meter_model_test
+    tests/meter_model_test.cpp
+    src/models/MeterModel.cpp
+    src/core/LogManager.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(meter_model_test PRIVATE src)
+target_link_libraries(meter_model_test PRIVATE Qt6::Core)
+set_target_properties(meter_model_test PROPERTIES AUTOMOC ON)
+
 # Help guide search tests - needs QApplication + Widgets.
 add_executable(help_dialog_test
     tests/help_dialog_test.cpp
@@ -1152,9 +1168,19 @@ target_compile_definitions(midi_settings_test PRIVATE HAVE_MIDI)
 target_include_directories(midi_settings_test PRIVATE src third_party/rtmidi)
 target_link_libraries(midi_settings_test PRIVATE Qt6::Core)
 
+add_executable(transmit_model_test
+    tests/transmit_model_test.cpp
+    src/models/TransmitModel.cpp
+    src/core/AppSettings.cpp
+    src/core/LogManager.cpp
+)
+target_include_directories(transmit_model_test PRIVATE src)
+target_link_libraries(transmit_model_test PRIVATE Qt6::Core)
+
 # Container system Phase 1 tests — needs QApplication + Widgets.
 add_executable(container_widget_test
     tests/container_widget_test.cpp
+    src/gui/FramelessResizer.cpp
     src/gui/containers/ContainerTitleBar.cpp
     src/gui/containers/ContainerWidget.cpp
     src/gui/containers/FloatingContainerWindow.cpp
@@ -1168,6 +1194,7 @@ set_target_properties(container_widget_test PROPERTIES AUTOMOC ON)
 
 add_executable(container_manager_test
     tests/container_manager_test.cpp
+    src/gui/FramelessResizer.cpp
     src/gui/containers/ContainerManager.cpp
     src/gui/containers/ContainerTitleBar.cpp
     src/gui/containers/ContainerWidget.cpp
@@ -1182,6 +1209,7 @@ set_target_properties(container_manager_test PROPERTIES AUTOMOC ON)
 
 add_executable(container_nesting_test
     tests/container_nesting_test.cpp
+    src/gui/FramelessResizer.cpp
     src/gui/containers/ContainerManager.cpp
     src/gui/containers/ContainerTitleBar.cpp
     src/gui/containers/ContainerWidget.cpp

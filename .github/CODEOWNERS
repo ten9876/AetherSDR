@@ -1,0 +1,40 @@
+# AetherSDR CODEOWNERS
+#
+# Three tiers, last-matching-pattern wins:
+#   1. Broad default — jensenpat + maintainer
+#   2. Mechanical/safe paths — also approvable by @AetherClaude (machine user)
+#   3. Maintainer-only — direction-impacting paths reserved to @ten9876
+#
+# Self-approval is hard-blocked by GitHub regardless of CODEOWNERS membership,
+# so a contributor cannot approve their own PR even on paths they own.
+
+# ── Tier 1: broad default ──────────────────────────────────────────────────
+*                            @ten9876 @jensenpat
+
+# ── Tier 2: mechanical/safe paths — bot can also approve ───────────────────
+tests/                       @ten9876 @jensenpat @AetherClaude
+docs/                        @ten9876 @jensenpat @AetherClaude
+*.md                         @ten9876 @jensenpat @AetherClaude
+.github/dependabot.yml       @ten9876 @jensenpat @AetherClaude
+.github/docker/              @ten9876 @jensenpat @AetherClaude
+.github/ISSUE_TEMPLATE/      @ten9876 @jensenpat @AetherClaude
+
+# ── Tier 3: maintainer-only — direction, architecture, project policy ──────
+# Visual/UX direction (per CLAUDE.md "AI Agent Boundaries")
+src/gui/MainWindow.h         @ten9876
+src/gui/MainWindow.cpp       @ten9876
+
+# Architecture — central state, threading, protocol bedrock
+src/core/RadioModel.h        @ten9876
+src/core/RadioModel.cpp      @ten9876
+src/core/AudioEngine.h       @ten9876
+src/core/AudioEngine.cpp     @ten9876
+src/core/PanadapterStream.h  @ten9876
+src/core/PanadapterStream.cpp @ten9876
+
+# Build, project policy, and infrastructure
+CMakeLists.txt               @ten9876
+CLAUDE.md                    @ten9876
+CONTRIBUTING.md              @ten9876
+.github/CODEOWNERS           @ten9876
+.github/workflows/           @ten9876

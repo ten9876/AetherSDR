@@ -35,16 +35,20 @@ class ClientCompEditor : public QWidget {
     Q_OBJECT
 
 public:
+    enum class Side { Tx, Rx };
+
     explicit ClientCompEditor(AudioEngine* engine, QWidget* parent = nullptr);
     ~ClientCompEditor() override;
 
     void showForTx();
+    void showForRx();
 
 signals:
     // Fired when the bypass button is toggled inside the editor.  The
     // docked applet subscribes so its Enable toggle stays in sync —
     // both widgets read / write the same ClientComp::enabled flag.
-    void bypassToggled(bool bypassed);
+    // side identifies which path (Tx or Rx) was toggled.
+    void bypassToggled(Side side, bool bypassed);
 
 protected:
     void closeEvent(QCloseEvent* ev) override;
@@ -76,6 +80,10 @@ private:
     void applyLimiterCeiling(float db);
 
     AudioEngine*             m_audio{nullptr};
+    Side                     m_side{Side::Tx};
+    QWidget*                 m_titleBar{nullptr};   // EditorFramelessTitleBar*
+    class ClientComp*        comp() const;
+    void                     saveCompSettings() const;
     ClientCompEditorCanvas*  m_canvas{nullptr};
     ClientCompKnob*          m_ratio{nullptr};
     ClientCompKnob*          m_attack{nullptr};

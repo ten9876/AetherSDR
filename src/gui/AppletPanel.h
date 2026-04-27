@@ -28,6 +28,7 @@ class TxApplet;
 class PhoneCwApplet;
 class PhoneApplet;
 class EqApplet;
+class WaveApplet;
 class ClientEqApplet;
 class ClientCompApplet;
 class ClientGateApplet;
@@ -67,12 +68,36 @@ public:
     PhoneCwApplet*  phoneCwApplet()  { return m_phoneCwApplet; }
     PhoneApplet*    phoneApplet()    { return m_phoneApplet; }
     EqApplet*       eqApplet()       { return m_eqApplet; }
-    ClientEqApplet* clientEqApplet() { return m_clientEqApplet; }
-    ClientCompApplet* clientCompApplet() { return m_clientCompApplet; }
-    ClientGateApplet* clientGateApplet() { return m_clientGateApplet; }
+    WaveApplet*     waveApplet() const { return m_waveApplet; }
+    // Phase 7.1: each side has its own CEQ applet — clientEqTxApplet()
+    // is the original "ceq" tile bound to TX, clientEqRxApplet() is
+    // the new "ceq-rx" tile bound to RX.  clientEqApplet() retained as
+    // an alias for the TX-side instance so legacy call sites compile
+    // unchanged.
+    ClientEqApplet* clientEqApplet()   { return m_clientEqTxApplet; }
+    ClientEqApplet* clientEqTxApplet() { return m_clientEqTxApplet; }
+    ClientEqApplet* clientEqRxApplet() { return m_clientEqRxApplet; }
+    // Phase 7.3: CMP-TX retains the legacy accessor; CMP-RX is the new
+    // sibling tile bound to AudioEngine::clientCompRx().
+    ClientCompApplet* clientCompApplet()   { return m_clientCompApplet; }
+    ClientCompApplet* clientCompTxApplet() { return m_clientCompApplet; }
+    ClientCompApplet* clientCompRxApplet() { return m_clientCompRxApplet; }
+    // Phase 7.2: GATE-TX retains the legacy accessor name; GATE-RX is
+    // the new sibling tile bound to AudioEngine::clientGateRx().
+    ClientGateApplet* clientGateApplet()   { return m_clientGateApplet; }
+    ClientGateApplet* clientGateTxApplet() { return m_clientGateApplet; }
+    ClientGateApplet* clientGateRxApplet() { return m_clientGateRxApplet; }
     ClientDeEssApplet* clientDeEssApplet() { return m_clientDeEssApplet; }
-    ClientTubeApplet* clientTubeApplet() { return m_clientTubeApplet; }
-    ClientPuduApplet* clientPuduApplet() { return m_clientPuduApplet; }
+    // Phase 7.4: TUBE-TX retains the legacy accessor; TUBE-RX is the new
+    // sibling tile bound to AudioEngine::clientTubeRx().
+    ClientTubeApplet* clientTubeApplet()   { return m_clientTubeApplet; }
+    ClientTubeApplet* clientTubeTxApplet() { return m_clientTubeApplet; }
+    ClientTubeApplet* clientTubeRxApplet() { return m_clientTubeRxApplet; }
+    // Phase 7.5: PUDU-TX retains the legacy accessor; PUDU-RX is the new
+    // sibling tile bound to AudioEngine::clientPuduRx().
+    ClientPuduApplet* clientPuduApplet()   { return m_clientPuduApplet; }
+    ClientPuduApplet* clientPuduTxApplet() { return m_clientPuduApplet; }
+    ClientPuduApplet* clientPuduRxApplet() { return m_clientPuduRxApplet; }
     ClientReverbApplet* clientReverbApplet() { return m_clientReverbApplet; }
     ClientChainApplet* clientChainApplet() { return m_clientChainApplet; }
     CatControlApplet* catControlApplet() { return m_catControlApplet; }
@@ -102,10 +127,20 @@ public:
     // CEQ and CMP tile visibility).  No-op for unknown IDs.
     void setAppletVisible(const QString& id, bool visible);
 
+    // Phase 7.1+: side filter for the PooDoo Audio sub-containers.
+    // ClientChainApplet calls this when the TX/RX tab flips.  Sub-
+    // containers tagged for the inactive side are hidden; tiles for
+    // the active side are restored to their last visibility state
+    // (driven by per-stage bypass).  TX-only tiles (DESS, REVERB)
+    // hide entirely on RX.
+    enum class PooDooSide { Tx, Rx };
+    void setPooDooActiveSide(PooDooSide side);
+
     // Reorder the TX DSP sub-containers inside the "tx_dsp" parent to
     // mirror the CHAIN's current stage order.  Call whenever the user
     // drags to reorder the chain; the applet tiles follow.
     void setTxDspChainOrder(const QVector<AudioEngine::TxChainStage>& stages);
+    void setRxDspChainOrder(const QVector<AudioEngine::RxChainStage>& stages);
 
     // ── Container system (Phase 4a groundwork, #1713) ───────────
     //
@@ -159,12 +194,18 @@ private:
     PhoneCwApplet* m_phoneCwApplet{nullptr};
     PhoneApplet*   m_phoneApplet{nullptr};
     EqApplet*      m_eqApplet{nullptr};
-    ClientEqApplet* m_clientEqApplet{nullptr};
+    WaveApplet*    m_waveApplet{nullptr};
+    ClientEqApplet* m_clientEqTxApplet{nullptr};
+    ClientEqApplet* m_clientEqRxApplet{nullptr};
     ClientCompApplet* m_clientCompApplet{nullptr};
+    ClientCompApplet* m_clientCompRxApplet{nullptr};
     ClientGateApplet* m_clientGateApplet{nullptr};
+    ClientGateApplet* m_clientGateRxApplet{nullptr};
     ClientDeEssApplet* m_clientDeEssApplet{nullptr};
     ClientTubeApplet* m_clientTubeApplet{nullptr};
+    ClientTubeApplet* m_clientTubeRxApplet{nullptr};
     ClientPuduApplet* m_clientPuduApplet{nullptr};
+    ClientPuduApplet* m_clientPuduRxApplet{nullptr};
     ClientReverbApplet* m_clientReverbApplet{nullptr};
     ClientChainApplet* m_clientChainApplet{nullptr};
     CatControlApplet* m_catControlApplet{nullptr};

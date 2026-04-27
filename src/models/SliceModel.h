@@ -72,7 +72,8 @@ public:
     int     stepHz()      const { return m_stepHz; }
     QVector<int> stepList() const { return m_stepList; }
     int     daxChannel()  const { return m_daxChannel; }
-    int     rttyMark()    const { return m_rttyMark; }
+    int     rttyMark()        const { return m_rttyMark; }
+    int     rttyMarkDefault() const { return m_rttyMarkDefault; }
     int     rttyShift()   const { return m_rttyShift; }
     int     diglOffset()  const { return m_diglOffset; }
     int     diguOffset()  const { return m_diguOffset; }
@@ -141,6 +142,8 @@ public:
     void setDaxChannel(int ch);
     void setRttyMark(int hz);
     void setRttyShift(int hz);
+    // Called by RadioModel when the radio's rtty_mark_default changes.
+    void setRttyMarkDefault(int hz) { m_rttyMarkDefault = hz; }
     void setDiglOffset(int hz);
     void setDiguOffset(int hz);
     void setTxSlice(bool on);
@@ -284,6 +287,8 @@ private:
     int     m_xitFreq{0};
     int     m_daxChannel{0};
     int     m_rttyMark{2125};
+    int     m_rttyMarkDefault{2125};
+    bool    m_rttyMarkUserOverride{false};
     int     m_rttyShift{170};
     int     m_diglOffset{2210};
     int     m_diguOffset{1500};

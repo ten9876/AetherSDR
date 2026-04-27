@@ -101,10 +101,26 @@ constexpr const char* kEditStyle =
 
 } // namespace
 
-ClientGateApplet::ClientGateApplet(QWidget* parent) : QWidget(parent)
+ClientGateApplet::ClientGateApplet(Side side, QWidget* parent)
+    : QWidget(parent)
+    , m_side(side)
 {
     buildUI();
     hide();
+}
+
+ClientGate* ClientGateApplet::gate() const
+{
+    if (!m_audio) return nullptr;
+    return m_side == Side::Rx ? m_audio->clientGateRx()
+                              : m_audio->clientGateTx();
+}
+
+void ClientGateApplet::saveGateSettings() const
+{
+    if (!m_audio) return;
+    if (m_side == Side::Rx) m_audio->saveClientGateRxSettings();
+    else                    m_audio->saveClientGateSettings();
 }
 
 void ClientGateApplet::buildUI()
@@ -161,19 +177,15 @@ void ClientGateApplet::buildUI()
         });
         row->addWidget(m_ratio);
 
-        m_attack = makeKnob("Attack");
-        m_attack->setRange(0.1f, 100.0f);
-        m_attack->setDefault(0.5f);
-        m_attack->setValueFromNorm([](float n) {
-            return 0.1f * std::pow(1000.0f, n);
+        m_return = makeKnob("Return");
+        m_return->setRange(0.0f, 20.0f);
+        m_return->setDefault(2.0f);
+        m_return->setValueFromNorm([](float n) { return n * 20.0f; });
+        m_return->setNormFromValue([](float v) { return v / 20.0f; });
+        m_return->setLabelFormat([](float v) {
+            return QString::number(v, 'f', 2) + " dB";
         });
-        m_attack->setNormFromValue([](float v) {
-            return std::log(std::max(0.1f, v) / 0.1f) / std::log(1000.0f);
-        });
-        m_attack->setLabelFormat([](float v) {
-            return QString::number(v, 'f', v < 10.0f ? 2 : 1) + " ms";
-        });
-        row->addWidget(m_attack);
+        row->addWidget(m_return);
 
         m_release = makeKnob("Release");
         m_release->setRange(5.0f, 2000.0f);
@@ -207,14 +219,14 @@ void ClientGateApplet::buildUI()
     // connect lines read cleanly.
     auto wire = [this](ClientCompKnob* k, auto setter) {
         connect(k, &ClientCompKnob::valueChanged, this, [this, setter](float v) {
-            if (!m_audio || !m_audio->clientGateTx()) return;
-            (m_audio->clientGateTx()->*setter)(v);
-            m_audio->saveClientGateSettings();
+            if (!m_audio || !gate()) return;
+            (gate()->*setter)(v);
+            saveGateSettings();
         });
     };
     wire(m_thresh,  &ClientGate::setThresholdDb);
     wire(m_ratio,   &ClientGate::setRatio);
-    wire(m_attack,  &ClientGate::setAttackMs);
+    wire(m_return,  &ClientGate::setReturnDb);
     wire(m_release, &ClientGate::setReleaseMs);
     wire(m_floor,   &ClientGate::setFloorDb);
 
@@ -227,7 +239,7 @@ void ClientGateApplet::setAudioEngine(AudioEngine* engine)
 {
     m_audio = engine;
     if (!m_audio) return;
-    m_curve->setGate(m_audio->clientGateTx());
+    m_curve->setGate(gate());
     syncEnableFromEngine();
     m_meterTimer->start();
 }
@@ -235,11 +247,11 @@ void ClientGateApplet::setAudioEngine(AudioEngine* engine)
 void ClientGateApplet::syncEnableFromEngine()
 {
     if (m_curve) m_curve->update();
-    if (!m_audio || !m_audio->clientGateTx()) return;
-    ClientGate* g = m_audio->clientGateTx();
+    if (!m_audio || !gate()) return;
+    ClientGate* g = gate();
     if (m_thresh)  { QSignalBlocker b(m_thresh);  m_thresh->setValue(g->thresholdDb()); }
     if (m_ratio)   { QSignalBlocker b(m_ratio);   m_ratio->setValue(g->ratio()); }
-    if (m_attack)  { QSignalBlocker b(m_attack);  m_attack->setValue(g->attackMs()); }
+    if (m_return)  { QSignalBlocker b(m_return);  m_return->setValue(g->returnDb()); }
     if (m_release) { QSignalBlocker b(m_release); m_release->setValue(g->releaseMs()); }
     if (m_floor)   { QSignalBlocker b(m_floor);   m_floor->setValue(g->floorDb()); }
 }
@@ -252,17 +264,17 @@ void ClientGateApplet::refreshEnableFromEngine()
 void ClientGateApplet::onEnableToggled(bool on)
 {
     if (!m_audio) return;
-    ClientGate* g = m_audio->clientGateTx();
+    ClientGate* g = gate();
     if (!g) return;
     g->setEnabled(on);
-    m_audio->saveClientGateSettings();
+    saveGateSettings();
     if (m_curve) m_curve->update();
 }
 
 void ClientGateApplet::tickMeter()
 {
     if (!m_audio || !m_grBar) return;
-    ClientGate* g = m_audio->clientGateTx();
+    ClientGate* g = gate();
     if (!g) return;
     const float gr = g->gainReductionDb();
     m_grBar->setGrDb(gr);
@@ -273,7 +285,7 @@ void ClientGateApplet::tickMeter()
     // prevents the setValue from re-driving the engine.
     if (m_thresh)  { QSignalBlocker b(m_thresh);  m_thresh->setValue(g->thresholdDb()); }
     if (m_ratio)   { QSignalBlocker b(m_ratio);   m_ratio->setValue(g->ratio()); }
-    if (m_attack)  { QSignalBlocker b(m_attack);  m_attack->setValue(g->attackMs()); }
+    if (m_return)  { QSignalBlocker b(m_return);  m_return->setValue(g->returnDb()); }
     if (m_release) { QSignalBlocker b(m_release); m_release->setValue(g->releaseMs()); }
     if (m_floor)   { QSignalBlocker b(m_floor);   m_floor->setValue(g->floorDb()); }
 }

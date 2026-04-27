@@ -26,6 +26,7 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
+#include "WaveApplet.h"
 #include "ClientEqApplet.h"
 #include "ClientEqEditor.h"
 #include "ClientCompApplet.h"
@@ -922,6 +923,16 @@ MainWindow::MainWindow(QWidget* parent)
     buildMenuBar();
     buildUI();
     registerShortcutActions();
+
+    if (auto* wave = m_appletPanel ? m_appletPanel->waveApplet() : nullptr) {
+        connect(m_audio, &AudioEngine::scopeSamplesReady,
+                wave, &WaveApplet::appendScopeSamples,
+                Qt::QueuedConnection);
+        connect(m_audio, &AudioEngine::radioTransmittingChanged,
+                wave, &WaveApplet::setTransmitting,
+                Qt::QueuedConnection);
+    }
+
     m_paTempUseFahrenheit =
         AppSettings::instance().value(kPaTempUnitSettingKey, "Fahrenheit").toString() != "Celsius";
     updatePaTempLabel();
@@ -2003,51 +2014,56 @@ MainWindow::MainWindow(QWidget* parent)
             connect(m_layoutRestoreTimer, &QTimer::timeout, this, [this]() {
                 // The radio restores pans from the GUIClientID session.
                 // Accept whatever the radio gives and arrange based on count.
-                int panCount = m_panStack->count();
-                if (panCount <= 1) return;  // single pan, nothing to arrange
-                // Pick a layout based on the number of pans the radio restored
-                const QString saved = AppSettings::instance()
-                    .value("PanadapterLayout", "1").toString();
-                // Only rearrange if the saved layout matches the pan count
-                static const QMap<QString, int> layoutPanCount = {
-                    {"1", 1}, {"2v", 2}, {"2h", 2}, {"2h1", 3}, {"12h", 3}, {"3v", 3}, {"2x2", 4}, {"4v", 4}
-                };
-                if (layoutPanCount.value(saved, 1) == panCount)
-                    m_panStack->rearrangeLayout(saved);
-                else if (panCount == 2)
-                    m_panStack->rearrangeLayout("2v");  // default 2-pan to vertical
-                else if (panCount == 3)
-                    m_panStack->rearrangeLayout("2h1"); // default 3-pan
-                else if (panCount >= 4)
-                    m_panStack->rearrangeLayout("2x2"); // default 4-pan
+                const int panCount = m_panStack->count();
+                if (panCount > 1) {
+                    // Pick a layout based on the number of pans the radio restored
+                    const QString saved = AppSettings::instance()
+                        .value("PanadapterLayout", "1").toString();
+                    // Only rearrange if the saved layout matches the pan count
+                    static const QMap<QString, int> layoutPanCount = {
+                        {"1", 1}, {"2v", 2}, {"2h", 2}, {"2h1", 3}, {"12h", 3}, {"3v", 3}, {"2x2", 4}, {"4v", 4}
+                    };
+                    if (layoutPanCount.value(saved, 1) == panCount)
+                        m_panStack->rearrangeLayout(saved);
+                    else if (panCount == 2)
+                        m_panStack->rearrangeLayout("2v");  // default 2-pan to vertical
+                    else if (panCount == 3)
+                        m_panStack->rearrangeLayout("2h1"); // default 3-pan
+                    else if (panCount >= 4)
+                        m_panStack->rearrangeLayout("2x2"); // default 4-pan
 
-                // Optimistically set local yPixels immediately so FFT frames
-                // arriving before the radio echoes back use correct scaling (#1511).
-                for (auto* a : m_panStack->allApplets()) {
-                    auto* s = a->spectrumWidget();
-                    auto* p = m_radioModel.panadapter(a->panId());
-                    if (!s || !p || !p->panStreamId()) continue;
-                    int y = s->height();
-                    if (y >= 100)
-                        m_radioModel.panStream()->setYPixels(p->panStreamId(), y);
+                    // Optimistically set local yPixels immediately so FFT frames
+                    // arriving before the radio echoes back use correct scaling (#1511).
+                    for (auto* a : m_panStack->allApplets()) {
+                        auto* s = a->spectrumWidget();
+                        auto* p = m_radioModel.panadapter(a->panId());
+                        if (!s || !p || !p->panStreamId()) continue;
+                        int y = s->height();
+                        if (y >= 100)
+                            m_radioModel.panStream()->setYPixels(p->panStreamId(), y);
+                    }
+
+                    // Defensive re-push xpixels for all pans after layout settles.
+                    // Covers race where radio hadn't finished pan init when first push arrived.
+                    QTimer::singleShot(500, this, [this]() {
+                        for (auto* applet : m_panStack->allApplets()) {
+                            auto* sw = applet->spectrumWidget();
+                            auto* pan = m_radioModel.panadapter(applet->panId());
+                            if (!sw || !pan) continue;
+                            int xpix = qMax(sw->width(), 1024);
+                            int ypix = qMax(sw->height(), 200);
+                            m_radioModel.sendCommand(
+                                QString("display pan set %1 xpixels=%2 ypixels=%3")
+                                    .arg(pan->panId()).arg(xpix).arg(ypix));
+                            if (pan->panStreamId())
+                                m_radioModel.panStream()->setYPixels(pan->panStreamId(), ypix);
+                        }
+                    });
                 }
 
-                // Defensive re-push xpixels for all pans after layout settles.
-                // Covers race where radio hadn't finished pan init when first push arrived.
-                QTimer::singleShot(500, this, [this]() {
-                    for (auto* applet : m_panStack->allApplets()) {
-                        auto* sw = applet->spectrumWidget();
-                        auto* pan = m_radioModel.panadapter(applet->panId());
-                        if (!sw || !pan) continue;
-                        int xpix = qMax(sw->width(), 1024);
-                        int ypix = qMax(sw->height(), 200);
-                        m_radioModel.sendCommand(
-                            QString("display pan set %1 xpixels=%2 ypixels=%3")
-                                .arg(pan->panId()).arg(xpix).arg(ypix));
-                        if (pan->panStreamId())
-                            m_radioModel.panStream()->setYPixels(pan->panStreamId(), ypix);
-                    }
-                });
+                // Restore floating-pan state saved from the previous session.
+                // Runs for any pan count so a single floated pan is also restored.
+                m_panStack->restoreFloatingState();
             });
         }
         m_layoutRestoreTimer->start();  // restart on each new pan
@@ -2267,7 +2283,10 @@ MainWindow::MainWindow(QWidget* parent)
 
 #ifdef HAVE_RADE
     connect(m_appletPanel->rxApplet(), &RxApplet::radeActivated,
-            this, [this](bool on, int sliceId) { if (on) activateRADE(sliceId); else deactivateRADE(); });
+            this, [this](bool on, int sliceId) {
+        if (on) activateRADE(sliceId);
+        else if (sliceId == m_radeSliceId) deactivateRADE();
+    });
 #endif
 
     // ── Tuning step size → AppSettings + radio command ─────────────────────
@@ -2335,6 +2354,77 @@ MainWindow::MainWindow(QWidget* parent)
         s.setValue("PcAudioMuted", muted ? "True" : "False");
         s.save();
     });
+
+    // ── PooDoo RX chain status tiles (Phase 0 chassis) ─────────────────────
+    // RADIO tile = PC Audio enabled (standard SSB / remote_audio_rx stream).
+    // DSP tile   = any client-side NR active (NR4 / DFNR / BNR).
+    // SPEAK tile = AudioEngine output unmuted.
+    if (auto* chain = m_appletPanel->clientChainApplet()) {
+        // RADIO — driven by the existing PC Audio toggle in TitleBar.
+        connect(m_titleBar, &TitleBar::pcAudioToggled,
+                chain, &ClientChainApplet::setRxPcAudioEnabled);
+
+        // DSP — aggregate of every client-side NR module.  These are
+        // mutually exclusive in AudioEngine::processRx (chained
+        // if/else), so at most one is active at a time.  The tile
+        // greens whenever any is on, and its label rotates to the
+        // active module's short name (NR2 / RN2 / NR4 / DFNR / MNR /
+        // BNR).  Shared state lives in a struct held by shared_ptr
+        // captured into each lambda so lifetime ends with the last
+        // connected slot.
+        struct DspState {
+            bool nr2{false}, rn2{false}, nr4{false},
+                 dfnr{false}, mnr{false}, bnr{false};
+        };
+        auto dspState = std::make_shared<DspState>();
+        auto pushDsp = [chain, dspState]() {
+            // Priority order picks the most "specific" / most-recent
+            // module if more than one is somehow on at once.  Same
+            // order as the audio-thread dispatcher so the displayed
+            // label matches what's actually processing.
+            QString label;
+            if      (dspState->bnr)  label = "BNR";
+            else if (dspState->mnr)  label = "MNR";
+            else if (dspState->dfnr) label = "DFNR";
+            else if (dspState->nr4)  label = "NR4";
+            else if (dspState->rn2)  label = "RN2";
+            else if (dspState->nr2)  label = "NR2";
+            const bool anyOn = !label.isEmpty();
+            chain->setRxClientDspActive(anyOn, label);
+        };
+        connect(m_audio, &AudioEngine::nr2EnabledChanged, chain,
+                [dspState, pushDsp](bool on) { dspState->nr2 = on; pushDsp(); });
+        connect(m_audio, &AudioEngine::rn2EnabledChanged, chain,
+                [dspState, pushDsp](bool on) { dspState->rn2 = on; pushDsp(); });
+        connect(m_audio, &AudioEngine::nr4EnabledChanged, chain,
+                [dspState, pushDsp](bool on) { dspState->nr4 = on; pushDsp(); });
+        connect(m_audio, &AudioEngine::dfnrEnabledChanged, chain,
+                [dspState, pushDsp](bool on) { dspState->dfnr = on; pushDsp(); });
+        connect(m_audio, &AudioEngine::mnrEnabledChanged, chain,
+                [dspState, pushDsp](bool on) { dspState->mnr = on; pushDsp(); });
+        connect(m_audio, &AudioEngine::bnrEnabledChanged, chain,
+                [dspState, pushDsp](bool on) { dspState->bnr = on; pushDsp(); });
+
+        // SPEAK — AudioEngine emits mutedChanged on every setMuted() flip.
+        connect(m_audio, &AudioEngine::mutedChanged, chain,
+                [chain](bool muted) { chain->setRxOutputUnmuted(!muted); });
+
+        // Seed initial state — settings and engine values are already
+        // loaded by the time we reach this wiring code.  We pull from
+        // the engine (not signals) so an already-on NR module shows up
+        // immediately instead of waiting for the next toggle.
+        const bool pcOn = AppSettings::instance()
+            .value("PcAudioEnabled", "True").toString() == "True";
+        chain->setRxPcAudioEnabled(pcOn);
+        dspState->nr2  = m_audio->nr2Enabled();
+        dspState->rn2  = m_audio->rn2Enabled();
+        dspState->nr4  = m_audio->nr4Enabled();
+        dspState->dfnr = m_audio->dfnrEnabled();
+        dspState->mnr  = m_audio->mnrEnabled();
+        dspState->bnr  = m_audio->bnrEnabled();
+        pushDsp();
+        chain->setRxOutputUnmuted(!m_audio->isMuted());
+    }
     connect(m_titleBar, &TitleBar::headphoneMuteChanged, this, [this](bool muted) {
         m_radioModel.sendCommand(QString("mixer headphone mute %1").arg(muted ? 1 : 0));
     });
@@ -2903,68 +2993,34 @@ MainWindow::MainWindow(QWidget* parent)
     // ── EQ applet: graphic equalizer ─────────────────────────────────────────
     m_appletPanel->eqApplet()->setEqualizerModel(&m_radioModel.equalizerModel());
 
-    // ── Client EQ applet: client-side parametric EQ for RX/TX paths ──────────
-    m_appletPanel->clientEqApplet()->setAudioEngine(m_audio);
-    // Edit… requests land here — the floating editor window lands in the
-    // next PR in this series. For now we surface a concise toast so users
-    // understand the feature is arriving incrementally.
-    connect(m_appletPanel->clientEqApplet(), &ClientEqApplet::editRequested,
-            this, [this](ClientEqApplet::Path path) {
-        if (!m_clientEqEditor) {
-            m_clientEqEditor = new ClientEqEditor(m_audio, this);
-            // Editor-side bypass updates the applet's Enable toggle and
-            // drives CEQ tile visibility for TX-path changes (the tile
-            // follows TX EQ bypass state in sync with the CHAIN widget).
-            connect(m_clientEqEditor, &ClientEqEditor::bypassToggled,
-                    this, [this](ClientEqApplet::Path bypassPath, bool bypassed) {
-                if (m_appletPanel && m_appletPanel->clientEqApplet())
-                    m_appletPanel->clientEqApplet()->refreshEnableFromEngine();
-                if (m_appletPanel && m_appletPanel->clientChainApplet())
-                    m_appletPanel->clientChainApplet()->refreshFromEngine();
-                if (bypassPath == ClientEqApplet::Path::Tx && m_appletPanel)
-                    m_appletPanel->setAppletVisible("CEQ", !bypassed);
-            });
-        }
-        m_clientEqEditor->showForPath(path);
-    });
+    // ── Client EQ applets: dedicated TX and RX tiles (Phase 7.1) ───────────
+    m_appletPanel->clientEqTxApplet()->setAudioEngine(m_audio);
+    m_appletPanel->clientEqRxApplet()->setAudioEngine(m_audio);
 
-    // ── Client Compressor applet: client-side TX dynamics processor ──────────
-    m_appletPanel->clientCompApplet()->setAudioEngine(m_audio);
-    connect(m_appletPanel->clientCompApplet(), &ClientCompApplet::editRequested,
-            this, [this]() {
-        if (!m_clientCompEditor) {
-            m_clientCompEditor = new ClientCompEditor(m_audio, this);
-            connect(m_clientCompEditor, &ClientCompEditor::bypassToggled,
-                    this, [this](bool bypassed) {
-                if (m_appletPanel && m_appletPanel->clientCompApplet())
-                    m_appletPanel->clientCompApplet()->refreshEnableFromEngine();
-                if (m_appletPanel && m_appletPanel->clientChainApplet())
-                    m_appletPanel->clientChainApplet()->refreshFromEngine();
-                if (m_appletPanel)
-                    m_appletPanel->setAppletVisible("CMP", !bypassed);
-            });
-        }
-        m_clientCompEditor->showForTx();
-    });
+    auto wireEqEditOpen = [this](ClientEqApplet* applet) {
+        connect(applet, &ClientEqApplet::editRequested, this,
+                [this](ClientEqApplet::Path path) {
+            ensureClientEqEditor()->showForPath(path);
+        });
+    };
+    wireEqEditOpen(m_appletPanel->clientEqTxApplet());
+    wireEqEditOpen(m_appletPanel->clientEqRxApplet());
 
-    // ── Client Gate applet: TX downward expander / noise gate (#1661 Phase 2) ─
-    m_appletPanel->clientGateApplet()->setAudioEngine(m_audio);
-    connect(m_appletPanel->clientGateApplet(), &ClientGateApplet::editRequested,
-            this, [this]() {
-        if (!m_clientGateEditor) {
-            m_clientGateEditor = new ClientGateEditor(m_audio, this);
-            connect(m_clientGateEditor, &ClientGateEditor::bypassToggled,
-                    this, [this](bool bypassed) {
-                if (m_appletPanel && m_appletPanel->clientGateApplet())
-                    m_appletPanel->clientGateApplet()->refreshEnableFromEngine();
-                if (m_appletPanel && m_appletPanel->clientChainApplet())
-                    m_appletPanel->clientChainApplet()->refreshFromEngine();
-                if (m_appletPanel)
-                    m_appletPanel->setAppletVisible("GATE", !bypassed);
-            });
-        }
-        m_clientGateEditor->showForTx();
-    });
+    // ── Client Compressor applets: TX (#1661) + RX (Phase 7.3) ─────────────
+    m_appletPanel->clientCompTxApplet()->setAudioEngine(m_audio);
+    m_appletPanel->clientCompRxApplet()->setAudioEngine(m_audio);
+    connect(m_appletPanel->clientCompTxApplet(), &ClientCompApplet::editRequested,
+            this, [this]() { ensureClientCompEditor()->showForTx(); });
+    connect(m_appletPanel->clientCompRxApplet(), &ClientCompApplet::editRequested,
+            this, [this]() { ensureClientCompEditor()->showForRx(); });
+
+    // ── Client Gate applets: TX (#1661 Phase 2) + RX (Phase 7.2) ───────────
+    m_appletPanel->clientGateTxApplet()->setAudioEngine(m_audio);
+    m_appletPanel->clientGateRxApplet()->setAudioEngine(m_audio);
+    connect(m_appletPanel->clientGateTxApplet(), &ClientGateApplet::editRequested,
+            this, [this]() { ensureClientGateEditor()->showForTx(); });
+    connect(m_appletPanel->clientGateRxApplet(), &ClientGateApplet::editRequested,
+            this, [this]() { ensureClientGateEditor()->showForRx(); });
 
     // ── Client De-esser applet: TX sidechain-filtered dynamics (#1661 Phase 3) ─
     m_appletPanel->clientDeEssApplet()->setAudioEngine(m_audio);
@@ -2985,46 +3041,24 @@ MainWindow::MainWindow(QWidget* parent)
         m_clientDeEssEditor->showForTx();
     });
 
-    // ── Client Tube applet: TX dynamic tube saturator (#1661 Phase 4) ────────
-    m_appletPanel->clientTubeApplet()->setAudioEngine(m_audio);
-    connect(m_appletPanel->clientTubeApplet(), &ClientTubeApplet::editRequested,
-            this, [this]() {
-        if (!m_clientTubeEditor) {
-            m_clientTubeEditor = new ClientTubeEditor(m_audio, this);
-            connect(m_clientTubeEditor, &ClientTubeEditor::bypassToggled,
-                    this, [this](bool bypassed) {
-                if (m_appletPanel && m_appletPanel->clientTubeApplet())
-                    m_appletPanel->clientTubeApplet()->refreshEnableFromEngine();
-                if (m_appletPanel && m_appletPanel->clientChainApplet())
-                    m_appletPanel->clientChainApplet()->refreshFromEngine();
-                if (m_appletPanel)
-                    m_appletPanel->setAppletVisible("TUBE", !bypassed);
-            });
-        }
-        m_clientTubeEditor->showForTx();
-    });
+    // ── Client Tube applets: TX (#1661) + RX (Phase 7.4) ───────────────────
+    m_appletPanel->clientTubeTxApplet()->setAudioEngine(m_audio);
+    m_appletPanel->clientTubeRxApplet()->setAudioEngine(m_audio);
+    connect(m_appletPanel->clientTubeTxApplet(), &ClientTubeApplet::editRequested,
+            this, [this]() { ensureClientTubeEditor()->showForTx(); });
+    connect(m_appletPanel->clientTubeRxApplet(), &ClientTubeApplet::editRequested,
+            this, [this]() { ensureClientTubeEditor()->showForRx(); });
 
     // ── Client Reverb applet: TX reverb (Freeverb) ─
     m_appletPanel->clientReverbApplet()->setAudioEngine(m_audio);
 
-    // ── Client PUDU applet: TX exciter — PooDoo™ centrepiece (#1661 Phase 5) ─
-    m_appletPanel->clientPuduApplet()->setAudioEngine(m_audio);
-    connect(m_appletPanel->clientPuduApplet(), &ClientPuduApplet::editRequested,
-            this, [this]() {
-        if (!m_clientPuduEditor) {
-            m_clientPuduEditor = new ClientPuduEditor(m_audio, this);
-            connect(m_clientPuduEditor, &ClientPuduEditor::bypassToggled,
-                    this, [this](bool bypassed) {
-                if (m_appletPanel && m_appletPanel->clientPuduApplet())
-                    m_appletPanel->clientPuduApplet()->refreshEnableFromEngine();
-                if (m_appletPanel && m_appletPanel->clientChainApplet())
-                    m_appletPanel->clientChainApplet()->refreshFromEngine();
-                if (m_appletPanel)
-                    m_appletPanel->setAppletVisible("PUDU", !bypassed);
-            });
-        }
-        m_clientPuduEditor->showForTx();
-    });
+    // ── Client PUDU applets: TX (#1661 Phase 5) + RX (Phase 7.5) ───────────
+    m_appletPanel->clientPuduTxApplet()->setAudioEngine(m_audio);
+    m_appletPanel->clientPuduRxApplet()->setAudioEngine(m_audio);
+    connect(m_appletPanel->clientPuduTxApplet(), &ClientPuduApplet::editRequested,
+            this, [this]() { ensureClientPuduEditor()->showForTx(); });
+    connect(m_appletPanel->clientPuduRxApplet(), &ClientPuduApplet::editRequested,
+            this, [this]() { ensureClientPuduEditor()->showForRx(); });
 
     // ── TX signal-chain applet (#1661) ──────────────────────────────────────
     // Visual strip showing MIC → stages → TX with per-stage bypass +
@@ -3038,6 +3072,23 @@ MainWindow::MainWindow(QWidget* parent)
     // stageEnabledChanged → setAppletVisible here.  Initial state is
     // seeded from the engine below so settings persist across launches.
     m_appletPanel->clientChainApplet()->setAudioEngine(m_audio);
+    // PooDoo TX/RX tab → AppletPanel side filter.  Hides the inactive
+    // side's per-stage applet tiles whenever the user flips the chain
+    // tab.  Seed the initial side from the saved tab so the first
+    // paint is correct.
+    connect(m_appletPanel->clientChainApplet(),
+            &ClientChainApplet::chainModeChanged,
+            this, [this](ClientChainApplet::ChainMode mode) {
+        if (!m_appletPanel) return;
+        m_appletPanel->setPooDooActiveSide(
+            mode == ClientChainApplet::ChainMode::Tx
+                ? AppletPanel::PooDooSide::Tx
+                : AppletPanel::PooDooSide::Rx);
+    });
+    // Side-filter seed is moved further down — must run AFTER
+    // setTxDspChainOrder, otherwise that helper's insertChildWidget
+    // calls re-show every TX container we just hid.
+
     // Seed the PooDoo MIC-ready + TX-pulse indicators from current
     // state — subsequent changes flow through the TransmitModel
     // signal connections above (micStateChanged + moxChanged).
@@ -3143,17 +3194,49 @@ MainWindow::MainWindow(QWidget* parent)
             "REVERB", m_audio->clientReverbTx()->isEnabled());
     }
 
-    // Initial applet-stack order mirrors the persisted chain order, and
-    // stays in sync on every subsequent drag-reorder.
+    // Initial applet-stack order mirrors the persisted chain order
+    // for both sides, and stays in sync on every subsequent drag-
+    // reorder.
     if (m_audio) {
         m_appletPanel->setTxDspChainOrder(m_audio->txChainStages());
+        m_appletPanel->setRxDspChainOrder(m_audio->rxChainStages());
     }
+    auto reapplyPooDooSide = [this]() {
+        if (!m_appletPanel) return;
+        const QString savedTab = AppSettings::instance()
+            .value("PooDooAudioActiveTab", "TX").toString();
+        m_appletPanel->setPooDooActiveSide(
+            savedTab == "RX" ? AppletPanel::PooDooSide::Rx
+                             : AppletPanel::PooDooSide::Tx);
+    };
     connect(m_appletPanel->clientChainApplet(),
             &ClientChainApplet::chainReordered,
-            this, [this]() {
-        if (m_appletPanel && m_audio)
-            m_appletPanel->setTxDspChainOrder(m_audio->txChainStages());
+            this, [this, reapplyPooDooSide]() {
+        if (!m_appletPanel || !m_audio) return;
+        m_appletPanel->setTxDspChainOrder(m_audio->txChainStages());
+        // setTxDspChainOrder re-shows every reinserted child, so re-
+        // apply the side filter to keep the inactive side hidden.
+        reapplyPooDooSide();
     });
+    connect(m_appletPanel->clientChainApplet(),
+            &ClientChainApplet::rxChainReordered,
+            this, [this, reapplyPooDooSide]() {
+        if (!m_appletPanel || !m_audio) return;
+        m_appletPanel->setRxDspChainOrder(m_audio->rxChainStages());
+        reapplyPooDooSide();
+    });
+
+    // PooDoo TX/RX side-filter seed — runs AFTER setTxDspChainOrder
+    // because that helper's insertChildWidget unconditionally shows
+    // each child it reinserts, undoing any earlier hide.  Putting the
+    // seed here ensures the inactive side stays hidden on first paint.
+    {
+        const QString savedTab = AppSettings::instance()
+            .value("PooDooAudioActiveTab", "TX").toString();
+        m_appletPanel->setPooDooActiveSide(
+            savedTab == "RX" ? AppletPanel::PooDooSide::Rx
+                             : AppletPanel::PooDooSide::Tx);
+    }
 
     connect(m_appletPanel->clientChainApplet(),
             &ClientChainApplet::stageEnabledChanged,
@@ -3194,52 +3277,13 @@ MainWindow::MainWindow(QWidget* parent)
             this, [this](AudioEngine::TxChainStage stage) {
         switch (stage) {
             case AudioEngine::TxChainStage::Eq:
-                if (!m_clientEqEditor) {
-                    m_clientEqEditor = new ClientEqEditor(m_audio, this);
-                    connect(m_clientEqEditor, &ClientEqEditor::bypassToggled,
-                            this, [this](ClientEqApplet::Path path, bool bypassed) {
-                        if (m_appletPanel && m_appletPanel->clientEqApplet())
-                            m_appletPanel->clientEqApplet()->refreshEnableFromEngine();
-                        if (m_appletPanel && m_appletPanel->clientChainApplet())
-                            m_appletPanel->clientChainApplet()->refreshFromEngine();
-                        // TX bypass drives CEQ tile visibility to stay in
-                        // sync with the chain widget.  RX bypass is not
-                        // represented in the TX chain, so no tile change.
-                        if (path == ClientEqApplet::Path::Tx && m_appletPanel)
-                            m_appletPanel->setAppletVisible("CEQ", !bypassed);
-                    });
-                }
-                m_clientEqEditor->showForPath(ClientEqApplet::Path::Tx);
+                ensureClientEqEditor()->showForPath(ClientEqApplet::Path::Tx);
                 break;
             case AudioEngine::TxChainStage::Comp:
-                if (!m_clientCompEditor) {
-                    m_clientCompEditor = new ClientCompEditor(m_audio, this);
-                    connect(m_clientCompEditor, &ClientCompEditor::bypassToggled,
-                            this, [this](bool bypassed) {
-                        if (m_appletPanel && m_appletPanel->clientCompApplet())
-                            m_appletPanel->clientCompApplet()->refreshEnableFromEngine();
-                        if (m_appletPanel && m_appletPanel->clientChainApplet())
-                            m_appletPanel->clientChainApplet()->refreshFromEngine();
-                        if (m_appletPanel)
-                            m_appletPanel->setAppletVisible("CMP", !bypassed);
-                    });
-                }
-                m_clientCompEditor->showForTx();
+                ensureClientCompEditor()->showForTx();
                 break;
             case AudioEngine::TxChainStage::Gate:
-                if (!m_clientGateEditor) {
-                    m_clientGateEditor = new ClientGateEditor(m_audio, this);
-                    connect(m_clientGateEditor, &ClientGateEditor::bypassToggled,
-                            this, [this](bool bypassed) {
-                        if (m_appletPanel && m_appletPanel->clientGateApplet())
-                            m_appletPanel->clientGateApplet()->refreshEnableFromEngine();
-                        if (m_appletPanel && m_appletPanel->clientChainApplet())
-                            m_appletPanel->clientChainApplet()->refreshFromEngine();
-                        if (m_appletPanel)
-                            m_appletPanel->setAppletVisible("GATE", !bypassed);
-                    });
-                }
-                m_clientGateEditor->showForTx();
+                ensureClientGateEditor()->showForTx();
                 break;
             case AudioEngine::TxChainStage::DeEss:
                 if (!m_clientDeEssEditor) {
@@ -3257,35 +3301,11 @@ MainWindow::MainWindow(QWidget* parent)
                 m_clientDeEssEditor->showForTx();
                 break;
             case AudioEngine::TxChainStage::Tube:
-                if (!m_clientTubeEditor) {
-                    m_clientTubeEditor = new ClientTubeEditor(m_audio, this);
-                    connect(m_clientTubeEditor, &ClientTubeEditor::bypassToggled,
-                            this, [this](bool bypassed) {
-                        if (m_appletPanel && m_appletPanel->clientTubeApplet())
-                            m_appletPanel->clientTubeApplet()->refreshEnableFromEngine();
-                        if (m_appletPanel && m_appletPanel->clientChainApplet())
-                            m_appletPanel->clientChainApplet()->refreshFromEngine();
-                        if (m_appletPanel)
-                            m_appletPanel->setAppletVisible("TUBE", !bypassed);
-                    });
-                }
-                m_clientTubeEditor->showForTx();
+                ensureClientTubeEditor()->showForTx();
                 break;
             case AudioEngine::TxChainStage::Enh:
                 // Enh slot hosts PUDU.
-                if (!m_clientPuduEditor) {
-                    m_clientPuduEditor = new ClientPuduEditor(m_audio, this);
-                    connect(m_clientPuduEditor, &ClientPuduEditor::bypassToggled,
-                            this, [this](bool bypassed) {
-                        if (m_appletPanel && m_appletPanel->clientPuduApplet())
-                            m_appletPanel->clientPuduApplet()->refreshEnableFromEngine();
-                        if (m_appletPanel && m_appletPanel->clientChainApplet())
-                            m_appletPanel->clientChainApplet()->refreshFromEngine();
-                        if (m_appletPanel)
-                            m_appletPanel->setAppletVisible("PUDU", !bypassed);
-                    });
-                }
-                m_clientPuduEditor->showForTx();
+                ensureClientPuduEditor()->showForTx();
                 break;
             case AudioEngine::TxChainStage::Reverb:
                 if (!m_clientReverbEditor) {
@@ -3301,6 +3321,67 @@ MainWindow::MainWindow(QWidget* parent)
                     });
                 }
                 m_clientReverbEditor->showForTx();
+                break;
+            default:
+                break;
+        }
+    });
+
+    // ── RX chain edit + bypass ──────────────────────────────────────────────
+    // Phase 1 routes RX EQ double-clicks to the existing ClientEqEditor in
+    // RX path mode.  Click-bypass lands on the engine via the chain widget
+    // itself; we just refresh the CEQ applet's Enable toggle here so it
+    // stays in sync.
+    connect(m_appletPanel->clientChainApplet(),
+            &ClientChainApplet::rxEditRequested,
+            this, [this](AudioEngine::RxChainStage stage) {
+        switch (stage) {
+            case AudioEngine::RxChainStage::Eq:
+                ensureClientEqEditor()->showForPath(ClientEqApplet::Path::Rx);
+                break;
+            case AudioEngine::RxChainStage::Gate:
+                ensureClientGateEditor()->showForRx();
+                break;
+            case AudioEngine::RxChainStage::Comp:
+                ensureClientCompEditor()->showForRx();
+                break;
+            case AudioEngine::RxChainStage::Tube:
+                ensureClientTubeEditor()->showForRx();
+                break;
+            case AudioEngine::RxChainStage::Pudu:
+                ensureClientPuduEditor()->showForRx();
+                break;
+            default:
+                break;
+        }
+    });
+    connect(m_appletPanel->clientChainApplet(),
+            &ClientChainApplet::rxStageEnabledChanged,
+            this, [this](AudioEngine::RxChainStage stage, bool /*enabled*/) {
+        // Keep the shared per-stage applet's Enable toggle in lock-
+        // step with the click-bypass that just fired on the chain
+        // widget.  Each stage routes to its own applet refresh.
+        if (!m_appletPanel) return;
+        switch (stage) {
+            case AudioEngine::RxChainStage::Eq:
+                if (m_appletPanel->clientEqRxApplet())
+                    m_appletPanel->clientEqRxApplet()->refreshEnableFromEngine();
+                break;
+            case AudioEngine::RxChainStage::Gate:
+                if (m_appletPanel->clientGateRxApplet())
+                    m_appletPanel->clientGateRxApplet()->refreshEnableFromEngine();
+                break;
+            case AudioEngine::RxChainStage::Comp:
+                if (m_appletPanel->clientCompRxApplet())
+                    m_appletPanel->clientCompRxApplet()->refreshEnableFromEngine();
+                break;
+            case AudioEngine::RxChainStage::Tube:
+                if (m_appletPanel->clientTubeRxApplet())
+                    m_appletPanel->clientTubeRxApplet()->refreshEnableFromEngine();
+                break;
+            case AudioEngine::RxChainStage::Pudu:
+                if (m_appletPanel->clientPuduRxApplet())
+                    m_appletPanel->clientPuduRxApplet()->refreshEnableFromEngine();
                 break;
             default:
                 break;
@@ -3585,6 +3666,121 @@ MainWindow::~MainWindow()
 #ifdef HAVE_HIDAPI
     delete m_hidEncoder;
 #endif
+}
+
+ClientEqEditor* MainWindow::ensureClientEqEditor()
+{
+    if (!m_clientEqEditor) {
+        m_clientEqEditor = new ClientEqEditor(m_audio, this);
+        connect(m_clientEqEditor, &ClientEqEditor::bypassToggled,
+                this, [this](ClientEqApplet::Path path, bool bypassed) {
+            if (!m_appletPanel) return;
+            if (path == ClientEqApplet::Path::Tx) {
+                if (m_appletPanel->clientEqTxApplet())
+                    m_appletPanel->clientEqTxApplet()->refreshEnableFromEngine();
+                m_appletPanel->setAppletVisible("CEQ", !bypassed);
+            } else {
+                if (m_appletPanel->clientEqRxApplet())
+                    m_appletPanel->clientEqRxApplet()->refreshEnableFromEngine();
+                m_appletPanel->setAppletVisible("CEQ-RX", !bypassed);
+            }
+            if (m_appletPanel->clientChainApplet())
+                m_appletPanel->clientChainApplet()->refreshFromEngine();
+        });
+    }
+    return m_clientEqEditor;
+}
+
+ClientGateEditor* MainWindow::ensureClientGateEditor()
+{
+    if (!m_clientGateEditor) {
+        m_clientGateEditor = new ClientGateEditor(m_audio, this);
+        connect(m_clientGateEditor, &ClientGateEditor::bypassToggled,
+                this, [this](ClientGateEditor::Side side, bool bypassed) {
+            if (!m_appletPanel) return;
+            if (side == ClientGateEditor::Side::Tx) {
+                if (m_appletPanel->clientGateTxApplet())
+                    m_appletPanel->clientGateTxApplet()->refreshEnableFromEngine();
+                m_appletPanel->setAppletVisible("GATE", !bypassed);
+            } else {
+                if (m_appletPanel->clientGateRxApplet())
+                    m_appletPanel->clientGateRxApplet()->refreshEnableFromEngine();
+                m_appletPanel->setAppletVisible("GATE-RX", !bypassed);
+            }
+            if (m_appletPanel->clientChainApplet())
+                m_appletPanel->clientChainApplet()->refreshFromEngine();
+        });
+    }
+    return m_clientGateEditor;
+}
+
+ClientCompEditor* MainWindow::ensureClientCompEditor()
+{
+    if (!m_clientCompEditor) {
+        m_clientCompEditor = new ClientCompEditor(m_audio, this);
+        connect(m_clientCompEditor, &ClientCompEditor::bypassToggled,
+                this, [this](ClientCompEditor::Side side, bool bypassed) {
+            if (!m_appletPanel) return;
+            if (side == ClientCompEditor::Side::Tx) {
+                if (m_appletPanel->clientCompTxApplet())
+                    m_appletPanel->clientCompTxApplet()->refreshEnableFromEngine();
+                m_appletPanel->setAppletVisible("CMP", !bypassed);
+            } else {
+                if (m_appletPanel->clientCompRxApplet())
+                    m_appletPanel->clientCompRxApplet()->refreshEnableFromEngine();
+                m_appletPanel->setAppletVisible("CMP-RX", !bypassed);
+            }
+            if (m_appletPanel->clientChainApplet())
+                m_appletPanel->clientChainApplet()->refreshFromEngine();
+        });
+    }
+    return m_clientCompEditor;
+}
+
+ClientTubeEditor* MainWindow::ensureClientTubeEditor()
+{
+    if (!m_clientTubeEditor) {
+        m_clientTubeEditor = new ClientTubeEditor(m_audio, this);
+        connect(m_clientTubeEditor, &ClientTubeEditor::bypassToggled,
+                this, [this](ClientTubeEditor::Side side, bool bypassed) {
+            if (!m_appletPanel) return;
+            if (side == ClientTubeEditor::Side::Tx) {
+                if (m_appletPanel->clientTubeTxApplet())
+                    m_appletPanel->clientTubeTxApplet()->refreshEnableFromEngine();
+                m_appletPanel->setAppletVisible("TUBE", !bypassed);
+            } else {
+                if (m_appletPanel->clientTubeRxApplet())
+                    m_appletPanel->clientTubeRxApplet()->refreshEnableFromEngine();
+                m_appletPanel->setAppletVisible("TUBE-RX", !bypassed);
+            }
+            if (m_appletPanel->clientChainApplet())
+                m_appletPanel->clientChainApplet()->refreshFromEngine();
+        });
+    }
+    return m_clientTubeEditor;
+}
+
+ClientPuduEditor* MainWindow::ensureClientPuduEditor()
+{
+    if (!m_clientPuduEditor) {
+        m_clientPuduEditor = new ClientPuduEditor(m_audio, this);
+        connect(m_clientPuduEditor, &ClientPuduEditor::bypassToggled,
+                this, [this](ClientPuduEditor::Side side, bool bypassed) {
+            if (!m_appletPanel) return;
+            if (side == ClientPuduEditor::Side::Tx) {
+                if (m_appletPanel->clientPuduTxApplet())
+                    m_appletPanel->clientPuduTxApplet()->refreshEnableFromEngine();
+                m_appletPanel->setAppletVisible("PUDU", !bypassed);
+            } else {
+                if (m_appletPanel->clientPuduRxApplet())
+                    m_appletPanel->clientPuduRxApplet()->refreshEnableFromEngine();
+                m_appletPanel->setAppletVisible("PUDU-RX", !bypassed);
+            }
+            if (m_appletPanel->clientChainApplet())
+                m_appletPanel->clientChainApplet()->refreshFromEngine();
+        });
+    }
+    return m_clientPuduEditor;
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event)
@@ -5926,6 +6122,14 @@ void MainWindow::buildUI()
     splitter->addWidget(m_appletPanel);
     splitter->setStretchFactor(3, 0);
     splitter->setCollapsible(3, false);
+
+    // Restore floating-container state from the previous session.  Deferred
+    // one event-loop cycle so AppletPanel's own legacy-migration singleShot(0)
+    // timers fire first (they write ContainerTree) before we read it back.
+    QTimer::singleShot(0, this, [this]() {
+        if (m_appletPanel && m_appletPanel->containerManager())
+            m_appletPanel->containerManager()->restoreState();
+    });
 
     // Set initial splitter sizes: CWX=0, DVK=0 (both hidden), center=stretch, right=310
     const int centerWidth = qMax(400, width() - 310);
@@ -8869,7 +9073,8 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
 
 #ifdef HAVE_RADE
     connect(w, &VfoWidget::radeActivated, this, [this](bool on, int sliceId) {
-        if (on) activateRADE(sliceId); else deactivateRADE();
+        if (on) activateRADE(sliceId);
+        else if (sliceId == m_radeSliceId) deactivateRADE();
     });
 #endif
 
@@ -9088,6 +9293,11 @@ void MainWindow::setFramelessWindow(bool on)
 
     // Keep the bottom-right size grip in sync — only useful when frameless.
     if (m_sizeGrip) m_sizeGrip->setVisible(on);
+
+    // Propagate to all currently-floating child windows so they match.
+    if (m_panStack) m_panStack->setFramelessMode(on);
+    if (m_appletPanel && m_appletPanel->containerManager())
+        m_appletPanel->containerManager()->setFramelessMode(on);
 }
 
 void MainWindow::toggleMinimalMode(bool on)
@@ -9375,6 +9585,17 @@ void MainWindow::registerShortcutActions()
                 m_radioModel.transmitModel().stopTune();
             else
                 m_radioModel.transmitModel().startTune();
+        });
+    m_shortcutManager.registerAction("two_tone_tune", "Two-Tone Tune", "TX",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            m_radioModel.transmitModel().toggleTwoToneTune();
+        });
+    m_shortcutManager.registerAction("vox_toggle", "VOX Toggle", "TX",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setVoxEnable(!tx.voxEnable());
         });
 
     // ── Audio ───────────────────────────────────────────────────────────
@@ -10317,9 +10538,9 @@ void MainWindow::activateRADE(int sliceId)
     }
 
     // RADE status indicator in VFO widget.
-    // Use vfoWidget(sliceId) — the no-arg alias (m_vfoWidget) may be null
-    // if setActiveVfoWidget() hasn't been called yet for this slice.
-    if (auto* sw = spectrum()) {
+    // Use spectrumForSlice() to find the correct pan — in multi-pan layouts
+    // spectrum() returns the *active* pan, which may not be the RADE slice's pan.
+    if (auto* sw = spectrumForSlice(m_radioModel.slice(sliceId))) {
         if (auto* vfo = sw->vfoWidget(sliceId)) {
             vfo->setRadeActive(true);
             // Show initial unsynchronised state immediately — syncChanged only fires
@@ -10344,7 +10565,7 @@ void MainWindow::deactivateRADE()
         if (auto* s = m_radioModel.slice(m_radeSliceId))
             s->setAudioMute(m_radePrevMute);
         // Clear RADE status label before resetting sliceId
-        if (auto* sw = spectrum()) {
+        if (auto* sw = spectrumForSlice(m_radioModel.slice(m_radeSliceId))) {
             if (auto* vfo = sw->vfoWidget(m_radeSliceId))
                 vfo->setRadeActive(false);
         }

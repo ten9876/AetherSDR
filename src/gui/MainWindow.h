@@ -365,6 +365,15 @@ private:
     bool m_userDisconnected{false};  // true after explicit disconnect, blocks auto-connect
     QDialog* m_reconnectDlg{nullptr}; // shown on unexpected disconnect, dismissed on reconnect
     class ClientEqEditor* m_clientEqEditor{nullptr}; // lazy — created on first Edit… click
+    // Lazy-construct the floating EQ editor on first access, with all
+    // bypass-toggled wiring set up once.  Used from every site that
+    // wants to open the editor (CEQ-TX applet, CEQ-RX applet, TX
+    // chain widget Eq stage, RX chain widget Eq stage).
+    class ClientEqEditor* ensureClientEqEditor();
+    class ClientGateEditor* ensureClientGateEditor();
+    class ClientCompEditor* ensureClientCompEditor();
+    class ClientTubeEditor* ensureClientTubeEditor();
+    class ClientPuduEditor* ensureClientPuduEditor();
     class ClientCompEditor* m_clientCompEditor{nullptr}; // lazy — created on first Edit… click
     class ClientGateEditor* m_clientGateEditor{nullptr}; // lazy — created on first Edit… click
     class ClientDeEssEditor* m_clientDeEssEditor{nullptr}; // lazy — created on first Edit… click

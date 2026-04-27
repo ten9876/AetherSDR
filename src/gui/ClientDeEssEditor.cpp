@@ -1,6 +1,7 @@
 #include "ClientDeEssEditor.h"
 #include "ClientCompKnob.h"
 #include "ClientDeEssCurveWidget.h"
+#include "EditorFramelessTitleBar.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/ClientDeEss.h"
@@ -49,16 +50,21 @@ const QString kBypassStyle = QStringLiteral(
 } // namespace
 
 ClientDeEssEditor::ClientDeEssEditor(AudioEngine* engine, QWidget* parent)
-    : QWidget(parent, Qt::Window)
+    : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
     , m_audio(engine)
 {
-    setWindowTitle("Client De-esser");
+    const QString title = QString::fromUtf8("Aetherial De-Esser \xe2\x80\x94 TX");
+    setWindowTitle(title);
     setStyleSheet(kWindowStyle);
     resize(kDefaultWidth, kDefaultHeight);
 
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(8, 8, 8, 8);
+    root->setContentsMargins(8, 0, 8, 8);
     root->setSpacing(6);
+
+    auto* titleBar = new EditorFramelessTitleBar;
+    titleBar->setTitleText(title);
+    root->addWidget(titleBar);
 
     // Bypass moved to the CHAIN widget's single-click gesture.
 

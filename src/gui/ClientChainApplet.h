@@ -10,6 +10,7 @@ class QPushButton;
 namespace AetherSDR {
 
 class ClientChainWidget;
+class ClientRxChainWidget;
 
 // Docked chain tile — header with [TX] [RX] [BYPASS] buttons, the
 // chain strip, and an interaction hint at the bottom.
@@ -53,9 +54,33 @@ public:
     void setMonitorPlaying(bool on);
     void setMonitorHasRecording(bool has);
 
+    // Phase 0 RX chassis — status-tile inputs forwarded to the RX
+    // chain widget.  See ClientRxChainWidget for semantics.
+    void setRxPcAudioEnabled(bool on);
+    // label = active module's short name (e.g. "NR4"); empty → generic "DSP"
+    void setRxClientDspActive(bool on, const QString& label = QString());
+    void setRxOutputUnmuted(bool on);
+
+    // Programmatic tab switch — used to restore PooDooAudioActiveTab
+    // on startup.  Public so MainWindow can drive it after settings
+    // load.  Does nothing if the requested mode is already active.
+    void setActiveTab(ChainMode m);
+
 signals:
     void editRequested(AudioEngine::TxChainStage stage);
     void stageEnabledChanged(AudioEngine::TxChainStage stage, bool enabled);
+    // RX equivalents — forwarded from ClientRxChainWidget so MainWindow
+    // can route them to the right editor / applet without depending on
+    // the chain widget directly.
+    void rxEditRequested(AudioEngine::RxChainStage stage);
+    void rxStageEnabledChanged(AudioEngine::RxChainStage stage, bool enabled);
+    // Emitted after a successful drag-reorder of the RX chain.  Mirrors
+    // chainReordered() above on the TX side.
+    void rxChainReordered();
+    // Emitted whenever the user flips the TX/RX tab.  MainWindow
+    // routes this to AppletPanel::setPooDooActiveSide so the per-stage
+    // tiles for the inactive side get hidden.
+    void chainModeChanged(ChainMode mode);
     // Emitted after the user drags a stage to a new position.  MainWindow
     // subscribes so the applet-panel sub-container order can be kept
     // in lock-step with the chain order.
@@ -82,9 +107,9 @@ private:
     void applyPlayButtonStyle();
     void updateMonitorButtonEnables();
 
-    AudioEngine*       m_audio{nullptr};
-    ClientChainWidget* m_chain{nullptr};
-    QLabel*            m_rxPlaceholder{nullptr};
+    AudioEngine*         m_audio{nullptr};
+    ClientChainWidget*   m_chain{nullptr};
+    ClientRxChainWidget* m_rxChain{nullptr};
     QLabel*            m_hint{nullptr};
     QPushButton*       m_txBtn{nullptr};
     QPushButton*       m_rxBtn{nullptr};
@@ -100,7 +125,8 @@ private:
     bool               m_monHasRecording{false};
     bool               m_micReady{false};
     ChainMode          m_mode{ChainMode::Tx};
-    QVector<AudioEngine::TxChainStage> m_bypassSnapshot;  // stages that were on before BYPASS
+    QVector<AudioEngine::TxChainStage> m_bypassSnapshot;     // TX stages that were on before BYPASS
+    QVector<AudioEngine::RxChainStage> m_rxBypassSnapshot;   // RX stages that were on before BYPASS
 };
 
 } // namespace AetherSDR

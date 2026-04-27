@@ -195,11 +195,13 @@ public:
     // brickwall limiter, #1661).  Runs on the TX audio path only.
     // Execution order is controlled by the TX chain order below.
     ClientComp* clientCompTx() { return m_clientCompTx.get(); }
+    ClientComp* clientCompRx() { return m_clientCompRx.get(); }
 
     // Client-side TX downward expander / noise gate (#1661 Phase 2).
     // Single DSP module with an Expander ↔ Gate mode toggle that
     // snaps ratio + floor to known-good presets.
     ClientGate* clientGateTx() { return m_clientGateTx.get(); }
+    ClientGate* clientGateRx() { return m_clientGateRx.get(); }
 
     // Client-side TX de-esser (#1661 Phase 3).  Sidechain-filtered
     // dynamics: a user-tunable bandpass feeds the envelope detector,
@@ -211,11 +213,13 @@ public:
     // selectable curves, bipolar envelope-driven drive, tilt tone
     // pre-filter, parallel dry/wet mix.
     ClientTube* clientTubeTx() { return m_clientTubeTx.get(); }
+    ClientTube* clientTubeRx() { return m_clientTubeRx.get(); }
 
     // Client-side TX exciter — PUDU (#1661 Phase 5).  Aphex-lineage
     // vs. Behringer-lineage two-band exciter, the centrepiece of the
     // PooDoo Audio™ chain.
     ClientPudu* clientPuduTx() { return m_clientPuduTx.get(); }
+    ClientPudu* clientPuduRx() { return m_clientPuduRx.get(); }
 
     // Client-side TX reverb — Freeverb-based room/hall effect, final
     // optional stage in the PooDoo™ chain.
@@ -243,6 +247,26 @@ public:
     };
     static constexpr int kMaxTxChainStages = 8;  // packs into uint64_t
 
+    // RX chain — same packed-atomic dispatcher pattern as TX, applied
+    // to playback audio after the radio's NR has run.  Phase 0 ships
+    // the framework with no implemented stages; Phase 1+ slot in the
+    // RX-side ClientEq, ClientGate, ClientComp, ClientTube, ClientPudu
+    // instances.  See plans/poodoo-rx-chain.md.
+    enum class RxChainStage : uint8_t {
+        None = 0,   // sentinel / end-of-list marker
+        Eq   = 1,
+        Gate = 2,
+        Comp = 3,
+        Tube = 4,
+        Pudu = 5,
+    };
+    static constexpr int kMaxRxChainStages = 8;  // packs into uint64_t
+
+    void setRxChainStages(const QVector<RxChainStage>& stages);
+    QVector<RxChainStage> rxChainStages() const;
+    void loadClientRxChainOrder();
+    void saveClientRxChainOrder() const;
+
     // Set the ordered list of stages.  UI thread API; commits an
     // atomic snapshot that the audio thread picks up on its next block.
     // Order may contain any subset of stages; unlisted stages are
@@ -263,10 +287,14 @@ public:
     TxChainOrder txChainOrder() const;
 
     void loadClientCompSettings();
+    void loadClientCompRxSettings();
+    void saveClientCompRxSettings() const;
     void saveClientCompSettings() const;
 
     // Client-side TX gate — persistence mirrors the compressor.
     void loadClientGateSettings();
+    void loadClientGateRxSettings();
+    void saveClientGateRxSettings() const;
     void saveClientGateSettings() const;
 
     // Client-side TX de-esser — persistence.
@@ -275,10 +303,14 @@ public:
 
     // Client-side TX dynamic tube — persistence.
     void loadClientTubeSettings();
+    void loadClientTubeRxSettings();
+    void saveClientTubeRxSettings() const;
     void saveClientTubeSettings() const;
 
     // Client-side TX PUDU exciter — persistence.
     void loadClientPuduSettings();
+    void loadClientPuduRxSettings();
+    void saveClientPuduRxSettings() const;
     void saveClientPuduSettings() const;
 
     // Client-side TX reverb (Freeverb) — persistence.
@@ -344,6 +376,9 @@ signals:
     void txPacketReady(const QByteArray& vitaPacket);  // VITA-49 TX packet for PanadapterStream
 
     void pcMicLevelChanged(float peakDbfs, float avgDbfs);  // client-side PC mic metering
+    void scopeSamplesReady(const QByteArray& monoFloat32Pcm, int sampleRate, bool tx);
+    void radioTransmittingChanged(bool tx);
+    void mutedChanged(bool muted);                          // local audio output mute state
 
 private slots:
     void onTxAudioReady();
@@ -354,6 +389,8 @@ private:
     QByteArray applyBoost(const QByteArray& pcm, float gain) const;
     QByteArray buildVitaTxPacket(const float* samples, int numStereoSamples);
     void sendVoiceTxPacket(const QByteArray& pcmData, quint32 streamId);
+    void emitScopeFromFloat32Stereo(const QByteArray& pcm, int sampleRate, bool tx);
+    void emitScopeFromInt16Stereo(const QByteArray& pcm, int sampleRate, bool tx);
     QByteArray resampleStereo(const QByteArray& pcm);
     void processNr2(const QByteArray& stereoPcm);
     void updateRxBufferStats();
@@ -363,24 +400,38 @@ private:
     // Apply client-side TX compressor in-place.  No-op if disabled.
     void applyClientCompTxInt16(QByteArray& int16stereo);
     void applyClientCompTxFloat32(QByteArray& float32);
+    // RX comp operates on the post-Gate float32 stereo buffer.
+    void applyClientCompRxFloat32(QByteArray& float32);
     // Apply client-side TX gate in-place.  No-op if disabled.
     void applyClientGateTxInt16(QByteArray& int16stereo);
     void applyClientGateTxFloat32(QByteArray& float32);
+    // RX gate operates on the post-EQ float32 stereo buffer.
+    void applyClientGateRxFloat32(QByteArray& float32);
     // Apply client-side TX de-esser in-place.  No-op if disabled.
     void applyClientDeEssTxInt16(QByteArray& int16stereo);
     void applyClientDeEssTxFloat32(QByteArray& float32);
     // Apply client-side TX tube saturator in-place.  No-op if disabled.
     void applyClientTubeTxInt16(QByteArray& int16stereo);
     void applyClientTubeTxFloat32(QByteArray& float32);
+    // RX tube operates on the post-Comp float32 stereo buffer.
+    void applyClientTubeRxFloat32(QByteArray& float32);
     // Apply client-side TX PUDU exciter in-place.  No-op if disabled.
     void applyClientPuduTxInt16(QByteArray& int16stereo);
     void applyClientPuduTxFloat32(QByteArray& float32);
+    // RX pudu operates on the post-Tube float32 stereo buffer.
+    void applyClientPuduRxFloat32(QByteArray& float32);
     // Apply client-side TX reverb in-place.  No-op if disabled.
     void applyClientReverbTxInt16(QByteArray& int16stereo);
     void applyClientReverbTxFloat32(QByteArray& float32);
     // Apply the whole TX DSP chain (CMP + EQ) in the configured order.
     void applyClientTxDspInt16(QByteArray& int16stereo);
     void applyClientTxDspFloat32(QByteArray& float32);
+
+    // Apply the whole RX DSP chain in the configured order.  Phase 0
+    // ships the dispatcher with no implemented stages — every entry is
+    // a no-op until its class lands.  Plays float32 stereo (the native
+    // RX format after NR).
+    void applyClientRxDspFloat32(QByteArray& float32);
 
     // RX
     QAudioSink*   m_audioSink{nullptr};
@@ -434,6 +485,11 @@ private:
     double        m_pcMicSumSq{0.0};
     int           m_pcMicSampleCount{0};
     static constexpr int kMicMeterWindowSamples = 24000 / 20;  // ~50ms at 24kHz
+
+    QElapsedTimer m_lastRxScopeEmit;
+    QElapsedTimer m_lastTxScopeEmit;
+    QByteArray    m_scopeRxScratch;
+    QByteArray    m_scopeTxScratch;
 
     QAudioDevice m_outputDevice;
     QAudioDevice m_inputDevice;
@@ -496,14 +552,18 @@ private:
     std::unique_ptr<ClientEq> m_clientEqTx;
     // Client-side TX compressor (Pro-XL-style).
     std::unique_ptr<ClientComp> m_clientCompTx;
+    std::unique_ptr<ClientComp> m_clientCompRx;
     // Client-side TX downward expander / noise gate.
     std::unique_ptr<ClientGate> m_clientGateTx;
+    std::unique_ptr<ClientGate> m_clientGateRx;
     // Client-side TX de-esser.
     std::unique_ptr<ClientDeEss> m_clientDeEssTx;
     // Client-side TX tube saturator.
     std::unique_ptr<ClientTube> m_clientTubeTx;
+    std::unique_ptr<ClientTube> m_clientTubeRx;
     // Client-side TX PUDU exciter.
     std::unique_ptr<ClientPudu> m_clientPuduTx;
+    std::unique_ptr<ClientPudu> m_clientPuduRx;
     // Client-side TX reverb.
     std::unique_ptr<ClientReverb> m_clientReverbTx;
     // Post-DSP TX monitor — owned by MainWindow; we just hold a
@@ -516,14 +576,22 @@ private:
     // [Gate, Eq, DeEss, Comp, Tube, Enh] — but only Eq and Comp have
     // implementations today, so the others are no-op pass-throughs.
     std::atomic<uint64_t> m_txChainPacked{0};
+    // RX chain — same packing convention.  RxChainStage::None terminates
+    // the list.  Phase 0 dispatcher iterates this but every stage is a
+    // no-op until its DSP class lands in a later phase.
+    std::atomic<uint64_t> m_rxChainPacked{0};
     // Scratch buffer for in-place EQ on the RX path (avoids per-call alloc).
     QByteArray m_clientEqRxScratch;
     QByteArray m_clientEqTxScratch;
     QByteArray m_clientCompTxScratch;
+    QByteArray m_clientCompRxScratch;
     QByteArray m_clientGateTxScratch;
+    QByteArray m_clientGateRxScratch;
     QByteArray m_clientDeEssTxScratch;
     QByteArray m_clientTubeTxScratch;
+    QByteArray m_clientTubeRxScratch;
     QByteArray m_clientPuduTxScratch;
+    QByteArray m_clientPuduRxScratch;
     QByteArray m_clientReverbTxScratch;
     // Post-EQ analyzer tap. One ring per path, mono (L+R averaged).
     // Audio thread writes via tapClientEqRxStereo() / tapClientEqTxInt16()

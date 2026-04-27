@@ -26,10 +26,13 @@ class ClientPuduApplet : public QWidget {
     Q_OBJECT
 
 public:
-    explicit ClientPuduApplet(QWidget* parent = nullptr);
+    enum class Side { Tx, Rx };
+
+    explicit ClientPuduApplet(Side side = Side::Tx, QWidget* parent = nullptr);
 
     void setAudioEngine(AudioEngine* engine);
     void refreshEnableFromEngine();
+    Side side() const { return m_side; }
 
 signals:
     void editRequested();
@@ -48,6 +51,9 @@ private:
     void applyDooMix(float v);
 
     AudioEngine*    m_audio{nullptr};
+    const Side      m_side{Side::Tx};
+    class ClientPudu* pudu() const;
+    void              savePuduSettings() const;
     PooDooLogo*     m_logo{nullptr};
     QPushButton*    m_modeA{nullptr};
     QPushButton*    m_modeB{nullptr};

@@ -44,6 +44,11 @@ public:
     void setFftBinsDb(const std::vector<float>& binsDb,
                       double sampleRate);
 
+    // When true, the per-bin peak-hold trace stops decaying — peaks
+    // stick at whatever maximum has been observed so far.  Toggling
+    // back to false resumes the normal decay.
+    void setPeakHoldFrozen(bool frozen);
+
 signals:
     void selectedBandChanged(int idx);
     // Fired whenever band params mutate on the audio side from user
@@ -73,6 +78,8 @@ protected:
     int                m_selectedBand{-1};
     bool               m_showFilled{true};
     std::vector<float> m_fftBinsDb;      // empty = no analyzer drawn
+    std::vector<float> m_peakHoldDb;     // per-bin peak-hold trail
+    bool               m_peakHoldFrozen{false};
     double             m_fftSampleRate{24000.0};
 };
 

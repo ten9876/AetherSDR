@@ -101,10 +101,26 @@ constexpr const char* kEditStyle =
 
 } // namespace
 
-ClientCompApplet::ClientCompApplet(QWidget* parent) : QWidget(parent)
+ClientCompApplet::ClientCompApplet(Side side, QWidget* parent)
+    : QWidget(parent)
+    , m_side(side)
 {
     buildUI();
     hide();  // hidden until toggled on from the button tray
+}
+
+ClientComp* ClientCompApplet::comp() const
+{
+    if (!m_audio) return nullptr;
+    return m_side == Side::Rx ? m_audio->clientCompRx()
+                              : m_audio->clientCompTx();
+}
+
+void ClientCompApplet::saveCompSettings() const
+{
+    if (!m_audio) return;
+    if (m_side == Side::Rx) m_audio->saveClientCompRxSettings();
+    else                    m_audio->saveClientCompSettings();
 }
 
 void ClientCompApplet::buildUI()
@@ -209,9 +225,9 @@ void ClientCompApplet::buildUI()
 
     auto wire = [this](ClientCompKnob* k, auto setter) {
         connect(k, &ClientCompKnob::valueChanged, this, [this, setter](float v) {
-            if (!m_audio || !m_audio->clientCompTx()) return;
-            (m_audio->clientCompTx()->*setter)(v);
-            m_audio->saveClientCompSettings();
+            if (!m_audio || !comp()) return;
+            (comp()->*setter)(v);
+            saveCompSettings();
         });
     };
     wire(m_thresh,  &ClientComp::setThresholdDb);
@@ -229,7 +245,7 @@ void ClientCompApplet::setAudioEngine(AudioEngine* engine)
 {
     m_audio = engine;
     if (!m_audio) return;
-    m_curve->setComp(m_audio->clientCompTx());
+    m_curve->setComp(comp());
     syncEnableFromEngine();
     m_meterTimer->start();
 }
@@ -237,8 +253,8 @@ void ClientCompApplet::setAudioEngine(AudioEngine* engine)
 void ClientCompApplet::syncEnableFromEngine()
 {
     if (m_curve) m_curve->update();
-    if (!m_audio || !m_audio->clientCompTx()) return;
-    ClientComp* c = m_audio->clientCompTx();
+    if (!m_audio || !comp()) return;
+    ClientComp* c = comp();
     if (m_thresh)  { QSignalBlocker b(m_thresh);  m_thresh->setValue(c->thresholdDb()); }
     if (m_ratio)   { QSignalBlocker b(m_ratio);   m_ratio->setValue(c->ratio()); }
     if (m_attack)  { QSignalBlocker b(m_attack);  m_attack->setValue(c->attackMs()); }
@@ -254,17 +270,17 @@ void ClientCompApplet::refreshEnableFromEngine()
 void ClientCompApplet::onEnableToggled(bool on)
 {
     if (!m_audio) return;
-    ClientComp* c = m_audio->clientCompTx();
+    ClientComp* c = comp();
     if (!c) return;
     c->setEnabled(on);
-    m_audio->saveClientCompSettings();
+    saveCompSettings();
     if (m_curve) m_curve->update();
 }
 
 void ClientCompApplet::tickMeter()
 {
     if (!m_audio || !m_grBar) return;
-    ClientComp* c = m_audio->clientCompTx();
+    ClientComp* c = comp();
     if (!c) return;
     const float gr = c->gainReductionDb();
     m_grBar->setGrDb(gr);

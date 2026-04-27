@@ -3,6 +3,184 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.9.0] — YYYY-MM-DD
+
+### Aetherial RX Audio Suite, frameless UI, and local CW sidetone
+
+A milestone release. The PooDoo Audio chain — Aetherial Parametric EQ,
+AGC-T gate, AGC-C compressor, Tube saturator, and PUDU exciter — now
+runs on **both** RX and TX with independent settings, drag-to-reorder
+on each path, and matching frameless editor windows.  The whole UI
+goes frameless: the main window plus every applet pop-out and editor
+gets a Discord-style minimise / maximise / close trio with title-bar
+drag.  CW operators get a dedicated low-latency local sidetone sink
+that survives CWX too.  Plus community fixes for the FLEX-6000
+compression meter, RTTY mark-default reset, RADE decoded audio, and
+the usual stack of UX polish.
+
+### Features
+
+**PooDoo Audio RX chain (#1998)**
+- Reuses the existing TX DSP modules (Parametric EQ, gate/expander,
+  compressor, tube saturator, PUDU exciter) on the RX path with
+  fully independent state from TX.  Each stage is a tile in the
+  CHAIN widget on the RX side: single-click toggles bypass,
+  double-click opens the floating editor.  RX chain order is
+  drag-to-reorder.  RADIO and SPEAK status tiles bookend the chain;
+  the DSP tile shows whichever client-side noise reducer is active
+  (NR2 / NR4 / BNR).
+- All applet titles rebrand to **Aetherial**: Parametric EQ,
+  AGC-T (gate), AGC-C (compressor), Tube, PUDU.
+
+**Frameless main window with custom title bar (#1926)**
+- Main window now uses `Qt::FramelessWindowHint` with a custom
+  20 px title bar carrying drag-to-move via `startSystemMove`,
+  double-click maximise, and a Discord-style minimise / maximise /
+  close trio.  Resize via standard window-edge grip.
+
+**Frameless pop-out windows for applets and panadapters (#1922)**
+- Every floating applet and panadapter pop-out gains the same
+  frameless title bar with the trio.  Single-click trio actions,
+  drag the bar to move, double-click to maximise.
+
+**Frameless editor windows for the entire PooDoo chain (#1998)**
+- Aetherial Parametric EQ, AGC-T, AGC-C, Tube, PUDU, and Reverb
+  editors all use the same shared title-bar widget with drag and
+  trio.  Title text reads "Aetherial &lt;Stage&gt; — &lt;Side&gt;" so the
+  TX vs RX instance is identifiable at a glance.
+
+**Polish frameless title bar (#1931)**
+- Title-bar trio refined to a Discord-style sequence; dropped the
+  lightbulb icon in favour of a minimal arrow accent so the trio
+  sits flush against the right edge.
+
+**Local CW sidetone with low-latency sink + CWX support (#1969)**
+- Dedicated low-latency local sidetone path that bypasses the
+  protocol-level monitor for keying feedback that doesn't fight
+  network jitter.  Works for paddle, straight key, and CWX
+  generated transmissions.  Pitch and gain follow the existing
+  `pitch` / `mon_gain_cw` controls.
+
+**Two-Tone Tune shortcut (#1995, jensenpat)**
+- New unassigned `Two-Tone Tune` keyboard action under the TX
+  shortcut category.  Sends `transmit set tune_mode=two_tone`
+  before starting Tune, toggles off on a second press, and
+  restores `tune_mode=single_tone` on stop so the regular TUNE
+  press isn't surprised by sticky two-tone state.
+
+**XVTR diagnostic logging (#1964)**
+- New `xvtr` logging category captures status messages, RF↔IF
+  frequency translation, and pan-bandwidth conversions so XVTR
+  setup issues can be diagnosed from log bundles instead of pcap.
+
+**XVTR policy regression tests (#1960)**
+- Test harness covers transverter active/inactive state, RF↔IF
+  conversion, and the family of pan-recenter cases that used to
+  drop the waterfall when crossing IF/RF boundaries.
+
+### Bug fixes
+
+**Flex compression meter derivation across radio families (#1992, jensenpat)**
+- FLEX-8000 series exposes `TX/AFTEREQ` at 20 fps as the post-EQ
+  reference for compression display; FLEX-6000 captures don't
+  expose `AFTEREQ`, so the best matching reference is `TX/SC_MIC`
+  at 10 fps with `TX/COMPPEAK` still at 20 fps.  Mixed cadence is
+  guarded by a freshness check so a fresh `COMPPEAK` isn't compared
+  against a stale `SC_MIC` sample.  When `AFTEREQ` is present it
+  takes precedence over `SC_MIC`.
+
+**Preserve rtty_mark_default when radio resets mark on band change (#1968, chibondking)**
+- The radio resets `slice rtty_mark` to 2125 in the status broadcast
+  that follows a band change, regardless of the configured
+  `rtty_mark_default`.  `SliceModel::applyStatus()` was accepting
+  the 2125 value blindly, overwriting the user's configured mark.
+  Now tracks `m_rttyMarkDefault` (seeded from `RadioModel`) and a
+  user-override flag so the correct default is pushed back when
+  the radio resets, without fighting an intentional 2125 selection.
+
+**Fix choppy/harsh RADE decoded audio: dedicated buffer + sample-wise mix (#1953, NF0T)**
+- RADE decoded audio was sharing the SSB output buffer, producing
+  glitches and harsh artefacts on decoded voice.  Split into a
+  dedicated buffer with per-sample mixing into the speaker output
+  so RADE and SSB don't fight for the same write window.
+
+**Fix CoreMIDI init crash during MIDI auto-connect (#1949, jensenpat)**
+- macOS CoreMIDI initialisation could crash on launch when
+  auto-connect ran before the MIDI client was fully constructed.
+  Init order tightened so the client is ready before any
+  auto-connect attempt.
+
+**Restore shortcuts after slider nudges (#1952, jensenpat)**
+- Shortcut bindings could go stale after the user nudged a slider
+  with the keyboard, because focus stayed on the slider and ate
+  subsequent shortcut keystrokes.  Focus now returns to the main
+  window after a slider nudge.
+
+**Preserve MIDI bindings when saving device settings (#1951, jensenpat)**
+- Saving MIDI device settings was overwriting bindings with an
+  empty map because the save path read from the wrong source.
+  Now the existing binding map is merged into the saved settings.
+
+**Cancel frequency entry with Escape (#1954, jensenpat)**
+- The numeric frequency-entry buffer didn't honour Escape, so a
+  user who started typing a frequency had to clear the buffer
+  manually.  Escape now cancels the entry cleanly.
+
+**Gate XVTR waterfall tile shifts (#1925, jensenpat)**
+- Waterfall tile-shift logic continued to fire on XVTR pans even
+  when the IF↔RF frequency relationship made the shift meaningless,
+  producing visual tearing.  Shifts are now gated on transverter
+  state.
+
+**Close all floating windows when main window closes (#1920, chibondking)**
+- Floating applet pop-outs and panadapter pop-outs were left as
+  orphaned top-level windows when the main window was closed,
+  forcing the user to close each one individually.  All
+  floating children now close together with the main window.
+
+### Build and CI
+
+**cmake: declare Qt 6.2 minimum (#1962)**
+- `startSystemMove` is gated behind Qt 6.2; the build now declares
+  the minimum explicitly so older systems get a clean configure
+  error rather than a confusing link failure.  Matches Ubuntu
+  22.04 LTS shipped Qt.
+
+**ci(windows): switch to Ninja so sccache actually wraps cl.exe (#1963)**
+- The Windows CI job was using MSBuild, which sccache can't wrap
+  for compilation caching.  Moved to Ninja so the sccache layer
+  established in #1913 actually has effect, cutting Windows build
+  times further.
+
+**ci: speed up Windows build with sccache + Qt/FFTW caching (#1913)**
+- Adds sccache for compiler caching plus GitHub Actions cache
+  layers for Qt and FFTW dependencies.  First-run pulls populate
+  the cache; subsequent CI runs reuse compiled objects and prebuilt
+  third-party artefacts.
+
+**Add /bigobj to MSVC compile options (#1910 → #1911)**
+- The compilation unit hit the C1128 section count limit on
+  MSVC.  `/bigobj` raises the limit so the unit compiles cleanly
+  without splitting the file.
+
+### Dependencies
+
+- Bump `mozilla-actions/sccache-action` from 0.0.6 to 0.0.10 (#1941)
+- Bump `actions/cache` from 4 to 5 (#1942)
+
+### Acknowledgements
+
+Massive cycle.  **jensenpat** delivered eight PRs this release —
+including the FLEX-6000 compression meter derivation, two-tone
+Tune shortcut, XVTR diagnostic logging and regression tests, and
+four crash/UX fixes (CoreMIDI init, MIDI binding persistence,
+slider-nudge focus, frequency-entry Escape).  **chibondking**
+shipped two PRs (RTTY mark-default preservation and the
+floating-window close cascade).  Thanks also to **NF0T** for the
+RADE decoded-audio dedicated-buffer fix.
+
+73, Jeremy KK7GWY
+
 ## [v0.8.22] — 2026-04-25
 
 ### Connection visibility plus community polish

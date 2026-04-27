@@ -1,15 +1,14 @@
 #include "FloatingContainerWindow.h"
 #include "ContainerWidget.h"
 #include "core/AppSettings.h"
+#include "gui/FramelessResizer.h"
 
 #include <QByteArray>
 #include <QCloseEvent>
 #include <QGuiApplication>
-#include <QHBoxLayout>
 #include <QMoveEvent>
 #include <QResizeEvent>
 #include <QScreen>
-#include <QSizeGrip>
 #include <QVBoxLayout>
 
 namespace AetherSDR {
@@ -22,13 +21,15 @@ constexpr int kDefaultH = 240;
 } // namespace
 
 FloatingContainerWindow::FloatingContainerWindow(QWidget* parent)
-    : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
+    : QWidget(parent, Qt::Window)
 {
-    // Windows quirk: the constructor flag bitmask is sometimes ignored
-    // and the native frame still gets drawn.  Re-applying via setWindowFlags
-    // before show() forces the platform plugin to honour FramelessWindowHint
-    // on all Qt versions / widget hierarchies.
-    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    const bool frameless =
+        AppSettings::instance().value("FramelessWindow", "True").toString() == "True";
+    Qt::WindowFlags flags = Qt::Window;
+    if (frameless) flags |= Qt::FramelessWindowHint;
+    // Re-apply via setWindowFlags — some platform plugins ignore the
+    // constructor bitmask and need an explicit call before show().
+    setWindowFlags(flags);
     setAttribute(Qt::WA_DeleteOnClose, false);
     setAttribute(Qt::WA_QuitOnClose, false);
     setStyleSheet("QWidget { background: #08121d; }");
@@ -40,6 +41,8 @@ FloatingContainerWindow::FloatingContainerWindow(QWidget* parent)
     m_saveTimer.setInterval(400);
     connect(&m_saveTimer, &QTimer::timeout, this,
             &FloatingContainerWindow::saveGeometryToKey);
+
+    FramelessResizer::install(this);
 }
 
 FloatingContainerWindow::~FloatingContainerWindow() = default;
@@ -59,15 +62,6 @@ void FloatingContainerWindow::takeContainer(ContainerWidget* container)
         m_container->show();
         m_container->setDockMode(ContainerWidget::DockMode::Floating);
         setWindowTitle(m_container->title());
-
-        // Bottom-right resize grip — frameless windows lose OS edge resize.
-        // Append after the container so it sits at the bottom of the layout.
-        auto* gripRow = new QHBoxLayout;
-        gripRow->setContentsMargins(0, 0, 0, 0);
-        gripRow->addStretch(1);
-        gripRow->addWidget(new QSizeGrip(this), 0,
-                           Qt::AlignBottom | Qt::AlignRight);
-        m_layout->addLayout(gripRow);
     }
 }
 
@@ -101,17 +95,21 @@ void FloatingContainerWindow::restoreAndEnsureVisible(QWidget* anchor)
         }
     }
     if (!restored) {
-        // Default: centre on the anchor's screen at a reasonable size.
+        // Default: size to the container's natural sizeHint so we don't
+        // open with dead space above and below the children.  Width
+        // falls back to kDefaultW when the hint is too narrow to read.
+        adjustSize();
+        const QSize hint = sizeHint();
+        const int w = std::max(kDefaultW, hint.width());
+        const int h = std::max(hint.height(), 80);  // tiny floor
+        resize(w, h);
         QScreen* screen = anchor && anchor->screen()
             ? anchor->screen()
             : QGuiApplication::primaryScreen();
         if (screen) {
             const QRect g = screen->availableGeometry();
-            resize(kDefaultW, kDefaultH);
-            move(g.center().x() - kDefaultW / 2,
-                 g.center().y() - kDefaultH / 2);
-        } else {
-            resize(kDefaultW, kDefaultH);
+            move(g.center().x() - w / 2,
+                 g.center().y() - h / 2);
         }
     } else {
         // Clamp to any visible screen — saved geometry may reference
@@ -147,6 +145,21 @@ void FloatingContainerWindow::prepareShutdown()
     saveGeometryToKey();
     m_shuttingDown = true;
     close();
+}
+
+void FloatingContainerWindow::setFramelessMode(bool on)
+{
+    const bool wasVisible = isVisible();
+    const QRect geom = geometry();
+    Qt::WindowFlags flags = windowFlags();
+    if (on) {
+        flags |= Qt::FramelessWindowHint;
+    } else {
+        flags &= ~Qt::FramelessWindowHint;
+    }
+    setWindowFlags(flags);
+    setGeometry(geom);
+    if (wasVisible) show();
 }
 
 void FloatingContainerWindow::closeEvent(QCloseEvent* ev)

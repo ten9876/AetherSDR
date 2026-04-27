@@ -307,9 +307,36 @@ void TransmitModel::setTunePower(int power)
     emit commandReady(QString("transmit set tunepower=%1").arg(power));
 }
 
+void TransmitModel::setTuneMode(const QString& mode)
+{
+    if (mode != "single_tone" && mode != "two_tone") {
+        qWarning() << "TransmitModel: ignoring invalid tune mode:" << mode;
+        return;
+    }
+    emit commandReady("transmit set tune_mode=" + mode);
+}
+
 void TransmitModel::startTune()
 {
     emit commandReady("transmit tune 1");
+}
+
+void TransmitModel::startTwoToneTune()
+{
+    setTuneMode("two_tone");
+    startTune();
+}
+
+void TransmitModel::toggleTwoToneTune()
+{
+    if (isTuning()) {
+        stopTune();
+        // Restore single-tone so the next regular Tune press isn't surprised
+        // by sticky two-tone state on the radio.
+        setTuneMode("single_tone");
+    } else {
+        startTwoToneTune();
+    }
 }
 
 void TransmitModel::stopTune()

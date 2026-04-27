@@ -25,6 +25,10 @@ public:
     void restoreWindowGeometry();
     void setShuttingDown(bool on) { m_shuttingDown = on; }
 
+    // Apply or remove Qt::FramelessWindowHint at runtime to match the
+    // main-window frameless setting.  Preserves geometry and visibility.
+    void setFramelessMode(bool on);
+
 signals:
     void dockRequested(const QString& panId);
 

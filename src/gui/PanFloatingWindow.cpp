@@ -1,28 +1,30 @@
 #include "PanFloatingWindow.h"
+#include "FramelessResizer.h"
 #include "PanadapterApplet.h"
 #include "core/AppSettings.h"
 
-#include <QVBoxLayout>
-#include <QHBoxLayout>
 #include <QCloseEvent>
-#include <QPushButton>
-#include <QSizeGrip>
+#include <QVBoxLayout>
 
 namespace AetherSDR {
 
 PanFloatingWindow::PanFloatingWindow(QWidget* parent)
-    : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
+    : QWidget(parent, Qt::Window)
 {
-    // Windows quirk: the constructor flag bitmask is sometimes ignored
-    // and the native frame still gets drawn.  Re-applying via setWindowFlags
-    // before show() forces the platform plugin to honour FramelessWindowHint
-    // on all Qt versions / widget hierarchies.
-    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    const bool frameless =
+        AppSettings::instance().value("FramelessWindow", "True").toString() == "True";
+    Qt::WindowFlags flags = Qt::Window;
+    if (frameless) flags |= Qt::FramelessWindowHint;
+    // Re-apply via setWindowFlags — some platform plugins ignore the
+    // constructor bitmask and need an explicit call before show().
+    setWindowFlags(flags);
     setMinimumSize(400, 300);
 
     m_layout = new QVBoxLayout(this);
     m_layout->setContentsMargins(0, 0, 0, 0);
     m_layout->setSpacing(0);
+
+    FramelessResizer::install(this);
 }
 
 void PanFloatingWindow::adoptApplet(PanadapterApplet* applet)
@@ -41,14 +43,6 @@ void PanFloatingWindow::adoptApplet(PanadapterApplet* applet)
     // floating window without an intermediate nullptr/top-level state.
     // This avoids corrupting the main window's NSResponder chain on macOS.
     m_layout->addWidget(m_applet, 1);
-
-    // Bottom-right resize grip — frameless windows lose OS edge resize.
-    auto* gripRow = new QHBoxLayout;
-    gripRow->setContentsMargins(0, 0, 0, 0);
-    gripRow->addStretch(1);
-    gripRow->addWidget(new QSizeGrip(this), 0,
-                       Qt::AlignBottom | Qt::AlignRight);
-    m_layout->addLayout(gripRow);
 
     // Show dock icon in the applet's title bar
     m_applet->setFloatingState(true);
@@ -70,6 +64,21 @@ PanadapterApplet* PanFloatingWindow::takeApplet()
     a->setParent(nullptr);
     m_applet = nullptr;
     return a;
+}
+
+void PanFloatingWindow::setFramelessMode(bool on)
+{
+    const bool wasVisible = isVisible();
+    const QRect geom = geometry();
+    Qt::WindowFlags flags = windowFlags();
+    if (on) {
+        flags |= Qt::FramelessWindowHint;
+    } else {
+        flags &= ~Qt::FramelessWindowHint;
+    }
+    setWindowFlags(flags);
+    setGeometry(geom);
+    if (wasVisible) show();
 }
 
 void PanFloatingWindow::closeEvent(QCloseEvent* ev)

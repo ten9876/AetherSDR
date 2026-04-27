@@ -12,6 +12,7 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
+#include "WaveApplet.h"
 #include "ClientEqApplet.h"
 #include "ClientCompApplet.h"
 #include "ClientGateApplet.h"
@@ -54,7 +55,7 @@
 namespace AetherSDR {
 
 const QStringList AppletPanel::kDefaultOrder = {
-    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "TXDSP", "CAT", "DAX", "TCI", "IQ", "MTR", "AG"
+    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "WAVE", "TXDSP", "CAT", "DAX", "TCI", "IQ", "MTR", "AG"
 };
 
 // ── Drop-aware scroll area ──────────────────────────────────────────────────
@@ -82,20 +83,32 @@ protected:
 
         // Find the Y position for the indicator
         int indicatorY = 0;
-        if (idx < m_panel->m_appletOrder.size()) {
-            auto* w = m_panel->m_appletOrder[idx].titleBar;
-            if (w) {
-                auto* cw = qobject_cast<ContainerWidget*>(m_panel->m_appletOrder[idx].widget);
-                if (!cw || !cw->isFloating())
-                    indicatorY = w->mapTo(widget(), QPoint(0, 0)).y();
+        bool indicatorPlaced = false;
+        auto isDockedVisible = [](const AppletPanel::AppletEntry& entry) {
+            auto* w = entry.widget;
+            if (!w || !w->isVisible()) return false;
+            if (auto* cw = qobject_cast<ContainerWidget*>(w); cw && cw->isFloating())
+                return false;
+            return true;
+        };
+        for (int i = idx; i < m_panel->m_appletOrder.size(); ++i) {
+            const auto& entry = m_panel->m_appletOrder[i];
+            if (!isDockedVisible(entry)) continue;
+            if (auto* title = entry.titleBar) {
+                indicatorY = title->mapTo(widget(), QPoint(0, 0)).y();
+                indicatorPlaced = true;
+                break;
             }
-        } else if (!m_panel->m_appletOrder.isEmpty()) {
-            auto& last = m_panel->m_appletOrder.back();
-            auto* w = last.widget;
-            if (w) {
-                auto* cw = qobject_cast<ContainerWidget*>(w);
-                if (!cw || !cw->isFloating())
+        }
+        if (!indicatorPlaced) {
+            for (int i = m_panel->m_appletOrder.size() - 1; i >= 0; --i) {
+                const auto& entry = m_panel->m_appletOrder[i];
+                if (!isDockedVisible(entry)) continue;
+                if (auto* w = entry.widget) {
                     indicatorY = w->mapTo(widget(), QPoint(0, w->height())).y();
+                    indicatorPlaced = true;
+                    break;
+                }
             }
         }
         m_panel->m_dropIndicator->setParent(widget());
@@ -604,6 +617,9 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_eqApplet = new EqApplet;
     m_appletOrder.append(makeEntry("EQ", "Equalizer", m_eqApplet, true, btnRow1, btnLayout1));
 
+    m_waveApplet = new WaveApplet;
+    m_appletOrder.append(makeEntry("WAVE", "Waveform", m_waveApplet, true, btnRow1, btnLayout1));
+
     // CEQ and CMP intentionally have no toggle button in the tray —
     // their visibility follows DSP bypass state, driven externally
     // from the CHAIN widget and the respective floating editors.
@@ -614,17 +630,29 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // the three sub-containers live inside a parent "tx_dsp"
     // container whose own titlebar is hidden (the outer AppletEntry
     // wrapper provides the group's drag-handle + tray-toggle).
-    m_clientEqApplet    = new ClientEqApplet;
-    m_clientCompApplet  = new ClientCompApplet;
-    m_clientGateApplet  = new ClientGateApplet;
+    // Phase 7.1: CEQ split — one Tx-bound copy + one Rx-bound copy.
+    // No internal Rx/Tx tab anymore; each tile owns one path for its
+    // entire lifetime.
+    m_clientEqTxApplet  = new ClientEqApplet(ClientEqApplet::Path::Tx);
+    m_clientEqRxApplet  = new ClientEqApplet(ClientEqApplet::Path::Rx);
+    m_clientCompApplet   = new ClientCompApplet(ClientCompApplet::Side::Tx);
+    m_clientCompRxApplet = new ClientCompApplet(ClientCompApplet::Side::Rx);
+    m_clientGateApplet   = new ClientGateApplet(ClientGateApplet::Side::Tx);
+    m_clientGateRxApplet = new ClientGateApplet(ClientGateApplet::Side::Rx);
     m_clientDeEssApplet = new ClientDeEssApplet;
-    m_clientTubeApplet  = new ClientTubeApplet;
-    m_clientPuduApplet  = new ClientPuduApplet;
+    m_clientTubeApplet   = new ClientTubeApplet(ClientTubeApplet::Side::Tx);
+    m_clientTubeRxApplet = new ClientTubeApplet(ClientTubeApplet::Side::Rx);
+    m_clientPuduApplet   = new ClientPuduApplet(ClientPuduApplet::Side::Tx);
+    m_clientPuduRxApplet = new ClientPuduApplet(ClientPuduApplet::Side::Rx);
     m_clientReverbApplet = new ClientReverbApplet;
     m_clientChainApplet = new ClientChainApplet;
 
     auto* txDsp = m_containerMgr->createContainer(
-        "tx_dsp", QString::fromUtf8("PooDoo\xe2\x84\xa2 Audio"));
+        "tx_dsp", QString::fromUtf8("Aetherial Audio\xe2\x84\xa2"));
+    // Cap the column width so popped-out floating windows don't grow
+    // wider than the chain visualisation needs.  Docked columns are
+    // already narrower so this is a no-op there.
+    if (txDsp) txDsp->setMaximumWidth(280);
 
     auto makeChildContainer = [this, txDsp](const QString& id,
                                             const QString& title,
@@ -641,13 +669,18 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // pop-outable sub-containers since users commonly want them
     // floating while working on the chain.)
     if (txDsp) txDsp->insertChildWidget(-1, m_clientChainApplet);
-    makeChildContainer("gate",  "GATE",  m_clientGateApplet,   -1);
-    makeChildContainer("ceq",   "CEQ",   m_clientEqApplet,     -1);
-    makeChildContainer("dess",  "DESS",  m_clientDeEssApplet,  -1);
-    makeChildContainer("cmp",   "COMPRESSOR",   m_clientCompApplet,   -1);
-    makeChildContainer("tube",  "TUBE",  m_clientTubeApplet,   -1);
-    makeChildContainer("pudu",  "PUDU",  m_clientPuduApplet,   -1);
-    makeChildContainer("reverb","REVERB",m_clientReverbApplet, -1);
+    makeChildContainer("gate",    "Aetherial TX Gate",       m_clientGateApplet,   -1);
+    makeChildContainer("gate-rx", "Aetherial AGC-T",          m_clientGateRxApplet, -1);
+    makeChildContainer("ceq",     "Aetherial TX EQ",          m_clientEqTxApplet,   -1);
+    makeChildContainer("ceq-rx",  "Aetherial RX EQ",          m_clientEqRxApplet,   -1);
+    makeChildContainer("dess",    "Aetherial De-Esser",       m_clientDeEssApplet,  -1);
+    makeChildContainer("cmp",     "Aetherial Compressor",     m_clientCompApplet,   -1);
+    makeChildContainer("cmp-rx",  "Aetherial AGC-C",          m_clientCompRxApplet, -1);
+    makeChildContainer("tube",    "Aetherial Mic-PreAmp",     m_clientTubeApplet,   -1);
+    makeChildContainer("tube-rx", "Aetherial Dynamic Tube",   m_clientTubeRxApplet, -1);
+    makeChildContainer("pudu",    QString::fromUtf8("Aetherial TX Poodoo\xe2\x84\xa2"), m_clientPuduApplet,   -1);
+    makeChildContainer("pudu-rx", QString::fromUtf8("Aetherial RX Poodoo\xe2\x84\xa2"), m_clientPuduRxApplet, -1);
+    makeChildContainer("reverb",  "Aetherial FreeVerb",       m_clientReverbApplet, -1);
 
     // One-shot settings migration (#1713 Phase 4b): carry over the
     // legacy Applet_CHAIN visibility to the new Applet_TXDSP key so
@@ -719,9 +752,37 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
                 }
             }
         }
+
+        // One-shot migration for saved layouts from before WAVE existed:
+        // place WAVE immediately after EQ instead of letting the generic
+        // "new applets" append path put it at the very end.
+        bool migratedWaveOrder = false;
+        if (ids.contains("EQ") && !ids.contains("WAVE")) {
+            int waveIdx = -1;
+            for (int i = 0; i < m_appletOrder.size(); ++i) {
+                if (m_appletOrder[i].id == "WAVE") {
+                    waveIdx = i;
+                    break;
+                }
+            }
+            if (waveIdx >= 0) {
+                const AppletEntry waveEntry = m_appletOrder[waveIdx];
+                m_appletOrder.remove(waveIdx);
+                for (int i = 0; i < reordered.size(); ++i) {
+                    if (reordered[i].id == "EQ") {
+                        reordered.insert(i + 1, waveEntry);
+                        migratedWaveOrder = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         // Append any remaining (new applets not in saved order)
         reordered.append(m_appletOrder);
         m_appletOrder = reordered;
+        if (migratedWaveOrder)
+            saveOrder();
     }
 
     rebuildStackOrder();
@@ -785,6 +846,59 @@ void AppletPanel::setAppletVisible(const QString& id, bool visible)
     }
 }
 
+void AppletPanel::setPooDooActiveSide(PooDooSide side)
+{
+    if (!m_containerMgr) return;
+    // Containers tagged as TX-only or RX-only.  CEQ has dedicated
+    // tiles per side ("ceq" = TX, "ceq-rx" = RX), as do GATE / CMP /
+    // TUBE / PUDU once Phases 7.2-7.5 ship (their RX siblings will
+    // join this list as they're added).  DESS and REVERB are TX-only
+    // — they hide entirely on RX and reappear on TX.
+    static const QStringList kTxOnly{
+        QStringLiteral("ceq"),
+        QStringLiteral("dess"),
+        QStringLiteral("gate"),
+        QStringLiteral("cmp"),
+        QStringLiteral("tube"),
+        QStringLiteral("pudu"),
+        QStringLiteral("reverb"),
+    };
+    static const QStringList kRxOnly{
+        QStringLiteral("ceq-rx"),
+        QStringLiteral("gate-rx"),
+        QStringLiteral("cmp-rx"),
+        QStringLiteral("tube-rx"),
+        QStringLiteral("pudu-rx"),
+    };
+    const bool txActive = (side == PooDooSide::Tx);
+
+    auto applyVisibility = [this](const QStringList& ids, bool visible) {
+        for (const auto& id : ids) {
+            if (auto* c = m_containerMgr->container(id)) {
+                c->setContainerVisible(visible);
+            }
+        }
+    };
+    applyVisibility(kTxOnly, txActive);
+    applyVisibility(kRxOnly, !txActive);
+
+    // If the parent tx_dsp container is currently floating, the set of
+    // visible children just changed — its sizeHint shrank or grew but
+    // the floating window won't refit on its own.  Defer one event-loop
+    // tick so child layouts (e.g. ClientChainWidget, which dynamically
+    // setFixedHeight()s itself based on row count) finish recalculating
+    // before we read sizeHint.
+    if (auto* parent = m_containerMgr->container("tx_dsp")) {
+        if (parent->isFloating()) {
+            if (QWidget* win = parent->window()) {
+                QTimer::singleShot(0, win, [win]() {
+                    win->adjustSize();
+                });
+            }
+        }
+    }
+}
+
 void AppletPanel::resetOrder()
 {
     // Reorder m_appletOrder to match kDefaultOrder
@@ -812,6 +926,7 @@ int AppletPanel::dropIndexFromY(int localY) const
         auto* w = m_appletOrder[i].widget;
         if (!w) continue;
         if (auto* cw = qobject_cast<ContainerWidget*>(w); cw && cw->isFloating()) continue;
+        if (!w->isVisible()) continue;
         int mid = w->mapTo(m_scrollArea->widget(), QPoint(0, w->height() / 2)).y();
         if (localY > mid) idx = i + 1;
     }
@@ -893,6 +1008,35 @@ void AppletPanel::setMaxSlices(int maxSlices)
 void AppletPanel::updateSliceButtons(const QList<SliceModel*>& slices, int activeSliceId)
 {
     m_rxApplet->updateSliceButtons(slices, activeSliceId);
+}
+
+void AppletPanel::setRxDspChainOrder(
+    const QVector<AudioEngine::RxChainStage>& stages)
+{
+    if (!m_containerMgr) return;
+    auto* parent = m_containerMgr->container("tx_dsp");
+    if (!parent) return;
+
+    auto idFor = [](AudioEngine::RxChainStage s) -> QString {
+        switch (s) {
+            case AudioEngine::RxChainStage::Eq:   return "ceq-rx";
+            case AudioEngine::RxChainStage::Gate: return "gate-rx";
+            case AudioEngine::RxChainStage::Comp: return "cmp-rx";
+            case AudioEngine::RxChainStage::Tube: return "tube-rx";
+            case AudioEngine::RxChainStage::Pudu: return "pudu-rx";
+            case AudioEngine::RxChainStage::None: return {};
+        }
+        return {};
+    };
+
+    for (auto s : stages) {
+        const QString id = idFor(s);
+        if (id.isEmpty()) continue;
+        auto* child = m_containerMgr->container(id);
+        if (!child) continue;
+        parent->removeChildWidget(child);
+        parent->insertChildWidget(-1, child);
+    }
 }
 
 void AppletPanel::setTxDspChainOrder(

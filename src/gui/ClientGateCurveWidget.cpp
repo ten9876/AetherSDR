@@ -98,8 +98,32 @@ void ClientGateCurveWidget::paintEvent(QPaintEvent*)
     const QRectF r = rect();
     p.fillRect(r, kBgColor);
     drawGrid(p, r);
+    drawHysteresisBand(p, r);
     drawCurve(p, r);
     if (m_gate) drawBall(p, r);
+}
+
+void ClientGateCurveWidget::drawHysteresisBand(QPainter& p, const QRectF& r) const
+{
+    // Visualises the Return knob: a vertical band on the input axis
+    // between (Thresh − Return) and Thresh.  When the input envelope
+    // (the glowing ball) sits inside this band the gate's state is
+    // "sticky" — opens above Thresh, doesn't close until below
+    // Thresh − Return.  Width of the band == Return value in dB.
+    if (!m_gate) return;
+    const float T   = m_gate->thresholdDb();
+    const float ret = m_gate->returnDb();
+    if (ret <= 0.05f) return;   // no visible deadband
+
+    const float xR = dbToX(T);
+    const float xL = dbToX(T - ret);
+    if (xR <= xL) return;
+
+    p.save();
+    p.setPen(Qt::NoPen);
+    p.fillRect(QRectF(xL, r.top(), xR - xL, r.height()),
+               QColor(80, 180, 220, 45));   // soft cyan, low alpha
+    p.restore();
 }
 
 void ClientGateCurveWidget::drawGrid(QPainter& p, const QRectF& r) const

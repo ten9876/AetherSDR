@@ -40,6 +40,7 @@ namespace AetherSDR {
 
 namespace {
 constexpr qint64 kTxAutoRestartMinRuntimeMs = 60000;
+constexpr qint64 kScopeEmitMinIntervalMs = 25;  // ~40 fps, per RX/TX source
 
 bool devicePresent(const QList<QAudioDevice>& devices, const QAudioDevice& target)
 {
@@ -53,10 +54,86 @@ bool devicePresent(const QList<QAudioDevice>& devices, const QAudioDevice& targe
 }
 }
 
+void AudioEngine::emitScopeFromFloat32Stereo(const QByteArray& pcm,
+                                             int sampleRate,
+                                             bool tx)
+{
+    const int floatSamples = pcm.size() / static_cast<int>(sizeof(float));
+    if (floatSamples <= 0)
+        return;
+
+    QElapsedTimer& throttle = tx ? m_lastTxScopeEmit : m_lastRxScopeEmit;
+    if (throttle.isValid() && throttle.elapsed() < kScopeEmitMinIntervalMs)
+        return;
+
+    const bool stereo = (floatSamples % 2) == 0;
+    const int monoSamples = stereo ? floatSamples / 2 : floatSamples;
+    QByteArray& mono = tx ? m_scopeTxScratch : m_scopeRxScratch;
+    mono.resize(monoSamples * static_cast<int>(sizeof(float)));
+
+    const auto* src = reinterpret_cast<const float*>(pcm.constData());
+    auto* dst = reinterpret_cast<float*>(mono.data());
+    if (stereo) {
+        for (int i = 0; i < monoSamples; ++i) {
+            const float avg = (src[i * 2] + src[i * 2 + 1]) * 0.5f;
+            dst[i] = std::clamp(std::isfinite(avg) ? avg : 0.0f, -1.0f, 1.0f);
+        }
+    } else {
+        for (int i = 0; i < monoSamples; ++i) {
+            const float s = src[i];
+            dst[i] = std::clamp(std::isfinite(s) ? s : 0.0f, -1.0f, 1.0f);
+        }
+    }
+
+    if (throttle.isValid())
+        throttle.restart();
+    else
+        throttle.start();
+    emit scopeSamplesReady(mono, sampleRate > 0 ? sampleRate : DEFAULT_SAMPLE_RATE, tx);
+}
+
+void AudioEngine::emitScopeFromInt16Stereo(const QByteArray& pcm,
+                                           int sampleRate,
+                                           bool tx)
+{
+    const int intSamples = pcm.size() / static_cast<int>(sizeof(int16_t));
+    if (intSamples <= 0)
+        return;
+
+    QElapsedTimer& throttle = tx ? m_lastTxScopeEmit : m_lastRxScopeEmit;
+    if (throttle.isValid() && throttle.elapsed() < kScopeEmitMinIntervalMs)
+        return;
+
+    const bool stereo = (intSamples % 2) == 0;
+    const int monoSamples = stereo ? intSamples / 2 : intSamples;
+    QByteArray& mono = tx ? m_scopeTxScratch : m_scopeRxScratch;
+    mono.resize(monoSamples * static_cast<int>(sizeof(float)));
+
+    const auto* src = reinterpret_cast<const int16_t*>(pcm.constData());
+    auto* dst = reinterpret_cast<float*>(mono.data());
+    if (stereo) {
+        for (int i = 0; i < monoSamples; ++i) {
+            const float l = src[i * 2] / 32768.0f;
+            const float r = src[i * 2 + 1] / 32768.0f;
+            dst[i] = std::clamp((l + r) * 0.5f, -1.0f, 1.0f);
+        }
+    } else {
+        for (int i = 0; i < monoSamples; ++i)
+            dst[i] = std::clamp(src[i] / 32768.0f, -1.0f, 1.0f);
+    }
+
+    if (throttle.isValid())
+        throttle.restart();
+    else
+        throttle.start();
+    emit scopeSamplesReady(mono, sampleRate > 0 ? sampleRate : DEFAULT_SAMPLE_RATE, tx);
+}
+
 void AudioEngine::updateRxBufferStats()
 {
-    m_rxBufferBytes.store(m_rxBuffer.size());
-    m_rxBufferPeakBytes.store(std::max(m_rxBufferPeakBytes.load(), m_rxBuffer.size()));
+    const qsizetype total = m_rxBuffer.size() + m_radeRxBuffer.size();
+    m_rxBufferBytes.store(total);
+    m_rxBufferPeakBytes.store(std::max(m_rxBufferPeakBytes.load(), total));
 }
 
 AudioEngine::AudioEngine(QObject* parent)
@@ -64,10 +141,14 @@ AudioEngine::AudioEngine(QObject* parent)
     , m_clientEqRx(std::make_unique<ClientEq>())
     , m_clientEqTx(std::make_unique<ClientEq>())
     , m_clientCompTx(std::make_unique<ClientComp>())
+    , m_clientCompRx(std::make_unique<ClientComp>())
     , m_clientGateTx(std::make_unique<ClientGate>())
+    , m_clientGateRx(std::make_unique<ClientGate>())
     , m_clientDeEssTx(std::make_unique<ClientDeEss>())
     , m_clientTubeTx(std::make_unique<ClientTube>())
+    , m_clientTubeRx(std::make_unique<ClientTube>())
     , m_clientPuduTx(std::make_unique<ClientPudu>())
+    , m_clientPuduRx(std::make_unique<ClientPudu>())
     , m_clientReverbTx(std::make_unique<ClientReverb>())
     , m_cwSidetone(std::make_unique<CwSidetoneGenerator>(48000))
 {
@@ -77,6 +158,10 @@ AudioEngine::AudioEngine(QObject* parent)
     m_clientEqTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientCompTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientGateTx->prepare(DEFAULT_SAMPLE_RATE);
+    m_clientGateRx->prepare(DEFAULT_SAMPLE_RATE);
+    m_clientCompRx->prepare(DEFAULT_SAMPLE_RATE);
+    m_clientTubeRx->prepare(DEFAULT_SAMPLE_RATE);
+    m_clientPuduRx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientDeEssTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientTubeTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientPuduTx->prepare(DEFAULT_SAMPLE_RATE);
@@ -84,10 +169,15 @@ AudioEngine::AudioEngine(QObject* parent)
     loadClientEqSettings();      // restore persisted bands before first audio
     loadClientCompSettings();    // restore persisted comp params + chain order
     loadClientGateSettings();    // restore persisted gate params
+    loadClientGateRxSettings();  // restore persisted RX gate params
+    loadClientCompRxSettings();  // restore persisted RX comp params
+    loadClientTubeRxSettings();  // restore persisted RX tube params
+    loadClientPuduRxSettings();  // restore persisted RX PUDU params
     loadClientDeEssSettings();   // restore persisted de-esser params
     loadClientTubeSettings();    // restore persisted tube params
     loadClientPuduSettings();    // restore persisted PUDU params
     loadClientReverbSettings();  // restore persisted reverb params
+    loadClientRxChainOrder();    // restore persisted RX chain order (Phase 0+)
 
     // Restore saved audio device selections
     auto& s = AppSettings::instance();
@@ -244,9 +334,13 @@ AudioEngine::AudioEngine(QObject* parent)
                     const auto* rade = reinterpret_cast<const float*>(m_radeRxBuffer.constData());
                     const qsizetype radeSamples = radeTake / floatBytes;
                     for (qsizetype i = 0; i < radeSamples; ++i)
-                        out[i] = std::clamp(out[i] + rade[i], -1.0f, 1.0f);
+                        out[i] += rade[i];
                     m_radeRxBuffer.remove(0, radeTake);
                 }
+                // Single clamp pass after all sources are mixed.
+                const qsizetype totalSamples = len / floatBytes;
+                for (qsizetype i = 0; i < totalSamples; ++i)
+                    out[i] = std::clamp(out[i], -1.0f, 1.0f);
             }
 
             len = m_audioDevice->write(chunk);
@@ -551,9 +645,12 @@ void AudioEngine::setRxVolume(float v)
 
 void AudioEngine::setMuted(bool muted)
 {
+    const bool prev = m_muted.load();
     m_muted.store(muted);
     if (m_audioSink)
         m_audioSink->setVolume(muted ? 0.0f : m_rxVolume.load());
+    if (prev != muted)
+        emit mutedChanged(muted);
 }
 
 bool AudioEngine::startSidetoneStream()
@@ -730,22 +827,61 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
                 tapFrames);
         }
 
-        const QByteArray& resampled = m_resampleTo48k ? resampleStereo(*eqSource) : *eqSource;
+        // RX chain stage: GATE — runs after EQ, in place on a scratch
+        // buffer so the EQ tap above sees the post-EQ / pre-gate signal
+        // (matches the user's signal-flow expectation).  Skip during TX
+        // for the same reason as EQ.
+        const QByteArray* gateSource = eqSource;
+        if (m_clientGateRx && m_clientGateRx->isEnabled() && !m_radioTransmitting) {
+            m_clientGateRxScratch = *eqSource;
+            applyClientGateRxFloat32(m_clientGateRxScratch);
+            gateSource = &m_clientGateRxScratch;
+        }
+
+        // RX chain stage: COMP — runs after GATE.  Same scratch-copy
+        // pattern.
+        const QByteArray* compSource = gateSource;
+        if (m_clientCompRx && m_clientCompRx->isEnabled() && !m_radioTransmitting) {
+            m_clientCompRxScratch = *gateSource;
+            applyClientCompRxFloat32(m_clientCompRxScratch);
+            compSource = &m_clientCompRxScratch;
+        }
+
+        // RX chain stage: TUBE — runs after COMP.
+        const QByteArray* tubeSource = compSource;
+        if (m_clientTubeRx && m_clientTubeRx->isEnabled() && !m_radioTransmitting) {
+            m_clientTubeRxScratch = *compSource;
+            applyClientTubeRxFloat32(m_clientTubeRxScratch);
+            tubeSource = &m_clientTubeRxScratch;
+        }
+
+        // RX chain stage: PUDU — runs after TUBE.
+        const QByteArray* puduSource = tubeSource;
+        if (m_clientPuduRx && m_clientPuduRx->isEnabled() && !m_radioTransmitting) {
+            m_clientPuduRxScratch = *tubeSource;
+            applyClientPuduRxFloat32(m_clientPuduRxScratch);
+            puduSource = &m_clientPuduRxScratch;
+        }
+
+        const int scopeSampleRate = m_resampleTo48k ? 48000 : DEFAULT_SAMPLE_RATE;
+        const QByteArray& resampled = m_resampleTo48k ? resampleStereo(*puduSource) : *puduSource;
+        const QByteArray* output = &resampled;
+        QByteArray boosted;
         if (m_rxBoost.load()) {
             // Soft-knee boost — increases perceived loudness without hard clipping.
             // Uses tanh compression: loud signals are gently limited while quiet
             // signals get ~2x gain.  tanh(2*x) ≈ 2*x for small x, ≈ 1.0 for large x.
-            QByteArray boosted(resampled.size(), Qt::Uninitialized);
+            boosted.resize(resampled.size());
             const auto* src = reinterpret_cast<const float*>(resampled.constData());
             auto* dst = reinterpret_cast<float*>(boosted.data());
             const int nSamples = resampled.size() / static_cast<int>(sizeof(float));
             for (int i = 0; i < nSamples; ++i) {
                 dst[i] = std::tanh(src[i] * 2.0f);
             }
-            m_rxBuffer.append(boosted);
-        } else {
-            m_rxBuffer.append(resampled);
+            output = &boosted;
         }
+        m_rxBuffer.append(*output);
+        emitScopeFromFloat32Stereo(*output, scopeSampleRate, false);
         updateRxBufferStats();
     };
 
@@ -1068,6 +1204,17 @@ void AudioEngine::applyClientCompTxFloat32(QByteArray& float32)
                             frames, channels);
 }
 
+void AudioEngine::applyClientCompRxFloat32(QByteArray& float32)
+{
+    if (!m_clientCompRx || !m_clientCompRx->isEnabled()) return;
+    if (float32.isEmpty()) return;
+    const int samples = float32.size() / static_cast<int>(sizeof(float));
+    if ((samples & 1) != 0) return;
+    const int frames = samples / 2;
+    m_clientCompRx->process(reinterpret_cast<float*>(float32.data()),
+                            frames, 2);
+}
+
 void AudioEngine::applyClientGateTxInt16(QByteArray& int16stereo)
 {
     if (!m_clientGateTx || !m_clientGateTx->isEnabled()) return;
@@ -1100,6 +1247,17 @@ void AudioEngine::applyClientGateTxFloat32(QByteArray& float32)
     const int frames   = samples / channels;
     m_clientGateTx->process(reinterpret_cast<float*>(float32.data()),
                             frames, channels);
+}
+
+void AudioEngine::applyClientGateRxFloat32(QByteArray& float32)
+{
+    if (!m_clientGateRx || !m_clientGateRx->isEnabled()) return;
+    if (float32.isEmpty()) return;
+    const int samples = float32.size() / static_cast<int>(sizeof(float));
+    if ((samples & 1) != 0) return;
+    const int frames = samples / 2;  // RX path is always stereo
+    m_clientGateRx->process(reinterpret_cast<float*>(float32.data()),
+                            frames, 2);
 }
 
 void AudioEngine::applyClientDeEssTxInt16(QByteArray& int16stereo)
@@ -1170,6 +1328,17 @@ void AudioEngine::applyClientTubeTxFloat32(QByteArray& float32)
                             frames, channels);
 }
 
+void AudioEngine::applyClientTubeRxFloat32(QByteArray& float32)
+{
+    if (!m_clientTubeRx || !m_clientTubeRx->isEnabled()) return;
+    if (float32.isEmpty()) return;
+    const int samples = float32.size() / static_cast<int>(sizeof(float));
+    if ((samples & 1) != 0) return;
+    const int frames = samples / 2;
+    m_clientTubeRx->process(reinterpret_cast<float*>(float32.data()),
+                            frames, 2);
+}
+
 void AudioEngine::applyClientPuduTxInt16(QByteArray& int16stereo)
 {
     if (!m_clientPuduTx || !m_clientPuduTx->isEnabled()) return;
@@ -1202,6 +1371,17 @@ void AudioEngine::applyClientPuduTxFloat32(QByteArray& float32)
     const int frames   = samples / channels;
     m_clientPuduTx->process(reinterpret_cast<float*>(float32.data()),
                             frames, channels);
+}
+
+void AudioEngine::applyClientPuduRxFloat32(QByteArray& float32)
+{
+    if (!m_clientPuduRx || !m_clientPuduRx->isEnabled()) return;
+    if (float32.isEmpty()) return;
+    const int samples = float32.size() / static_cast<int>(sizeof(float));
+    if ((samples & 1) != 0) return;
+    const int frames = samples / 2;
+    m_clientPuduRx->process(reinterpret_cast<float*>(float32.data()),
+                            frames, 2);
 }
 
 void AudioEngine::applyClientReverbTxInt16(QByteArray& int16stereo)
@@ -1284,6 +1464,28 @@ void AudioEngine::applyClientTxDspFloat32(QByteArray& float32)
     }
 }
 
+void AudioEngine::applyClientRxDspFloat32(QByteArray& float32)
+{
+    // Walk the packed RX chain-stage list and dispatch each entry to
+    // its per-stage apply helper.  Phase 0 ships with no implemented
+    // stages — every entry is a no-op until Phase 1+ slot in the DSP
+    // classes (RX EQ first).  Same atomic-load pattern as TX so the
+    // audio thread reads the entire chain order in one access.
+    const uint64_t packed = m_rxChainPacked.load(std::memory_order_acquire);
+    for (int i = 0; i < kMaxRxChainStages; ++i) {
+        const auto stage = static_cast<RxChainStage>((packed >> (i * 8)) & 0xFF);
+        switch (stage) {
+            case RxChainStage::None: return;     // end-of-list marker
+            case RxChainStage::Eq:   /* TODO Phase 1 */ break;
+            case RxChainStage::Gate: /* TODO Phase 2 */ break;
+            case RxChainStage::Comp: /* TODO Phase 3 */ break;
+            case RxChainStage::Tube: /* TODO Phase 4 */ break;
+            case RxChainStage::Pudu: /* TODO Phase 5 */ break;
+        }
+    }
+    (void)float32;  // unused until first stage lands
+}
+
 namespace {
 
 // Pack a stage list into the uint64_t atomic format used by the audio
@@ -1357,6 +1559,69 @@ QVector<AudioEngine::TxChainStage> defaultChain()
     };
 }
 
+// ── RX chain helpers — parallel to the TX functions above ───────────────
+
+uint64_t packRxChain(const QVector<AudioEngine::RxChainStage>& stages)
+{
+    uint64_t v = 0;
+    const int n = std::min(static_cast<int>(stages.size()),
+                           AudioEngine::kMaxRxChainStages);
+    for (int i = 0; i < n; ++i) {
+        v |= static_cast<uint64_t>(static_cast<uint8_t>(stages[i])) << (i * 8);
+    }
+    return v;
+}
+
+QVector<AudioEngine::RxChainStage> unpackRxChain(uint64_t v)
+{
+    QVector<AudioEngine::RxChainStage> out;
+    out.reserve(AudioEngine::kMaxRxChainStages);
+    for (int i = 0; i < AudioEngine::kMaxRxChainStages; ++i) {
+        const auto s = static_cast<AudioEngine::RxChainStage>((v >> (i * 8)) & 0xFF);
+        if (s == AudioEngine::RxChainStage::None) break;
+        out.append(s);
+    }
+    return out;
+}
+
+QString rxStageName(AudioEngine::RxChainStage s)
+{
+    switch (s) {
+        case AudioEngine::RxChainStage::Eq:   return "Eq";
+        case AudioEngine::RxChainStage::Gate: return "Gate";
+        case AudioEngine::RxChainStage::Comp: return "Comp";
+        case AudioEngine::RxChainStage::Tube: return "Tube";
+        case AudioEngine::RxChainStage::Pudu: return "Pudu";
+        case AudioEngine::RxChainStage::None: return "";
+    }
+    return "";
+}
+
+AudioEngine::RxChainStage rxStageFromName(const QString& name)
+{
+    if (name == "Eq")   return AudioEngine::RxChainStage::Eq;
+    if (name == "Gate") return AudioEngine::RxChainStage::Gate;
+    if (name == "Comp") return AudioEngine::RxChainStage::Comp;
+    if (name == "Tube") return AudioEngine::RxChainStage::Tube;
+    if (name == "Pudu") return AudioEngine::RxChainStage::Pudu;
+    return AudioEngine::RxChainStage::None;
+}
+
+// Canonical RX order matches the user's diagram in plans/poodoo-rx-chain.md:
+//   [RADIO]→[DSP]→[RX EQ]→[GATE]→[COMP]→[TUBE]→[PUDU]→[SPEAK]
+// RADIO / DSP / SPEAK are status-only tiles handled by the chain widget;
+// the audio path only sees the user-controllable stages between them.
+QVector<AudioEngine::RxChainStage> defaultRxChain()
+{
+    return {
+        AudioEngine::RxChainStage::Eq,
+        AudioEngine::RxChainStage::Gate,
+        AudioEngine::RxChainStage::Comp,
+        AudioEngine::RxChainStage::Tube,
+        AudioEngine::RxChainStage::Pudu,
+    };
+}
+
 } // namespace
 
 void AudioEngine::setTxChainStages(const QVector<TxChainStage>& stages)
@@ -1374,6 +1639,73 @@ void AudioEngine::setTxChainStages(const QVector<TxChainStage>& stages)
 QVector<AudioEngine::TxChainStage> AudioEngine::txChainStages() const
 {
     return unpackChain(m_txChainPacked.load(std::memory_order_acquire));
+}
+
+void AudioEngine::setRxChainStages(const QVector<RxChainStage>& stages)
+{
+    m_rxChainPacked.store(packRxChain(stages), std::memory_order_release);
+    QStringList names;
+    for (auto s : stages) {
+        const QString n = rxStageName(s);
+        if (!n.isEmpty()) names.append(n);
+    }
+    AppSettings::instance().setValue(
+        "ClientRxChainStages", names.join(","));
+}
+
+QVector<AudioEngine::RxChainStage> AudioEngine::rxChainStages() const
+{
+    return unpackRxChain(m_rxChainPacked.load(std::memory_order_acquire));
+}
+
+void AudioEngine::loadClientRxChainOrder()
+{
+    auto& s = AppSettings::instance();
+    QVector<RxChainStage> stages;
+    bool sawUnknown = false;
+    const QString stored = s.value("ClientRxChainStages", "").toString();
+    if (!stored.isEmpty()) {
+        for (const QString& name : stored.split(',', Qt::SkipEmptyParts)) {
+            const auto stage = rxStageFromName(name.trimmed());
+            if (stage != RxChainStage::None) stages.append(stage);
+            else                              sawUnknown = true;
+        }
+    }
+    // Any unknown name in the stored list is a strong signal that the
+    // settings file is from a different (or old) version of AetherSDR.
+    // Reset to the canonical default rather than silently filtering the
+    // unknown entries — that filtering shuffles the remaining stages
+    // into a misleading order.
+    const bool resetFromStale = sawUnknown;
+    if (sawUnknown || stages.isEmpty()) stages = defaultRxChain();
+
+    // Append any canonical stages missing from the loaded list so future
+    // phases slot in without a migration.
+    for (auto canon : defaultRxChain()) {
+        if (!stages.contains(canon)) stages.append(canon);
+    }
+    m_rxChainPacked.store(packRxChain(stages), std::memory_order_release);
+
+    // Overwrite the stale value on disk so the user's settings file
+    // doesn't keep showing names from a previous build.
+    if (resetFromStale) {
+        QStringList names;
+        for (auto st : stages) {
+            const QString n = rxStageName(st);
+            if (!n.isEmpty()) names.append(n);
+        }
+        s.setValue("ClientRxChainStages", names.join(","));
+    }
+}
+
+void AudioEngine::saveClientRxChainOrder() const
+{
+    QStringList names;
+    for (auto s : rxChainStages()) {
+        const QString n = rxStageName(s);
+        if (!n.isEmpty()) names.append(n);
+    }
+    AppSettings::instance().setValue("ClientRxChainStages", names.join(","));
 }
 
 void AudioEngine::setTxChainOrder(TxChainOrder order)
@@ -1494,6 +1826,47 @@ void AudioEngine::saveClientCompSettings() const
     s.setValue("ClientCompTxChainStages", names.join(","));
 }
 
+void AudioEngine::loadClientCompRxSettings()
+{
+    if (!m_clientCompRx) return;
+    auto& s = AppSettings::instance();
+    m_clientCompRx->setEnabled(
+        s.value("ClientCompRxEnabled", "False").toString() == "True");
+    m_clientCompRx->setThresholdDb(
+        s.value("ClientCompRxThresholdDb", "-18.0").toFloat());
+    m_clientCompRx->setRatio(
+        s.value("ClientCompRxRatio", "3.0").toFloat());
+    m_clientCompRx->setAttackMs(
+        s.value("ClientCompRxAttackMs", "20.0").toFloat());
+    m_clientCompRx->setReleaseMs(
+        s.value("ClientCompRxReleaseMs", "200.0").toFloat());
+    m_clientCompRx->setKneeDb(
+        s.value("ClientCompRxKneeDb", "6.0").toFloat());
+    m_clientCompRx->setMakeupDb(
+        s.value("ClientCompRxMakeupDb", "0.0").toFloat());
+    m_clientCompRx->setLimiterEnabled(
+        s.value("ClientCompRxLimEnabled", "True").toString() == "True");
+    m_clientCompRx->setLimiterCeilingDb(
+        s.value("ClientCompRxLimCeilingDb", "-1.0").toFloat());
+}
+
+void AudioEngine::saveClientCompRxSettings() const
+{
+    if (!m_clientCompRx) return;
+    auto& s = AppSettings::instance();
+    auto toBool = [](bool on) { return on ? QString("True") : QString("False"); };
+    s.setValue("ClientCompRxEnabled",     toBool(m_clientCompRx->isEnabled()));
+    s.setValue("ClientCompRxThresholdDb", QString::number(m_clientCompRx->thresholdDb()));
+    s.setValue("ClientCompRxRatio",       QString::number(m_clientCompRx->ratio()));
+    s.setValue("ClientCompRxAttackMs",    QString::number(m_clientCompRx->attackMs()));
+    s.setValue("ClientCompRxReleaseMs",   QString::number(m_clientCompRx->releaseMs()));
+    s.setValue("ClientCompRxKneeDb",      QString::number(m_clientCompRx->kneeDb()));
+    s.setValue("ClientCompRxMakeupDb",    QString::number(m_clientCompRx->makeupDb()));
+    s.setValue("ClientCompRxLimEnabled",  toBool(m_clientCompRx->limiterEnabled()));
+    s.setValue("ClientCompRxLimCeilingDb",
+               QString::number(m_clientCompRx->limiterCeilingDb()));
+}
+
 void AudioEngine::loadClientGateSettings()
 {
     if (!m_clientGateTx) return;
@@ -1548,6 +1921,60 @@ void AudioEngine::saveClientGateSettings() const
         QString::number(m_clientGateTx->floorDb()));
     s.setValue("ClientGateTxLookaheadMs",
         QString::number(m_clientGateTx->lookaheadMs()));
+}
+
+void AudioEngine::loadClientGateRxSettings()
+{
+    if (!m_clientGateRx) return;
+    auto& s = AppSettings::instance();
+    m_clientGateRx->setEnabled(
+        s.value("ClientGateRxEnabled", "False").toString() == "True");
+    const int modeInt = s.value("ClientGateRxMode", "0").toInt();
+    m_clientGateRx->setMode(modeInt == 1
+        ? ClientGate::Mode::Gate
+        : ClientGate::Mode::Expander);
+    m_clientGateRx->setThresholdDb(
+        s.value("ClientGateRxThresholdDb", "-40.0").toFloat());
+    m_clientGateRx->setReturnDb(
+        s.value("ClientGateRxReturnDb", "2.0").toFloat());
+    m_clientGateRx->setRatio(
+        s.value("ClientGateRxRatio", "2.0").toFloat());
+    m_clientGateRx->setAttackMs(
+        s.value("ClientGateRxAttackMs", "0.5").toFloat());
+    m_clientGateRx->setHoldMs(
+        s.value("ClientGateRxHoldMs", "20.0").toFloat());
+    m_clientGateRx->setReleaseMs(
+        s.value("ClientGateRxReleaseMs", "100.0").toFloat());
+    m_clientGateRx->setFloorDb(
+        s.value("ClientGateRxFloorDb", "-15.0").toFloat());
+    m_clientGateRx->setLookaheadMs(
+        s.value("ClientGateRxLookaheadMs", "0.0").toFloat());
+}
+
+void AudioEngine::saveClientGateRxSettings() const
+{
+    if (!m_clientGateRx) return;
+    auto& s = AppSettings::instance();
+    auto toBool = [](bool on) { return on ? QString("True") : QString("False"); };
+    s.setValue("ClientGateRxEnabled", toBool(m_clientGateRx->isEnabled()));
+    s.setValue("ClientGateRxMode",
+        QString::number(static_cast<int>(m_clientGateRx->mode())));
+    s.setValue("ClientGateRxThresholdDb",
+        QString::number(m_clientGateRx->thresholdDb()));
+    s.setValue("ClientGateRxReturnDb",
+        QString::number(m_clientGateRx->returnDb()));
+    s.setValue("ClientGateRxRatio",
+        QString::number(m_clientGateRx->ratio()));
+    s.setValue("ClientGateRxAttackMs",
+        QString::number(m_clientGateRx->attackMs()));
+    s.setValue("ClientGateRxHoldMs",
+        QString::number(m_clientGateRx->holdMs()));
+    s.setValue("ClientGateRxReleaseMs",
+        QString::number(m_clientGateRx->releaseMs()));
+    s.setValue("ClientGateRxFloorDb",
+        QString::number(m_clientGateRx->floorDb()));
+    s.setValue("ClientGateRxLookaheadMs",
+        QString::number(m_clientGateRx->lookaheadMs()));
 }
 
 void AudioEngine::loadClientDeEssSettings()
@@ -1646,6 +2073,61 @@ void AudioEngine::saveClientTubeSettings() const
         QString::number(m_clientTubeTx->releaseMs()));
 }
 
+void AudioEngine::loadClientTubeRxSettings()
+{
+    if (!m_clientTubeRx) return;
+    auto& s = AppSettings::instance();
+    m_clientTubeRx->setEnabled(
+        s.value("ClientTubeRxEnabled", "False").toString() == "True");
+    const int modelInt = s.value("ClientTubeRxModel", "0").toInt();
+    m_clientTubeRx->setModel(
+        modelInt == 1 ? ClientTube::Model::B :
+        modelInt == 2 ? ClientTube::Model::C :
+                        ClientTube::Model::A);
+    m_clientTubeRx->setDriveDb(
+        s.value("ClientTubeRxDriveDb", "0.0").toFloat());
+    m_clientTubeRx->setBiasAmount(
+        s.value("ClientTubeRxBias", "0.0").toFloat());
+    m_clientTubeRx->setTone(
+        s.value("ClientTubeRxTone", "0.0").toFloat());
+    m_clientTubeRx->setOutputGainDb(
+        s.value("ClientTubeRxOutputDb", "0.0").toFloat());
+    m_clientTubeRx->setDryWet(
+        s.value("ClientTubeRxDryWet", "1.0").toFloat());
+    m_clientTubeRx->setEnvelopeAmount(
+        s.value("ClientTubeRxEnvelope", "0.0").toFloat());
+    m_clientTubeRx->setAttackMs(
+        s.value("ClientTubeRxAttackMs", "5.0").toFloat());
+    m_clientTubeRx->setReleaseMs(
+        s.value("ClientTubeRxReleaseMs", "35.0").toFloat());
+}
+
+void AudioEngine::saveClientTubeRxSettings() const
+{
+    if (!m_clientTubeRx) return;
+    auto& s = AppSettings::instance();
+    auto toBool = [](bool on) { return on ? QString("True") : QString("False"); };
+    s.setValue("ClientTubeRxEnabled",  toBool(m_clientTubeRx->isEnabled()));
+    s.setValue("ClientTubeRxModel",
+        QString::number(static_cast<int>(m_clientTubeRx->model())));
+    s.setValue("ClientTubeRxDriveDb",
+        QString::number(m_clientTubeRx->driveDb()));
+    s.setValue("ClientTubeRxBias",
+        QString::number(m_clientTubeRx->biasAmount()));
+    s.setValue("ClientTubeRxTone",
+        QString::number(m_clientTubeRx->tone()));
+    s.setValue("ClientTubeRxOutputDb",
+        QString::number(m_clientTubeRx->outputGainDb()));
+    s.setValue("ClientTubeRxDryWet",
+        QString::number(m_clientTubeRx->dryWet()));
+    s.setValue("ClientTubeRxEnvelope",
+        QString::number(m_clientTubeRx->envelopeAmount()));
+    s.setValue("ClientTubeRxAttackMs",
+        QString::number(m_clientTubeRx->attackMs()));
+    s.setValue("ClientTubeRxReleaseMs",
+        QString::number(m_clientTubeRx->releaseMs()));
+}
+
 void AudioEngine::loadClientPuduSettings()
 {
     if (!m_clientPuduTx) return;
@@ -1697,6 +2179,52 @@ void AudioEngine::saveClientPuduSettings() const
         QString::number(m_clientPuduTx->dooHarmonicsDb()));
     s.setValue("ClientPuduTxDooMix",
         QString::number(m_clientPuduTx->dooMix()));
+}
+
+void AudioEngine::loadClientPuduRxSettings()
+{
+    if (!m_clientPuduRx) return;
+    auto& s = AppSettings::instance();
+    m_clientPuduRx->setEnabled(
+        s.value("ClientPuduRxEnabled", "False").toString() == "True");
+    const int modeInt = s.value("ClientPuduRxMode", "0").toInt();
+    m_clientPuduRx->setMode(modeInt == 1
+        ? ClientPudu::Mode::Behringer
+        : ClientPudu::Mode::Aphex);
+    m_clientPuduRx->setPooDriveDb(
+        s.value("ClientPuduRxPooDriveDb", "6.0").toFloat());
+    m_clientPuduRx->setPooTuneHz(
+        s.value("ClientPuduRxPooTuneHz", "100.0").toFloat());
+    m_clientPuduRx->setPooMix(
+        s.value("ClientPuduRxPooMix", "0.3").toFloat());
+    m_clientPuduRx->setDooTuneHz(
+        s.value("ClientPuduRxDooTuneHz", "5000.0").toFloat());
+    m_clientPuduRx->setDooHarmonicsDb(
+        s.value("ClientPuduRxDooHarmonicsDb", "6.0").toFloat());
+    m_clientPuduRx->setDooMix(
+        s.value("ClientPuduRxDooMix", "0.3").toFloat());
+}
+
+void AudioEngine::saveClientPuduRxSettings() const
+{
+    if (!m_clientPuduRx) return;
+    auto& s = AppSettings::instance();
+    auto toBool = [](bool on) { return on ? QString("True") : QString("False"); };
+    s.setValue("ClientPuduRxEnabled", toBool(m_clientPuduRx->isEnabled()));
+    s.setValue("ClientPuduRxMode",
+        QString::number(static_cast<int>(m_clientPuduRx->mode())));
+    s.setValue("ClientPuduRxPooDriveDb",
+        QString::number(m_clientPuduRx->pooDriveDb()));
+    s.setValue("ClientPuduRxPooTuneHz",
+        QString::number(m_clientPuduRx->pooTuneHz()));
+    s.setValue("ClientPuduRxPooMix",
+        QString::number(m_clientPuduRx->pooMix()));
+    s.setValue("ClientPuduRxDooTuneHz",
+        QString::number(m_clientPuduRx->dooTuneHz()));
+    s.setValue("ClientPuduRxDooHarmonicsDb",
+        QString::number(m_clientPuduRx->dooHarmonicsDb()));
+    s.setValue("ClientPuduRxDooMix",
+        QString::number(m_clientPuduRx->dooMix()));
 }
 
 void AudioEngine::loadClientReverbSettings()
@@ -1765,8 +2293,6 @@ void AudioEngine::generateWisdom(std::function<void(int,int,const std::string&)>
 void AudioEngine::setNr2Enabled(bool on)
 {
     if (m_nr2Enabled == on) return;
-    // RADE outputs decoded speech — client-side DSP has no effect
-    if (on && m_radeMode) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
     if (on) {
         // Disable all other NR modes — they're mutually exclusive
@@ -1817,7 +2343,6 @@ void AudioEngine::setNr4Enabled(bool on)
     if (m_nr4Enabled == on) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
     if (on) {
-        if (m_radeMode) return;
         if (m_nr2Enabled)  setNr2Enabled(false);
         if (m_rn2Enabled)  setRn2Enabled(false);
         if (m_bnrEnabled)  setBnrEnabled(false);
@@ -1870,8 +2395,6 @@ void AudioEngine::setNr4SuppressionStrength(float) {}
 void AudioEngine::setMnrEnabled(bool on)
 {
     if (m_mnrEnabled == on) return;
-    // RADE outputs decoded speech — client-side DSP has no effect
-    if (on && m_radeMode) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
 #ifdef __APPLE__
     if (on) {
@@ -1917,7 +2440,6 @@ float AudioEngine::mnrStrength() const
 void AudioEngine::setRn2Enabled(bool on)
 {
     if (m_rn2Enabled == on) return;
-    if (on && m_radeMode) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
     if (on) {
         // Disable all other NR modes — they're mutually exclusive
@@ -1948,7 +2470,6 @@ void AudioEngine::setRn2Enabled(bool on)
 void AudioEngine::setBnrEnabled(bool on)
 {
     if (m_bnrEnabled == on) return;
-    if (on && m_radeMode) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
     if (on) {
         // Mutual exclusion with all other NR modes
@@ -2101,10 +2622,10 @@ void AudioEngine::processBnr(const QByteArray& stereoPcm)
         m_bnrOutBuf.remove(0, wantBytes);
 
         if (m_audioDevice && m_audioDevice->isOpen()) {
-            if (m_resampleTo48k)
-                m_rxBuffer.append(resampleStereo(chunk));
-            else
-                m_rxBuffer.append(chunk);
+            const int scopeSampleRate = m_resampleTo48k ? 48000 : DEFAULT_SAMPLE_RATE;
+            const QByteArray& output = m_resampleTo48k ? resampleStereo(chunk) : chunk;
+            m_rxBuffer.append(output);
+            emitScopeFromFloat32Stereo(output, scopeSampleRate, false);
             updateRxBufferStats();
         }
         emit levelChanged(computeRMS(chunk));
@@ -2119,7 +2640,6 @@ void AudioEngine::processBnr(const QByteArray& stereoPcm)
 void AudioEngine::setDfnrEnabled(bool on)
 {
     if (m_dfnrEnabled == on) return;
-    if (on && m_radeMode) return;
     std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
     if (on) {
         // Mutual exclusion with all other NR modes
@@ -2611,6 +3131,8 @@ void AudioEngine::onTxAudioReady()
         }
     }
 
+    emitScopeFromInt16Stereo(data, DEFAULT_SAMPLE_RATE, true);
+
     // ── Opus TX path: always active for remote_audio_tx ────────────────
     // Sends Opus during both RX (VOX/met_in_rx metering) and TX (voice).
     // The radio requires Opus on remote_audio_tx (enforces compression=OPUS).
@@ -2824,18 +3346,6 @@ void AudioEngine::setRadeMode(bool on)
 {
     if (m_radeMode == on) return;
     m_radeMode = on;
-    // RADE outputs decoded speech — client-side DSP has no effect.
-    // Disable any active DSP when entering RADE mode.
-    if (on) {
-        if (m_nr2Enabled) setNr2Enabled(false);
-        if (m_rn2Enabled) setRn2Enabled(false);
-        if (m_nr4Enabled) setNr4Enabled(false);
-        if (m_bnrEnabled) setBnrEnabled(false);
-#ifdef HAVE_DFNR
-        if (m_dfnrEnabled) setDfnrEnabled(false);
-#endif
-    }
-
     // RADE TX: onTxAudioReady() emits txRawPcmReady (float32) then returns
     // early — the Opus voice TX path never runs. RADEEngine receives the
     // raw PCM, encodes it to a modem waveform, and emits it via
@@ -2855,6 +3365,9 @@ void AudioEngine::setRadeMode(bool on)
 void AudioEngine::sendModemTxAudio(const QByteArray& float32pcm)
 {
     if (m_txStreamId == 0) return;
+
+    if (m_radioTransmitting)
+        emitScopeFromFloat32Stereo(float32pcm, DEFAULT_SAMPLE_RATE, true);
 
     m_txFloatAccumulator.append(float32pcm);
 
@@ -2888,7 +3401,9 @@ void AudioEngine::setTransmitting(bool tx)
 
 void AudioEngine::setRadioTransmitting(bool tx)
 {
-    m_radioTransmitting = tx;
+    const bool previous = m_radioTransmitting.exchange(tx);
+    if (previous != tx)
+        emit radioTransmittingChanged(tx);
 }
 
 void AudioEngine::setDaxTxUseRadioRoute(bool on)
@@ -2937,6 +3452,11 @@ void AudioEngine::feedDaxTxAudio(const QByteArray& inPcm)
             m_pcMicSampleCount = 0;
         }
     }
+
+    const bool daxAudioWillTransmit = m_radioTransmitting
+        && (!m_daxTxUseRadioRoute || !(m_transmitting && !m_daxTxMode));
+    if (daxAudioWillTransmit)
+        emitScopeFromFloat32Stereo(float32pcm, DEFAULT_SAMPLE_RATE, true);
 
     if (!m_daxTxUseRadioRoute) {
         // Low-latency route: keep radio on mic path (dax=0) and packetize

@@ -35,15 +35,19 @@ class ClientGateEditor : public QWidget {
     Q_OBJECT
 
 public:
+    enum class Side { Tx, Rx };
+
     explicit ClientGateEditor(AudioEngine* engine, QWidget* parent = nullptr);
     ~ClientGateEditor() override;
 
     void showForTx();
+    void showForRx();
 
 signals:
     // Fired when bypass toggles.  Docked applet subscribes to keep
-    // its Enable button in sync.
-    void bypassToggled(bool bypassed);
+    // its Enable button in sync.  side identifies which path (Tx or
+    // Rx) was toggled — both share the editor instance.
+    void bypassToggled(Side side, bool bypassed);
 
 protected:
     void closeEvent(QCloseEvent* ev) override;
@@ -70,6 +74,12 @@ private:
     void applyMode(int modeIdx);   // 0=Expander, 1=Gate
 
     AudioEngine*          m_audio{nullptr};
+    Side                  m_side{Side::Tx};
+    // Side-aware accessor — picks Tx or Rx instance based on m_side.
+    // Saves dispatch logic at every parameter setter.
+    class ClientGate* gate() const;
+    void              saveGateSettings() const;
+    QWidget*              m_titleBar{nullptr};   // EditorFramelessTitleBar*
     ClientGateLevelView*  m_levelView{nullptr};
     ClientCompKnob*       m_threshold{nullptr};
     ClientCompKnob*       m_returnKnob{nullptr};

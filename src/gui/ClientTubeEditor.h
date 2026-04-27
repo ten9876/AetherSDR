@@ -10,6 +10,7 @@ namespace AetherSDR {
 
 class AudioEngine;
 class ClientCompKnob;         // reused — generic rotary knob
+class ClientLevelMeter;
 class ClientTubeCurveWidget;
 
 // Floating editor for the client-side dynamic tube saturator.
@@ -29,13 +30,16 @@ class ClientTubeEditor : public QWidget {
     Q_OBJECT
 
 public:
+    enum class Side { Tx, Rx };
+
     explicit ClientTubeEditor(AudioEngine* engine, QWidget* parent = nullptr);
     ~ClientTubeEditor() override;
 
     void showForTx();
+    void showForRx();
 
 signals:
-    void bypassToggled(bool bypassed);
+    void bypassToggled(Side side, bool bypassed);
 
 protected:
     void closeEvent(QCloseEvent* ev) override;
@@ -60,6 +64,10 @@ private:
     void applyRelease(float ms);
 
     AudioEngine*           m_audio{nullptr};
+    Side                   m_side{Side::Tx};
+    QWidget*               m_titleBar{nullptr};   // EditorFramelessTitleBar*
+    class ClientTube*      tube() const;
+    void                   saveTubeSettings() const;
     ClientTubeCurveWidget* m_curve{nullptr};
     ClientCompKnob*        m_dryWet{nullptr};
     ClientCompKnob*        m_output{nullptr};
@@ -69,6 +77,7 @@ private:
     ClientCompKnob*        m_envelope{nullptr};
     ClientCompKnob*        m_attack{nullptr};
     ClientCompKnob*        m_release{nullptr};
+    ClientLevelMeter*      m_outMeter{nullptr};
     QPushButton*           m_modelA{nullptr};
     QPushButton*           m_modelB{nullptr};
     QPushButton*           m_modelC{nullptr};
