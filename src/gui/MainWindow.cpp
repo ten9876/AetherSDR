@@ -10,6 +10,7 @@
 #include "PanLayoutDialog.h"
 #include "core/CommandParser.h"
 #include "core/LogManager.h"
+#include "core/MemoryRecallPolicy.h"
 #include "models/PanadapterModel.h"
 #include "SpectrumWidget.h"
 #ifdef AETHER_GPU_SPECTRUM
@@ -7064,6 +7065,10 @@ bool MainWindow::activateMemorySpot(int memoryIndex, const QString& preferredPan
     if (it->step > 0)
         m_radioModel.sendCommand(QString("slice set %1 step=%2")
             .arg(sliceId).arg(it->step));
+    const QString repeaterFixup =
+        AetherSDR::buildMemoryRecallSliceFixupCommand(sliceId, it.value());
+    if (!repeaterFixup.isEmpty())
+        m_radioModel.sendCommand(repeaterFixup);
     return true;
 }
 

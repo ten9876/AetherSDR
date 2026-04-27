@@ -458,6 +458,7 @@ set(CORE_SOURCES
     src/core/DxccColorProvider.cpp
     src/core/SleepInhibitor.cpp
     src/core/MemoryCsvCompat.cpp
+    src/core/MemoryRecallPolicy.cpp
 )
 
 if(APPLE)
@@ -1144,6 +1145,13 @@ add_executable(meter_model_test
 target_include_directories(meter_model_test PRIVATE src)
 target_link_libraries(meter_model_test PRIVATE Qt6::Core)
 set_target_properties(meter_model_test PROPERTIES AUTOMOC ON)
+
+add_executable(memory_recall_policy_test
+    tests/memory_recall_policy_test.cpp
+    src/core/MemoryRecallPolicy.cpp
+)
+target_include_directories(memory_recall_policy_test PRIVATE src)
+target_link_libraries(memory_recall_policy_test PRIVATE Qt6::Core)
 
 # Help guide search tests - needs QApplication + Widgets.
 add_executable(help_dialog_test
