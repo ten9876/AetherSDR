@@ -3,7 +3,7 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [v0.9.0] — YYYY-MM-DD
+## [v0.9.0] — 2026-04-25
 
 ### Aetherial RX Audio Suite, frameless UI, and local CW sidetone
 
