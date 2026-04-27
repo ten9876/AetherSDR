@@ -9627,6 +9627,11 @@ void MainWindow::registerShortcutActions()
     // handler so the keyboard map shows it as bound.
     m_shortcutManager.registerAction("ptt_hold", "PTT (Hold)", "TX",
         QKeySequence(Qt::Key_Space), nullptr);
+    m_shortcutManager.registerAction("atu_start", "ATU Start", "TX",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            m_radioModel.sendCommand("atu start");
+        });
     m_shortcutManager.registerAction("tune_toggle", "TUNE Toggle", "TX",
         QKeySequence(), [this]() {
             if (!m_radioModel.isConnected()) return;
