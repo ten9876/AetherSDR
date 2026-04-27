@@ -164,7 +164,7 @@ private:
     int m_minSliceSourceIndex{-1};
     int m_minTxWaveformSourceIndex{-1};
     int m_manifestSliceContext{-1};
-    int m_activeTxSlice{0};
+    int m_activeTxSlice{-1};
     int m_fwdPwrIdx{-1};     // "FWDPWR"
     int m_swrIdx{-1};        // "SWR"
     int m_micPeakIdx{-1};    // "COD-" / "MICPEAK" (hardware mic)
