@@ -597,6 +597,13 @@ bool PanadapterStack::isFloating(const QString& panId) const
     return m_floatingWindows.contains(panId);
 }
 
+void PanadapterStack::setFramelessMode(bool on)
+{
+    for (auto* fw : m_floatingWindows) {
+        fw->setFramelessMode(on);
+    }
+}
+
 void PanadapterStack::prepareShutdown()
 {
     saveFloatingState();

@@ -9293,6 +9293,11 @@ void MainWindow::setFramelessWindow(bool on)
 
     // Keep the bottom-right size grip in sync — only useful when frameless.
     if (m_sizeGrip) m_sizeGrip->setVisible(on);
+
+    // Propagate to all currently-floating child windows so they match.
+    if (m_panStack) m_panStack->setFramelessMode(on);
+    if (m_appletPanel && m_appletPanel->containerManager())
+        m_appletPanel->containerManager()->setFramelessMode(on);
 }
 
 void MainWindow::toggleMinimalMode(bool on)

@@ -22,13 +22,15 @@ constexpr int kDefaultH = 240;
 } // namespace
 
 FloatingContainerWindow::FloatingContainerWindow(QWidget* parent)
-    : QWidget(parent, Qt::Window | Qt::FramelessWindowHint)
+    : QWidget(parent, Qt::Window)
 {
-    // Windows quirk: the constructor flag bitmask is sometimes ignored
-    // and the native frame still gets drawn.  Re-applying via setWindowFlags
-    // before show() forces the platform plugin to honour FramelessWindowHint
-    // on all Qt versions / widget hierarchies.
-    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    const bool frameless =
+        AppSettings::instance().value("FramelessWindow", "True").toString() == "True";
+    Qt::WindowFlags flags = Qt::Window;
+    if (frameless) flags |= Qt::FramelessWindowHint;
+    // Re-apply via setWindowFlags — some platform plugins ignore the
+    // constructor bitmask and need an explicit call before show().
+    setWindowFlags(flags);
     setAttribute(Qt::WA_DeleteOnClose, false);
     setAttribute(Qt::WA_QuitOnClose, false);
     setStyleSheet("QWidget { background: #08121d; }");
@@ -151,6 +153,21 @@ void FloatingContainerWindow::prepareShutdown()
     saveGeometryToKey();
     m_shuttingDown = true;
     close();
+}
+
+void FloatingContainerWindow::setFramelessMode(bool on)
+{
+    const bool wasVisible = isVisible();
+    const QRect geom = geometry();
+    Qt::WindowFlags flags = windowFlags();
+    if (on) {
+        flags |= Qt::FramelessWindowHint;
+    } else {
+        flags &= ~Qt::FramelessWindowHint;
+    }
+    setWindowFlags(flags);
+    setGeometry(geom);
+    if (wasVisible) show();
 }
 
 void FloatingContainerWindow::closeEvent(QCloseEvent* ev)

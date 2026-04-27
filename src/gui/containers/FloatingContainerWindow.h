@@ -48,6 +48,10 @@ public:
     // suppresses the dock-on-close behaviour, and closes the window.
     void prepareShutdown();
 
+    // Apply or remove Qt::FramelessWindowHint at runtime to match the
+    // main-window frameless setting.  Preserves geometry and visibility.
+    void setFramelessMode(bool on);
+
     // Restore the window's geometry from the key, clamping to a
     // visible screen.  If no saved geometry exists, centres on the
     // anchor's current screen at a reasonable default size.  Safe to
