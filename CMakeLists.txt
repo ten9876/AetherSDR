@@ -506,6 +506,7 @@ set(GUI_SOURCES
     src/gui/DxClusterDialog.cpp
     src/gui/CwxPanel.cpp
     src/gui/BandStackPanel.cpp
+    src/gui/FramelessResizer.cpp
     src/gui/PanFloatingWindow.cpp
     src/gui/DvkPanel.cpp
     src/gui/AmpApplet.cpp
@@ -1179,6 +1180,7 @@ target_link_libraries(transmit_model_test PRIVATE Qt6::Core)
 # Container system Phase 1 tests — needs QApplication + Widgets.
 add_executable(container_widget_test
     tests/container_widget_test.cpp
+    src/gui/FramelessResizer.cpp
     src/gui/containers/ContainerTitleBar.cpp
     src/gui/containers/ContainerWidget.cpp
     src/gui/containers/FloatingContainerWindow.cpp
@@ -1192,6 +1194,7 @@ set_target_properties(container_widget_test PROPERTIES AUTOMOC ON)
 
 add_executable(container_manager_test
     tests/container_manager_test.cpp
+    src/gui/FramelessResizer.cpp
     src/gui/containers/ContainerManager.cpp
     src/gui/containers/ContainerTitleBar.cpp
     src/gui/containers/ContainerWidget.cpp
@@ -1206,6 +1209,7 @@ set_target_properties(container_manager_test PROPERTIES AUTOMOC ON)
 
 add_executable(container_nesting_test
     tests/container_nesting_test.cpp
+    src/gui/FramelessResizer.cpp
     src/gui/containers/ContainerManager.cpp
     src/gui/containers/ContainerTitleBar.cpp
     src/gui/containers/ContainerWidget.cpp

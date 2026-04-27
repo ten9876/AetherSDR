@@ -1,15 +1,14 @@
 #include "FloatingContainerWindow.h"
 #include "ContainerWidget.h"
 #include "core/AppSettings.h"
+#include "gui/FramelessResizer.h"
 
 #include <QByteArray>
 #include <QCloseEvent>
 #include <QGuiApplication>
-#include <QHBoxLayout>
 #include <QMoveEvent>
 #include <QResizeEvent>
 #include <QScreen>
-#include <QSizeGrip>
 #include <QVBoxLayout>
 
 namespace AetherSDR {
@@ -42,6 +41,8 @@ FloatingContainerWindow::FloatingContainerWindow(QWidget* parent)
     m_saveTimer.setInterval(400);
     connect(&m_saveTimer, &QTimer::timeout, this,
             &FloatingContainerWindow::saveGeometryToKey);
+
+    FramelessResizer::install(this);
 }
 
 FloatingContainerWindow::~FloatingContainerWindow() = default;
@@ -61,15 +62,6 @@ void FloatingContainerWindow::takeContainer(ContainerWidget* container)
         m_container->show();
         m_container->setDockMode(ContainerWidget::DockMode::Floating);
         setWindowTitle(m_container->title());
-
-        // Bottom-right resize grip — frameless windows lose OS edge resize.
-        // Append after the container so it sits at the bottom of the layout.
-        auto* gripRow = new QHBoxLayout;
-        gripRow->setContentsMargins(0, 0, 0, 0);
-        gripRow->addStretch(1);
-        gripRow->addWidget(new QSizeGrip(this), 0,
-                           Qt::AlignBottom | Qt::AlignRight);
-        m_layout->addLayout(gripRow);
     }
 }
 
