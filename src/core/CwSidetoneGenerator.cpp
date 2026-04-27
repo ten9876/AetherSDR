@@ -9,6 +9,7 @@ namespace {
 
 constexpr double kPi = 3.141592653589793238462643383279;
 constexpr double kTwoPi = 2.0 * kPi;
+constexpr double kPiOver2 = kPi / 2.0;
 
 // Raised-cosine envelope: env(i) = 0.5 * (1 - cos(pi * i / N)) for ramp-up,
 // reversed for ramp-down.  Smooth attack/release prevents the harsh "click"
@@ -149,8 +150,8 @@ bool CwSidetoneGenerator::process(float* out, int frames) noexcept
     const double phaseInc = kTwoPi * pitch / m_sampleRateHz;
     // Constant-power pan: equal perceived loudness across the L↔R sweep.
     const float pan = m_pan.load(std::memory_order_relaxed);
-    const float gainL = std::cos(pan * static_cast<float>(M_PI_2));
-    const float gainR = std::sin(pan * static_cast<float>(M_PI_2));
+    const float gainL = std::cos(pan * static_cast<float>(kPiOver2));
+    const float gainR = std::sin(pan * static_cast<float>(kPiOver2));
     bool wroteAny = false;
 
     for (int i = 0; i < frames; ++i) {
