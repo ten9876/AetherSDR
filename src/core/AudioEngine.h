@@ -438,13 +438,11 @@ private:
     QPointer<QIODevice> m_audioDevice;   // sink-owned device, may vanish on hot-unplug
 
     // Dedicated low-latency sink for the local CW sidetone — kept separate
-    // from the RX sink so the RX path keeps its 200 ms jitter cushion while
-    // sidetone runs at ~50 ms buffer.  Push mode (we feed it via QTimer);
-    // pull mode flapped Idle/Active in 85 ms cycles on Linux/Pulse, leaving
-    // audible silence gaps between buffer refills.
-    QAudioSink*   m_sidetoneSink{nullptr};
-    QPointer<QIODevice> m_sidetoneDevice;
-    QTimer*       m_sidetoneTimer{nullptr};
+    // from the RX sink so the RX path keeps its 200 ms jitter cushion.
+    // Backend chosen at start time: PortAudio when HAVE_PORTAUDIO and not
+    // disabled by AppSettings["CwSidetoneBackend"]=="QAudioSink"; QAudioSink
+    // (push mode, 2 ms timer, 50 ms buffer) otherwise.  See CwSidetoneSinkBackend.h.
+    std::unique_ptr<class CwSidetoneSinkBackend> m_sidetoneSink;
 
     // TX
     QUdpSocket    m_txSocket;

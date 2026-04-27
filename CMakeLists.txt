@@ -415,6 +415,7 @@ set(CORE_SOURCES
     src/core/ClientPuduMonitor.cpp
     src/core/ClientReverb.cpp
     src/core/CwSidetoneGenerator.cpp
+    src/core/CwSidetoneQAudioSink.cpp
     src/core/CwxLocalKeyer.cpp
     src/core/SpectralNR.cpp
     src/core/PanadapterStream.cpp
@@ -846,6 +847,7 @@ else()
 endif()
 
 if(PORTAUDIO_FOUND)
+    target_sources(AetherSDR PRIVATE src/core/CwSidetonePortAudioSink.cpp)
     target_compile_definitions(AetherSDR PRIVATE HAVE_PORTAUDIO)
     target_include_directories(AetherSDR PRIVATE ${PORTAUDIO_INCLUDE_DIRS})
     target_link_directories(AetherSDR PRIVATE ${PORTAUDIO_LIBRARY_DIRS})
