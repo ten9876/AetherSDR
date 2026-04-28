@@ -3,6 +3,7 @@
 #include "ComboStyle.h"
 #include "models/RadioModel.h"
 #include "core/AppSettings.h"
+#include "core/LogManager.h"
 #include <QSysInfo>
 #include "core/AudioEngine.h"
 #ifdef HAVE_SERIALPORT
@@ -44,6 +45,10 @@
 #include <QPlainTextEdit>
 #include <QSplitter>
 #include <QHostAddress>
+#include <QDebug>
+#include <QPointer>
+
+#include <memory>
 
 namespace AetherSDR {
 
@@ -1231,65 +1236,209 @@ QWidget* RadioSetupDialog::buildRxTab()
         auto* gvb = new QVBoxLayout(group);
         gvb->setSpacing(4);
 
-        if (m_model->gpsdoPresent()) {
-            auto* lbl = new QLabel("GPSDO is installed. Frequency error correction is not required.");
-            lbl->setStyleSheet("QLabel { color: #00c040; font-size: 12px; }");
-            lbl->setWordWrap(true);
-            gvb->addWidget(lbl);
-        } else {
-            auto* lbl = new QLabel("No GPSDO installed. Manual frequency offset calibration available.");
-            lbl->setStyleSheet("QLabel { color: #c0a000; font-size: 12px; }");
-            lbl->setWordWrap(true);
-            gvb->addWidget(lbl);
+        auto* lbl = new QLabel(m_model->gpsdoPresent()
+            ? "GPSDO installed. Manual frequency offset calibration available."
+            : "Manual frequency offset calibration available.");
+        lbl->setStyleSheet(m_model->gpsdoPresent()
+            ? "QLabel { color: #00c040; font-size: 12px; }"
+            : "QLabel { color: #c0a000; font-size: 12px; }");
+        lbl->setWordWrap(true);
+        gvb->addWidget(lbl);
 
-            // Cal Frequency row
-            auto* calRow = new QHBoxLayout;
-            calRow->setSpacing(4);
-            auto* calLbl = new QLabel("Cal Frequency (MHz):");
-            calLbl->setStyleSheet(kLabelStyle);
-            calRow->addWidget(calLbl);
-            auto* calEdit = new QLineEdit(QString::number(m_model->calFreqMhz(), 'f', 6));
-            calEdit->setStyleSheet(kEditStyle);
-            calEdit->setFixedWidth(100);
-            connect(calEdit, &QLineEdit::editingFinished, this, [this, calEdit] {
-                m_model->sendCommand(
-                    "radio set cal_freq=" + calEdit->text());
-            });
-            calRow->addWidget(calEdit);
+        auto* offsetGrid = new QGridLayout;
+        offsetGrid->setSpacing(6);
 
-            auto* startBtn = new QPushButton("Start");
-            startBtn->setStyleSheet(kTogStyle);
-            startBtn->setFixedWidth(60);
-            connect(startBtn, &QPushButton::clicked, this, [this, calEdit] {
-                // Set cal_freq and trigger calibration
-                m_model->sendCommand(
-                    "radio set cal_freq=" + calEdit->text());
-                m_model->sendCommand("radio calibrate");
-            });
-            calRow->addWidget(startBtn);
-            calRow->addStretch(1);
-            gvb->addLayout(calRow);
+        // Cal Frequency row
+        auto* calLbl = new QLabel("Cal Frequency (MHz):");
+        calLbl->setStyleSheet(kLabelStyle);
+        offsetGrid->addWidget(calLbl, 0, 0);
+        auto* calEdit = new QLineEdit(QString::number(m_model->calFreqMhz(), 'f', 6));
+        calEdit->setStyleSheet(kEditStyle);
+        calEdit->setFixedWidth(100);
+        connect(calEdit, &QLineEdit::editingFinished, this, [this, calEdit] {
+            m_model->sendCommand(
+                "radio set cal_freq=" + calEdit->text());
+        });
+        offsetGrid->addWidget(calEdit, 0, 1);
 
-            // Freq Error PPB row
-            auto* row = new QHBoxLayout;
-            row->setSpacing(4);
-            auto* ppbLbl = new QLabel("Freq Offset (ppb):");
-            ppbLbl->setStyleSheet(kLabelStyle);
-            row->addWidget(ppbLbl);
-            auto* ppbEdit = new QLineEdit(QString::number(m_model->freqErrorPpb()));
-            ppbEdit->setStyleSheet(kEditStyle);
-            ppbEdit->setFixedWidth(80);
-            connect(ppbEdit, &QLineEdit::editingFinished, this, [this, ppbEdit] {
-                m_model->sendCommand(
-                    "radio set freq_error_ppb=" + ppbEdit->text());
+        auto* startBtn = new QPushButton("Start");
+        startBtn->setStyleSheet(kTogStyle);
+        startBtn->setFixedWidth(60);
+        auto* calStatus = new QLabel;
+        calStatus->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; }");
+        calStatus->setMinimumWidth(130);
+
+        auto calibrationActive = std::make_shared<bool>(false);
+        auto pllRunningSeen = std::make_shared<bool>(false);
+        auto calibrationRun = std::make_shared<int>(0);
+        auto setCalStatus = [calStatus](const QString& text, const QString& color) {
+            calStatus->setText(text);
+            calStatus->setStyleSheet(
+                QStringLiteral("QLabel { color: %1; font-size: 11px; }").arg(color));
+        };
+
+        connect(startBtn, &QPushButton::clicked, this,
+                [this, calEdit, startBtn, calStatus, calibrationActive, pllRunningSeen,
+                 calibrationRun, setCalStatus] {
+            const QString calFreq = calEdit->text().trimmed();
+            if (calFreq.isEmpty()) {
+                setCalStatus("Enter cal frequency", "#e0a050");
+                return;
+            }
+
+            const int runId = ++(*calibrationRun);
+            *calibrationActive = true;
+            *pllRunningSeen = false;
+            startBtn->setEnabled(false);
+            startBtn->setText("Busy");
+            setCalStatus("Starting...", "#8aa8c0");
+
+            qCDebug(lcProtocol) << "RadioSetupDialog: frequency calibration requested"
+                                 << "cal_freq=" << calFreq
+                                 << "reset_freq_error_ppb=0"
+                                 << "run_id=" << runId;
+            m_model->sendCommand("radio set cal_freq=" + calFreq);
+            m_model->sendCommand("radio set freq_error_ppb=0");
+
+            QPointer<RadioSetupDialog> dialog(this);
+            QPointer<QPushButton> startGuard(startBtn);
+            QPointer<QLabel> statusGuard(calStatus);
+            // FlexLib's StartOffsetEnabled=false path starts calibration with radio pll_start.
+            m_model->sendCmdPublic("radio pll_start",
+                [dialog, startGuard, statusGuard, calibrationActive, calibrationRun, runId](
+                    int code, const QString& body) {
+                if (!dialog)
+                    return;
+                QMetaObject::invokeMethod(dialog, [dialog, startGuard, statusGuard,
+                                                   calibrationActive, calibrationRun, runId,
+                                                   code, body] {
+                    if (!dialog || !startGuard || !statusGuard)
+                        return;
+                    if (!*calibrationActive || *calibrationRun != runId) {
+                        qCDebug(lcProtocol)
+                            << "RadioSetupDialog: ignoring radio pll_start response for inactive calibration"
+                            << "run_id=" << runId
+                            << "current_run_id=" << *calibrationRun
+                            << "code" << code << "body:" << body;
+                        return;
+                    }
+                    if (code == 0) {
+                        statusGuard->setText("Calibrating...");
+                        statusGuard->setStyleSheet(
+                            "QLabel { color: #00c8ff; font-size: 11px; }");
+                        qCDebug(lcProtocol)
+                            << "RadioSetupDialog: radio pll_start accepted";
+                        return;
+                    }
+
+                    *calibrationActive = false;
+                    startGuard->setEnabled(true);
+                    startGuard->setText("Start");
+                    statusGuard->setText(QString("Error 0x%1")
+                        .arg(code, 0, 16).toUpper());
+                    statusGuard->setStyleSheet(
+                        "QLabel { color: #ff7070; font-size: 11px; }");
+                    qCWarning(lcProtocol)
+                        << "RadioSetupDialog: radio pll_start failed: code"
+                        << Qt::hex << code << "body:" << body;
+                });
             });
-            row->addWidget(ppbEdit);
-            auto* ppbUnitLbl = new QLabel("ppb");
-            ppbUnitLbl->setStyleSheet(kLabelStyle);
-            row->addWidget(ppbUnitLbl);
-            row->addStretch(1);
-            gvb->addLayout(row);
-        }
+
+            QTimer::singleShot(20000, this,
+                [startGuard, statusGuard, calibrationActive, calibrationRun, runId] {
+                if (!startGuard || !statusGuard || !*calibrationActive
+                    || *calibrationRun != runId)
+                    return;
+                *calibrationActive = false;
+                startGuard->setEnabled(true);
+                startGuard->setText("Start");
+                statusGuard->setText("No response");
+                statusGuard->setStyleSheet(
+                    "QLabel { color: #ff7070; font-size: 11px; }");
+                qCWarning(lcProtocol)
+                    << "RadioSetupDialog: frequency calibration timed out waiting for pll_done=1"
+                    << "run_id=" << runId;
+            });
+        });
+        offsetGrid->addWidget(startBtn, 0, 2);
+        offsetGrid->addWidget(calStatus, 0, 3);
+
+        // Freq Error PPB row
+        auto* ppbLbl = new QLabel("Freq Offset (ppb):");
+        ppbLbl->setStyleSheet(kLabelStyle);
+        offsetGrid->addWidget(ppbLbl, 1, 0);
+        auto* ppbEdit = new QLineEdit(QString::number(m_model->freqErrorPpb()));
+        ppbEdit->setStyleSheet(kEditStyle);
+        ppbEdit->setFixedWidth(80);
+        connect(ppbEdit, &QLineEdit::editingFinished, this, [this, ppbEdit] {
+            m_model->sendCommand(
+                "radio set freq_error_ppb=" + ppbEdit->text());
+        });
+        offsetGrid->addWidget(ppbEdit, 1, 1);
+        auto* ppbUnitLbl = new QLabel("ppb");
+        ppbUnitLbl->setStyleSheet(kLabelStyle);
+        offsetGrid->addWidget(ppbUnitLbl, 1, 2);
+        offsetGrid->setColumnStretch(3, 1);
+        gvb->addLayout(offsetGrid);
+
+        connect(m_model, &RadioModel::infoChanged, this, [this, calEdit, ppbEdit] {
+            if (!calEdit->hasFocus())
+                calEdit->setText(QString::number(m_model->calFreqMhz(), 'f', 6));
+            if (!ppbEdit->hasFocus())
+                ppbEdit->setText(QString::number(m_model->freqErrorPpb()));
+        });
+
+        connect(m_model, &RadioModel::statusReceived, this,
+                [startBtn, calStatus, calibrationActive, pllRunningSeen](
+                    const QString& object, const QMap<QString, QString>& kvs) {
+            if (object != QStringLiteral("radio") || !kvs.contains(QStringLiteral("pll_done")))
+                return;
+
+            const QString pllDone = kvs.value(QStringLiteral("pll_done"));
+            const QString freqError = kvs.value(QStringLiteral("freq_error_ppb"));
+            const QString calFreq = kvs.value(QStringLiteral("cal_freq"));
+            qCDebug(lcProtocol)
+                << "RadioSetupDialog: frequency calibration status"
+                << "pll_done=" << pllDone
+                << "freq_error_ppb=" << freqError
+                << "cal_freq=" << calFreq
+                << "active=" << *calibrationActive
+                << "running_seen=" << *pllRunningSeen;
+
+            if (!*calibrationActive)
+                return;
+
+            if (pllDone == QStringLiteral("0")) {
+                *pllRunningSeen = true;
+                calStatus->setText("Calibrating...");
+                calStatus->setStyleSheet(
+                    "QLabel { color: #00c8ff; font-size: 11px; }");
+                return;
+            }
+
+            if (pllDone == QStringLiteral("1") && !*pllRunningSeen) {
+                qCDebug(lcProtocol)
+                    << "RadioSetupDialog: ignoring pll_done=1 before pll_done=0 for active calibration"
+                    << "freq_error_ppb=" << freqError
+                    << "cal_freq=" << calFreq;
+                return;
+            }
+
+            if (pllDone == QStringLiteral("1")) {
+                *calibrationActive = false;
+                startBtn->setEnabled(true);
+                startBtn->setText("Start");
+                calStatus->setText(freqError.isEmpty()
+                    ? QStringLiteral("Complete")
+                    : QStringLiteral("Complete (%1 ppb)").arg(freqError));
+                calStatus->setStyleSheet(
+                    "QLabel { color: #00e060; font-size: 11px; }");
+                qCDebug(lcProtocol)
+                    << "RadioSetupDialog: frequency calibration completed"
+                    << "freq_error_ppb=" << freqError
+                    << "cal_freq=" << calFreq;
+            }
+        });
 
         vbox->addWidget(group);
     }

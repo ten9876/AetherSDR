@@ -246,6 +246,54 @@ PC Mic Audio (Opus via remote_audio_tx) — arrives with client-side
 - **Unit conversion**: dBm meters (FWDPWR) need watts = 10^(dBm/10)/1000.
   SWR is raw. degC/degF use raw/64.0f. Volts/Amps use raw/1024.0f.
 
+## Agent Notes: 10 MHz TXO Calibration
+
+This is not part of the TX audio chain, but it is a related FlexRadio protocol
+lesson from issues #1237/#2095 and belongs somewhere agents will check before
+guessing at radio commands.
+
+- **Do not use `radio calibrate`** for the Radio Setup → RX frequency-offset
+  Start button. FLEX-6600 firmware v4.1.5 rejects it with `0x50000016`
+  (`unknown command`).
+- **Do not hide calibration when GPSDO is present**. SmartSDR/Mac still exposes
+  the frequency-offset controls with a GPSDO installed. Let the operator choose
+  the oscillator/reference source (`TCXO`, `GPSDO`, `External`, or `Auto`) rather
+  than deciding that calibration is unnecessary.
+- **Use the SmartSDR/FlexLib command sequence**:
+  1. `radio set cal_freq=<MHz>`
+  2. `radio set freq_error_ppb=0`
+  3. `radio pll_start`
+- **Second source verification**: the reporter's SmartSDR TCP capture showed
+  `radio set freq_error_ppb=0` followed by `radio pll_start`, with the radio
+  broadcasting `pll_done=0` while running and `pll_done=1 freq_error_ppb=<value>`
+  when complete. The official FlexLib API v2.10.1 source confirms the same
+  command: `Radio.StartOffsetEnabled=false` sends `radio pll_start`, while
+  `CalFreq`, `FreqErrorPPB`, and `pll_done` are parsed as radio status fields.
+- **Completion signal**: track `radio` status messages containing `pll_done`.
+  `pll_done=0` means calibration has started/in progress. `pll_done=1` means the
+  Start button can be re-enabled; if `freq_error_ppb` is present on that status,
+  it is the completed calibration result to show/log.
+- **Event-order gotcha**: resetting `freq_error_ppb` can produce stale
+  `pll_done=1` status before the new `radio pll_start` run has actually reported
+  `pll_done=0`. Do not treat `pll_done=1` as completion for the active button
+  press until `pll_done=0` has been observed for that run; otherwise the UI can
+  complete on the previous/zeroed value and then get stuck showing
+  `Calibrating...` when the delayed command response arrives.
+- **Timeout gotcha**: make timeout callbacks run-specific. A prior run's
+  20-second timer can fire after that run completed and during a later
+  calibration. If the callback only checks a shared `active` flag, it can mark
+  the newer run as `No response` before the radio's real `pll_done=1` result
+  arrives.
+- **Debug workflow**: ask reporters to enable protocol logging and capture the
+  full lifecycle, not just TX/RX command lines:
+  `QT_LOGGING_RULES="aether.protocol.debug=true" ./AetherSDR`. Useful breadcrumbs
+  are request, `pll_start` response code/body, every `pll_done` transition,
+  final `freq_error_ppb`, and timeout if `pll_done=1` never arrives.
+- **Capture gotcha**: Flex command traffic is TCP, normally port 4992. UDP ports
+  4993/4994 are VITA/discovery/data and will not contain the command stream.
+  If a Wireshark file has no TCP stream, it cannot prove which command SmartSDR
+  sent.
+
 ## Future: TX Audio Path Meter Panel
 
 A dedicated panel showing all TX-chain meters as a vertical stack of horizontal
