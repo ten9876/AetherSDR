@@ -41,6 +41,7 @@ public:
 private:
     double m_srcRate;
     double m_dstRate;
+    int    m_maxBlockSamples;
     std::unique_ptr<r8b::CDSPResampler24> m_resampler;
     std::vector<double> m_inBuf;   // float32 → double conversion buffer
 };
