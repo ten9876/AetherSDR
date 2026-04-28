@@ -25,9 +25,12 @@ constexpr int kSourceInterfaceNameRole = Qt::UserRole + 12;
 constexpr int kSourceAddressRole = Qt::UserRole + 13;
 constexpr int kSourceStaleRole = Qt::UserRole + 14;
 
-const char* kHintLabelStyle = "QLabel { color: #8aa8c0; font-size: 11px; }";
-const char* kInfoLabelStyle = "QLabel { color: #9bd1ff; font-size: 11px; }";
-const char* kErrorLabelStyle = "QLabel { color: #ff8f8f; font-size: 11px; }";
+const char* kHintLabelStyle =
+    "QLabel { color: #8aa8c0; font-size: 11px; background: transparent; border: none; }";
+const char* kInfoLabelStyle =
+    "QLabel { color: #9bd1ff; font-size: 11px; background: transparent; border: none; }";
+const char* kErrorLabelStyle =
+    "QLabel { color: #ff8f8f; font-size: 11px; background: transparent; border: none; }";
 
 QJsonObject loadRoutedProfiles()
 {
@@ -132,9 +135,13 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
         "QCommandLinkButton:hover { border-color: #4e6a86; background: #172334; }"
         "QCommandLinkButton:checked { border-color: #66a8ff; background: #1a3046; }";
     const QString calloutStyle =
-        "QFrame { border: 1px solid #304050; border-radius: 8px; background: #121a25; }";
+        "QFrame#connectionCallout { border: 1px solid #304050; border-radius: 8px; "
+        "background: #121a25; }"
+        "QFrame#connectionCallout QLabel { background: transparent; border: none; }"
+        "QFrame#connectionCallout QCheckBox { background: transparent; border: none; }";
     const QString lowBandwidthCheckStyle =
-        "QCheckBox { color: #d7e4f2; spacing: 8px; padding: 2px 0; }"
+        "QCheckBox { color: #d7e4f2; spacing: 8px; padding: 2px 0; "
+        "background: transparent; border: none; }"
         "QCheckBox::indicator { width: 16px; height: 16px; "
         "border: 2px solid #5d748d; border-radius: 3px; background: #0b1520; }"
         "QCheckBox::indicator:hover { border-color: #81abd9; background: #142130; }"
@@ -146,7 +153,9 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     root->setSpacing(10);
 
     auto* titleLabel = new QLabel("Connect to a Radio", this);
-    titleLabel->setStyleSheet("QLabel { color: #e7f1fb; font-size: 18px; font-weight: bold; }");
+    titleLabel->setStyleSheet(
+        "QLabel { color: #e7f1fb; font-size: 18px; font-weight: bold; "
+        "background: transparent; border: none; }");
     root->addWidget(titleLabel);
 
     auto* introLabel = makeWrappedLabel(
@@ -240,12 +249,15 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     emptyLayout->setContentsMargins(0, 0, 0, 0);
     emptyLayout->setSpacing(8);
     auto* emptyCallout = new QFrame(m_localEmptyState);
+    emptyCallout->setObjectName("connectionCallout");
     emptyCallout->setStyleSheet(calloutStyle);
     auto* emptyCalloutLayout = new QVBoxLayout(emptyCallout);
     emptyCalloutLayout->setContentsMargins(14, 14, 14, 14);
     emptyCalloutLayout->setSpacing(8);
     auto* emptyTitle = new QLabel("No local radios found yet", emptyCallout);
-    emptyTitle->setStyleSheet("QLabel { color: #e7f1fb; font-size: 15px; font-weight: bold; }");
+    emptyTitle->setStyleSheet(
+        "QLabel { color: #e7f1fb; font-size: 15px; font-weight: bold; "
+        "background: transparent; border: none; }");
     emptyCalloutLayout->addWidget(emptyTitle);
     emptyCalloutLayout->addWidget(makeWrappedLabel(
         "AetherSDR is still listening for discovery packets. If your station is on a VPN "
@@ -327,23 +339,27 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_wanList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_wanList->setWordWrap(true);
     m_wanList->setSpacing(2);
-    m_wanList->setMinimumHeight(220);
+    m_wanList->setMinimumHeight(120);
+    m_wanList->setMaximumHeight(160);
+    m_wanList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     remoteLayout->addWidget(m_wanList);
     m_smartLinkEmptyLabel = makeWrappedLabel(
         "Remote radios appear here after SmartLink sign-in.",
         kHintLabelStyle);
     remoteLayout->addWidget(m_smartLinkEmptyLabel);
-    auto* wanActionBar = new QWidget(remoteGroup);
+    smartLinkLayout->addWidget(remoteGroup);
+
+    auto* wanActionBar = new QWidget(smartLinkPage);
     auto* wanActionRow = new QHBoxLayout(wanActionBar);
-    wanActionRow->setContentsMargins(0, 6, 18, 0);
+    wanActionRow->setContentsMargins(0, 0, 0, 0);
     wanActionRow->setSpacing(10);
     wanActionRow->addStretch();
     m_wanConnectBtn = new QPushButton("Connect Remote Radio", wanActionBar);
     m_wanConnectBtn->setEnabled(false);
     m_wanConnectBtn->setMinimumWidth(190);
     wanActionRow->addWidget(m_wanConnectBtn);
-    remoteLayout->addWidget(wanActionBar);
-    smartLinkLayout->addWidget(remoteGroup, 1);
+    smartLinkLayout->addWidget(wanActionBar);
+    smartLinkLayout->addStretch(1);
 
     m_modeStack->addWidget(smartLinkPage);
 
@@ -415,12 +431,14 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
 
     // ── Contextual options ────────────────────────────────────────────────
     m_linkOptionsWidget = new QFrame(this);
+    m_linkOptionsWidget->setObjectName("connectionCallout");
     m_linkOptionsWidget->setStyleSheet(calloutStyle);
     auto* optionsLayout = new QVBoxLayout(m_linkOptionsWidget);
     optionsLayout->setContentsMargins(12, 10, 12, 10);
     optionsLayout->setSpacing(6);
     auto* optionsTitle = new QLabel("Connection options for slower links", m_linkOptionsWidget);
-    optionsTitle->setStyleSheet("QLabel { color: #e7f1fb; font-weight: bold; }");
+    optionsTitle->setStyleSheet(
+        "QLabel { color: #e7f1fb; font-weight: bold; background: transparent; border: none; }");
     optionsLayout->addWidget(optionsTitle);
     m_lowBwHintLabel = makeWrappedLabel(QString(), kHintLabelStyle);
     optionsLayout->addWidget(m_lowBwHintLabel);
