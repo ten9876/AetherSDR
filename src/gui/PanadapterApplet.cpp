@@ -8,6 +8,7 @@
 #include <QSlider>
 #include <QEvent>
 #include <QLabel>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QTextEdit>
@@ -288,6 +289,14 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     m_cwText->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_cwText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_cwText->setWordWrapMode(QTextOption::WrapAnywhere);
+    m_cwText->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_cwText, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        QMenu *menu = m_cwText->createStandardContextMenu();
+        menu->addSeparator();
+        menu->addAction(tr("Clear"), this, &PanadapterApplet::clearCwText);
+        menu->exec(m_cwText->mapToGlobal(pos));
+        delete menu;
+    });
     cwLayout->addWidget(m_cwText);
 
     m_cwPanel->hide();
