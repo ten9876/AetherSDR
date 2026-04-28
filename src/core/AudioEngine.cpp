@@ -463,25 +463,27 @@ bool AudioEngine::startRxStream()
     }
 #endif
 
-    // Windows WASAPI shared mode handles sample rate conversion transparently,
-    // but Qt's isFormatSupported() often returns false for valid formats (e.g.
-    // Voicemeeter, FlexRadio DAX). Try opening the sink directly at each rate
-    // and fall back only if start() actually fails.
+    // Prefer 48kHz on Windows — WASAPI shared mode accepts 24kHz but its
+    // internal resampler introduces artifacts at non-standard rates that
+    // become audible when radio-side NR (RNN/NRL/NRS) removes the noise
+    // floor. Use r8brain for clean 24k→48k conversion instead, matching
+    // the macOS TX-side fix for the same class of issue. (#2120)
 #ifdef Q_OS_WIN
-    m_resampleTo48k = false;
+    fmt.setSampleRate(48000);
+    m_resampleTo48k = true;
     m_audioSink = new QAudioSink(dev, fmt, this);
     m_audioSink->setVolume(m_muted.load() ? 0.0f : m_rxVolume.load());
     m_audioDevice = m_audioSink->start();
     if (!m_audioDevice) {
-        qCWarning(lcAudio) << "AudioEngine: 24kHz sink failed to open, trying 48kHz";
+        qCWarning(lcAudio) << "AudioEngine: 48kHz sink failed to open, trying 24kHz";
         delete m_audioSink;
-        fmt.setSampleRate(48000);
-        m_resampleTo48k = true;
+        fmt.setSampleRate(DEFAULT_SAMPLE_RATE);
+        m_resampleTo48k = false;
         m_audioSink = new QAudioSink(dev, fmt, this);
         m_audioSink->setVolume(m_muted.load() ? 0.0f : m_rxVolume.load());
         m_audioDevice = m_audioSink->start();
         if (!m_audioDevice) {
-            qCWarning(lcAudio) << "AudioEngine: 48kHz sink also failed";
+            qCWarning(lcAudio) << "AudioEngine: 24kHz sink also failed";
             delete m_audioSink;
             m_audioSink = nullptr;
             return false;
