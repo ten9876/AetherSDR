@@ -143,8 +143,11 @@ void RadioConnection::connectToHost(const QHostAddress& address,
 void RadioConnection::disconnectFromRadio()
 {
     if (m_heartbeat) m_heartbeat->stop();
-    if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState)
+    if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
         m_socket->disconnectFromHost();
+        if (m_socket->state() != QAbstractSocket::UnconnectedState)
+            m_socket->waitForDisconnected(2000);
+    }
     m_handle = 0;
 }
 
