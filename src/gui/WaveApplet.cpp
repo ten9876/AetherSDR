@@ -116,7 +116,7 @@ WaveApplet::WaveApplet(QWidget* parent)
     m_waveform->setRefreshRateHz(refreshRate);
     updateRefreshLabel();
 
-    setSettingsExpanded(false);
+    setSettingsExpanded(true);
     setMinimumHeight(minimumSizeHint().height());
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 
