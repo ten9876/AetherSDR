@@ -1146,6 +1146,18 @@ add_executable(cw_sidetone_test
 target_include_directories(cw_sidetone_test PRIVATE src)
 target_link_libraries(cw_sidetone_test PRIVATE Qt6::Core)
 
+add_executable(cwx_panel_test
+    tests/cwx_panel_test.cpp
+    src/gui/CwxPanel.cpp
+    src/gui/CwxPanel.h
+    src/models/CwxModel.cpp
+    src/models/CwxModel.h
+)
+target_include_directories(cwx_panel_test PRIVATE src)
+target_link_libraries(cwx_panel_test PRIVATE
+    Qt6::Core Qt6::Widgets
+)
+
 add_executable(meter_model_test
     tests/meter_model_test.cpp
     src/models/MeterModel.cpp

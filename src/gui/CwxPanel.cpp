@@ -126,8 +126,6 @@ CwxPanel::CwxPanel(CwxModel* model, QWidget* parent)
     barLayout->setSpacing(4);
 
     m_sendBtn = new QPushButton("Send");
-    m_sendBtn->setCheckable(true);
-    m_sendBtn->setChecked(true);
     m_sendBtn->setStyleSheet(kBtnStyle);
     barLayout->addWidget(m_sendBtn);
 
@@ -159,24 +157,31 @@ CwxPanel::CwxPanel(CwxModel* model, QWidget* parent)
 
     // ── Connections ─────────────────────────────────────────────
 
-    // Send/Live/Setup toggle — mutual exclusion
+    // Send submits the buffer when Live is off.  If Live is on, it first
+    // returns the panel to safe non-live typing without retransmitting text
+    // that may already have been keyed character-by-character.
     connect(m_sendBtn, &QPushButton::clicked, this, [this]() {
-        m_sendBtn->setChecked(true);
-        m_liveBtn->setChecked(false);
+        const bool wasLive = m_model ? m_model->isLive()
+                                     : (m_liveBtn && m_liveBtn->isChecked());
+        if (m_model)
+            m_model->setLive(false);
+        else if (m_liveBtn)
+            m_liveBtn->setChecked(false);
         m_setupBtn->setChecked(false);
-        if (m_model) m_model->setLive(false);
         showSendView();
+        if (!wasLive)
+            sendBuffer();
     });
-    connect(m_liveBtn, &QPushButton::clicked, this, [this]() {
-        m_sendBtn->setChecked(false);
-        m_liveBtn->setChecked(true);
+    connect(m_liveBtn, &QPushButton::clicked, this, [this](bool on) {
         m_setupBtn->setChecked(false);
-        if (m_model) m_model->setLive(true);
+        if (m_model) m_model->setLive(on);
         showSendView();
     });
     connect(m_setupBtn, &QPushButton::clicked, this, [this]() {
-        m_sendBtn->setChecked(false);
-        m_liveBtn->setChecked(false);
+        if (m_model)
+            m_model->setLive(false);
+        else
+            m_liveBtn->setChecked(false);
         m_setupBtn->setChecked(true);
         showSetupView();
     });
@@ -225,6 +230,11 @@ void CwxPanel::setModel(CwxModel* model)
     m_model = model;
     if (!m_model) return;
 
+    if (m_liveBtn) {
+        QSignalBlocker b(m_liveBtn);
+        m_liveBtn->setChecked(m_model->isLive());
+    }
+
     connect(m_model, &CwxModel::charSent, this, &CwxPanel::onCharSent);
     connect(m_model, &CwxModel::speedChanged, this, &CwxPanel::onSpeedChanged);
     connect(m_model, &CwxModel::macroChanged, this, [this](int idx, const QString& text) {
@@ -243,6 +253,17 @@ void CwxPanel::setModel(CwxModel* model)
         if (m_qskBtn) {
             QSignalBlocker b(m_qskBtn);
             m_qskBtn->setChecked(on);
+        }
+    });
+    connect(m_model, &CwxModel::liveChanged, this, [this](bool on) {
+        if (m_liveBtn) {
+            QSignalBlocker b(m_liveBtn);
+            m_liveBtn->setChecked(on);
+        }
+        if (on) {
+            if (m_setupBtn)
+                m_setupBtn->setChecked(false);
+            showSendView();
         }
     });
 }
