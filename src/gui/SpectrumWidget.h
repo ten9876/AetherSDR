@@ -312,8 +312,11 @@ public:
     void setTransmitting(bool tx) {
         if (tx && !m_transmitting)
             m_preTxAutoBlack = m_autoBlackThresh;  // save before TX
-        if (!tx && m_transmitting)
+        if (!tx && m_transmitting) {
             m_autoBlackThresh = m_preTxAutoBlack;  // restore after TX
+            m_txEndMs = QDateTime::currentMSecsSinceEpoch(); // post-TX blanking
+            m_wfBlankerRingCount = 0; // reset stale blanker baseline
+        }
         m_transmitting = tx;
     }
     void setShowTxInWaterfall(bool on) { m_showTxInWaterfall = on; }
@@ -620,6 +623,7 @@ private:
 
     bool     m_transmitting{false};
     float    m_preTxAutoBlack{145.0f}; // auto-black threshold saved before TX
+    qint64   m_txEndMs{0};             // post-TX blanking: timestamp of TX→RX transition
 
     // Waterfall time scale: ms-per-row derived from tile timecodes + wall-clock.
     // Calibrates over the first 50 tiles, then locks to prevent jitter.
