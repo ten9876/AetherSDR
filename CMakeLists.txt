@@ -484,6 +484,7 @@ set(MODEL_SOURCES
     src/models/SpotModel.cpp
     src/models/CwxModel.cpp
     src/models/DvkModel.cpp
+    src/models/NavtexModel.cpp
     src/models/BandSettings.cpp
     src/models/BandPlanManager.cpp
     src/models/XvtrPolicy.cpp
@@ -571,6 +572,7 @@ set(GUI_SOURCES
     src/gui/ClientCompEditorCanvas.cpp
     src/gui/CatControlApplet.cpp
     src/gui/DaxApplet.cpp
+    src/gui/NavtexApplet.cpp
     src/gui/TciApplet.cpp
     src/gui/DaxIqApplet.cpp
     src/gui/MqttApplet.cpp

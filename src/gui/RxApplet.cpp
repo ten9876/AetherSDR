@@ -176,7 +176,7 @@ static const ModeSettings& modeSettingsFor(const QString& mode)
     if (mode == "USB" || mode == "LSB")  return ssbSettings;
     if (mode == "AM"  || mode == "SAM")  return amSettings;
     if (mode == "CW")                    return cwSettings;
-    if (mode == "DIGU" || mode == "DIGL") return digSettings;
+    if (mode == "DIGU" || mode == "DIGL" || mode == "NT") return digSettings;
     if (mode == "RTTY")                  return rttySettings;
     if (mode == "FM" || mode == "NFM" || mode == "DFM") return fmSettings;
     if (mode.startsWith("FDV"))          return digSettings;  // FreeDV digital voice
@@ -1451,7 +1451,7 @@ QString RxApplet::formatHz(int hz)
 QString RxApplet::formatFilterWidth(int lo, int hi, const QString& mode)
 {
     int w;
-    if (mode == "USB" || mode == "DIGU" || mode == "FDV")
+    if (mode == "USB" || mode == "DIGU" || mode == "FDV" || mode == "NT")
         w = hi;
     else if (mode == "LSB" || mode == "DIGL")
         w = std::abs(lo);
@@ -1606,13 +1606,14 @@ void RxApplet::updateModeSettings(const QString& mode)
     // Disable squelch in digital and CW modes
     // Digital: audio goes via DAX, SQL not meaningful
     // CW: radio locks squelch on at fixed level, rejects changes
-    bool sqlDisabled = (mode == "DIGU" || mode == "DIGL" || mode == "CW" || mode == "CWL");
+    bool sqlDisabled = (mode == "DIGU" || mode == "DIGL" || mode == "NT"
+                        || mode == "CW" || mode == "CWL");
     m_sqlBtn->setEnabled(!sqlDisabled);
     m_sqlSlider->setEnabled(!sqlDisabled);
     if (sqlDisabled && m_slice) {
         if (m_slice->squelchOn()) {
             m_savedSquelchOn = true;
-            if (mode == "DIGU" || mode == "DIGL") {
+            if (mode == "DIGU" || mode == "DIGL" || mode == "NT") {
                 // Only send squelch off for digital modes; CW is radio-managed
                 m_slice->setSquelch(false, m_slice->squelchLevel());
                 QSignalBlocker sb(m_sqlBtn);

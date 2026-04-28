@@ -2349,14 +2349,14 @@ void VfoWidget::setSlice(SliceModel* slice)
         // Categorize by mode family (supports future/unknown modes)
         bool isRtty = (mode == "RTTY");
         bool isCw   = (mode == "CW" || mode == "CWL");
-        bool isDig  = (mode == "DIGL" || mode == "DIGU");
+        bool isDig  = (mode == "DIGL" || mode == "DIGU" || mode == "NT");
         bool isFm   = (mode == "FM" || mode == "NFM" || mode == "DFM");
         bool isFdv  = mode.startsWith("FDV");  // FDVU, FDVM, etc.
         // Swap DSP tab label to OPT for FM modes
         m_tabBtns[1]->setText(isFm ? "OPT" : "DSP");
         m_rttyContainer->setVisible(isRtty);
         m_apfContainer->setVisible(isCw);
-        m_digContainer->setVisible(isDig && !isFdv);
+        m_digContainer->setVisible(isDig && !isFdv && mode != "NT");
         m_fmContainer->setVisible(isFm);
         if (isDig) {
             int off = (mode == "DIGL") ? m_slice->diglOffset() : m_slice->diguOffset();
@@ -2859,7 +2859,7 @@ void VfoWidget::syncFromSlice()
     m_shiftLabel->setText(QString::number(m_slice->rttyShift()));
     m_rttyContainer->setVisible(isRtty);
     bool isCw = (m_slice->mode() == "CW" || m_slice->mode() == "CWL");
-    bool isDig = (m_slice->mode() == "DIGL" || m_slice->mode() == "DIGU");
+    bool isDig = (m_slice->mode() == "DIGL" || m_slice->mode() == "DIGU" || m_slice->mode() == "NT");
     bool isFm = (m_slice->mode() == "FM" || m_slice->mode() == "NFM");
     m_tabBtns[1]->setText(isFm ? "OPT" : "DSP");
     m_apfBtn->setVisible(isCw);
@@ -2884,7 +2884,7 @@ void VfoWidget::syncFromSlice()
     m_nrsBtn->setVisible(!isFm);
     m_nrfBtn->setVisible(!isFm);
     m_apfContainer->setVisible(isCw);
-    m_digContainer->setVisible(isDig);
+    m_digContainer->setVisible(isDig && m_slice->mode() != "NT");
     m_fmContainer->setVisible(isFm);
     // CW: radio locks squelch on at fixed level; Digital: not meaningful
     m_sqlBtn->setEnabled(!isDig && !isCw);
@@ -2996,7 +2996,7 @@ static const ModeFilterPresets& filterPresetsFor(const QString& mode)
     if (mode == "USB" || mode == "LSB") return usb;
     if (mode == "AM" || mode == "SAM") return am;
     if (mode == "CW") return cw;
-    if (mode == "DIGU" || mode == "DIGL") return dig;
+    if (mode == "DIGU" || mode == "DIGL" || mode == "NT") return dig;
     if (mode == "RTTY") return rtty;
     if (mode == "DFM") return dfm;
     if (mode == "FM" || mode == "NFM") return fm;
