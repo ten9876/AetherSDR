@@ -156,6 +156,7 @@ private:
     void updateSplitState();
     void disableSplit();
     void wirePanadapter(PanadapterApplet* applet);
+    void reassertUnmutedSliceAudioForPan(const QString& panId);
     void setActivePanApplet(PanadapterApplet* applet);
     void routeCwDecoderOutput();  // wire CW decoder to the pan owning the active slice
     SpectrumWidget* spectrumForSlice(SliceModel* s) const;

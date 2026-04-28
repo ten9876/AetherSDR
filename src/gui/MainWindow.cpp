@@ -7933,6 +7933,22 @@ void MainWindow::updateSplitState()
 // OverlayMenu signals to RadioModel, TnfModel, and MainWindow handlers.
 // In multi-pan mode (Phase 6+), called for each new panadapter.
 
+void MainWindow::reassertUnmutedSliceAudioForPan(const QString& panId)
+{
+    const auto slices = m_radioModel.slices();
+    if (slices.size() <= 1) return;
+
+    for (auto* slice : slices) {
+        if (!slice || slice->panId() != panId || slice->audioMute())
+            continue;
+
+        // The model already shows unmuted, so SliceModel::setAudioMute(false)
+        // would no-op. Send the command directly to rebuild radio audio routing.
+        m_radioModel.sendCommand(
+            QString("slice set %1 audio_mute=0").arg(slice->sliceId()));
+    }
+}
+
 void MainWindow::setActivePanApplet(PanadapterApplet* applet)
 {
     if (applet == m_panApplet) return;
@@ -8719,6 +8735,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             m_bandSettings.setCurrentBand(bandName);
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
+            QTimer::singleShot(300, this, [this, panId = applet->panId()]() {
+                reassertUnmutedSliceAudioForPan(panId);
+            });
         }
     });
 
