@@ -596,6 +596,9 @@ QString ConnectionPanel::formatLocalRadioLabel(const RadioInfo& radio) const
         detail = QStringLiteral("Ready on your local network");
     }
 
+    if (!radio.turfRegion.trimmed().isEmpty())
+        detail += QStringLiteral(" • %1").arg(radio.turfRegion.trimmed());
+
     return title + QLatin1Char('\n') + detail;
 }
 

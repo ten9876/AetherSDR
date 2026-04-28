@@ -62,6 +62,8 @@ struct RadioInfo {
     int maxLicensedVersion{0};
     bool inUse{false};
     bool isRouted{false};
+    bool isSystemModel{false};
+    QString turfRegion;
     RadioBindSettings bindSettings;
     QHostAddress sessionBindAddress;
 
