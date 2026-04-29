@@ -57,6 +57,13 @@ bool SerialPortController::open(const QString& portName, int baudRate,
         bool dsr = pinState.testFlag(QSerialPort::DataSetReadySignal);
         m_lastCtsActive = m_ctsActiveHigh ? cts : !cts;
         m_lastDsrActive = m_dsrActiveHigh ? dsr : !dsr;
+        qCDebug(lcDevices) << "SerialPortController: open() initial pin sample —"
+                           << "raw=" << Qt::hex << static_cast<int>(pinState)
+                           << "DSR=" << dsr << "CTS=" << cts
+                           << "dsrActiveHigh=" << m_dsrActiveHigh
+                           << "ctsActiveHigh=" << m_ctsActiveHigh
+                           << "→ lastDsrActive=" << m_lastDsrActive
+                           << "lastCtsActive=" << m_lastCtsActive;
     }
     m_pollLogged = false;
     m_debounceTimer.start();
@@ -64,7 +71,10 @@ bool SerialPortController::open(const QString& portName, int baudRate,
     // Start polling if any input function is configured
     updatePolling();
 
-    qCDebug(lcDevices) << "SerialPortController: opened" << portName << "at" << baudRate;
+    qCDebug(lcDevices) << "SerialPortController: opened" << portName << "at" << baudRate
+                       << "dsrFn=" << static_cast<int>(m_dsrFn)
+                       << "ctsFn=" << static_cast<int>(m_ctsFn)
+                       << "pollActive=" << m_pollTimer.isActive();
     return true;
 #else
     Q_UNUSED(portName); Q_UNUSED(baudRate);
@@ -166,13 +176,6 @@ void SerialPortController::pollInputPins()
         return;
     }
 
-    // One-shot: log raw pin state on first successful poll for diagnostics (#1413)
-    if (!m_pollLogged) {
-        m_pollLogged = true;
-        qCDebug(lcDevices) << "SerialPortController: first poll — raw pinoutSignals ="
-                           << Qt::hex << static_cast<int>(pinState);
-    }
-
     bool cts = pinState.testFlag(QSerialPort::ClearToSendSignal);
     bool dsr = pinState.testFlag(QSerialPort::DataSetReadySignal);
 
@@ -183,13 +186,46 @@ void SerialPortController::pollInputPins()
     // Debounce: ignore changes within DEBOUNCE_MS of the last change
     bool debounceOk = m_debounceTimer.elapsed() >= DEBOUNCE_MS;
 
+    // Verbose PTT diagnostics — logs every poll when a PTT input is configured
+    // so we can see whether pinoutSignals() is actually tracking the hardware.
+    bool hasPttInput = (m_ctsFn == InputFunction::PttInput || m_dsrFn == InputFunction::PttInput);
+    if (hasPttInput) {
+        static QSerialPort::PinoutSignals lastRaw{};
+        static bool lastDebounceOk{false};
+        if (pinState != lastRaw || debounceOk != lastDebounceOk || !m_pollLogged) {
+            lastRaw = pinState;
+            lastDebounceOk = debounceOk;
+            qCDebug(lcDevices)
+                << "SerialPortController poll:"
+                << "raw=" << Qt::hex << static_cast<int>(pinState)
+                << "CTS=" << cts << "DSR=" << dsr
+                << "ctsActive=" << ctsActive << "dsrActive=" << dsrActive
+                << "lastCts=" << m_lastCtsActive << "lastDsr=" << m_lastDsrActive
+                << "debounceOk=" << debounceOk
+                << "debounceElapsed=" << m_debounceTimer.elapsed() << "ms"
+                << "ctsFn=" << static_cast<int>(m_ctsFn)
+                << "dsrFn=" << static_cast<int>(m_dsrFn)
+                << "ctsPolActiveHigh=" << m_ctsActiveHigh
+                << "dsrPolActiveHigh=" << m_dsrActiveHigh;
+        }
+    }
+
+    if (!m_pollLogged) {
+        m_pollLogged = true;
+        qCDebug(lcDevices) << "SerialPortController: first poll — raw pinoutSignals ="
+                           << Qt::hex << static_cast<int>(pinState)
+                           << "DSR=" << dsr << "CTS=" << cts;
+    }
+
     // ── PTT input ────────────────────────────────────────────────────────
     if (m_ctsFn == InputFunction::PttInput && ctsActive != m_lastCtsActive && debounceOk) {
+        qCDebug(lcDevices) << "SerialPortController: CTS PTT edge →" << ctsActive;
         m_lastCtsActive = ctsActive;
         m_debounceTimer.restart();
         emit externalPttChanged(ctsActive);
     }
     if (m_dsrFn == InputFunction::PttInput && dsrActive != m_lastDsrActive && debounceOk) {
+        qCDebug(lcDevices) << "SerialPortController: DSR PTT edge →" << dsrActive;
         m_lastDsrActive = dsrActive;
         m_debounceTimer.restart();
         emit externalPttChanged(dsrActive);
@@ -258,6 +294,15 @@ void SerialPortController::loadSettings()
     bool shouldOpen = s.value("SerialAutoOpen", "False").toString() == "True"
                    || s.value("SerialPortOpen", "False").toString() == "True";
 
+    qCDebug(lcDevices) << "SerialPortController::loadSettings:"
+                       << "port=" << port
+                       << "shouldOpen=" << shouldOpen
+                       << "isOpen=" << isOpen()
+                       << "dsrFn=" << static_cast<int>(m_dsrFn)
+                       << "ctsFn=" << static_cast<int>(m_ctsFn)
+                       << "dsrActiveHigh=" << m_dsrActiveHigh
+                       << "ctsActiveHigh=" << m_ctsActiveHigh;
+
     if (!port.isEmpty() && shouldOpen) {
         int baud = s.value("SerialBaudRate", "9600").toInt();
         int data = s.value("SerialDataBits", "8").toInt();
@@ -267,6 +312,7 @@ void SerialPortController::loadSettings()
             // Port already open on the same port/baud — just update in-place
             // without reopening so we don't lose the current DSR/CTS state
             // (a reopen resets m_lastDsrActive, causing a spurious PTT event).
+            qCDebug(lcDevices) << "SerialPortController::loadSettings: in-place update (no reopen)";
             updatePolling();
         } else {
             open(port, baud, data, par, stop);
