@@ -880,8 +880,10 @@ MainWindow::MainWindow(QWidget* parent)
             s.setValue("FramelessMigratedV0823", "True");
             s.save();
         }
+#ifndef Q_OS_MACOS
         if (s.value("FramelessWindow", "True").toString() == "True")
             setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
+#endif
     }
 
     applyDarkTheme();
@@ -3866,6 +3868,16 @@ void MainWindow::resizeEvent(QResizeEvent* event)
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+#ifdef Q_OS_MACOS
+    // macOS HIG: closing the window hides it; the app stays in the Dock.
+    // Quit (⌘Q) sets m_shuttingDown before calling close(), so it still
+    // performs a full shutdown.
+    if (!m_shuttingDown) {
+        hide();
+        event->ignore();
+        return;
+    }
+#endif
     m_shuttingDown = true;
     m_panStack->prepareShutdown();
     if (m_appletPanel && m_appletPanel->containerManager()) {
@@ -4750,7 +4762,16 @@ void MainWindow::buildMenuBar()
     auto* fileMenu = menuBar()->addMenu("&File");
     auto* quitAct = fileMenu->addAction("&Quit");
     quitAct->setShortcut(QKeySequence::Quit);
+#ifdef Q_OS_MACOS
+    // On macOS, route Quit through close() so closeEvent() performs the
+    // full shutdown sequence (save state, disconnect radio, etc.).
+    connect(quitAct, &QAction::triggered, this, [this] {
+        m_shuttingDown = true;
+        close();
+    });
+#else
     connect(quitAct, &QAction::triggered, qApp, &QApplication::quit);
+#endif
 
     // ── Settings menu ──────────────────────────────────────────────────────
     auto* settingsMenu = menuBar()->addMenu("&Settings");
@@ -5579,6 +5600,11 @@ void MainWindow::buildMenuBar()
     connect(framelessAct, &QAction::toggled, this, [this](bool on) {
         setFramelessWindow(on);
     });
+#ifdef Q_OS_MACOS
+    // Frameless mode suppresses native macOS window chrome (traffic-light
+    // buttons, system menu bar integration).  Hide the option on macOS.
+    framelessAct->setVisible(false);
+#endif
 
     auto* propForecastAct = viewMenu->addAction("Propagation Conditions");
     propForecastAct->setCheckable(true);
@@ -5712,7 +5738,7 @@ void MainWindow::buildMenuBar()
         m_whatsNewDialog = WhatsNewDialog::showAll(this);
     });
     helpMenu->addSeparator();
-    helpMenu->addAction("About AetherSDR", this, [this]{
+    auto* aboutAct = helpMenu->addAction("About AetherSDR", this, [this]{
         auto* dlg = new QDialog(this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         dlg->setWindowTitle("About AetherSDR");
@@ -5836,6 +5862,7 @@ void MainWindow::buildMenuBar()
             contribLabel->setText(names.join("<br>"));
         });
     });
+    aboutAct->setMenuRole(QAction::AboutRole);  // macOS: moves to app menu
 }
 
 void MainWindow::buildUI()

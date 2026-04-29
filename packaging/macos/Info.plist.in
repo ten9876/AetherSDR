@@ -28,5 +28,9 @@
 	<string>AetherSDR needs local network access to discover and communicate with FlexRadio devices via UDP broadcast on port 4992.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
 </dict>
 </plist>
