@@ -2660,6 +2660,15 @@ void SpectrumWidget::wheelEvent(QWheelEvent* ev)
         // Clamp to ±1: on Linux/libinput regular mice often report pixelDelta
         // (e.g. 120px per notch) which would produce 8 steps and an 8× jump.
         steps = qBound(-1, steps, 1);
+        // Debounce: same 50ms window as the angleDelta path below (#2150)
+        if (steps != 0) {
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - m_lastWheelMs < 50) {
+                steps = 0;
+            } else {
+                m_lastWheelMs = now;
+            }
+        }
     } else {
         // Standard mouse wheel: angleDelta is in 1/8° units, one notch = 120.
         // Some desktops (KDE Plasma, Cinnamon) send inflated deltas

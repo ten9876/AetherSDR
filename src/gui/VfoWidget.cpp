@@ -7,6 +7,7 @@
 #include "models/TransmitModel.h"
 #include "core/AppSettings.h"
 
+#include <QDateTime>
 #include <QPainter>
 #include <QPushButton>
 #include <QTimer>
@@ -201,37 +202,58 @@ VfoWidget::VfoWidget(QWidget* parent)
 
 void VfoWidget::wheelEvent(QWheelEvent* ev)
 {
-    // In collapsed mode, scroll anywhere to tune by step size
+    // Filter momentum (inertial) scrolling on macOS — these arrive after the
+    // physical gesture ends and would generate unwanted tune commands.
+    if (ev->phase() == Qt::ScrollMomentum) { ev->accept(); return; }
+
+    // Determine whether we should handle this event at all.
+    bool shouldTune = false;
     if (m_collapsed && m_slice && !m_slice->isLocked()) {
-        int stepHz = m_slice->stepHz();
-        if (stepHz > 0) {
-            int delta = ev->angleDelta().y();
-            int steps = qBound(-1, delta / 120, 1);
-            if (steps != 0) {
-                double newMhz = m_slice->frequency() + steps * stepHz / 1e6;
-                emit stepTuneRequested(newMhz);
-            }
-        }
-        ev->accept();
-        return;
+        // In collapsed mode, scroll anywhere to tune by step size
+        shouldTune = true;
+    } else if (m_freqStack && m_slice && !m_slice->isLocked()) {
+        // Scroll over the frequency display tunes by step size.
+        QPoint local = m_freqStack->mapFrom(this, ev->position().toPoint());
+        shouldTune = m_freqStack->rect().contains(local);
     }
 
-    // Scroll over the frequency display tunes by step size.
-    // Everything else in the VFO is a dead zone for wheel events.
-    if (m_freqStack && m_slice && !m_slice->isLocked()) {
-        QPoint local = m_freqStack->mapFrom(this, ev->position().toPoint());
-        if (m_freqStack->rect().contains(local)) {
-            int stepHz = m_slice->stepHz();
-            if (stepHz <= 0) { ev->accept(); return; }
-            int delta = ev->angleDelta().y();
-            int steps = qBound(-1, delta / 120, 1);
-            if (steps != 0) {
-                double newMhz = m_slice->frequency() + steps * stepHz / 1e6;
-                emit stepTuneRequested(newMhz);
-            }
-            ev->accept();
-            return;
+    if (!shouldTune) { ev->accept(); return; }
+
+    int stepHz = m_slice->stepHz();
+    if (stepHz <= 0) { ev->accept(); return; }
+
+    // Compute steps from scroll delta — same logic as SpectrumWidget.
+    int steps = 0;
+    if (!ev->pixelDelta().isNull()) {
+        // Trackpad / high-resolution scroll: accumulate pixel delta, 1 step per ~15px.
+        if (qAbs(ev->pixelDelta().x()) > qAbs(ev->pixelDelta().y())) {
+            ev->ignore(); return;
         }
+        m_scrollAccum += ev->pixelDelta().y();
+        steps = m_scrollAccum / 15;
+        m_scrollAccum -= steps * 15;
+        steps = qBound(-1, steps, 1);
+    } else {
+        // Standard mouse wheel: angleDelta in 1/8° units, one notch = 120.
+        m_angleAccum += ev->angleDelta().y();
+        steps = m_angleAccum / 120;
+        m_angleAccum -= steps * 120;
+        steps = qBound(-1, steps, 1);
+    }
+
+    // Debounce: ignore steps arriving within 50ms of the last accepted step.
+    if (steps != 0) {
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now - m_lastWheelMs < 50) {
+            steps = 0;
+        } else {
+            m_lastWheelMs = now;
+        }
+    }
+
+    if (steps != 0) {
+        double newMhz = m_slice->frequency() + steps * stepHz / 1e6;
+        emit stepTuneRequested(newMhz);
     }
     ev->accept();
 }

@@ -154,6 +154,9 @@ private:
     float          m_targetSignalMeterFraction{0.0f};
     bool           m_collapsed{false};
     bool           m_collapseToggled{false};  // guard: absorb release after toggle
+    int            m_scrollAccum{0};    // trackpad pixel scroll accumulator
+    int            m_angleAccum{0};     // mouse wheel angle accumulator
+    qint64         m_lastWheelMs{0};    // debounce: timestamp of last accepted wheel step
     QPointer<QLabel> m_collapsedFreqLabel;
     QSet<QWidget*> m_hiddenBeforeCollapse;    // widgets already hidden before collapse
 
