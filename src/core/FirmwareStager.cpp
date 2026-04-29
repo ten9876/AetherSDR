@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QNetworkRequest>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QUrl>
@@ -38,6 +39,48 @@ QString FirmwareStager::modelToFamily(const QString& model)
     if (model.contains("9600"))
         return "9600";
     return "6x00";
+}
+
+bool FirmwareStager::versionUsesMsi(const QString& version)
+{
+    // FlexRadio switched from InnoSetup (.exe) to WiX MSI in SmartSDR v4.2.
+    const auto parts = version.split('.');
+    if (parts.size() < 2) return false;
+    bool ok1 = false, ok2 = false;
+    const int major = parts[0].toInt(&ok1);
+    const int minor = parts[1].toInt(&ok2);
+    if (!ok1 || !ok2) return false;
+    return (major > 4) || (major == 4 && minor >= 2);
+}
+
+QString FirmwareStager::findExtractionTool()
+{
+    // 7z handles both MSI (OLE Compound File) and the LZX-compressed CABs
+    // inside, so we use it as a single tool. Try the common binary names.
+    static const QStringList candidates = {
+        "7z", "7zz", "7za",
+        "/usr/local/bin/7z",       // macOS Intel Homebrew
+        "/opt/homebrew/bin/7z",    // macOS Apple Silicon Homebrew
+        "/opt/homebrew/bin/7zz",
+    };
+    for (const QString& cand : candidates) {
+        // Absolute paths: check existence directly.
+        if (cand.startsWith('/')) {
+            if (QFileInfo::exists(cand) && QFileInfo(cand).isExecutable())
+                return cand;
+            continue;
+        }
+        // Otherwise probe via QProcess (catches PATH lookups portably).
+        QProcess p;
+        p.setProgram(cand);
+        p.setArguments({"--help"});
+        p.start();
+        if (p.waitForStarted(2000)) {
+            p.waitForFinished(3000);
+            return cand;
+        }
+    }
+    return QString();
 }
 
 // ─── Step 1: Check for update ────────────────────────────────────────────────
@@ -123,9 +166,15 @@ void FirmwareStager::downloadAndStage(const QString& version, const QString& mod
             qCWarning(lcFirmware) << "FirmwareStager: MD5 hash file not available (non-fatal)";
         }
 
-        // Now download the installer
-        const QString installerUrl = QString(INSTALLER_URL_FMT).arg(version);
-        m_installerPath = stagingDir() + "/SmartSDR_v" + version + "_Installer.exe";
+        // Now download the installer. v4.2+ ships as a WiX MSI; older
+        // releases used an InnoSetup .exe.
+        const bool useMsi = versionUsesMsi(version);
+        const QString installerUrl = useMsi
+            ? QString(INSTALLER_URL_FMT_MSI).arg(version)
+            : QString(INSTALLER_URL_FMT_EXE).arg(version);
+        m_installerPath = stagingDir()
+            + (useMsi ? "/SmartSDR_v" + version + "_x64.msi"
+                      : "/SmartSDR_v" + version + "_Installer.exe");
 
         // Check if we already have it cached
         if (QFileInfo::exists(m_installerPath) && !m_expectedMd5.isEmpty()) {
@@ -241,16 +290,86 @@ void FirmwareStager::verifyAndExtract()
     // Step 4: Extract .ssdr firmware
     emit stageProgress(70, "Extracting firmware...");
 
-    QFile installer(m_installerPath);
-    if (!installer.open(QIODevice::ReadOnly)) {
+    // Detect installer format from the first 8 bytes:
+    //   InnoSetup .exe → "MZ" (PE/COFF) header
+    //   WiX MSI        → OLE Compound File: D0 CF 11 E0 A1 B1 1A E1
+    QFile probe(m_installerPath);
+    if (!probe.open(QIODevice::ReadOnly)) {
         emit stageFailed("Cannot open installer for extraction.");
         return;
     }
+    const QByteArray header = probe.read(8);
+    probe.close();
 
-    const QByteArray data = installer.readAll();
-    installer.close();
+    const QByteArray oleMagic("\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1", 8);
+    const bool isMsi = (header == oleMagic);
 
-    // Find all "Salted__" signatures
+    // Compute output path early so both extractors can target the same place.
+    const QString targetName = "FLEX-" + m_modelFamily + "_v" + m_targetVersion + ".ssdr";
+    const QString outPath = stagingDir() + "/" + targetName;
+    QFile::remove(outPath);
+
+    bool ok = false;
+    if (isMsi) {
+        ok = extractFromMsi(m_installerPath, outPath);
+    } else {
+        QFile installer(m_installerPath);
+        if (!installer.open(QIODevice::ReadOnly)) {
+            emit stageFailed("Cannot open installer for extraction.");
+            return;
+        }
+        const QByteArray data = installer.readAll();
+        installer.close();
+        ok = extractFromInnoSetup(data, outPath);
+    }
+    if (!ok) {
+        // The format-specific extractor already emitted stageFailed.
+        return;
+    }
+
+    // Common downstream: validate header, MD5, emit completion.
+    emit stageProgress(92, "Validating extracted firmware...");
+    QFile check(outPath);
+    if (!check.open(QIODevice::ReadOnly)) {
+        emit stageFailed("Cannot read extracted firmware for validation.");
+        return;
+    }
+    const QByteArray fwHeader = check.read(8);
+    check.close();
+
+    if (fwHeader != QByteArrayLiteral("Salted__")) {
+        emit stageFailed("Extracted firmware failed validation (bad header).");
+        QFile::remove(outPath);
+        return;
+    }
+
+    QFile hashFile(outPath);
+    hashFile.open(QIODevice::ReadOnly);
+    QCryptographicHash fwHash(QCryptographicHash::Md5);
+    fwHash.addData(&hashFile);
+    const QString fwMd5 = fwHash.result().toHex().toLower();
+    const qint64 fwSize = hashFile.size();
+    hashFile.close();
+
+    m_stagedPath = outPath;
+    m_stagedVersion = m_targetVersion;
+
+    emit stageProgress(100, QString("Firmware staged and ready ✓\n"
+        "%1 (%2 MB)\nMD5: %3")
+        .arg(targetName)
+        .arg(fwSize / (1024*1024))
+        .arg(fwMd5));
+    emit stageComplete(outPath, m_targetVersion);
+}
+
+// ─── Format-specific extractors ─────────────────────────────────────────────
+
+bool FirmwareStager::extractFromInnoSetup(const QByteArray& data, const QString& outPath)
+{
+    // v4.1.x and earlier: InnoSetup self-extracting .exe with two .ssdr blobs
+    // stored as OpenSSL-encrypted "Salted__"-prefixed payloads, separated by an
+    // InnoSetup LZMA block marker. Boundaries are deduced by scanning.
+
     const QByteArray saltSig("Salted__");
     QList<qint64> saltOffsets;
     qint64 pos = 0;
@@ -265,114 +384,185 @@ void FirmwareStager::verifyAndExtract()
         emit stageFailed(QString("Expected 2 firmware files in installer, found %1.\n"
             "The installer format may have changed.")
             .arg(saltOffsets.size()));
-        return;
+        return false;
     }
 
     emit stageProgress(75, QString("Found %1 firmware files.").arg(saltOffsets.size()));
 
-    // Determine file boundaries
-    // File 1 (6x00): offset[0] to offset[1]
-    // File 2 (9600): offset[1] to next InnoSetup LZMA header
     const qint64 off1 = saltOffsets[0];
     const qint64 off2 = saltOffsets[1];
     const qint64 size1 = off2 - off1;
 
-    // Find end of file 2: search for InnoSetup LZMA block header after off2
+    // Find end of file 2: next InnoSetup LZMA block header at least 50 MB out.
     const QByteArray zlbSig("\x7a\x6c\x62\x1a\x5d\x00\x00\x80", 8);
     qint64 size2 = -1;
-    pos = off2 + 1024;  // skip past the Salted__ header
+    pos = off2 + 1024;
     while (true) {
         qint64 idx = data.indexOf(zlbSig, pos);
         if (idx < 0) break;
-        qint64 candidate = idx - off2;
-        // The .ssdr file should be > 50MB
+        const qint64 candidate = idx - off2;
         if (candidate > 50 * 1024 * 1024) {
             size2 = candidate;
             break;
         }
         pos = idx + 1;
     }
-
     if (size2 < 0) {
-        // Fallback: use everything from off2 to EOF minus a reasonable trailer
         size2 = data.size() - off2;
-        qCWarning(lcFirmware) << "FirmwareStager: could not find LZMA boundary, using" << size2 << "bytes";
+        qCWarning(lcFirmware) << "FirmwareStager: could not find LZMA boundary, using"
+                              << size2 << "bytes";
     }
 
-    emit stageProgress(80, "Extracting firmware files...");
+    // File 1 is FLEX-6x00 (consumer multi-platform), File 2 is FLEX-9600.
+    const qint64 offset = (m_modelFamily == "9600") ? off2  : off1;
+    const qint64 size   = (m_modelFamily == "9600") ? size2 : size1;
 
-    // Determine which file we need
-    struct FwFile {
-        QString name;
-        qint64 offset;
-        qint64 size;
-    };
-    QList<FwFile> files = {
-        {"FLEX-6x00_v" + m_targetVersion + ".ssdr", off1, size1},
-        {"FLEX-9600_v" + m_targetVersion + ".ssdr", off2, size2},
-    };
+    emit stageProgress(85, QString("Extracting %1 MB...").arg(size / (1024*1024)));
 
-    // Find the one matching our model family
-    int targetIdx = -1;
-    for (int i = 0; i < files.size(); ++i) {
-        if (files[i].name.contains(m_modelFamily)) {
-            targetIdx = i;
-            break;
-        }
-    }
-    if (targetIdx < 0) {
-        emit stageFailed("Cannot find firmware for model family: " + m_modelFamily);
-        return;
-    }
-
-    const auto& target = files[targetIdx];
-    emit stageProgress(85, QString("Extracting %1 (%2 MB)...")
-                           .arg(target.name)
-                           .arg(target.size / (1024*1024)));
-
-    // Extract to staging directory
-    const QString outPath = stagingDir() + "/" + target.name;
     QFile out(outPath);
     if (!out.open(QIODevice::WriteOnly)) {
         emit stageFailed("Cannot write firmware file: " + out.errorString());
-        return;
+        return false;
     }
-    out.write(data.constData() + target.offset, target.size);
+    out.write(data.constData() + offset, size);
     out.close();
+    return true;
+}
 
-    // Validate: first 8 bytes must be "Salted__"
-    emit stageProgress(92, "Validating extracted firmware...");
-    QFile check(outPath);
-    if (!check.open(QIODevice::ReadOnly)) {
-        emit stageFailed("Cannot read extracted firmware for validation.");
-        return;
+bool FirmwareStager::extractFromMsi(const QString& msiPath, const QString& outPath)
+{
+    // v4.2+: WiX MSI (OLE Compound File) with the .ssdr files stored as
+    // LZX-compressed CAB streams (cab1.cab, cab2.cab, ...). Each cab contains
+    // exactly one payload file, hashed-named, that decompresses to a raw
+    // Salted__-prefixed .ssdr blob.
+    //
+    // Strategy: shell out to 7-Zip to do the OLE+LZX heavy lifting, scan the
+    // decompressed payloads for the Salted__ magic, sort by size, and pick the
+    // matching firmware family (consumer 6x00 is several hundred MB; the 9600
+    // government build is much smaller).
+
+    const QString sevenZ = findExtractionTool();
+    if (sevenZ.isEmpty()) {
+        emit stageFailed(
+            "Firmware extraction requires 7-Zip but it could not be found.\n\n"
+            "Install 7-Zip and ensure it is on PATH:\n"
+            "  • Linux:   sudo pacman -S p7zip   (or apt/dnf equivalent)\n"
+            "  • macOS:   brew install p7zip\n"
+            "  • Windows: install from https://7-zip.org and add to PATH"
+        );
+        return false;
     }
-    const QByteArray header = check.read(8);
-    check.close();
 
-    if (header != saltSig) {
-        emit stageFailed("Extracted firmware failed validation (bad header).");
-        QFile::remove(outPath);
-        return;
+    const QString tempDir = stagingDir() + "/_msi_tmp";
+    {
+        QDir td(tempDir);
+        if (td.exists()) td.removeRecursively();
+    }
+    if (!QDir().mkpath(tempDir)) {
+        emit stageFailed("Cannot create extraction temp directory.");
+        return false;
     }
 
-    // Compute MD5 of extracted file
-    QFile hashFile(outPath);
-    hashFile.open(QIODevice::ReadOnly);
-    QCryptographicHash fwHash(QCryptographicHash::Md5);
-    fwHash.addData(&hashFile);
-    const QString fwMd5 = fwHash.result().toHex().toLower();
-    hashFile.close();
+    auto runSevenZip = [&](const QStringList& args, const QString& step) -> bool {
+        QProcess p;
+        p.setProgram(sevenZ);
+        p.setArguments(args);
+        p.start();
+        if (!p.waitForStarted(5000)) {
+            emit stageFailed(step + " failed to start: " + p.errorString());
+            return false;
+        }
+        // MSI extraction can be slow on large installers — give it 5 minutes.
+        if (!p.waitForFinished(300000)) {
+            p.kill();
+            emit stageFailed(step + " timed out.");
+            return false;
+        }
+        if (p.exitCode() != 0) {
+            const QString err = QString::fromUtf8(p.readAllStandardError()).trimmed();
+            emit stageFailed(step + " failed: " + (err.isEmpty() ? "exit code "
+                + QString::number(p.exitCode()) : err));
+            return false;
+        }
+        return true;
+    };
 
-    m_stagedPath = outPath;
-    m_stagedVersion = m_targetVersion;
+    // Extract the embedded CAB streams from the MSI's OLE Compound File.
+    emit stageProgress(75, "Extracting installer streams...");
+    if (!runSevenZip({"x", "-y", "-o" + tempDir, msiPath, "cab*.cab"},
+                     "MSI stream extraction"))
+        return false;
 
-    emit stageProgress(100, QString("Firmware staged and ready ✓\n"
-        "%1 (%2 MB)\nMD5: %3")
-        .arg(target.name)
-        .arg(target.size / (1024*1024))
-        .arg(fwMd5));
-    emit stageComplete(outPath, m_targetVersion);
+    QDir td(tempDir);
+    QStringList cabFiles = td.entryList({"cab*.cab"}, QDir::Files);
+    if (cabFiles.isEmpty()) {
+        emit stageFailed("No CAB streams found in MSI.");
+        return false;
+    }
+
+    // Each CAB has a single LZX-compressed payload; decompress all.
+    emit stageProgress(82, QString("Decompressing %1 CAB streams...").arg(cabFiles.size()));
+    for (const QString& cab : cabFiles) {
+        if (!runSevenZip({"x", "-y", "-o" + tempDir, tempDir + "/" + cab},
+                         "CAB " + cab + " decompression"))
+            return false;
+    }
+
+    // Scan the decompressed payloads for Salted__ magic.
+    emit stageProgress(88, "Locating firmware blobs...");
+    struct Blob { QString path; qint64 size; };
+    QList<Blob> blobs;
+    for (const QFileInfo& fi : td.entryInfoList(QDir::Files)) {
+        if (fi.fileName().startsWith("cab"))
+            continue;
+        QFile f(fi.absoluteFilePath());
+        if (!f.open(QIODevice::ReadOnly))
+            continue;
+        const QByteArray hdr = f.read(8);
+        f.close();
+        if (hdr == QByteArrayLiteral("Salted__"))
+            blobs.append({fi.absoluteFilePath(), fi.size()});
+    }
+
+    if (blobs.isEmpty()) {
+        emit stageFailed("No firmware blobs (Salted__ header) found in MSI cabinets.");
+        return false;
+    }
+
+    // FLEX-6x00 consumer firmware bundles every consumer platform and is
+    // significantly larger than the FLEX-9600 government build, so size order
+    // gives us the family mapping reliably.
+    std::sort(blobs.begin(), blobs.end(), [](const Blob& a, const Blob& b) {
+        return a.size > b.size;
+    });
+
+    int targetIdx = -1;
+    if (m_modelFamily == "9600") {
+        if (blobs.size() < 2) {
+            emit stageFailed("FLEX-9600 firmware not present in this installer.");
+            td.removeRecursively();
+            return false;
+        }
+        targetIdx = blobs.size() - 1;  // smallest blob
+    } else {
+        targetIdx = 0;                  // largest blob (multi-platform consumer)
+    }
+
+    const Blob& target = blobs[targetIdx];
+    emit stageProgress(90, QString("Staging firmware (%1 MB)...").arg(target.size / (1024*1024)));
+
+    if (!QFile::rename(target.path, outPath)) {
+        // Cross-device fallback (e.g. /tmp on tmpfs vs ~/.config on disk).
+        if (!QFile::copy(target.path, outPath)) {
+            emit stageFailed("Failed to stage firmware file from temp dir.");
+            td.removeRecursively();
+            return false;
+        }
+        QFile::remove(target.path);
+    }
+
+    td.removeRecursively();
+    return true;
 }
 
 } // namespace AetherSDR
