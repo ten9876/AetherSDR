@@ -3355,7 +3355,13 @@ void AudioEngine::sendModemTxAudio(const QByteArray& float32pcm)
 
 void AudioEngine::setDaxTxMode(bool on)
 {
-    m_daxTxMode = on;
+    const bool previous = m_daxTxMode.exchange(on);
+    if (previous != on) {
+        qCDebug(lcDax) << "AudioEngine: DAX TX mode"
+                       << (on ? "enabled" : "disabled")
+                       << "route=" << (m_daxTxUseRadioRoute ? "radio-dax" : "float32-dax-tx")
+                       << "stream=0x" + QString::number(m_txStreamId, 16);
+    }
 }
 
 void AudioEngine::setTransmitting(bool tx)
@@ -3386,6 +3392,9 @@ void AudioEngine::setDaxTxUseRadioRoute(bool on)
     // Switching route changes payload format; drop partial buffered samples.
     m_txFloatAccumulator.clear();
     m_daxPreTxBuffer.clear();
+    qCDebug(lcDax) << "AudioEngine: DAX TX route"
+                   << (on ? "radio-dax pcc=0x0123" : "float32 pcc=0x03e3")
+                   << "stream=0x" + QString::number(m_txStreamId, 16);
 }
 
 void AudioEngine::feedDaxTxAudio(const QByteArray& inPcm)

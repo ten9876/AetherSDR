@@ -95,6 +95,7 @@ private:
         QWebSocket*  socket{nullptr};
         TciProtocol* protocol{nullptr};
         bool         audioEnabled{false};   // client sent AUDIO_START
+        int          audioReceiver{-1};     // -1 = all receivers, otherwise TCI TRX
         int          audioSampleRate{48000}; // requested output rate (48kHz for WSJT-X compat)
         int          audioChannels{2};       // 1=mono, 2=stereo
         int          audioFormat{3};         // 0=int16, 3=float32
@@ -152,6 +153,9 @@ private:
     double            m_txAudioSumSq{0.0};
     float             m_txAudioPeak{0.0f};
     bool              m_txSawDuplicatedStereo{false};
+    QElapsedTimer     m_rxAudioLogTimer;
+    qint64            m_rxAudioPackets{0};
+    qint64            m_rxAudioFramesSent{0};
     bool              m_lastTx{false};
     float             m_cachedSLevel[8]{-130,-130,-130,-130,-130,-130,-130,-130};
     float             m_cachedFwdPower{0};
