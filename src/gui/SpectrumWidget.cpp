@@ -1201,13 +1201,13 @@ void SpectrumWidget::setSliceOverlay(int sliceId, double freq, int fLow, int fHi
     }
 }
 
-void SpectrumWidget::setSliceOverlayMarkerStyle(int sliceId, bool markerThin, bool filterEdgesHidden)
+void SpectrumWidget::setSliceOverlayMarkerStyle(int sliceId, int markerWidth, bool filterEdgesHidden)
 {
     int idx = overlayIndex(sliceId);
     if (idx < 0) return;
     auto& o = m_sliceOverlays[idx];
-    if (o.markerThin == markerThin && o.filterEdgesHidden == filterEdgesHidden) return;
-    o.markerThin = markerThin;
+    if (o.markerWidth == markerWidth && o.filterEdgesHidden == filterEdgesHidden) return;
+    o.markerWidth = markerWidth;
     o.filterEdgesHidden = filterEdgesHidden;
     markOverlayDirty();
 }
@@ -4748,12 +4748,14 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
             p.drawText(markX + 2, specRect.top() + 12, "M");
             p.setPen(QColor(220, 60, 60, 240));
             p.drawText(spaceX + 2, specRect.top() + 12, "S");
-        } else {
+        } else if (so.markerWidth > 0) {
             // ── Standard VFO center line ─────────────────────────────────
+            // Skipped entirely when markerWidth == 0 (user chose
+            // "Marker: Off") — passband bracket only.
             int markerX = vfoX;
 
             // Per-slice VFO marker thickness — user-toggled via VFO flag (#1526)
-            const qreal vfoLineW = so.markerThin ? 1.0 : 2.0;
+            const qreal vfoLineW = static_cast<qreal>(so.markerWidth);
             p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 220), vfoLineW));
             p.drawLine(markerX, specRect.top(), markerX, freqLineBottom);
 

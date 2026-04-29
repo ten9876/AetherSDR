@@ -1914,15 +1914,23 @@ void VfoWidget::setSmartSdrPlus(bool has)
 
 // ── Per-slice VFO marker display prefs (#1526) ───────────────────────────────
 
-void VfoWidget::setMarkerThin(bool thin)
+void VfoWidget::setMarkerWidth(int widthPx)
 {
-    if (m_markerThin != thin) {
-        m_markerThin = thin;
+    // Snap to one of the supported states: 0 (off), 1, 3.
+    if (widthPx <= 0)      widthPx = 0;
+    else if (widthPx <= 1) widthPx = 1;
+    else                   widthPx = 3;
+
+    if (m_markerWidth != widthPx) {
+        m_markerWidth = widthPx;
         saveDisplayPrefs();
-        emit markerStyleChanged(m_markerThin, m_filterEdgesHidden);
+        emit markerStyleChanged(m_markerWidth, m_filterEdgesHidden);
     }
-    if (m_markerThinBtn)  m_markerThinBtn->setChecked(thin);
-    if (m_markerThickBtn) m_markerThickBtn->setChecked(!thin);
+    if (m_markerThicknessBtn) {
+        const QString label = (widthPx == 0) ? QStringLiteral("Marker: Off")
+                            : QStringLiteral("Marker: %1px").arg(widthPx);
+        m_markerThicknessBtn->setText(label);
+    }
 }
 
 void VfoWidget::setFilterEdgesHidden(bool hide)
@@ -1930,19 +1938,26 @@ void VfoWidget::setFilterEdgesHidden(bool hide)
     if (m_filterEdgesHidden != hide) {
         m_filterEdgesHidden = hide;
         saveDisplayPrefs();
-        emit markerStyleChanged(m_markerThin, m_filterEdgesHidden);
+        emit markerStyleChanged(m_markerWidth, m_filterEdgesHidden);
     }
-    if (m_edgesShowBtn) m_edgesShowBtn->setChecked(!hide);
-    if (m_edgesHideBtn) m_edgesHideBtn->setChecked(hide);
+    if (m_edgesBtn) m_edgesBtn->setChecked(!hide);
 }
 
 void VfoWidget::loadDisplayPrefs()
 {
     if (!m_slice) return;
     auto& s = AppSettings::instance();
+    const QString keyW = QStringLiteral("Slice%1_MarkerWidth").arg(m_slice->sliceId());
     const QString keyT = QStringLiteral("Slice%1_MarkerThin").arg(m_slice->sliceId());
     const QString keyH = QStringLiteral("Slice%1_FilterEdgesHidden").arg(m_slice->sliceId());
-    m_markerThin        = s.value(keyT, "False").toString() == "True";
+    if (s.contains(keyW)) {
+        m_markerWidth = s.value(keyW, "1").toString().toInt();
+    } else {
+        // Migrate from the old MarkerThin bool: True (thin) → 1, False (thick) → 3.
+        m_markerWidth = (s.value(keyT, "False").toString() == "True") ? 1 : 3;
+    }
+    if (m_markerWidth != 0 && m_markerWidth != 1 && m_markerWidth != 3)
+        m_markerWidth = 1;
     m_filterEdgesHidden = s.value(keyH, "False").toString() == "True";
 }
 
@@ -1950,9 +1965,9 @@ void VfoWidget::saveDisplayPrefs()
 {
     if (!m_slice) return;
     auto& s = AppSettings::instance();
-    const QString keyT = QStringLiteral("Slice%1_MarkerThin").arg(m_slice->sliceId());
+    const QString keyW = QStringLiteral("Slice%1_MarkerWidth").arg(m_slice->sliceId());
     const QString keyH = QStringLiteral("Slice%1_FilterEdgesHidden").arg(m_slice->sliceId());
-    s.setValue(keyT, m_markerThin ? "True" : "False");
+    s.setValue(keyW, QString::number(m_markerWidth));
     s.setValue(keyH, m_filterEdgesHidden ? "True" : "False");
     s.save();
 }
@@ -2310,7 +2325,7 @@ void VfoWidget::setSlice(SliceModel* slice)
     // them out so the SpectrumWidget's overlay picks up the saved style. This
     // runs after wireVfoWidget() has connected markerStyleChanged (#1526).
     loadDisplayPrefs();
-    emit markerStyleChanged(m_markerThin, m_filterEdgesHidden);
+    emit markerStyleChanged(m_markerWidth, m_filterEdgesHidden);
 
     // Frequency
     connect(m_slice, &SliceModel::frequencyChanged, this, [this](double) { updateFreqLabel(); });
@@ -3097,10 +3112,8 @@ void VfoWidget::rebuildFilterButtons()
         m_zeroBeatBtn = nullptr;
     }
     // Remove marker-style buttons if they exist (re-added for CW only, #1526)
-    if (m_markerThinBtn)  { delete m_markerThinBtn;  m_markerThinBtn = nullptr; }
-    if (m_markerThickBtn) { delete m_markerThickBtn; m_markerThickBtn = nullptr; }
-    if (m_edgesShowBtn)   { delete m_edgesShowBtn;   m_edgesShowBtn = nullptr; }
-    if (m_edgesHideBtn)   { delete m_edgesHideBtn;   m_edgesHideBtn = nullptr; }
+    if (m_markerThicknessBtn) { delete m_markerThicknessBtn; m_markerThicknessBtn = nullptr; }
+    if (m_edgesBtn)           { delete m_edgesBtn;           m_edgesBtn = nullptr; }
 
     for (int i = 0; i < m_filterWidths.size(); ++i) {
         const int w = m_filterWidths[i];
@@ -3152,41 +3165,33 @@ void VfoWidget::rebuildFilterButtons()
     {
         int row = (m_filterWidths.size() + 3) / 4;
 
-        m_markerThinBtn = new QPushButton("Thin");
-        m_markerThinBtn->setCheckable(true);
-        m_markerThinBtn->setChecked(m_markerThin);
-        m_markerThinBtn->setFixedHeight(26);
-        m_markerThinBtn->setStyleSheet(kModeBtn);
-        m_markerThinBtn->setToolTip("Thin VFO center line");
-        connect(m_markerThinBtn, &QPushButton::clicked, this, [this]() { setMarkerThin(true); });
-        m_filterGrid->addWidget(m_markerThinBtn, row, 0);
+        // Marker: cycle through Off → 1 px → 3 px on each click.  Label
+        // reflects the current state.  Off removes the center line and the
+        // top triangle entirely so only the passband bracket is shown.
+        const QString markerLabel = (m_markerWidth == 0)
+            ? QStringLiteral("Marker: Off")
+            : QStringLiteral("Marker: %1px").arg(m_markerWidth);
+        m_markerThicknessBtn = new QPushButton(markerLabel);
+        m_markerThicknessBtn->setFixedHeight(26);
+        m_markerThicknessBtn->setStyleSheet(kModeBtn);
+        m_markerThicknessBtn->setToolTip("Cycle VFO marker: Off → 1 px → 3 px");
+        connect(m_markerThicknessBtn, &QPushButton::clicked, this, [this]() {
+            int next = (m_markerWidth == 0) ? 1 : (m_markerWidth == 1) ? 3 : 0;
+            setMarkerWidth(next);
+        });
+        m_filterGrid->addWidget(m_markerThicknessBtn, row, 0, 1, 2);
 
-        m_markerThickBtn = new QPushButton("Thick");
-        m_markerThickBtn->setCheckable(true);
-        m_markerThickBtn->setChecked(!m_markerThin);
-        m_markerThickBtn->setFixedHeight(26);
-        m_markerThickBtn->setStyleSheet(kModeBtn);
-        m_markerThickBtn->setToolTip("Thick VFO center line");
-        connect(m_markerThickBtn, &QPushButton::clicked, this, [this]() { setMarkerThin(false); });
-        m_filterGrid->addWidget(m_markerThickBtn, row, 1);
-
-        m_edgesShowBtn = new QPushButton("Edges");
-        m_edgesShowBtn->setCheckable(true);
-        m_edgesShowBtn->setChecked(!m_filterEdgesHidden);
-        m_edgesShowBtn->setFixedHeight(26);
-        m_edgesShowBtn->setStyleSheet(kModeBtn);
-        m_edgesShowBtn->setToolTip("Show filter edge lines");
-        connect(m_edgesShowBtn, &QPushButton::clicked, this, [this]() { setFilterEdgesHidden(false); });
-        m_filterGrid->addWidget(m_edgesShowBtn, row, 2);
-
-        m_edgesHideBtn = new QPushButton("Hide");
-        m_edgesHideBtn->setCheckable(true);
-        m_edgesHideBtn->setChecked(m_filterEdgesHidden);
-        m_edgesHideBtn->setFixedHeight(26);
-        m_edgesHideBtn->setStyleSheet(kModeBtn);
-        m_edgesHideBtn->setToolTip("Hide filter edge lines");
-        connect(m_edgesHideBtn, &QPushButton::clicked, this, [this]() { setFilterEdgesHidden(true); });
-        m_filterGrid->addWidget(m_edgesHideBtn, row, 3);
+        // Filter edge lines: checkable on/off.  Checked = edges shown.
+        m_edgesBtn = new QPushButton("Filter Edge");
+        m_edgesBtn->setCheckable(true);
+        m_edgesBtn->setChecked(!m_filterEdgesHidden);
+        m_edgesBtn->setFixedHeight(26);
+        m_edgesBtn->setStyleSheet(kModeBtn);
+        m_edgesBtn->setToolTip("Show filter edge lines");
+        connect(m_edgesBtn, &QPushButton::toggled, this, [this](bool on) {
+            setFilterEdgesHidden(!on);
+        });
+        m_filterGrid->addWidget(m_edgesBtn, row, 2, 1, 2);
     }
 
     // Add CW autotune row spanning all 4 columns when in CW mode

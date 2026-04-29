@@ -9150,11 +9150,11 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     // filter-edge visibility preferences to this slice's overlay whenever they
     // change. Also fires once on setSlice() below to apply loaded defaults.
     connect(w, &VfoWidget::markerStyleChanged, this,
-            [this, sliceId](bool thin, bool hideEdges) {
+            [this, sliceId](int markerWidth, bool hideEdges) {
         auto* sl = m_radioModel.slice(sliceId);
         if (!sl) return;
         if (auto* sw = spectrumForSlice(sl))
-            sw->setSliceOverlayMarkerStyle(sliceId, thin, hideEdges);
+            sw->setSliceOverlayMarkerStyle(sliceId, markerWidth, hideEdges);
     });
 
     // Pan re-apply after NR mono-mix (#1460, #1796): keep AudioEngine in sync

@@ -110,8 +110,10 @@ Q_SIGNALS:
     // tuning/reveal policy.
     void stepTuneRequested(double mhz);
     void directEntryCommitted(double mhz, const QString& source);
-    // Per-slice VFO marker style changed (#1526)
-    void markerStyleChanged(bool markerThin, bool filterEdgesHidden);
+    // Per-slice VFO marker style changed (#1526).  markerWidth: 0 = off
+    // (no center line / no top triangle, passband only), 1 = 1 px line,
+    // 3 = 3 px line.
+    void markerStyleChanged(int markerWidth, bool filterEdgesHidden);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -210,18 +212,21 @@ public:
     void setDiversityAllowed(bool allowed);
     void setSmartSdrPlus(bool has);
 
-    // Per-slice VFO marker display prefs, persisted by slice ID (#1526)
-    bool markerThin() const { return m_markerThin; }
+    // Per-slice VFO marker display prefs, persisted by slice ID (#1526).
+    // markerWidth: 0 = off, 1 = 1 px, 3 = 3 px.
+    int  markerWidth() const { return m_markerWidth; }
     bool filterEdgesHidden() const { return m_filterEdgesHidden; }
-    void setMarkerThin(bool thin);
+    void setMarkerWidth(int widthPx);
     void setFilterEdgesHidden(bool hide);
 private:
-    bool m_markerThin{false};
+    int  m_markerWidth{1};
     bool m_filterEdgesHidden{false};
-    class QPushButton* m_markerThinBtn{nullptr};
-    class QPushButton* m_markerThickBtn{nullptr};
-    class QPushButton* m_edgesShowBtn{nullptr};
-    class QPushButton* m_edgesHideBtn{nullptr};
+    // Marker: single button cycling Off → 1 px → 3 px on click.  Label
+    // reflects the current state.
+    class QPushButton* m_markerThicknessBtn{nullptr};
+    // Filter edge lines: single checkable button — checked = edges shown,
+    // unchecked = edges hidden.
+    class QPushButton* m_edgesBtn{nullptr};
     void loadDisplayPrefs();
     void saveDisplayPrefs();
 
