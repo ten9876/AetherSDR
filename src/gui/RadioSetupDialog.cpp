@@ -3257,18 +3257,20 @@ QWidget* RadioSetupDialog::buildSerialTab()
             }
         };
 
-        connect(openBtn, &QPushButton::clicked, this, [updatePortStatus]() {
+        connect(openBtn, &QPushButton::clicked, this, [this, updatePortStatus]() {
             auto& s = AppSettings::instance();
             s.setValue("SerialPortOpen", "True");
             s.save();
             updatePortStatus();
+            emit serialSettingsChanged();
         });
 
-        connect(closeBtn, &QPushButton::clicked, this, [updatePortStatus]() {
+        connect(closeBtn, &QPushButton::clicked, this, [this, updatePortStatus]() {
             auto& s = AppSettings::instance();
             s.setValue("SerialPortOpen", "False");
             s.save();
             updatePortStatus();
+            emit serialSettingsChanged();
         });
 
         updatePortStatus();

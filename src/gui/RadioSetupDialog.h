@@ -36,6 +36,7 @@ public:
 
 signals:
     void txBandSettingsRequested();
+    void serialSettingsChanged();
 
 protected:
     void closeEvent(QCloseEvent* event) override;

@@ -50,9 +50,14 @@ bool SerialPortController::open(const QString& portName, int baudRate,
     m_port.setDataTerminalReady(!m_dtrActiveHigh);
     m_port.setRequestToSend(!m_rtsActiveHigh);
 
-    // Reset input state
-    m_lastCtsActive = false;
-    m_lastDsrActive = false;
+    // Sample actual pin state so the first poll doesn't fire a spurious PTT event
+    {
+        auto pinState = m_port.pinoutSignals();
+        bool cts = pinState.testFlag(QSerialPort::ClearToSendSignal);
+        bool dsr = pinState.testFlag(QSerialPort::DataSetReadySignal);
+        m_lastCtsActive = m_ctsActiveHigh ? cts : !cts;
+        m_lastDsrActive = m_dsrActiveHigh ? dsr : !dsr;
+    }
     m_pollLogged = false;
     m_debounceTimer.start();
 
@@ -73,7 +78,15 @@ void SerialPortController::close()
 #ifdef HAVE_SERIALPORT
     m_pollTimer.stop();
     if (m_port.isOpen()) {
-        // Deassert all output lines before closing
+        // If PTT was active, release it before closing to avoid stuck TX
+        bool pttWasActive = (m_ctsFn == InputFunction::PttInput && m_lastCtsActive)
+                         || (m_dsrFn == InputFunction::PttInput && m_lastDsrActive);
+        if (pttWasActive)
+            emit externalPttChanged(false);
+
+        m_lastCtsActive = false;
+        m_lastDsrActive = false;
+
         m_port.setDataTerminalReady(!m_dtrActiveHigh);
         m_port.setRequestToSend(!m_rtsActiveHigh);
         m_port.close();
@@ -250,7 +263,14 @@ void SerialPortController::loadSettings()
         int data = s.value("SerialDataBits", "8").toInt();
         int par  = s.value("SerialParity", "0").toInt();
         int stop = s.value("SerialStopBits", "1").toInt();
-        open(port, baud, data, par, stop);
+        if (isOpen() && m_port.portName() == port && m_port.baudRate() == baud) {
+            // Port already open on the same port/baud — just update in-place
+            // without reopening so we don't lose the current DSR/CTS state
+            // (a reopen resets m_lastDsrActive, causing a spurious PTT event).
+            updatePolling();
+        } else {
+            open(port, baud, data, par, stop);
+        }
     } else if (!shouldOpen && isOpen()) {
         close();
     } else {

@@ -4742,6 +4742,11 @@ void MainWindow::buildMenuBar()
         m_radioSetupDialog = dlg;
         connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
                 m_txBandAction, &QAction::trigger);
+#ifdef HAVE_SERIALPORT
+        connect(dlg, &RadioSetupDialog::serialSettingsChanged, this, [this]() {
+            QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->loadSettings(); });
+        });
+#endif
         connect(dlg, &QDialog::finished, this, [this, prevComp]() {
 #ifdef HAVE_SERIALPORT
             // Re-load serial port settings if changed (on worker thread)
