@@ -6,6 +6,10 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.9.2.1"), QStringLiteral("2026-04-29"), QStringLiteral("TGXL direct autotune for firmware 4.2 compatibility"), {
+            {ChangeCategory::BugFix, QStringLiteral("TGXL TUNE works again on firmware 4.2"), QStringLiteral("When a direct TGXL connection (port 9010) is configured, the TUNE button now sends the native `autotune` command directly to the TGXL instead of routing `tgxl autotune handle=<H>` through the radio...")},
+            {ChangeCategory::BugFix, QStringLiteral("Log redaction no longer mangles 4-component version strings"), QStringLiteral("The PII redactor's IPv4 regex matched anything that looked like four dot-separated 1-3-digit numbers, so the application's own version string `0.9.2.1` was being redacted to `*.*.*. 1` in logs and ...")},
+        }},
         {QStringLiteral("0.9.2"), QStringLiteral("2026-04-28"), QStringLiteral("WAVE Phase 2, v4.2.18 firmware support, and community polish"), {
             {ChangeCategory::Feature, QStringLiteral("WAVE Phase 2 — applet visualization controls (#2124, jensenpat)"), QStringLiteral("Double-click the WAVE waveform to open a settings drawer (replaces the prior clear-on-double-click behavior).  Drawer is open by default on first launch for discoverability. New compact `View` drop...")},
             {ChangeCategory::Feature, QStringLiteral("DAX-aware TCI multi-stream routing (#2140, jensenpat)"), QStringLiteral("Adapts the DAX/TCI audio path for FlexRadio firmware 4.2.18's explicit stream-ownership reporting.  Filters DAX RX/IQ stream status by `client_handle` so we don't accidentally register another clie...")},

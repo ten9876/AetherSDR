@@ -3,6 +3,42 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.9.2.1] — 2026-04-29
+
+### TGXL direct autotune for firmware 4.2 compatibility
+
+Hotfix release.  After upgrading to SmartSDR firmware 4.2, multiple
+users on both AetherSDR and SmartSDR report the TUNE button no longer
+works on the 4O3A Tuner Genius XL.  The radio's `tgxl autotune` command
+path was reworked in 4.2 firmware and broke for many configurations.
+
+This release routes the TUNE button through the TGXL's native
+port-9010 channel when a direct TGXL connection is configured,
+bypassing the affected firmware path.  Users without a direct TGXL
+connection are unaffected by this change and should still configure
+direct connection in Radio Setup → Tuner to recover TUNE.
+
+### Bug Fixes
+
+**TGXL TUNE works again on firmware 4.2 (#2163)**
+- When a direct TGXL connection (port 9010) is configured, the TUNE
+  button now sends the native `autotune` command directly to the TGXL
+  instead of routing `tgxl autotune handle=<H>` through the radio's
+  command channel.  Falls back to the radio path when no direct
+  connection is available.
+- The TGXL drives radio PTT via its hardware interlock cable when it
+  receives the native `autotune` command, so client-side keying is
+  not required.  Existing tuning state and SWR readout in the Tuner
+  applet are unchanged.
+
+**Log redaction no longer mangles 4-component version strings**
+- The PII redactor's IPv4 regex matched anything that looked like
+  four dot-separated 1-3-digit numbers, so the application's own
+  version string `0.9.2.1` was being redacted to `*.*.*. 1` in
+  logs and support bundles.  Negative lookbehind/lookahead now skip
+  quoted (`"0.9.2.1"`) and v-prefixed (`v0.9.2.1`) version forms
+  while still redacting bare IPs in log output.
+
 ## [v0.9.2] — 2026-04-28
 
 ### WAVE Phase 2, v4.2.18 firmware support, and community polish
