@@ -14,6 +14,7 @@
 
 #include <QWebSocketServer>
 #include <QWebSocket>
+#include <QStringList>
 #include <QTimer>
 #include <QtEndian>
 #include <algorithm>
@@ -47,6 +48,38 @@ constexpr qint64 kTxChronoPeriodNs =
     (static_cast<qint64>(kTxChronoStereoFrames) * 1000000000LL) / 48000LL;
 constexpr int kTxChronoPollMs = 5;
 constexpr qint64 kTxSummaryEveryBlocks = 48;
+
+quint32 parseStatusHandle(QString text)
+{
+    text = text.trimmed();
+    bool ok = false;
+    quint32 value = text.toUInt(&ok, 0);
+    if (ok)
+        return value;
+
+    if (text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
+        text = text.mid(2);
+    value = text.toUInt(&ok, 16);
+    return ok ? value : 0;
+}
+
+bool streamStatusBelongsToUs(const QMap<QString, QString>& kvs, quint32 ourHandle)
+{
+    if (!kvs.contains(QStringLiteral("client_handle")))
+        return true; // Preserve compatibility with status lines that omit ownership.
+    const quint32 owner = parseStatusHandle(kvs.value(QStringLiteral("client_handle")));
+    return owner == 0 || owner == ourHandle;
+}
+
+int tciTrxForSlice(RadioModel* model, const SliceModel* slice)
+{
+    if (!model || !slice)
+        return 0;
+
+    const auto slices = model->slices();
+    const int index = slices.indexOf(const_cast<SliceModel*>(slice));
+    return index >= 0 ? index : slice->sliceId();
+}
 
 } // namespace
 
@@ -99,8 +132,32 @@ TciServer::TciServer(RadioModel* model, QObject* parent)
         connect(m_model, &RadioModel::statusReceived,
                 this, [this](const QString& obj, const QMap<QString,QString>& kvs) {
             if (!obj.startsWith("stream ")) return;
+            const QStringList parts = obj.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            if (parts.size() < 2) return;
+            bool ok = false;
+            quint32 streamId = parts[1].toUInt(&ok, 0);
+            if (!ok || streamId == 0) return;
+            const bool removed = parts.contains(QStringLiteral("removed")) || kvs.contains(QStringLiteral("removed"));
+            if (removed) {
+                for (auto it = m_tciDaxStreamIds.begin(); it != m_tciDaxStreamIds.end(); ++it) {
+                    if (it.value() == streamId) {
+                        qCInfo(lcCat) << "TCI: radio removed DAX RX stream" << Qt::hex << streamId
+                                      << "for channel" << it.key();
+                        it.value() = 0;
+                        break;
+                    }
+                }
+                if (m_model->panStream())
+                    m_model->panStream()->unregisterDaxStream(streamId);
+                return;
+            }
             if (kvs.value("type") != "dax_rx") return;
-            quint32 streamId = obj.mid(7).toUInt(nullptr, 16);
+            if (!streamStatusBelongsToUs(kvs, m_model->ourClientHandle())) {
+                qCDebug(lcCat) << "TCI: ignoring DAX RX stream for another client"
+                               << "stream=0x" + QString::number(streamId, 16)
+                               << "owner=" << kvs.value("client_handle");
+                return;
+            }
             int ch = kvs.value("dax_channel").toInt();
             if (!streamId || ch < 1 || ch > 4) return;
             // Only register if this channel is one we requested (placeholder = 0)
@@ -109,6 +166,9 @@ TciServer::TciServer(RadioModel* model, QObject* parent)
             m_tciDaxStreamIds[ch] = streamId;
             if (m_model->panStream()) {
                 m_model->panStream()->registerDaxStream(streamId, ch);
+                qCDebug(lcCat) << "TCI: registered DAX RX stream"
+                               << "0x" + QString::number(streamId, 16)
+                               << "for channel" << ch;
                 qCInfo(lcCat) << "TCI: registered DAX RX stream" << Qt::hex << streamId
                               << "for channel" << ch << "(#1331)";
             }
@@ -352,9 +412,27 @@ void TciServer::onTextMessage(const QString& msg)
 
         // Handle audio start/stop at server level (affects per-client state)
         if (trimmed.startsWith("audio_start")) {
+            int requestedReceiver = -1;
+            const int colonIdx2 = trimmed.indexOf(':');
+            if (colonIdx2 >= 0) {
+                const QString receiverText = trimmed.mid(colonIdx2 + 1)
+                                                 .section(QLatin1Char(','), 0, 0)
+                                                 .trimmed();
+                bool ok = false;
+                const int parsedReceiver = receiverText.toInt(&ok);
+                if (ok)
+                    requestedReceiver = parsedReceiver;
+            }
             client.audioEnabled = true;
+            client.audioReceiver = requestedReceiver;
             ensureDaxForTci();
             ws->sendTextMessage(cmd.trimmed() + ";");
+            qCDebug(lcCat) << "TCI: audio started"
+                           << "receiver=" << client.audioReceiver
+                           << "rate=" << client.audioSampleRate
+                           << "channels=" << client.audioChannels
+                           << "format=" << client.audioFormat
+                           << "peer=" << ws->peerAddress().toString();
             qCInfo(lcCat) << "TCI: audio started for client"
                           << ws->peerAddress().toString()
                           << "rate=" << client.audioSampleRate
@@ -364,6 +442,7 @@ void TciServer::onTextMessage(const QString& msg)
         }
         if (trimmed.startsWith("audio_stop")) {
             client.audioEnabled = false;
+            client.audioReceiver = -1;
             // Release DAX if no other clients still want audio
             bool anyAudio = false;
             for (const auto& cs : m_clients) {
@@ -786,23 +865,31 @@ void TciServer::onRxAudioReady(const QByteArray& pcm)
 
 void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
 {
-    // Check if any client has audio enabled
-    bool anyAudio = false;
-    for (const auto& cs : m_clients) {
-        if (cs.audioEnabled) { anyAudio = true; break; }
-    }
-    if (!anyAudio) return;
-
-    // Map DAX channel → TRX by finding which slice owns this channel.
-    int trx = 0;
+    // Map DAX channel -> TCI TRX by the slice that owns the channel. Flex
+    // slice ids are not necessarily zero-based for this client when another
+    // client owns slice 0, but TCI receivers are advertised as 0..N-1.
+    int trx = std::max(0, channel - 1);
+    int owningSliceId = -1;
     if (m_model) {
         for (auto* s : m_model->slices()) {
             if (s->daxChannel() == channel) {
-                trx = s->sliceId();
+                trx = tciTrxForSlice(m_model, s);
+                owningSliceId = s->sliceId();
                 break;
             }
         }
     }
+
+    // Check if any client has this receiver's audio enabled. A client that
+    // sends audio_start with no receiver keeps the legacy all-receiver behavior.
+    int enabledClients = 0;
+    for (const auto& cs : m_clients) {
+        if (cs.audioEnabled && (cs.audioReceiver < 0 || cs.audioReceiver == trx))
+            ++enabledClients;
+    }
+    if (enabledClients == 0) return;
+
+    ++m_rxAudioPackets;
 
     const float channelGain = (channel >= 1 && channel <= 4)
         ? m_rxChannelGain[channel - 1] : 1.0f;
@@ -819,9 +906,16 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
         }
     }
 
+    int sentClients = 0;
+    int lastOutputFrames = 0;
+    int lastSampleRate = 0;
+    int lastChannels = 0;
+    int lastFormat = 0;
+
     // Per-client: accumulate then resample
     for (auto& cs : m_clients) {
         if (!cs.audioEnabled) continue;
+        if (cs.audioReceiver >= 0 && cs.audioReceiver != trx) continue;
 
         // Accumulate DAX packets into a buffer before resampling.
         // DAX delivers ~128-frame packets; r8brain needs larger blocks
@@ -881,17 +975,29 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
         if (cs.audioFormat == 3) {
             // float32 output — pass through directly
             if (cs.audioChannels == 2) {
-                cs.socket->sendBinaryMessage(
+                const QByteArray frame =
                     buildAudioFrame(trx, 1, cs.audioSampleRate, 2,
-                                    audioSrc, audioFrames));
+                                    audioSrc, audioFrames);
+                cs.socket->sendBinaryMessage(frame);
+                ++sentClients;
+                lastOutputFrames = audioFrames;
+                lastSampleRate = cs.audioSampleRate;
+                lastChannels = 2;
+                lastFormat = cs.audioFormat;
             } else {
                 // Mono: average L+R
                 QVector<float> monoBuf(audioFrames);
                 for (int i = 0; i < audioFrames; ++i)
                     monoBuf[i] = (audioSrc[i*2] + audioSrc[i*2+1]) * 0.5f;
-                cs.socket->sendBinaryMessage(
+                const QByteArray frame =
                     buildAudioFrame(trx, 1, cs.audioSampleRate, 1,
-                                    monoBuf.constData(), audioFrames));
+                                    monoBuf.constData(), audioFrames);
+                cs.socket->sendBinaryMessage(frame);
+                ++sentClients;
+                lastOutputFrames = audioFrames;
+                lastSampleRate = cs.audioSampleRate;
+                lastChannels = 1;
+                lastFormat = cs.audioFormat;
             }
         } else {
             // int16 output — convert float32 → int16
@@ -911,6 +1017,11 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
                     i16dst[i] = static_cast<qint16>(std::clamp(audioSrc[i] * 32768.0f, -32768.0f, 32767.0f));
                 }
                 cs.socket->sendBinaryMessage(frame);
+                ++sentClients;
+                lastOutputFrames = audioFrames;
+                lastSampleRate = cs.audioSampleRate;
+                lastChannels = 2;
+                lastFormat = cs.audioFormat;
             } else {
                 // Mono int16
                 int payloadBytes = audioFrames * static_cast<int>(sizeof(qint16));
@@ -928,8 +1039,36 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
                     i16dst[i] = static_cast<qint16>(std::clamp(
                         (audioSrc[i*2] + audioSrc[i*2+1]) * 0.5f * 32768.0f, -32768.0f, 32767.0f));
                 cs.socket->sendBinaryMessage(frame);
+                ++sentClients;
+                lastOutputFrames = audioFrames;
+                lastSampleRate = cs.audioSampleRate;
+                lastChannels = 1;
+                lastFormat = cs.audioFormat;
             }
         }
+    }
+
+    if (sentClients > 0)
+        m_rxAudioFramesSent += static_cast<qint64>(lastOutputFrames) * sentClients;
+
+    const bool firstLog = !m_rxAudioLogTimer.isValid();
+    const bool shouldLog = firstLog || m_rxAudioLogTimer.elapsed() >= 2000;
+    if (shouldLog && (sentClients > 0 || firstLog)) {
+        qCDebug(lcCat).noquote()
+            << "TCI: DAX RX audio"
+            << QStringLiteral("dax_ch=%1").arg(channel)
+            << QStringLiteral("slice=%1").arg(owningSliceId)
+            << QStringLiteral("receiver=%1").arg(trx)
+            << QStringLiteral("in_bytes=%1").arg(pcm.size())
+            << QStringLiteral("enabled_clients=%1").arg(enabledClients)
+            << QStringLiteral("sent_clients=%1").arg(sentClients)
+            << QStringLiteral("out_frames=%1").arg(lastOutputFrames)
+            << QStringLiteral("rate=%1").arg(lastSampleRate)
+            << QStringLiteral("channels=%1").arg(lastChannels)
+            << QStringLiteral("format=%1").arg(lastFormat)
+            << QStringLiteral("packets=%1").arg(m_rxAudioPackets)
+            << QStringLiteral("frames_sent=%1").arg(m_rxAudioFramesSent);
+        m_rxAudioLogTimer.restart();
     }
 }
 
@@ -970,33 +1109,39 @@ QByteArray TciServer::buildAudioFrame(int receiver, int type,
 void TciServer::wireSlice(int trx, SliceModel* slice)
 {
     if (!slice) return;
+    Q_UNUSED(trx);
 
-    connect(slice, &SliceModel::frequencyChanged, this, [this, trx](double mhz) {
+    connect(slice, &SliceModel::frequencyChanged, this, [this, slice](double mhz) {
         if (m_clients.isEmpty()) return;
+        const int trx = tciTrxForSlice(m_model, slice);
         long long hz = static_cast<long long>(std::round(mhz * 1e6));
         broadcast(QStringLiteral("vfo:%1,0,%2;").arg(trx).arg(hz));
     });
 
-    connect(slice, &SliceModel::modeChanged, this, [this, trx](const QString& mode) {
+    connect(slice, &SliceModel::modeChanged, this, [this, slice](const QString& mode) {
         if (m_clients.isEmpty()) return;
+        const int trx = tciTrxForSlice(m_model, slice);
         broadcast(QStringLiteral("modulation:%1,%2;")
                       .arg(trx).arg(TciProtocol::smartsdrToTci(mode)));
     });
 
-    connect(slice, &SliceModel::filterChanged, this, [this, trx](int lo, int hi) {
+    connect(slice, &SliceModel::filterChanged, this, [this, slice](int lo, int hi) {
         if (m_clients.isEmpty()) return;
+        const int trx = tciTrxForSlice(m_model, slice);
         broadcast(QStringLiteral("rx_filter_band:%1,%2,%3;")
                       .arg(trx).arg(lo).arg(hi));
     });
 
-    connect(slice, &SliceModel::txSliceChanged, this, [this, trx](bool tx) {
+    connect(slice, &SliceModel::txSliceChanged, this, [this, slice](bool tx) {
         if (m_clients.isEmpty()) return;
+        const int trx = tciTrxForSlice(m_model, slice);
         broadcast(QStringLiteral("tx_enable:%1,%2;")
                       .arg(trx).arg(tx ? "true" : "false"));
     });
 
-    connect(slice, &SliceModel::lockedChanged, this, [this, trx](bool locked) {
+    connect(slice, &SliceModel::lockedChanged, this, [this, slice](bool locked) {
         if (m_clients.isEmpty()) return;
+        const int trx = tciTrxForSlice(m_model, slice);
         broadcast(QStringLiteral("lock:%1,%2;")
                       .arg(trx).arg(locked ? "true" : "false"));
     });
@@ -1029,6 +1174,18 @@ void TciServer::sendInitBurst(QWebSocket* client)
         if (cs.socket == client) { protocol = cs.protocol; break; }
     }
     if (!protocol) return;
+
+    QStringList receiverMap;
+    const auto slices = m_model->slices();
+    for (auto* s : slices) {
+        receiverMap << QStringLiteral("trx%1=slice%2/dax%3")
+                           .arg(tciTrxForSlice(m_model, s))
+                           .arg(s->sliceId())
+                           .arg(s->daxChannel());
+    }
+    qCDebug(lcCat).noquote()
+        << "TCI: receiver map"
+        << (receiverMap.isEmpty() ? QStringLiteral("(none)") : receiverMap.join(QLatin1Char(' ')));
 
     // TCI protocol requires one command per WebSocket message.
     // Split the concatenated burst into individual messages.
@@ -1204,9 +1361,10 @@ void TciServer::broadcastStatus()
     // Broadcast S-meter for each owned slice (throttled to 200ms)
     // TCI spec: rx_smeter:receiver,value; (2 args)
     for (auto* s : m_model->slices()) {
-        int trx = s->sliceId();
-        if (trx >= 0 && trx < 8) {
-            float dbm = m_cachedSLevel[trx];
+        const int trx = tciTrxForSlice(m_model, s);
+        const int meterIndex = s->sliceId();
+        if (trx >= 0 && meterIndex >= 0 && meterIndex < 8) {
+            float dbm = m_cachedSLevel[meterIndex];
             if (dbm > -200.0f)
                 broadcast(QStringLiteral("rx_smeter:%1,%2;")
                               .arg(trx).arg(static_cast<int>(dbm)));
@@ -1217,9 +1375,10 @@ void TciServer::broadcastStatus()
     for (auto& cs : m_clients) {
         if (cs.rxSensorsEnabled) {
             for (auto* s : m_model->slices()) {
-                int trx = s->sliceId();
-                if (trx >= 0 && trx < 8) {
-                    float dbm = m_cachedSLevel[trx];
+                const int trx = tciTrxForSlice(m_model, s);
+                const int meterIndex = s->sliceId();
+                if (trx >= 0 && meterIndex >= 0 && meterIndex < 8) {
+                    float dbm = m_cachedSLevel[meterIndex];
                     if (dbm > -200.0f)
                         cs.socket->sendTextMessage(
                             QStringLiteral("rx_channel_sensors:%1,0,%2;")
@@ -1246,7 +1405,7 @@ void TciServer::broadcastStatus()
         double txFreqMhz = 0;
         for (auto* s : m_model->slices()) {
             if (s->isTxSlice()) {
-                txTrx = s->sliceId();
+                txTrx = tciTrxForSlice(m_model, s);
                 txFreqMhz = s->frequency();
                 break;
             }
@@ -1327,6 +1486,8 @@ void TciServer::ensureDaxForTci()
             }
             for (int ch = 1; ch <= 4; ++ch) {
                 if (!used.contains(ch)) {
+                    qCDebug(lcCat) << "TCI: auto-assigning DAX channel" << ch
+                                   << "to slice" << s->sliceId();
                     qCInfo(lcCat) << "TCI: auto-assigning DAX channel" << ch
                                   << "to slice" << s->sliceId() << "for TCI audio (#1331)";
                     s->setDaxChannel(ch);
@@ -1355,11 +1516,15 @@ void TciServer::ensureDaxForTci()
         if (existingId != 0) {
             m_tciDaxStreamIds[ch] = existingId;
             m_tciDaxBorrowedChannels.insert(ch);
+            qCDebug(lcCat) << "TCI: reusing existing DAX RX stream"
+                           << "0x" + QString::number(existingId, 16)
+                           << "for channel" << ch;
             qCInfo(lcCat) << "TCI: reusing existing DAX RX stream" << Qt::hex << existingId
                           << "for channel" << ch << "(#1331)";
         } else {
             m_tciDaxStreamIds[ch] = 0;
             m_model->sendCommand(QString("stream create type=dax_rx dax_channel=%1").arg(ch));
+            qCDebug(lcCat) << "TCI: creating DAX RX stream for channel" << ch;
             qCInfo(lcCat) << "TCI: creating DAX RX stream for channel" << ch << "(#1331)";
         }
     }
@@ -1372,6 +1537,8 @@ void TciServer::ensureDaxForTci()
         if (ch > 0 && channelsNeeded.contains(ch)) {
             m_model->sendCommand(QString("slice set %1 dax=%2")
                 .arg(s->sliceId()).arg(ch));
+            qCDebug(lcCat) << "TCI: re-asserting DAX channel" << ch
+                           << "on slice" << s->sliceId();
             qCInfo(lcCat) << "TCI: re-asserting dax=" << ch
                           << "on slice" << s->sliceId();
         }

@@ -5,6 +5,7 @@
 
 #include <QNetworkDatagram>
 #include <QHostAddress>
+#include <QStringList>
 #include <QtEndian>
 #include <QSet>
 #include <cstring>
@@ -318,6 +319,10 @@ void PanadapterStream::clearRegisteredStreams()
     m_frames.clear();
     m_wfFrames.clear();
     m_dbmRanges.clear();
+    m_daxStreamIds.clear();
+    m_iqStreamIds.clear();
+    m_loggedDaxPacketStreams.clear();
+    m_loggedIqPacketStreams.clear();
     qCDebug(lcVita49) << "PanadapterStream: cleared all registered streams";
 }
 
@@ -382,6 +387,7 @@ void PanadapterStream::processDatagram(const QByteArray& data)
 
     // PacketClassCode is in the lower 16 bits of word 3 (bytes 12-15).
     const quint16 pcc = static_cast<quint16>(qFromBigEndian<quint32>(raw + 12) & 0xFFFFu);
+    const int vitaSeq = (word0 >> 16) & 0x0F;
 
     // Log the first occurrence of each unique stream ID.
     static QSet<quint32> seenIds;
@@ -398,14 +404,40 @@ void PanadapterStream::processDatagram(const QByteArray& data)
     // Lock for stream ID lookups (written from main thread) (#502)
     int daxChannel = -1, iqChannel = -1;
     bool isPan = false, isWf = false;
+    bool logFirstDaxPacket = false;
+    bool logFirstIqPacket = false;
     {
         QMutexLocker lock(&m_streamMutex);
         if (m_daxStreamIds.contains(streamId))
             daxChannel = m_daxStreamIds[streamId];
         if (m_iqStreamIds.contains(streamId))
             iqChannel = m_iqStreamIds[streamId];
+        if (daxChannel >= 0 && !m_loggedDaxPacketStreams.contains(streamId)) {
+            m_loggedDaxPacketStreams.insert(streamId);
+            logFirstDaxPacket = true;
+        }
+        if (iqChannel >= 0 && !m_loggedIqPacketStreams.contains(streamId)) {
+            m_loggedIqPacketStreams.insert(streamId);
+            logFirstIqPacket = true;
+        }
         isPan = m_knownPanStreams.isEmpty() || m_knownPanStreams.contains(streamId);
         isWf  = m_knownWfStreams.isEmpty() || m_knownWfStreams.contains(streamId);
+    }
+
+    if (logFirstDaxPacket || logFirstIqPacket) {
+        const QStringList fields = {
+            QStringLiteral("kind=%1").arg(logFirstDaxPacket ? QStringLiteral("rx") : QStringLiteral("iq")),
+            QStringLiteral("stream=0x%1").arg(QString::number(streamId, 16)),
+            QStringLiteral("channel=%1").arg(logFirstDaxPacket ? daxChannel : iqChannel),
+            QStringLiteral("pcc=0x%1").arg(QString::number(pcc, 16).rightJustified(4, QLatin1Char('0'))),
+            QStringLiteral("bytes=%1").arg(data.size()),
+            QStringLiteral("seq=%1").arg(vitaSeq),
+            QStringLiteral("trailer=%1").arg(hasTrailer ? 1 : 0)
+        };
+        qCDebug(lcDax).noquote()
+            << "PanadapterStream: first DAX packet" << fields.join(QLatin1Char(' '));
+        qCDebug(lcCat).noquote()
+            << "PanadapterStream: first DAX packet" << fields.join(QLatin1Char(' '));
     }
 
     // Determine category for per-stream-type stats (#455)
@@ -426,17 +458,16 @@ void PanadapterStream::processDatagram(const QByteArray& data)
     if (cat != CatCount) {
         m_catStats[cat].bytes += data.size();
         m_catStats[cat].packets++;
-        const int seq = (word0 >> 16) & 0x0F;
         auto& stats = m_streamStats[streamId];
         stats.totalCount++;
         if (stats.lastSeq >= 0) {
             const int expected = (stats.lastSeq + 1) & 0x0F;
-            if (seq != expected) {
+            if (vitaSeq != expected) {
                 stats.errorCount++;
                 m_catStats[cat].errors++;
             }
         }
-        stats.lastSeq = seq;
+        stats.lastSeq = vitaSeq;
 
         if (cat == CatAudio) {
             if (m_audioPacketTimerStarted) {
@@ -874,6 +905,7 @@ void PanadapterStream::registerDaxStream(quint32 streamId, int channel)
         }
     }
     m_daxStreamIds[streamId] = channel;
+    m_loggedDaxPacketStreams.remove(streamId);
     qCDebug(lcVita49) << "PanadapterStream: registered DAX stream" << Qt::hex << streamId << "-> channel" << channel;
 }
 
@@ -891,6 +923,7 @@ void PanadapterStream::unregisterDaxStream(quint32 streamId)
 {
     QMutexLocker lock(&m_streamMutex);
     m_daxStreamIds.remove(streamId);
+    m_loggedDaxPacketStreams.remove(streamId);
     qCDebug(lcVita49) << "PanadapterStream: unregistered DAX stream" << Qt::hex << streamId;
 }
 
@@ -904,6 +937,7 @@ void PanadapterStream::registerIqStream(quint32 streamId, int channel)
 {
     QMutexLocker lock(&m_streamMutex);
     m_iqStreamIds[streamId] = channel;
+    m_loggedIqPacketStreams.remove(streamId);
     qCDebug(lcVita49) << "PanadapterStream: registered IQ stream" << Qt::hex << streamId << "-> channel" << channel;
 }
 
@@ -911,6 +945,7 @@ void PanadapterStream::unregisterIqStream(quint32 streamId)
 {
     QMutexLocker lock(&m_streamMutex);
     m_iqStreamIds.remove(streamId);
+    m_loggedIqPacketStreams.remove(streamId);
     qCDebug(lcVita49) << "PanadapterStream: unregistered IQ stream" << Qt::hex << streamId;
 }
 

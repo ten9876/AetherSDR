@@ -387,6 +387,7 @@ private:
     void handlePanadapterStatus(const QString& panId, const QMap<QString, QString>& kvs);
     void handleProfileStatus(const QString& object, const QMap<QString, QString>& kvs);
     void handleProfileStatusRaw(const QString& profileType, const QString& rawBody);
+    void traceDaxStreamStatus(const QString& object, const QMap<QString, QString>& kvs);
 
     void configurePan();
     void configureWaterfall();
@@ -594,6 +595,23 @@ private:
     QStringList m_globalProfiles;
     QString     m_activeGlobalProfile;
     QString     m_rxAudioStreamId;
+    struct DaxStreamDebugState {
+        QString type;
+        quint32 clientHandle{0};
+        int daxChannel{0};
+        int daxIqChannel{0};
+        int sliceId{-1};
+        int daxIqRate{0};
+        QString panId;
+        bool active{false};
+        bool tx{false};
+        bool activeKnown{false};
+        bool txKnown{false};
+    };
+    QMap<quint32, DaxStreamDebugState> m_daxStreamDebug;
+    quint32     m_daxTxStreamId{0};
+    bool        m_daxTxActive{false};
+    quint32     m_daxTxClientHandle{0};
     WanConnection* m_wanConn{nullptr};  // non-null when connected via SmartLink
     QString  m_wanPublicIp;
     quint16  m_wanUdpPort{4991};

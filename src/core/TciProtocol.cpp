@@ -7,10 +7,23 @@
 #include "models/SpotModel.h"
 #include "models/DaxIqModel.h"
 
+#include <QList>
 #include <QMetaObject>
 #include <cmath>
 
 namespace AetherSDR {
+
+namespace {
+
+int tciTrxForSlice(const QList<SliceModel*>& slices, const SliceModel* slice)
+{
+    if (!slice)
+        return 0;
+    const int index = slices.indexOf(const_cast<SliceModel*>(slice));
+    return index >= 0 ? index : slice->sliceId();
+}
+
+} // namespace
 
 TciProtocol::TciProtocol(RadioModel* model)
     : m_model(model)
@@ -50,11 +63,16 @@ QString TciProtocol::tciToSmartSDR(const QString& mode)
 SliceModel* TciProtocol::sliceForTrx(int trx) const
 {
     if (!m_model || !m_model->isConnected()) return nullptr;
+    auto slices = m_model->slices();
+    if (trx >= 0 && trx < slices.size())
+        return slices.at(trx);
+
+    // Compatibility fallback for clients that learned raw Flex slice ids from
+    // older AetherSDR builds.
     for (auto* s : m_model->slices()) {
         if (s->sliceId() == trx) return s;
     }
     // Fallback: first slice
-    auto slices = m_model->slices();
     return slices.isEmpty() ? nullptr : slices.first();
 }
 
@@ -69,8 +87,11 @@ QString TciProtocol::generateInitBurst()
                 : QStringLiteral("AetherSDR"));
     burst += QStringLiteral("receive_only:false;");
 
-    // Count TRXs based on owned slices
-    int trxCount = m_model ? m_model->slices().size() : 1;
+    // Count TRXs based on owned slices and expose them as contiguous TCI
+    // receivers (0..N-1). Flex slice ids may start at 1 when another client
+    // owns slice 0, but TCI clients use indexes within the advertised count.
+    const auto slices = m_model ? m_model->slices() : QList<SliceModel*>{};
+    int trxCount = slices.size();
     if (trxCount < 1) trxCount = 1;
     burst += QStringLiteral("trx_count:%1;").arg(trxCount);
     burst += QStringLiteral("channels_count:1;");
@@ -80,8 +101,8 @@ QString TciProtocol::generateInitBurst()
 
     // Per-slice state
     if (m_model) {
-        for (auto* s : m_model->slices()) {
-            int trx = s->sliceId();
+        for (auto* s : slices) {
+            int trx = tciTrxForSlice(slices, s);
             long long hz = static_cast<long long>(std::round(s->frequency() * 1e6));
             burst += QStringLiteral("vfo:%1,0,%2;").arg(trx).arg(hz);
             burst += QStringLiteral("modulation:%1,%2;")
@@ -135,8 +156,11 @@ QString TciProtocol::generateInitBurst()
         auto& tx = m_model->transmitModel();
         bool isTx = tx.isTransmitting();
         int txTrx = 0;
-        for (auto* s : m_model->slices()) {
-            if (s->isTxSlice()) { txTrx = s->sliceId(); break; }
+        for (auto* s : slices) {
+            if (s->isTxSlice()) {
+                txTrx = tciTrxForSlice(slices, s);
+                break;
+            }
         }
         // ESDR3 format requires TRX index prefix for drive commands.
         // Without it, WSJT-X/JTDX crash parsing args.at(1) on a 1-element list.

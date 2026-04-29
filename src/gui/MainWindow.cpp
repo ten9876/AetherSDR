@@ -230,6 +230,28 @@ QString xvtrForBandSummary(const QString& bandName,
     return QStringLiteral("(none)");
 }
 
+quint32 parseStatusHandle(QString text)
+{
+    text = text.trimmed();
+    bool ok = false;
+    quint32 value = text.toUInt(&ok, 0);
+    if (ok)
+        return value;
+
+    if (text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
+        text = text.mid(2);
+    value = text.toUInt(&ok, 16);
+    return ok ? value : 0;
+}
+
+bool streamStatusBelongsToUs(const QMap<QString, QString>& kvs, quint32 ourHandle)
+{
+    if (!kvs.contains(QStringLiteral("client_handle")))
+        return true; // Older firmware/status lines may omit ownership.
+    const quint32 owner = parseStatusHandle(kvs.value(QStringLiteral("client_handle")));
+    return owner == 0 || owner == ourHandle;
+}
+
 void logXvtrWaterfallDecision(quint32 streamId,
                               const QString& panId,
                               double panCenterMhz,
@@ -3466,14 +3488,21 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_tciServer, &TciServer::txLevel,
             m_appletPanel->tciApplet(), &TciApplet::setTciTxLevel);
 
-    // Wire slice state changes → TCI broadcasts
-    connect(&m_radioModel, &RadioModel::sliceAdded, this, [this](SliceModel* s) {
-        if (m_tciServer)
-            m_tciServer->wireSlice(s->sliceId(), s);
+    // Wire slice state changes -> TCI broadcasts. TCI receivers are contiguous
+    // indexes within our owned slice list; Flex slice ids can be non-zero when
+    // another client owns lower-numbered slices.
+    auto wireTciSlice = [this](SliceModel* s) {
+        if (!m_tciServer || !s)
+            return;
+        const int trx = m_radioModel.slices().indexOf(s);
+        m_tciServer->wireSlice(trx >= 0 ? trx : s->sliceId(), s);
+    };
+    connect(&m_radioModel, &RadioModel::sliceAdded, this, [wireTciSlice](SliceModel* s) {
+        wireTciSlice(s);
     });
     // Wire existing slices (radio may already be connected with slices)
     for (auto* s : m_radioModel.slices())
-        m_tciServer->wireSlice(s->sliceId(), s);
+        wireTciSlice(s);
     m_tciServer->wireSpotModel();
 
     // Wire RX audio from PanadapterStream → TCI server for audio streaming.
@@ -10744,14 +10773,31 @@ bool MainWindow::startDax()
     connect(&m_radioModel, &RadioModel::statusReceived,
             m_daxBridge, [this](const QString& obj, const QMap<QString,QString>& kvs) {
         if (!obj.startsWith("stream ")) return;
+        const QStringList parts = obj.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        if (parts.size() < 2) return;
+        bool ok = false;
+        quint32 streamId = parts[1].toUInt(&ok, 0);
+        if (!ok) return;
+        const bool removed = parts.contains(QStringLiteral("removed")) || kvs.contains(QStringLiteral("removed"));
+        if (removed) {
+            m_radioModel.panStream()->unregisterDaxStream(streamId);
+            qCDebug(lcDax) << "MainWindow: unregistered removed DAX RX stream"
+                           << "0x" + QString::number(streamId, 16);
+            return;
+        }
         QString type = kvs.value("type");
         if (type == "dax_rx") {
-            quint32 streamId = obj.mid(7).toUInt(nullptr, 16);
+            if (!streamStatusBelongsToUs(kvs, m_radioModel.ourClientHandle())) {
+                qCDebug(lcDax) << "MainWindow: ignoring DAX RX stream for another client"
+                                << "stream=0x" + QString::number(streamId, 16)
+                                << "owner=" << kvs.value("client_handle");
+                return;
+            }
             int ch = kvs.value("dax_channel").toInt();
             if (streamId && ch >= 1 && ch <= 4) {
                 m_radioModel.panStream()->registerDaxStream(streamId, ch);
-                qDebug() << "MainWindow: registered DAX RX ch" << ch
-                         << "stream" << Qt::hex << streamId;
+                qCDebug(lcDax) << "MainWindow: registered DAX RX ch" << ch
+                                << "stream=0x" + QString::number(streamId, 16);
             }
         }
     });
@@ -10776,20 +10822,35 @@ bool MainWindow::startDax()
     connect(&m_radioModel, &RadioModel::statusReceived,
             this, [this](const QString& obj, const QMap<QString,QString>& kvs) {
         if (!obj.startsWith("stream ")) return;
+        const QStringList parts = obj.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        if (parts.size() < 2) return;
+        bool ok = false;
+        quint32 streamId = parts[1].toUInt(&ok, 0);
+        if (!ok) return;
+        const bool removed = parts.contains(QStringLiteral("removed")) || kvs.contains(QStringLiteral("removed"));
+        if (removed) {
+            m_radioModel.panStream()->unregisterIqStream(streamId);
+            m_radioModel.daxIqModel().handleStreamRemoved(streamId);
+            qCDebug(lcDax) << "MainWindow: unregistered removed DAX IQ stream"
+                           << "0x" + QString::number(streamId, 16);
+            return;
+        }
         QString type = kvs.value("type");
         if (type == "dax_iq") {
-            qDebug() << "DAX IQ STREAM STATUS:" << obj << "keys=" << kvs.keys()
-                     << "ch=" << kvs.value("daxiq_channel") << "ip=" << kvs.value("ip");
-            quint32 streamId = obj.mid(7).toUInt(nullptr, 0);
-            if (kvs.contains("removed")) {
-                m_radioModel.panStream()->unregisterIqStream(streamId);
-                m_radioModel.daxIqModel().handleStreamRemoved(streamId);
-            } else {
-                m_radioModel.daxIqModel().applyStreamStatus(streamId, kvs);
-                int ch = kvs.value("daxiq_channel").toInt();
-                if (streamId && ch >= 1 && ch <= 4)
-                    m_radioModel.panStream()->registerIqStream(streamId, ch);
+            if (!streamStatusBelongsToUs(kvs, m_radioModel.ourClientHandle())) {
+                qCDebug(lcDax) << "MainWindow: ignoring DAX IQ stream for another client"
+                                << "stream=0x" + QString::number(streamId, 16)
+                                << "owner=" << kvs.value("client_handle");
+                return;
             }
+            qCDebug(lcDax) << "MainWindow: DAX IQ stream status" << obj
+                           << "keys=" << kvs.keys()
+                           << "ch=" << kvs.value("daxiq_channel")
+                           << "ip=" << kvs.value("ip");
+            m_radioModel.daxIqModel().applyStreamStatus(streamId, kvs);
+            int ch = kvs.value("daxiq_channel").toInt();
+            if (streamId && ch >= 1 && ch <= 4)
+                m_radioModel.panStream()->registerIqStream(streamId, ch);
         }
     });
 

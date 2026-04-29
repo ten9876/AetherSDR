@@ -230,6 +230,8 @@ private:
     QMap<quint32, int> m_daxStreamIds;
     // DAX IQ stream routing: stream ID → IQ channel (1-4)
     QMap<quint32, int> m_iqStreamIds;
+    QSet<quint32> m_loggedDaxPacketStreams;
+    QSet<quint32> m_loggedIqPacketStreams;
     QHostAddress m_radioAddress;
     quint16      m_radioPort{0};
     QHostAddress m_localAddress;
