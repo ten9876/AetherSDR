@@ -36,6 +36,12 @@ public:
     // Manual relay adjustment: relay 0=C1, 1=L, 2=C2; direction +1 or -1
     void adjustRelay(int relay, int direction);
 
+    // Native autotune over the direct port-9010 channel. The TGXL drives
+    // radio PTT via its hardware interlock cable, so no client-side keying
+    // is required. Bypasses the firmware's `tgxl autotune` command path
+    // (broken in firmware 4.2 — see issue tracker for "TUNE button on TGXL").
+    void requestAutotune();
+
     // Send an arbitrary command to the TGXL (e.g. "activate ant=2")
     quint32 sendCommand(const QString& cmd);
 

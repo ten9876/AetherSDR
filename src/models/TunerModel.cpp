@@ -104,8 +104,17 @@ void TunerModel::setBypass(bool on)
 
 void TunerModel::autoTune()
 {
+    // Prefer the direct port-9010 channel when available: bypasses the radio's
+    // `tgxl autotune` command path, which broke for some users in firmware 4.2.
+    // The TGXL drives radio PTT via its hardware interlock cable, so we don't
+    // need to key the radio from the client.
+    if (m_directConn && m_directConn->isConnected()) {
+        qCDebug(lcTuner) << "TunerModel::autoTune: using direct TGXL path";
+        m_directConn->requestAutotune();
+        return;
+    }
     if (m_handle.isEmpty()) {
-        qCDebug(lcTuner) << "TunerModel::autoTune: no handle yet, ignoring";
+        qCDebug(lcTuner) << "TunerModel::autoTune: no direct conn and no handle, ignoring";
         return;
     }
     const QString cmd = "tgxl autotune handle=" + m_handle;

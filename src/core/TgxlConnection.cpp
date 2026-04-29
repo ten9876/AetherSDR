@@ -168,6 +168,12 @@ void TgxlConnection::adjustRelay(int relay, int direction)
     sendCommand(QString("tune relay=%1 move=%2").arg(relay).arg(move));
 }
 
+void TgxlConnection::requestAutotune()
+{
+    if (!m_connected) return;
+    sendCommand("autotune");
+}
+
 void TgxlConnection::pollStatus()
 {
     if (m_connected)
