@@ -1955,6 +1955,8 @@ void VfoWidget::loadDisplayPrefs()
     } else {
         // Migrate from the old MarkerThin bool: True (thin) → 1, False (thick) → 3.
         m_markerWidth = (s.value(keyT, "False").toString() == "True") ? 1 : 3;
+        if (s.contains(keyT))
+            s.remove(keyT);
     }
     if (m_markerWidth != 0 && m_markerWidth != 1 && m_markerWidth != 3)
         m_markerWidth = 1;
