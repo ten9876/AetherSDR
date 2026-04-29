@@ -62,11 +62,16 @@ static QString redactPii(const QString& msg)
     QString out = msg;
 
     // IPv4 addresses: 192.168.50.121 → *.*.*. 121 (keep last octet)
-    // Negative lookbehind/lookahead skip quoted strings ("0.9.2.1") and
-    // v-prefixed versions (v0.9.2.1) so AetherSDR's own 4-component version
-    // string isn't mistaken for an IP.
+    // Negative lookbehind/lookahead skip 4-component version strings:
+    //   "0.9.2.1"            — quoted (Qt qDebug output)
+    //   v0.9.2.1             — v-prefixed
+    //   software_ver=4.2.18.41174  — protocol field with trailing build number
+    //   firmware_ver=…       — same shape
+    // The trailing (?![\d"]) handles the build-number case where the 4th
+    // captured "octet" is part of a longer number (e.g. 41174 → matches as
+    // 411 with 74 dangling, which is the bug we're fixing).
     static const QRegularExpression* ipRe = new QRegularExpression(
-        R"((?<![v"])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?!"))");
+        R"((?<!ver=)(?<![v"])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\d"]))");
     out.replace(*ipRe, QStringLiteral("*.*.*. \\4"));
 
     // Radio serial: 4424-1213-8600-7836 → ****-****-****-7836
