@@ -248,6 +248,7 @@ void SerialPortController::runWinWatcher()
 
 void SerialPortController::processWinPinChange(bool dsrRaw, bool ctsRaw)
 {
+    if (!isOpen()) return;
     bool ctsActive = m_ctsActiveHigh ? ctsRaw : !ctsRaw;
     bool dsrActive = m_dsrActiveHigh ? dsrRaw : !dsrRaw;
 
