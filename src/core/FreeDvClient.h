@@ -17,7 +17,9 @@ namespace AetherSDR {
 // (callsign, frequency, grid, mode) and emits spotReceived() for each
 // rx_report event (station heard another station).
 //
-// Uses view-only auth — no callsign needed, read-only access.
+// View-only by default. Call enableReporting() when RADE is active to
+// register as a full participant: transmits freq_change, tx_report, and
+// periodic rx_report (SNR) events to the server.
 class FreeDvClient : public QObject {
     Q_OBJECT
 
@@ -38,12 +40,28 @@ signals:
     void spotReceived(const DxSpot& spot);
     void rawLineReceived(const QString& line);
 
+public slots:
+    // Station reporting — call from RADE activate/deactivate paths.
+    // All methods are safe to call from any thread via queued connection.
+    void enableReporting(const QString& callsign, const QString& grid,
+                         const QString& message, const QString& softwareVersion,
+                         double freqMhz);
+    void disableReporting();
+
+    void reportFreqChange(double freqMhz);
+    void reportTxState(bool transmitting);
+
+    // Feed live SNR from RADEEngine::snrChanged — throttled to 1 s by internal timer.
+    void updateRxSnr(float snrDb);
+    void updateRxSynced(bool synced);
+
 private slots:
     void onWsConnected();
     void onWsDisconnected();
     void onWsTextMessage(const QString& message);
     void onWsError(QAbstractSocket::SocketError err);
     void onReconnectTimer();
+    void onSnrTimer();
 
 private:
     // Per-station state tracked by Socket.IO session ID
@@ -65,12 +83,27 @@ private:
     void onRemoveConnection(const QJsonObject& data);
     void onBulkUpdate(const QJsonArray& pairs);
 
+    void sendEvent(const QString& name, const QJsonObject& data);
+    void sendInitialFreqChange();
+
     QWebSocket*  m_ws;
     QTimer*      m_pingTimer;
     QTimer*      m_reconnectTimer;
+    QTimer*      m_snrTimer;
     QFile        m_logFile;
 
     QHash<QString, StationInfo> m_stations;  // sid → station info
+
+    // Station reporting state
+    bool    m_reportingEnabled{false};
+    bool    m_authNeedsRefresh{false};  // reconnect in progress for auth change
+    QString m_myCallsign;
+    QString m_myGrid;
+    QString m_mySoftwareVersion;
+    QString m_myMessage;
+    double  m_myFreqMhz{0.0};
+    float   m_lastSnr{-99.0f};
+    bool    m_radeSynced{false};
 
     std::atomic<bool> m_connected{false};
     bool    m_intentionalDisconnect{false};

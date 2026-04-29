@@ -34,6 +34,9 @@ public:
     bool isActive() const;
     bool isSynced() const;
 
+    // Returns "RADE vN" where N is the integer from rade_version(), or empty if RADE not compiled in.
+    static QString versionString();
+
 public slots:
     // Feed DAX RX audio (24kHz stereo int16) for decoding.
     // channel is the DAX channel number (1-4), only processes channel 1.

@@ -1,6 +1,7 @@
 #include "FreeDvClient.h"
 #include "LogManager.h"
 #include "AppSettings.h"
+#include <QCoreApplication>
 
 #include <QJsonDocument>
 #include <QStandardPaths>
@@ -16,9 +17,12 @@ FreeDvClient::FreeDvClient(QObject* parent)
     , m_ws(new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this))
     , m_pingTimer(new QTimer(this))
     , m_reconnectTimer(new QTimer(this))
+    , m_snrTimer(new QTimer(this))
 {
     m_pingTimer->setSingleShot(false);
     m_reconnectTimer->setSingleShot(true);
+    m_snrTimer->setSingleShot(false);
+    m_snrTimer->setInterval(1000);
 
     connect(m_ws, &QWebSocket::connected, this, &FreeDvClient::onWsConnected);
     connect(m_ws, &QWebSocket::disconnected, this, &FreeDvClient::onWsDisconnected);
@@ -30,6 +34,7 @@ FreeDvClient::FreeDvClient(QObject* parent)
             this, &FreeDvClient::onWsError);
 #endif
     connect(m_reconnectTimer, &QTimer::timeout, this, &FreeDvClient::onReconnectTimer);
+    connect(m_snrTimer,       &QTimer::timeout, this, &FreeDvClient::onSnrTimer);
 
     // Engine.IO ping keepalive — reply is handled in handleEngineIO
     connect(m_pingTimer, &QTimer::timeout, this, [this] {
@@ -106,6 +111,15 @@ void FreeDvClient::onWsDisconnected()
         return;
     }
 
+    if (m_authNeedsRefresh) {
+        // Reconnect immediately with updated auth (view↔full switch due to RADE activation)
+        m_authNeedsRefresh = false;
+        m_reconnectAttempts = 0;
+        qCDebug(lcDxCluster) << "FreeDvClient: reconnecting with updated auth";
+        m_ws->open(QUrl(WsUrl));
+        return;
+    }
+
     // Auto-reconnect with exponential backoff
     int delay = std::min(InitialReconnectDelayMs * (1 << m_reconnectAttempts),
                          MaxReconnectDelayMs);
@@ -149,11 +163,30 @@ void FreeDvClient::handleEngineIO(const QString& raw)
         m_pingIntervalMs = obj.value("pingInterval").toInt(25000);
         m_pingTimer->start(m_pingIntervalMs);
 
-        // Send Socket.IO Connect with view-only auth
-        // "40" = Engine.IO Message (4) + Socket.IO Connect (0)
+        // Send Socket.IO Connect packet ("40" = Engine.IO Message + Socket.IO Connect).
+        // role="report" is required for full-participant auth — without it the server
+        // immediately disconnects. rx_only and os are also required by the server.
+        // version carries "AetherSDR <ver> RADE v<N>" so both app and engine version
+        // are visible on the FreeDV Reporter website.
         QJsonObject auth;
-        auth["role"] = QString("view");
-        auth["protocol_version"] = 2;
+        if (m_reportingEnabled && !m_myCallsign.isEmpty()) {
+            auth["role"]             = QString("report");
+            auth["callsign"]         = m_myCallsign;
+            auth["grid_square"]      = m_myGrid;
+            auth["version"]          = m_mySoftwareVersion;
+            auth["rx_only"]          = false;
+#if defined(Q_OS_WIN)
+            auth["os"]               = QString("Windows");
+#elif defined(Q_OS_MAC)
+            auth["os"]               = QString("macOS");
+#else
+            auth["os"]               = QString("Linux");
+#endif
+            auth["protocol_version"] = 2;
+        } else {
+            auth["role"]             = QString("view");
+            auth["protocol_version"] = 2;
+        }
         m_ws->sendTextMessage("40" + QString::fromUtf8(
             QJsonDocument(auth).toJson(QJsonDocument::Compact)));
         return;
@@ -190,6 +223,11 @@ void FreeDvClient::handleSocketIO(const QString& payload)
         m_reconnectAttempts = 0;
         qCDebug(lcDxCluster) << "FreeDvClient: Socket.IO connected";
         emit rawLineReceived("Connected to qso.freedv.org");
+        if (m_reportingEnabled && !m_myCallsign.isEmpty()) {
+            sendInitialFreqChange();
+            if (!m_myMessage.isEmpty())
+                sendEvent("message_update", QJsonObject{{"message", m_myMessage}});
+        }
         return;
     }
 
@@ -367,6 +405,121 @@ void FreeDvClient::onRxReport(const QJsonObject& data)
     }
     emit rawLineReceived(logLine);
     emit spotReceived(spot);
+}
+
+// ── Station reporting ───────────────────────────────────────────────────
+
+void FreeDvClient::sendEvent(const QString& name, const QJsonObject& data)
+{
+    if (m_ws->state() != QAbstractSocket::ConnectedState) return;
+    QJsonArray arr;
+    arr.append(name);
+    arr.append(data);
+    m_ws->sendTextMessage("42" + QString::fromUtf8(
+        QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+}
+
+void FreeDvClient::sendInitialFreqChange()
+{
+    if (m_myFreqMhz <= 0.0) return;
+    // Server knows our callsign/grid from auth — freq_change only needs the frequency.
+    sendEvent("freq_change", QJsonObject{
+        {"freq", static_cast<qint64>(m_myFreqMhz * 1.0e6)}
+    });
+}
+
+void FreeDvClient::enableReporting(const QString& callsign, const QString& grid,
+                                    const QString& message,
+                                    const QString& softwareVersion, double freqMhz)
+{
+    m_myCallsign         = callsign;
+    m_myGrid             = grid;
+    m_mySoftwareVersion  = softwareVersion;
+    m_myFreqMhz          = freqMhz;
+    m_myMessage          = message;
+    m_reportingEnabled   = true;
+    m_snrTimer->start();
+
+    qCDebug(lcDxCluster) << "FreeDvClient: reporting enabled for" << callsign
+                          << "grid" << grid << "freq" << freqMhz << "MHz";
+
+    if (m_connected.load() &&
+        m_ws->state() != QAbstractSocket::ClosingState) {
+        // Already connected as view — reconnect immediately with full-participant auth
+        m_authNeedsRefresh = true;
+        m_pingTimer->stop();
+        m_ws->close();
+    }
+    // If not yet connected, the next connect will use full auth automatically
+}
+
+void FreeDvClient::disableReporting()
+{
+    if (!m_reportingEnabled) return;
+    m_reportingEnabled = false;
+    m_snrTimer->stop();
+    m_radeSynced = false;
+    m_lastSnr    = -99.0f;
+
+    qCDebug(lcDxCluster) << "FreeDvClient: reporting disabled";
+
+    if (m_connected.load() &&
+        m_ws->state() != QAbstractSocket::ClosingState) {
+        sendEvent("message_update", QJsonObject{{"message", QString()}});
+        // freq=0 signals departure — server removes us from the map
+        sendEvent("freq_change", QJsonObject{
+            {"freq", static_cast<qint64>(0)}
+        });
+        // Reconnect as view-only
+        m_authNeedsRefresh = true;
+        m_pingTimer->stop();
+        m_ws->close();
+    }
+    m_myMessage.clear();
+}
+
+void FreeDvClient::reportFreqChange(double freqMhz)
+{
+    m_myFreqMhz = freqMhz;
+    if (!m_reportingEnabled || !m_connected.load()) return;
+    sendEvent("freq_change", QJsonObject{
+        {"freq", static_cast<qint64>(freqMhz * 1.0e6)}
+    });
+}
+
+void FreeDvClient::reportTxState(bool transmitting)
+{
+    if (!m_reportingEnabled || !m_connected.load()) return;
+    sendEvent("tx_report", QJsonObject{
+        {"mode",         QString("RADEV1")},
+        {"transmitting", transmitting}
+    });
+}
+
+void FreeDvClient::updateRxSnr(float snrDb)
+{
+    m_lastSnr = snrDb;
+}
+
+void FreeDvClient::updateRxSynced(bool synced)
+{
+    m_radeSynced = synced;
+    if (!synced) m_lastSnr = -99.0f;
+}
+
+void FreeDvClient::onSnrTimer()
+{
+    if (!m_reportingEnabled || !m_connected.load() || !m_radeSynced) return;
+    if (m_lastSnr <= -99.0f) return;
+    // callsign is the station being received. RADE v1 has no embedded callsign,
+    // so we send empty string. The server may silently drop these; rx_report is
+    // included now so the infrastructure is in place when callsign identification
+    // is added (e.g. user-entered or future RADE signalling).
+    sendEvent("rx_report", QJsonObject{
+        {"callsign", QString()},
+        {"mode",     QString("RADEV1")},
+        {"snr",      static_cast<int>(m_lastSnr)}
+    });
 }
 
 } // namespace AetherSDR

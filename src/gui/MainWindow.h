@@ -418,8 +418,11 @@ private:
     bool m_radePrevMute{false};
     quint32 m_radeDaxStreamId{0};
     QMetaObject::Connection m_radeDaxStreamConn;
+    QMetaObject::Connection m_freedvMoxConn;
     void activateRADE(int sliceId);
     void deactivateRADE();
+    void startFreeDvReporting(int sliceId);
+    void stopFreeDvReporting(int sliceId);
 #endif
 
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)

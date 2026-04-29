@@ -1547,6 +1547,128 @@ void DxClusterDialog::buildFreeDvTab(QTabWidget* tabs)
 
     layout->addWidget(connGroup);
 
+    // ── Station Reporting ────────────────────────────────────────────────
+    auto* reportGroup = new QGroupBox("Station Reporting");
+    auto* reportLayout = new QGridLayout(reportGroup);
+    reportLayout->setSpacing(6);
+    reportLayout->setColumnStretch(1, 1);
+    int frow = 0;
+
+    // Enable checkbox spans all columns so it sits reliably inside the grid,
+    // not above it (avoids group-box title margin clipping on dark themes).
+    m_fdvReportCheck = new QCheckBox("Enable FreeDV Reporter reporting when RADE is active");
+    m_fdvReportCheck->setChecked(s.value("FreeDvAutoReport", "False").toString() == "True");
+    connect(m_fdvReportCheck, &QCheckBox::toggled, this, [this](bool on) {
+        auto& as = AppSettings::instance();
+        as.setValue("FreeDvAutoReport", on ? "True" : "False");
+        as.save();
+        emit freedvReportingToggled(on);
+    });
+    reportLayout->addWidget(m_fdvReportCheck, frow, 0, 1, 3);
+    frow++;
+
+    // Callsign row — all radio models have a callsign field
+    reportLayout->addWidget(new QLabel("Callsign:"), frow, 0);
+    m_fdvCallsignEdit = new QLineEdit;
+    m_fdvCallsignEdit->setPlaceholderText("N0CALL");
+    m_fdvCallsignEdit->setMaxLength(10);
+    {
+        bool useRadio = s.value("FreeDvUseRadioCallsign", "True").toString() == "True";
+        const QString radioCall = m_radioModel->callsign();
+        m_fdvCallsignEdit->setText(
+            useRadio && !radioCall.isEmpty() ? radioCall
+                                             : s.value("FreeDvMyCallsign", "").toString());
+        m_fdvCallsignEdit->setReadOnly(useRadio);
+    }
+    m_fdvCallsignEdit->setStyleSheet(
+        "QLineEdit { background: #1a1a2e; color: #c8d8e8; border: 1px solid #203040; padding: 3px; }"
+        "QLineEdit[readOnly=\"true\"] { color: #607080; }");
+    connect(m_fdvCallsignEdit, &QLineEdit::editingFinished, this, [this] {
+        auto& as = AppSettings::instance();
+        as.setValue("FreeDvMyCallsign", m_fdvCallsignEdit->text().trimmed().toUpper());
+        as.save();
+    });
+    reportLayout->addWidget(m_fdvCallsignEdit, frow, 1);
+
+    m_fdvUseRadioCallsignCheck = new QCheckBox("Use radio");
+    m_fdvUseRadioCallsignCheck->setChecked(
+        s.value("FreeDvUseRadioCallsign", "True").toString() == "True");
+    connect(m_fdvUseRadioCallsignCheck, &QCheckBox::toggled, this, [this](bool on) {
+        auto& as = AppSettings::instance();
+        as.setValue("FreeDvUseRadioCallsign", on ? "True" : "False");
+        as.save();
+        m_fdvCallsignEdit->setReadOnly(on);
+        if (on && !m_radioModel->callsign().isEmpty())
+            m_fdvCallsignEdit->setText(m_radioModel->callsign());
+    });
+    // Sync when the user changes the callsign in Radio Setup
+    connect(m_radioModel, &RadioModel::infoChanged, this, [this] {
+        if (m_fdvUseRadioCallsignCheck->isChecked() && !m_radioModel->callsign().isEmpty())
+            m_fdvCallsignEdit->setText(m_radioModel->callsign());
+    });
+    reportLayout->addWidget(m_fdvUseRadioCallsignCheck, frow, 2);
+    frow++;
+
+    // Grid Square row
+    reportLayout->addWidget(new QLabel("Grid Square:"), frow, 0);
+    m_fdvGridEdit = new QLineEdit;
+    m_fdvGridEdit->setPlaceholderText("AA00");
+    m_fdvGridEdit->setMaxLength(6);
+    m_fdvGridEdit->setText(s.value("FreeDvMyGrid", "").toString());
+    m_fdvGridEdit->setStyleSheet(
+        "QLineEdit { background: #1a1a2e; color: #c8d8e8; border: 1px solid #203040; padding: 3px; }"
+        "QLineEdit[readOnly=\"true\"] { color: #607080; }");
+    connect(m_fdvGridEdit, &QLineEdit::editingFinished, this, [this] {
+        auto& as = AppSettings::instance();
+        as.setValue("FreeDvMyGrid", m_fdvGridEdit->text().trimmed().toUpper());
+        as.save();
+    });
+    reportLayout->addWidget(m_fdvGridEdit, frow, 1);
+
+    // GPS checkbox — only on FLEX-8000 class and Aurora, which have GPS hardware
+    if (m_radioModel->hasGpsHardware()) {
+        m_fdvUseGpsCheck = new QCheckBox("Use GPS");
+        bool useGps = s.value("FreeDvUseGpsGrid", "True").toString() == "True";
+        m_fdvUseGpsCheck->setChecked(useGps);
+        m_fdvGridEdit->setReadOnly(useGps);
+        if (useGps && !m_radioModel->gpsGrid().isEmpty())
+            m_fdvGridEdit->setText(m_radioModel->gpsGrid());
+        connect(m_fdvUseGpsCheck, &QCheckBox::toggled, this, [this](bool on) {
+            auto& as = AppSettings::instance();
+            as.setValue("FreeDvUseGpsGrid", on ? "True" : "False");
+            as.save();
+            m_fdvGridEdit->setReadOnly(on);
+            if (on && !m_radioModel->gpsGrid().isEmpty())
+                m_fdvGridEdit->setText(m_radioModel->gpsGrid());
+        });
+        // Auto-update when GPS acquires or re-acquires lock
+        connect(m_radioModel, &RadioModel::gpsStatusChanged, this,
+                [this](const QString&, int, int, const QString& gpsGrid,
+                       const QString&, const QString&, const QString&, const QString&) {
+                    if (m_fdvUseGpsCheck->isChecked() && !gpsGrid.isEmpty())
+                        m_fdvGridEdit->setText(gpsGrid);
+                });
+        reportLayout->addWidget(m_fdvUseGpsCheck, frow, 2);
+    }
+    frow++;
+
+    // Station Message row
+    reportLayout->addWidget(new QLabel("Station Msg:"), frow, 0);
+    m_fdvMessageEdit = new QLineEdit;
+    m_fdvMessageEdit->setPlaceholderText("Optional message shown on reporter map");
+    m_fdvMessageEdit->setText(s.value("FreeDvMyMessage", "").toString());
+    m_fdvMessageEdit->setStyleSheet(
+        "QLineEdit { background: #1a1a2e; color: #c8d8e8; border: 1px solid #203040; padding: 3px; }");
+    connect(m_fdvMessageEdit, &QLineEdit::editingFinished, this, [this] {
+        auto& as = AppSettings::instance();
+        as.setValue("FreeDvMyMessage", m_fdvMessageEdit->text().trimmed());
+        as.save();
+    });
+    reportLayout->addWidget(m_fdvMessageEdit, frow, 1);
+    frow++;
+
+    layout->addWidget(reportGroup);
+
     // ── Console output ──────────────────────────────────────────────────
     auto* consoleRow = new QHBoxLayout;
     auto* consoleLabel = new QLabel("FreeDV Spots");

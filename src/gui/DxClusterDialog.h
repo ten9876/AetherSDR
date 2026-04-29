@@ -107,6 +107,7 @@ signals:
 #ifdef HAVE_WEBSOCKETS
     void freedvStartRequested();
     void freedvStopRequested();
+    void freedvReportingToggled(bool enabled);
 #endif
     void wsjtxSpotFiltered(const DxSpot& spot);  // WSJT-X spot after filter+color
     void tuneRequested(double freqMhz);
@@ -186,11 +187,18 @@ private:
     QPlainTextEdit* m_potaConsole;
 
 #ifdef HAVE_WEBSOCKETS
-    // FreeDV tab
-    QPushButton*    m_freedvStartBtn;
-    QPushButton*    m_freedvAutoStartBtn;
-    QLabel*         m_freedvStatusLabel;
-    QPlainTextEdit* m_freedvConsole;
+    // FreeDV tab — connection controls
+    QPushButton*    m_freedvStartBtn{nullptr};
+    QPushButton*    m_freedvAutoStartBtn{nullptr};
+    QLabel*         m_freedvStatusLabel{nullptr};
+    QPlainTextEdit* m_freedvConsole{nullptr};
+    // FreeDV tab — station reporting controls
+    QCheckBox*      m_fdvReportCheck{nullptr};
+    QLineEdit*      m_fdvCallsignEdit{nullptr};
+    QCheckBox*      m_fdvUseRadioCallsignCheck{nullptr};
+    QLineEdit*      m_fdvGridEdit{nullptr};
+    QCheckBox*      m_fdvUseGpsCheck{nullptr};
+    QLineEdit*      m_fdvMessageEdit{nullptr};
 #endif
 
     QPushButton*    m_wsjtxColorCQ;

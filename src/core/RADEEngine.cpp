@@ -1,6 +1,7 @@
 #include "RADEEngine.h"
 #include "LogManager.h"
 #include "Resampler.h"
+#include <QString>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -299,6 +300,15 @@ void RADEEngine::feedRxAudio(int channel, const QByteArray& pcm)
 
 #else
     Q_UNUSED(channel); Q_UNUSED(pcm);
+#endif
+}
+
+QString RADEEngine::versionString()
+{
+#ifdef HAVE_RADE
+    return QString("RADE v%1").arg(rade_version());
+#else
+    return QString();
 #endif
 }
 

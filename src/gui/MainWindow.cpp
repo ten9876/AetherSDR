@@ -4958,6 +4958,15 @@ void MainWindow::buildMenuBar()
                 this, [this] { QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->startConnection(); }); });
         connect(dlg, &DxClusterDialog::freedvStopRequested,
                 this, [this] { QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->stopConnection(); }); });
+        connect(dlg, &DxClusterDialog::freedvReportingToggled,
+                this, [this](bool on) {
+                    if (on) {
+                        if (m_radeEngine)
+                            startFreeDvReporting(m_radeSliceId);
+                    } else {
+                        stopFreeDvReporting(m_radeSliceId);
+                    }
+                });
 #endif
         connect(dlg, &DxClusterDialog::spotsClearedAll,
                 this, [this] {
@@ -10674,11 +10683,18 @@ void MainWindow::activateRADE(int sliceId)
         }
     }
 
+    // FreeDV Reporter: station reporting when the user has opted in.
+    if (AppSettings::instance().value("FreeDvAutoReport", "False").toString() == "True")
+        startFreeDvReporting(sliceId);
+
     qInfo() << "MainWindow: RADE mode activated on slice" << sliceId;
 }
 
 void MainWindow::deactivateRADE()
 {
+    // Capture slice ID before any field mutations below clear it.
+    const int radeSliceId = m_radeSliceId;
+
     // Restore audio mute state on the RADE slice
     if (m_radeSliceId >= 0) {
         if (auto* s = m_radioModel.slice(m_radeSliceId))
@@ -10735,8 +10751,95 @@ void MainWindow::deactivateRADE()
         m_radeEngine = nullptr;  // deleteLater handles actual deletion
     }
 
+    stopFreeDvReporting(radeSliceId);
+
     qInfo() << "MainWindow: RADE mode deactivated";
 }
+
+void MainWindow::startFreeDvReporting(int sliceId)
+{
+    if (!m_freedvClient) return;
+
+    auto& cs = AppSettings::instance();
+
+    // Callsign: prefer radio-stored value if "Use radio" is set and it's populated.
+    QString callsign;
+    if (cs.value("FreeDvUseRadioCallsign", "True").toString() == "True"
+            && !m_radioModel.callsign().isEmpty()) {
+        callsign = m_radioModel.callsign();
+    } else {
+        callsign = cs.value("FreeDvMyCallsign", "").toString().trimmed().toUpper();
+        if (callsign.isEmpty())
+            callsign = QStringLiteral("N0CALL");
+    }
+
+    // Grid: GPS (if hardware present, locked, and user prefers it),
+    // then user-saved value, then mandatory fallback AA00.
+    QString grid;
+    if (cs.value("FreeDvUseGpsGrid", "True").toString() == "True"
+            && m_radioModel.hasGpsHardware()
+            && !m_radioModel.gpsGrid().isEmpty()) {
+        grid = m_radioModel.gpsGrid();
+    } else {
+        grid = cs.value("FreeDvMyGrid", "").toString().trimmed().toUpper();
+        if (grid.isEmpty())
+            grid = QStringLiteral("AA00");
+    }
+
+    const QString message = cs.value("FreeDvMyMessage", "").toString();
+    const QString swVer   = QString("AetherSDR %1").arg(QCoreApplication::applicationVersion());
+    const double  freqMhz = m_radioModel.slice(sliceId)
+                            ? m_radioModel.slice(sliceId)->frequency() : 0.0;
+
+    // Auto-start the WebSocket connection if not already running — reporting is
+    // independent of the user's FreeDV spot subscription.
+    if (!m_freedvClient->isConnected())
+        QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->startConnection(); });
+
+    QMetaObject::invokeMethod(m_freedvClient,
+        [this, callsign, grid, message, swVer, freqMhz] {
+            m_freedvClient->enableReporting(callsign, grid, message, swVer, freqMhz);
+        });
+
+    // TX report: evaluate tune/ATU guard on the main thread so we never report
+    // a tune or ATU cycle as a voice transmission.
+    m_freedvMoxConn = connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
+            this, [this](bool tx) {
+                const TransmitModel& txm = m_radioModel.transmitModel();
+                if (txm.isTuning() || txm.atuStatus() == ATUStatus::InProgress)
+                    return;
+                QMetaObject::invokeMethod(m_freedvClient, [this, tx] {
+                    m_freedvClient->reportTxState(tx);
+                });
+            });
+
+    if (m_radeEngine) {
+        connect(m_radeEngine, &RADEEngine::snrChanged,
+                m_freedvClient, &FreeDvClient::updateRxSnr, Qt::QueuedConnection);
+        connect(m_radeEngine, &RADEEngine::syncChanged,
+                m_freedvClient, &FreeDvClient::updateRxSynced, Qt::QueuedConnection);
+    }
+    if (SliceModel* radeSlice = m_radioModel.slice(sliceId)) {
+        connect(radeSlice, &SliceModel::frequencyChanged,
+                m_freedvClient, &FreeDvClient::reportFreqChange, Qt::QueuedConnection);
+    }
+}
+
+void MainWindow::stopFreeDvReporting(int sliceId)
+{
+    if (!m_freedvClient) return;
+
+    disconnect(m_freedvMoxConn);
+    if (m_radeEngine) {
+        disconnect(m_radeEngine, &RADEEngine::snrChanged,   m_freedvClient, nullptr);
+        disconnect(m_radeEngine, &RADEEngine::syncChanged,  m_freedvClient, nullptr);
+    }
+    if (auto* radeSlice = m_radioModel.slice(sliceId))
+        disconnect(radeSlice, &SliceModel::frequencyChanged, m_freedvClient, nullptr);
+
+    QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->disableReporting(); });
+}
+
 #endif
 
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)

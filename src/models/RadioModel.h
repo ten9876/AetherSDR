@@ -156,6 +156,12 @@ public:
     bool    oscLocked()    const { return m_oscLocked; }
     bool    extPresent()   const { return m_extPresent; }
     bool    gpsdoPresent() const { return m_gpsdoPresent; }
+
+    // Returns true for FLEX-8000 class (8400, 8600) and Aurora, which have GPS hardware.
+    bool hasGpsHardware() const {
+        return m_model.contains("8400") || m_model.contains("8600")
+               || m_model.startsWith("AU-");
+    }
     bool    tcxoPresent()  const { return m_tcxoPresent; }
     bool    binauralRx()   const { return m_binauralRx; }
     bool    muteLocalWhenRemote() const { return m_muteLocalWhenRemote; }

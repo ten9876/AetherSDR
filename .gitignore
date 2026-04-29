@@ -3,6 +3,7 @@ build-*/
 .cache/
 *.user
 .qtc_clangd/
+.vscode/c_cpp_properties.json
 reference/
 docs/release_notes/
 build.ps1
