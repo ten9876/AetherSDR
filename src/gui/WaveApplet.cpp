@@ -118,7 +118,6 @@ WaveApplet::WaveApplet(QWidget* parent)
 
     setSettingsExpanded(true);
     setMinimumHeight(minimumSizeHint().height());
-    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 
     connect(m_waveform, &WaveformWidget::settingsDrawerToggleRequested,
             this, [this]() {

@@ -6197,13 +6197,12 @@ void MainWindow::buildUI()
     splitter->setStretchFactor(3, 0);
     splitter->setCollapsible(3, false);
 
-    // Restore floating-container state from the previous session.  Deferred
-    // one event-loop cycle so AppletPanel's own legacy-migration singleShot(0)
-    // timers fire first (they write ContainerTree) before we read it back.
-    QTimer::singleShot(0, this, [this]() {
-        if (m_appletPanel && m_appletPanel->containerManager())
-            m_appletPanel->containerManager()->restoreState();
-    });
+    // Restore floating-container state from the previous session.
+    // Called synchronously here, before the event loop starts, so that legacy
+    // float migration singleShot(0) timers posted inside AppletPanel::makeEntry()
+    // cannot call saveState() and overwrite ContainerTree before we read it.
+    if (m_appletPanel && m_appletPanel->containerManager())
+        m_appletPanel->containerManager()->restoreState();
 
     // Set initial splitter sizes: CWX=0, DVK=0 (both hidden), center=stretch, right=310
     const int centerWidth = qMax(400, width() - 310);

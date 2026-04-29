@@ -478,8 +478,11 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         const QString legacyFloatKey =
             QStringLiteral("FloatingApplet_%1_IsFloating").arg(safeId);
         if (settings.value(legacyFloatKey, "False").toString() == "True" && on) {
-            QTimer::singleShot(0, this, [this, id]() {
-                if (m_containerMgr) m_containerMgr->floatContainer(id);
+            QTimer::singleShot(0, this, [this, id, legacyFloatKey]() {
+                if (!m_containerMgr) return;
+                m_containerMgr->floatContainer(id);
+                AppSettings::instance().remove(legacyFloatKey);
+                AppSettings::instance().save();
             });
         }
 
@@ -573,7 +576,10 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         if (sMeterOn && settings.value(
                 "FloatingApplet_VU_IsFloating", "False").toString() == "True") {
             QTimer::singleShot(0, this, [this]() {
-                if (m_containerMgr) m_containerMgr->floatContainer("VU");
+                if (!m_containerMgr) return;
+                m_containerMgr->floatContainer("VU");
+                AppSettings::instance().remove("FloatingApplet_VU_IsFloating");
+                AppSettings::instance().save();
             });
         }
     }
