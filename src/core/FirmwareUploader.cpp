@@ -3,6 +3,7 @@
 #include "../models/RadioModel.h"
 #include "../core/RadioConnection.h"
 
+#include <QCryptographicHash>
 #include <QFile>
 #include <QFileInfo>
 #include <QHostAddress>
@@ -16,6 +17,17 @@ FirmwareUploader::FirmwareUploader(RadioModel* model, QObject* parent)
     connect(&m_socket, &QTcpSocket::connected, this, &FirmwareUploader::onConnected);
     connect(&m_socket, &QTcpSocket::bytesWritten, this, &FirmwareUploader::onBytesWritten);
     connect(&m_socket, &QTcpSocket::errorOccurred, this, [this] { onError(); });
+
+    // State transitions are critical breadcrumbs if the upload misbehaves —
+    // capture them at info level so they're visible without the firmware
+    // category having to be at debug level.
+    connect(&m_socket, &QTcpSocket::stateChanged, this,
+            [](QAbstractSocket::SocketState s) {
+        qCInfo(lcFirmware) << "FirmwareUploader: socket state ->" << s;
+    });
+    connect(&m_socket, &QTcpSocket::disconnected, this, []() {
+        qCInfo(lcFirmware) << "FirmwareUploader: socket disconnected";
+    });
 }
 
 void FirmwareUploader::upload(const QString& filePath)
@@ -52,17 +64,43 @@ void FirmwareUploader::upload(const QString& filePath)
     m_uploading = true;
     m_cancelled = false;
 
+    // Pre-flight diagnostic dump — captures everything we'd want to know
+    // post-mortem if the flash misbehaves. This is the kind of state that's
+    // trivially knowable now and impossible to reconstruct after the fact.
+    QCryptographicHash hash(QCryptographicHash::Md5);
+    hash.addData(m_fileData);
+    const QString fileMd5 = hash.result().toHex().toLower();
+    const QByteArray header = m_fileData.left(8);
+
+    qCInfo(lcFirmware) << "FirmwareUploader: ===== PRE-UPLOAD DIAGNOSTIC =====";
+    qCInfo(lcFirmware) << "FirmwareUploader: file       =" << filePath;
+    qCInfo(lcFirmware) << "FirmwareUploader: filename   =" << m_fileName;
+    qCInfo(lcFirmware) << "FirmwareUploader: size       =" << m_fileData.size()
+                        << "bytes (" << (m_fileData.size() / (1024.0*1024.0)) << "MB)";
+    qCInfo(lcFirmware) << "FirmwareUploader: md5        =" << fileMd5;
+    qCInfo(lcFirmware) << "FirmwareUploader: header(8B) =" << header.toHex();
+    qCInfo(lcFirmware) << "FirmwareUploader: header str =" << QString::fromLatin1(header);
+    qCInfo(lcFirmware) << "FirmwareUploader: radio      =" << m_model->model()
+                        << "serial" << m_model->serial();
+    qCInfo(lcFirmware) << "FirmwareUploader: radio addr =" << m_model->radioAddress();
+    qCInfo(lcFirmware) << "FirmwareUploader: cur fw     =" << m_model->softwareVersion();
+    qCInfo(lcFirmware) << "FirmwareUploader: ================================";
+
     emit progressChanged(0, "Preparing upload...");
 
     // Step 1: Send filename to radio
+    qCInfo(lcFirmware) << "FirmwareUploader: TX 'file filename" << m_fileName << "'";
     m_model->sendCommand("file filename " + m_fileName);
 
     // Step 2: Request upload — radio responds with port number
     emit progressChanged(0, "Requesting upload port...");
 
-    m_model->sendCmdPublic(
-        QString("file upload %1 update").arg(m_fileData.size()),
+    const QString uploadCmd = QString("file upload %1 update").arg(m_fileData.size());
+    qCInfo(lcFirmware) << "FirmwareUploader: TX '" << uploadCmd << "'";
+    m_model->sendCmdPublic(uploadCmd,
         [this](int code, const QString& body) {
+            qCInfo(lcFirmware) << "FirmwareUploader: RX upload response code=0x"
+                << QString::number(code, 16) << "body='" << body << "'";
             onUploadPortReceived(code, body);
         });
 }
@@ -171,10 +209,15 @@ void FirmwareUploader::onError()
 {
     if (m_cancelled) return;
 
+    qCWarning(lcFirmware) << "FirmwareUploader: SOCKET ERROR err="
+        << m_socket.error() << "msg='" << m_socket.errorString() << "'"
+        << "bytesSent=" << m_bytesSent << "/" << m_fileData.size()
+        << "port=" << m_uploadPort;
+
     // If we haven't sent anything and this is the first port attempt, try fallback
     if (m_bytesSent == 0 && m_uploadPort != FALLBACK_PORT) {
         m_uploadPort = FALLBACK_PORT;
-        qCDebug(lcFirmware) << "FirmwareUploader: error on primary port, trying" << FALLBACK_PORT;
+        qCInfo(lcFirmware) << "FirmwareUploader: error on primary port, trying" << FALLBACK_PORT;
         emit progressChanged(0, QString("Retrying on port %1...").arg(FALLBACK_PORT));
         m_socket.abort();
         m_socket.connectToHost(m_model->radioAddress(), m_uploadPort);
