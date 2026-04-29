@@ -26,6 +26,12 @@ public:
     // modelFamily: "6x00" or "9600"
     void downloadAndStage(const QString& version, const QString& modelFamily);
 
+    // Stage firmware from an installer file the user has already downloaded.
+    // Accepts .msi (v4.2+), .exe (v4.1.x and earlier), or .ssdr (no extraction
+    // needed; passed straight through to staging). Version is parsed from the
+    // filename when present, otherwise stays empty until the radio confirms.
+    void stageFromLocalFile(const QString& installerPath, const QString& modelFamily);
+
     // Cancel in-progress download
     void cancel();
 

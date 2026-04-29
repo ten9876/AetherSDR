@@ -379,7 +379,7 @@ QWidget* RadioSetupDialog::buildRadioTab()
             "QPushButton:hover { background: #2a3a4a; }");
         btnRow->addWidget(checkBtn);
 
-        auto* browseBtn = new QPushButton("Browse .ssdr...");
+        auto* browseBtn = new QPushButton("Select Installer...");
         browseBtn->setStyleSheet(checkBtn->styleSheet());
         btnRow->addWidget(browseBtn);
 
@@ -407,18 +407,10 @@ QWidget* RadioSetupDialog::buildRadioTab()
             checkBtn->setEnabled(true);
             if (avail) {
                 m_fwStatusLabel->setStyleSheet("QLabel { color: #f0c040; font-size: 10px; }");
-                m_fwStatusLabel->setText(QString("Update available: v%1\n"
-                    "Click 'Check for Update' again to download and stage.").arg(latest));
-                // Re-wire the check button to trigger download
-                checkBtn->disconnect();
-                checkBtn->setText("Download v" + latest);
-                connect(checkBtn, &QPushButton::clicked, this, [this, checkBtn, latest] {
-                    checkBtn->setEnabled(false);
-                    m_fwProgress->show();
-                    m_fwProgress->setValue(0);
-                    m_stager->downloadAndStage(latest,
-                        FirmwareStager::modelToFamily(m_model->model()));
-                });
+                m_fwStatusLabel->setText(QString(
+                    "Update available: v%1\n"
+                    "Download the SmartSDR installer from flexradio.com,\n"
+                    "then click 'Select Installer...' to stage it.").arg(latest));
             } else {
                 m_fwStatusLabel->setStyleSheet("QLabel { color: #80e080; font-size: 10px; }");
                 m_fwStatusLabel->setText("Firmware is up to date (v" + latest + ").");
@@ -453,20 +445,31 @@ QWidget* RadioSetupDialog::buildRadioTab()
             m_fwStatusLabel->setText(err);
         });
 
-        // ── Browse .ssdr manually ─────────────────────────────────────
+        // ── Browse / select installer manually ────────────────────────
+        // Accepts the SmartSDR installer the user has already downloaded
+        // from FlexRadio (.msi for v4.2+, .exe for older releases) or a
+        // pre-extracted .ssdr file. The stager auto-detects which.
         connect(browseBtn, &QPushButton::clicked, this, [this] {
             const QString path = QFileDialog::getOpenFileName(
-                this, "Select Firmware File", QString(),
-                "SmartSDR Firmware (*.ssdr);;All Files (*)");
+                this, "Select SmartSDR Installer or Firmware File", QString(),
+                "SmartSDR installer or firmware (*.msi *.exe *.ssdr);;"
+                "MSI installer (*.msi);;"
+                "EXE installer (*.exe);;"
+                "Extracted firmware (*.ssdr);;"
+                "All files (*)");
             if (path.isEmpty()) return;
-            m_fwFilePath = path;
-            m_fwUploadBtn->setEnabled(true);
+
+            m_fwFilePath.clear();
+            m_fwUploadBtn->setEnabled(false);
             m_fwProgress->show();
-            m_fwProgress->setValue(100);
-            m_fwStatusLabel->setStyleSheet("QLabel { color: #80e080; font-size: 10px; }");
-            m_fwStatusLabel->setText(QString("Ready to upload: %1 (%2 MB)")
-                .arg(QFileInfo(path).fileName())
-                .arg(QFileInfo(path).size() / (1024*1024)));
+            m_fwProgress->setValue(0);
+            m_fwStatusLabel->setStyleSheet("QLabel { color: #6888a0; font-size: 10px; }");
+            m_fwStatusLabel->setText("Preparing firmware from " + QFileInfo(path).fileName() + "...");
+
+            // The stager emits stageProgress / stageComplete / stageFailed.
+            // Existing slots wire to those (set above) so we just kick it off.
+            m_stager->stageFromLocalFile(path,
+                FirmwareStager::modelToFamily(m_model->model()));
         });
 
         // ── Upload ────────────────────────────────────────────────────

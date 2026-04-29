@@ -131,6 +131,83 @@ void FirmwareStager::checkForUpdate(const QString& currentVersion)
     });
 }
 
+// ─── Step 2a: Stage from a user-selected local file ─────────────────────────
+
+void FirmwareStager::stageFromLocalFile(const QString& installerPath,
+                                         const QString& modelFamily)
+{
+    m_modelFamily   = modelFamily;
+    m_cancelled     = false;
+    m_stagedPath.clear();
+    m_stagedVersion.clear();
+    m_installerPath = installerPath;
+    m_expectedMd5.clear();   // user's responsibility — we don't have an authoritative source
+
+    QFileInfo fi(installerPath);
+    if (!fi.exists() || !fi.isReadable()) {
+        emit stageFailed("Cannot read installer: " + installerPath);
+        return;
+    }
+
+    // Parse version from filename so the staged .ssdr ends up named correctly.
+    // Patterns we support:
+    //   SmartSDR_v4.2.18_x64.msi
+    //   SmartSDR_v4.1.5_Installer.exe
+    //   FLEX-6x00_v4.2.18.41174.ssdr      (already-extracted firmware)
+    QRegularExpression verRe(R"(v(\d+\.\d+\.\d+(?:\.\d+)?))",
+                              QRegularExpression::CaseInsensitiveOption);
+    auto m = verRe.match(fi.fileName());
+    m_targetVersion = m.hasMatch() ? m.captured(1) : QStringLiteral("unknown");
+
+    // If the user picked a pre-extracted .ssdr, no extraction needed —
+    // copy it into the staging dir under our canonical name and we're done.
+    if (fi.suffix().compare("ssdr", Qt::CaseInsensitive) == 0) {
+        emit stageProgress(20, "Validating .ssdr file...");
+        QFile probe(installerPath);
+        if (!probe.open(QIODevice::ReadOnly)) {
+            emit stageFailed("Cannot open .ssdr: " + probe.errorString());
+            return;
+        }
+        const QByteArray hdr = probe.read(8);
+        probe.close();
+        if (hdr != QByteArrayLiteral("Salted__")) {
+            emit stageFailed("Selected .ssdr file has invalid header.");
+            return;
+        }
+
+        emit stageProgress(60, "Staging firmware...");
+        const QString outName = "FLEX-" + m_modelFamily + "_v" + m_targetVersion + ".ssdr";
+        const QString outPath = stagingDir() + "/" + outName;
+        QFile::remove(outPath);
+        if (!QFile::copy(installerPath, outPath)) {
+            emit stageFailed("Failed to copy .ssdr into staging directory.");
+            return;
+        }
+
+        QFile h(outPath);
+        if (!h.open(QIODevice::ReadOnly)) {
+            emit stageFailed("Cannot read staged firmware for hashing.");
+            return;
+        }
+        QCryptographicHash fwHash(QCryptographicHash::Md5);
+        fwHash.addData(&h);
+        const QString fwMd5 = fwHash.result().toHex().toLower();
+        const qint64 fwSize = h.size();
+        h.close();
+
+        m_stagedPath = outPath;
+        m_stagedVersion = m_targetVersion;
+        emit stageProgress(100, QString("Firmware staged and ready ✓\n"
+            "%1 (%2 MB)\nMD5: %3").arg(outName).arg(fwSize / (1024*1024)).arg(fwMd5));
+        emit stageComplete(outPath, m_targetVersion);
+        return;
+    }
+
+    // Otherwise it's an installer (.msi or .exe) — go straight to extraction.
+    // verifyAndExtract() handles format detection from the file header.
+    verifyAndExtract();
+}
+
 // ─── Step 2: Download installer ──────────────────────────────────────────────
 
 void FirmwareStager::downloadAndStage(const QString& version, const QString& modelFamily)
