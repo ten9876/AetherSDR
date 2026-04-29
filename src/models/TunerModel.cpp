@@ -104,6 +104,18 @@ void TunerModel::setBypass(bool on)
 
 void TunerModel::autoTune()
 {
+    // Match FlexLib Tuner.AutoTune() preconditions: ensure the tuner is in
+    // Operate mode and not bypassed before initiating a tune cycle.  Without
+    // these guards the TGXL silently ignores the autotune command (#2164).
+    if (!m_operate) {
+        qCDebug(lcTuner) << "TunerModel::autoTune: auto-engaging Operate mode";
+        setOperate(true);
+    }
+    if (m_bypass) {
+        qCDebug(lcTuner) << "TunerModel::autoTune: disabling Bypass";
+        setBypass(false);
+    }
+
     // Prefer the direct port-9010 channel when available: bypasses the radio's
     // `tgxl autotune` command path, which broke for some users in firmware 4.2.
     // The TGXL drives radio PTT via its hardware interlock cable, so we don't
