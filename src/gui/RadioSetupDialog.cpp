@@ -3723,7 +3723,7 @@ QWidget* RadioSetupDialog::buildUiEnhancementsTab()
     SliceColorManager* pMgr = &SliceColorManager::instance();
 
     // Updates a single button's background to reflect current color.
-    auto applyBtnColor = [pMgr, colorBtns, kBtnBase](int idx) mutable {
+    auto applyBtnColor = [pMgr, colorBtns](int idx) mutable {
         QColor c = pMgr->activeColor(idx);
         bool light = (c.red() * 299 + c.green() * 587 + c.blue() * 114) > 128000;
         QString textColor = light ? "#000000" : "#ffffff";
