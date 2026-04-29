@@ -19,10 +19,12 @@ target_include_directories(mspack_static
 )
 
 # We don't supply a config.h; libmspack's source guards every reference
-# behind HAVE_CONFIG_H so undefined is the right state.
-target_compile_definitions(mspack_static PRIVATE
-    MSPACK_NO_DEFAULT_SYSTEM=0
-)
+# behind HAVE_CONFIG_H so undefined is the right state. We deliberately
+# do NOT define MSPACK_NO_DEFAULT_SYSTEM — that macro is checked with
+# #ifndef in system.h, so the value is irrelevant; just defining it at
+# all (even to 0) makes libmspack provide its own memcmp/memset/strlen,
+# which collides with MSVC's compiler intrinsics for those functions
+# (error C2169: "intrinsic function, cannot be defined").
 
 # Upstream code emits a fair amount of -Wall noise (sign comparisons,
 # implicit narrowing, missing-field-init). We don't want those polluting
