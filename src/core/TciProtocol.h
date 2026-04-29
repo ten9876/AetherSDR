@@ -98,6 +98,11 @@ public:
     static QString smartsdrToTci(const QString& mode);
     static QString tciToSmartSDR(const QString& mode);
 
+    // Map a slice to its contiguous TCI TRX index (0..N-1) within the
+    // owned-slice list.  Falls back to the raw Flex sliceId() if the
+    // slice is not in the model's list.
+    static int tciTrxForSlice(RadioModel* model, const SliceModel* slice);
+
 private:
 
     RadioModel* m_model;

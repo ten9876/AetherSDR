@@ -2,6 +2,7 @@
 #include "core/CommandParser.h"
 #include "core/AppSettings.h"
 #include "core/LogManager.h"
+#include "core/StreamStatus.h"
 #include <QCoreApplication>
 #include <QDebug>
 #include <QJsonArray>
@@ -86,20 +87,8 @@ quint32 parseClientHandle(QString text)
     return ok ? handle : 0;
 }
 
-quint32 parseStreamToken(QString text)
-{
-    text = text.trimmed();
-    bool ok = false;
-    quint32 value = text.toUInt(&ok, 0);
-    if (ok)
-        return value;
-
-    if (text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
-        text = text.mid(2);
-
-    value = text.toUInt(&ok, 16);
-    return ok ? value : 0;
-}
+// parseStreamToken — identical to parseStatusHandle; use the shared version.
+inline quint32 parseStreamToken(QString text) { return parseStatusHandle(std::move(text)); }
 
 QString hexId(quint32 value)
 {

@@ -13,17 +13,14 @@
 
 namespace AetherSDR {
 
-namespace {
-
-int tciTrxForSlice(const QList<SliceModel*>& slices, const SliceModel* slice)
+int TciProtocol::tciTrxForSlice(RadioModel* model, const SliceModel* slice)
 {
-    if (!slice)
+    if (!model || !slice)
         return 0;
+    const auto slices = model->slices();
     const int index = slices.indexOf(const_cast<SliceModel*>(slice));
     return index >= 0 ? index : slice->sliceId();
 }
-
-} // namespace
 
 TciProtocol::TciProtocol(RadioModel* model)
     : m_model(model)
@@ -102,7 +99,7 @@ QString TciProtocol::generateInitBurst()
     // Per-slice state
     if (m_model) {
         for (auto* s : slices) {
-            int trx = tciTrxForSlice(slices, s);
+            int trx = tciTrxForSlice(m_model, s);
             long long hz = static_cast<long long>(std::round(s->frequency() * 1e6));
             burst += QStringLiteral("vfo:%1,0,%2;").arg(trx).arg(hz);
             burst += QStringLiteral("modulation:%1,%2;")
@@ -158,7 +155,7 @@ QString TciProtocol::generateInitBurst()
         int txTrx = 0;
         for (auto* s : slices) {
             if (s->isTxSlice()) {
-                txTrx = tciTrxForSlice(slices, s);
+                txTrx = tciTrxForSlice(m_model, s);
                 break;
             }
         }

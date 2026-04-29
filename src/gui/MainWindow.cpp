@@ -11,6 +11,7 @@
 #include "core/CommandParser.h"
 #include "core/LogManager.h"
 #include "core/MemoryRecallPolicy.h"
+#include "core/StreamStatus.h"
 #include "models/PanadapterModel.h"
 #include "SpectrumWidget.h"
 #ifdef AETHER_GPU_SPECTRUM
@@ -230,27 +231,7 @@ QString xvtrForBandSummary(const QString& bandName,
     return QStringLiteral("(none)");
 }
 
-quint32 parseStatusHandle(QString text)
-{
-    text = text.trimmed();
-    bool ok = false;
-    quint32 value = text.toUInt(&ok, 0);
-    if (ok)
-        return value;
-
-    if (text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
-        text = text.mid(2);
-    value = text.toUInt(&ok, 16);
-    return ok ? value : 0;
-}
-
-bool streamStatusBelongsToUs(const QMap<QString, QString>& kvs, quint32 ourHandle)
-{
-    if (!kvs.contains(QStringLiteral("client_handle")))
-        return true; // Older firmware/status lines may omit ownership.
-    const quint32 owner = parseStatusHandle(kvs.value(QStringLiteral("client_handle")));
-    return owner == 0 || owner == ourHandle;
-}
+// parseStatusHandle / streamStatusBelongsToUs  → core/StreamStatus.h
 
 void logXvtrWaterfallDecision(quint32 streamId,
                               const QString& panId,

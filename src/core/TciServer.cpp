@@ -1,6 +1,7 @@
 #ifdef HAVE_WEBSOCKETS
 #include "TciServer.h"
 #include "TciProtocol.h"
+#include "StreamStatus.h"
 #include "AudioEngine.h"
 #include "AppSettings.h"
 #include "Resampler.h"
@@ -49,37 +50,8 @@ constexpr qint64 kTxChronoPeriodNs =
 constexpr int kTxChronoPollMs = 5;
 constexpr qint64 kTxSummaryEveryBlocks = 48;
 
-quint32 parseStatusHandle(QString text)
-{
-    text = text.trimmed();
-    bool ok = false;
-    quint32 value = text.toUInt(&ok, 0);
-    if (ok)
-        return value;
-
-    if (text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
-        text = text.mid(2);
-    value = text.toUInt(&ok, 16);
-    return ok ? value : 0;
-}
-
-bool streamStatusBelongsToUs(const QMap<QString, QString>& kvs, quint32 ourHandle)
-{
-    if (!kvs.contains(QStringLiteral("client_handle")))
-        return true; // Preserve compatibility with status lines that omit ownership.
-    const quint32 owner = parseStatusHandle(kvs.value(QStringLiteral("client_handle")));
-    return owner == 0 || owner == ourHandle;
-}
-
-int tciTrxForSlice(RadioModel* model, const SliceModel* slice)
-{
-    if (!model || !slice)
-        return 0;
-
-    const auto slices = model->slices();
-    const int index = slices.indexOf(const_cast<SliceModel*>(slice));
-    return index >= 0 ? index : slice->sliceId();
-}
+// parseStatusHandle / streamStatusBelongsToUs  → StreamStatus.h
+// tciTrxForSlice                               → TciProtocol::tciTrxForSlice
 
 } // namespace
 
@@ -873,7 +845,7 @@ void TciServer::onDaxAudioReady(int channel, const QByteArray& pcm)
     if (m_model) {
         for (auto* s : m_model->slices()) {
             if (s->daxChannel() == channel) {
-                trx = tciTrxForSlice(m_model, s);
+                trx = TciProtocol::tciTrxForSlice(m_model,s);
                 owningSliceId = s->sliceId();
                 break;
             }
@@ -1113,35 +1085,35 @@ void TciServer::wireSlice(int trx, SliceModel* slice)
 
     connect(slice, &SliceModel::frequencyChanged, this, [this, slice](double mhz) {
         if (m_clients.isEmpty()) return;
-        const int trx = tciTrxForSlice(m_model, slice);
+        const int trx = TciProtocol::tciTrxForSlice(m_model,slice);
         long long hz = static_cast<long long>(std::round(mhz * 1e6));
         broadcast(QStringLiteral("vfo:%1,0,%2;").arg(trx).arg(hz));
     });
 
     connect(slice, &SliceModel::modeChanged, this, [this, slice](const QString& mode) {
         if (m_clients.isEmpty()) return;
-        const int trx = tciTrxForSlice(m_model, slice);
+        const int trx = TciProtocol::tciTrxForSlice(m_model,slice);
         broadcast(QStringLiteral("modulation:%1,%2;")
                       .arg(trx).arg(TciProtocol::smartsdrToTci(mode)));
     });
 
     connect(slice, &SliceModel::filterChanged, this, [this, slice](int lo, int hi) {
         if (m_clients.isEmpty()) return;
-        const int trx = tciTrxForSlice(m_model, slice);
+        const int trx = TciProtocol::tciTrxForSlice(m_model,slice);
         broadcast(QStringLiteral("rx_filter_band:%1,%2,%3;")
                       .arg(trx).arg(lo).arg(hi));
     });
 
     connect(slice, &SliceModel::txSliceChanged, this, [this, slice](bool tx) {
         if (m_clients.isEmpty()) return;
-        const int trx = tciTrxForSlice(m_model, slice);
+        const int trx = TciProtocol::tciTrxForSlice(m_model,slice);
         broadcast(QStringLiteral("tx_enable:%1,%2;")
                       .arg(trx).arg(tx ? "true" : "false"));
     });
 
     connect(slice, &SliceModel::lockedChanged, this, [this, slice](bool locked) {
         if (m_clients.isEmpty()) return;
-        const int trx = tciTrxForSlice(m_model, slice);
+        const int trx = TciProtocol::tciTrxForSlice(m_model,slice);
         broadcast(QStringLiteral("lock:%1,%2;")
                       .arg(trx).arg(locked ? "true" : "false"));
     });
@@ -1179,7 +1151,7 @@ void TciServer::sendInitBurst(QWebSocket* client)
     const auto slices = m_model->slices();
     for (auto* s : slices) {
         receiverMap << QStringLiteral("trx%1=slice%2/dax%3")
-                           .arg(tciTrxForSlice(m_model, s))
+                           .arg(TciProtocol::tciTrxForSlice(m_model,s))
                            .arg(s->sliceId())
                            .arg(s->daxChannel());
     }
@@ -1361,7 +1333,7 @@ void TciServer::broadcastStatus()
     // Broadcast S-meter for each owned slice (throttled to 200ms)
     // TCI spec: rx_smeter:receiver,value; (2 args)
     for (auto* s : m_model->slices()) {
-        const int trx = tciTrxForSlice(m_model, s);
+        const int trx = TciProtocol::tciTrxForSlice(m_model,s);
         const int meterIndex = s->sliceId();
         if (trx >= 0 && meterIndex >= 0 && meterIndex < 8) {
             float dbm = m_cachedSLevel[meterIndex];
@@ -1375,7 +1347,7 @@ void TciServer::broadcastStatus()
     for (auto& cs : m_clients) {
         if (cs.rxSensorsEnabled) {
             for (auto* s : m_model->slices()) {
-                const int trx = tciTrxForSlice(m_model, s);
+                const int trx = TciProtocol::tciTrxForSlice(m_model,s);
                 const int meterIndex = s->sliceId();
                 if (trx >= 0 && meterIndex >= 0 && meterIndex < 8) {
                     float dbm = m_cachedSLevel[meterIndex];
@@ -1405,7 +1377,7 @@ void TciServer::broadcastStatus()
         double txFreqMhz = 0;
         for (auto* s : m_model->slices()) {
             if (s->isTxSlice()) {
-                txTrx = tciTrxForSlice(m_model, s);
+                txTrx = TciProtocol::tciTrxForSlice(m_model,s);
                 txFreqMhz = s->frequency();
                 break;
             }

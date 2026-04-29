@@ -611,7 +611,7 @@ private:
     QMap<quint32, DaxStreamDebugState> m_daxStreamDebug;
     quint32     m_daxTxStreamId{0};
     bool        m_daxTxActive{false};
-    quint32     m_daxTxClientHandle{0};
+    quint32     m_daxTxClientHandle{0};  // Tracked for diagnostics only — not consulted in routing.
     WanConnection* m_wanConn{nullptr};  // non-null when connected via SmartLink
     QString  m_wanPublicIp;
     quint16  m_wanUdpPort{4991};
