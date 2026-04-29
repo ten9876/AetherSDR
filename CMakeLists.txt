@@ -439,6 +439,8 @@ set(CORE_SOURCES
     src/core/DvkWavTransfer.cpp
     src/core/QsoRecorder.cpp
     src/core/FirmwareStager.cpp
+    src/core/OleCompoundFile.cpp
+    src/core/CabExtractor.cpp
     src/core/RNNoiseFilter.cpp
     src/core/SpecbleachFilter.cpp
     src/core/CwDecoder.cpp
@@ -770,6 +772,11 @@ if(AETHER_GPU_SPECTRUM)
             resources/shaders/spectrum.frag
     )
 endif()
+
+# Bundled libmspack (LGPL-2.1) — CAB+LZX decompression for the v4.2+ MSI
+# firmware-installer extraction path. See third_party/libmspack/README.md.
+add_subdirectory(third_party/libmspack)
+target_link_libraries(AetherSDR PRIVATE mspack_static)
 
 # Bundled RtMidi (MIT license) — MIDI controller support on all platforms
 message(STATUS "MIDI controller support enabled (bundled RtMidi)")
@@ -1131,6 +1138,16 @@ add_executable(passive_spots_policy_test
 )
 target_include_directories(passive_spots_policy_test PRIVATE src)
 target_link_libraries(passive_spots_policy_test PRIVATE Qt6::Core)
+
+add_executable(ole_compound_file_test
+    tests/ole_compound_file_test.cpp
+    src/core/OleCompoundFile.cpp
+    src/core/CabExtractor.cpp
+    src/core/LogManager.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(ole_compound_file_test PRIVATE src)
+target_link_libraries(ole_compound_file_test PRIVATE Qt6::Core mspack_static)
 
 add_executable(xvtr_policy_test
     tests/xvtr_policy_test.cpp

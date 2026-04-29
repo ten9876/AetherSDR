@@ -1,12 +1,13 @@
 #include "FirmwareStager.h"
+#include "CabExtractor.h"
 #include "LogManager.h"
+#include "OleCompoundFile.h"
 
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QNetworkRequest>
-#include <QProcess>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QUrl>
@@ -51,36 +52,6 @@ bool FirmwareStager::versionUsesMsi(const QString& version)
     const int minor = parts[1].toInt(&ok2);
     if (!ok1 || !ok2) return false;
     return (major > 4) || (major == 4 && minor >= 2);
-}
-
-QString FirmwareStager::findExtractionTool()
-{
-    // 7z handles both MSI (OLE Compound File) and the LZX-compressed CABs
-    // inside, so we use it as a single tool. Try the common binary names.
-    static const QStringList candidates = {
-        "7z", "7zz", "7za",
-        "/usr/local/bin/7z",       // macOS Intel Homebrew
-        "/opt/homebrew/bin/7z",    // macOS Apple Silicon Homebrew
-        "/opt/homebrew/bin/7zz",
-    };
-    for (const QString& cand : candidates) {
-        // Absolute paths: check existence directly.
-        if (cand.startsWith('/')) {
-            if (QFileInfo::exists(cand) && QFileInfo(cand).isExecutable())
-                return cand;
-            continue;
-        }
-        // Otherwise probe via QProcess (catches PATH lookups portably).
-        QProcess p;
-        p.setProgram(cand);
-        p.setArguments({"--help"});
-        p.start();
-        if (p.waitForStarted(2000)) {
-            p.waitForFinished(3000);
-            return cand;
-        }
-    }
-    return QString();
 }
 
 // ─── Step 1: Check for update ────────────────────────────────────────────────
@@ -508,137 +479,104 @@ bool FirmwareStager::extractFromInnoSetup(const QByteArray& data, const QString&
 
 bool FirmwareStager::extractFromMsi(const QString& msiPath, const QString& outPath)
 {
-    // v4.2+: WiX MSI (OLE Compound File) with the .ssdr files stored as
-    // LZX-compressed CAB streams (cab1.cab, cab2.cab, ...). Each cab contains
-    // exactly one payload file, hashed-named, that decompresses to a raw
-    // Salted__-prefixed .ssdr blob.
+    // v4.2+: WiX MSI (OLE Compound File) with `.ssdr` blobs hidden inside
+    // LZX-compressed CAB streams (cab1.cab, cab2.cab, ...). Native pipeline:
     //
-    // Strategy: shell out to 7-Zip to do the OLE+LZX heavy lifting, scan the
-    // decompressed payloads for the Salted__ magic, sort by size, and pick the
-    // matching firmware family (consumer 6x00 is several hundred MB; the 9600
-    // government build is much smaller).
+    //   OleCompoundFile → all cab*.cab streams (in memory)
+    //   CabExtractor (libmspack) → all files inside each cab (in memory)
+    //   Filter for Salted__ magic → list of firmware blobs
+    //   Sort by size desc, pick by family, write to outPath
+    //
+    // No external tools, no temp files.
 
-    const QString sevenZ = findExtractionTool();
-    if (sevenZ.isEmpty()) {
-        emit stageFailed(
-            "Firmware extraction requires 7-Zip but it could not be found.\n\n"
-            "Install 7-Zip and ensure it is on PATH:\n"
-            "  • Linux:   sudo pacman -S p7zip   (or apt/dnf equivalent)\n"
-            "  • macOS:   brew install p7zip\n"
-            "  • Windows: install from https://7-zip.org and add to PATH"
-        );
+    OleCompoundFile cfb;
+    if (!cfb.open(msiPath)) {
+        emit stageFailed("Could not open MSI: " + cfb.lastError());
         return false;
     }
 
-    const QString tempDir = stagingDir() + "/_msi_tmp";
-    {
-        QDir td(tempDir);
-        if (td.exists()) td.removeRecursively();
-    }
-    if (!QDir().mkpath(tempDir)) {
-        emit stageFailed("Cannot create extraction temp directory.");
-        return false;
-    }
-
-    auto runSevenZip = [&](const QStringList& args, const QString& step) -> bool {
-        QProcess p;
-        p.setProgram(sevenZ);
-        p.setArguments(args);
-        p.start();
-        if (!p.waitForStarted(5000)) {
-            emit stageFailed(step + " failed to start: " + p.errorString());
-            return false;
-        }
-        // MSI extraction can be slow on large installers — give it 5 minutes.
-        if (!p.waitForFinished(300000)) {
-            p.kill();
-            emit stageFailed(step + " timed out.");
-            return false;
-        }
-        if (p.exitCode() != 0) {
-            const QString err = QString::fromUtf8(p.readAllStandardError()).trimmed();
-            emit stageFailed(step + " failed: " + (err.isEmpty() ? "exit code "
-                + QString::number(p.exitCode()) : err));
-            return false;
-        }
-        return true;
-    };
-
-    // Extract the embedded CAB streams from the MSI's OLE Compound File.
-    emit stageProgress(75, "Extracting installer streams...");
-    if (!runSevenZip({"x", "-y", "-o" + tempDir, msiPath, "cab*.cab"},
-                     "MSI stream extraction"))
-        return false;
-
-    QDir td(tempDir);
-    QStringList cabFiles = td.entryList({"cab*.cab"}, QDir::Files);
-    if (cabFiles.isEmpty()) {
+    emit stageProgress(72, "Reading installer streams...");
+    const auto cabStreams = cfb.readMsiStreamsByPrefixSuffix("cab", ".cab");
+    if (cabStreams.isEmpty()) {
         emit stageFailed("No CAB streams found in MSI.");
         return false;
     }
 
-    // Each CAB has a single LZX-compressed payload; decompress all.
-    emit stageProgress(82, QString("Decompressing %1 CAB streams...").arg(cabFiles.size()));
-    for (const QString& cab : cabFiles) {
-        if (!runSevenZip({"x", "-y", "-o" + tempDir, tempDir + "/" + cab},
-                         "CAB " + cab + " decompression"))
-            return false;
-    }
+    emit stageProgress(78,
+        QString("Decompressing %1 CAB streams...").arg(cabStreams.size()));
 
-    // Scan the decompressed payloads for Salted__ magic.
-    emit stageProgress(88, "Locating firmware blobs...");
-    struct Blob { QString path; qint64 size; };
+    struct Blob {
+        QString cabName;
+        QByteArray data;
+    };
     QList<Blob> blobs;
-    for (const QFileInfo& fi : td.entryInfoList(QDir::Files)) {
-        if (fi.fileName().startsWith("cab"))
+
+    CabExtractor cx;
+    int progressBase = 78;
+    int progressSpan = 12;  // 78..90
+    int idx = 0;
+    for (const auto& [cabName, cabBytes] : cabStreams) {
+        QByteArray ssdr;
+        if (!cx.extractFirstMatchingMagic(cabBytes,
+                                          QByteArrayLiteral("Salted__"),
+                                          ssdr)) {
+            // No firmware in this cab — that's expected for cabs that
+            // hold drivers/installer support files. Move on.
+            ++idx;
+            const int pct = progressBase + (progressSpan * idx) / cabStreams.size();
+            emit stageProgress(pct,
+                QString("Scanning %1 (no firmware)...").arg(cabName));
             continue;
-        QFile f(fi.absoluteFilePath());
-        if (!f.open(QIODevice::ReadOnly))
-            continue;
-        const QByteArray hdr = f.read(8);
-        f.close();
-        if (hdr == QByteArrayLiteral("Salted__"))
-            blobs.append({fi.absoluteFilePath(), fi.size()});
+        }
+        blobs.append({cabName, std::move(ssdr)});
+        ++idx;
+        const int pct = progressBase + (progressSpan * idx) / cabStreams.size();
+        emit stageProgress(pct,
+            QString("Found firmware in %1 (%2 MB)...")
+                .arg(cabName).arg(blobs.last().data.size() / (1024*1024)));
     }
 
     if (blobs.isEmpty()) {
-        emit stageFailed("No firmware blobs (Salted__ header) found in MSI cabinets.");
+        emit stageFailed(
+            "No firmware blobs (Salted__ header) found in any MSI cabinet.");
         return false;
     }
 
     // FLEX-6x00 consumer firmware bundles every consumer platform and is
-    // significantly larger than the FLEX-9600 government build, so size order
-    // gives us the family mapping reliably.
-    std::sort(blobs.begin(), blobs.end(), [](const Blob& a, const Blob& b) {
-        return a.size > b.size;
-    });
+    // significantly larger than the FLEX-9600 government build, so size
+    // order gives us the family mapping reliably.
+    std::sort(blobs.begin(), blobs.end(),
+              [](const Blob& a, const Blob& b) {
+                  return a.data.size() > b.data.size();
+              });
 
-    int targetIdx = -1;
+    const Blob* target = nullptr;
     if (m_modelFamily == "9600") {
         if (blobs.size() < 2) {
             emit stageFailed("FLEX-9600 firmware not present in this installer.");
-            td.removeRecursively();
             return false;
         }
-        targetIdx = blobs.size() - 1;  // smallest blob
+        target = &blobs.last();   // smallest = government 9600 build
     } else {
-        targetIdx = 0;                  // largest blob (multi-platform consumer)
+        target = &blobs.first();  // largest = multi-platform consumer
     }
 
-    const Blob& target = blobs[targetIdx];
-    emit stageProgress(90, QString("Staging firmware (%1 MB)...").arg(target.size / (1024*1024)));
+    emit stageProgress(92,
+        QString("Staging firmware (%1 MB)...").arg(target->data.size() / (1024*1024)));
 
-    if (!QFile::rename(target.path, outPath)) {
-        // Cross-device fallback (e.g. /tmp on tmpfs vs ~/.config on disk).
-        if (!QFile::copy(target.path, outPath)) {
-            emit stageFailed("Failed to stage firmware file from temp dir.");
-            td.removeRecursively();
-            return false;
-        }
-        QFile::remove(target.path);
+    QFile out(outPath);
+    if (!out.open(QIODevice::WriteOnly)) {
+        emit stageFailed("Cannot write firmware file: " + out.errorString());
+        return false;
     }
-
-    td.removeRecursively();
+    const qint64 written = out.write(target->data);
+    out.close();
+    if (written != target->data.size()) {
+        emit stageFailed(
+            QString("Short write: %1 of %2 bytes").arg(written).arg(target->data.size()));
+        QFile::remove(outPath);
+        return false;
+    }
     return true;
 }
 

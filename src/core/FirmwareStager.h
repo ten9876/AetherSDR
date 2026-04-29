@@ -70,10 +70,6 @@ private:
     // of the older InnoSetup .exe.
     static bool versionUsesMsi(const QString& version);
 
-    // Locate a 7z-compatible CLI (7z / 7zz / 7za) in PATH and common Homebrew
-    // locations. Returns empty string if none found.
-    static QString findExtractionTool();
-
     QNetworkAccessManager m_nam;
     QNetworkReply*  m_downloadReply{nullptr};
     QString         m_installerPath;
