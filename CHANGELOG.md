@@ -3,6 +3,146 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.9.2] — 2026-04-28
+
+### WAVE Phase 2, v4.2.18 firmware support, and community polish
+
+A focused community-driven release.  Major work from **jensenpat** lands
+the WAVE Phase 2 applet (four visualizations, settings drawer), proper
+TCXO frequency-offset calibration, and the DAX/TCI multi-stream routing
+needed for FlexRadio firmware 4.2.18.  **chibondking** and **NF0T**
+ship a serial PTT fix and an r8b heap-corruption crash fix.  The VFO
+DSP panel gets a UX pass (collapsed Marker + Filter Edge buttons), and
+the v4.2.18 discovery beacon is parsed.
+
+### Features
+
+**WAVE Phase 2 — applet visualization controls (#2124, jensenpat)**
+- Double-click the WAVE waveform to open a settings drawer (replaces
+  the prior clear-on-double-click behavior).  Drawer is open by default
+  on first launch for discoverability.
+- New compact `View` dropdown with four visualizations:
+  Scope (the original waveform trace), Envelope (filled RMS with peak
+  outline), History (side-scrolling activity bars), Bands (vertical
+  EQ-style frequency bands).
+- Persisted Zoom and FPS controls in the drawer.  Zoom is amplitude
+  gain across all views, not a time-window preference.
+- Drawer participates in the applet size hint when expanded so the
+  applet stays compact when collapsed.
+
+**DAX-aware TCI multi-stream routing (#2140, jensenpat)**
+- Adapts the DAX/TCI audio path for FlexRadio firmware 4.2.18's
+  explicit stream-ownership reporting.  Filters DAX RX/IQ stream
+  status by `client_handle` so we don't accidentally register another
+  client's stream, while accepting ownership-less status from older
+  firmware.
+- Advertises TCI receivers as contiguous owned-slice indexes
+  (`0..N-1`) rather than raw Flex slice IDs.  Fixes WSJT-X TCI1/TCI2
+  multi-slice operation when this client owns slice 1 but another
+  client owns slice 0.
+- Honors per-client `audio_start:<receiver>` so multi-slice WSJT-X
+  receives only the intended audio.
+- Stream-removal handling: unregisters DAX/IQ streams and clears TCI
+  DAX placeholders on `removed` status.
+- Adds focused diagnostics for first DAX VITA packets, TCI receiver
+  maps, DAX RX delivery, and DAX TX route selection — gated behind
+  `lcDax` / `lcCat` categories so default users see no extra noise.
+
+**TCXO frequency-offset calibration (#2119, jensenpat)**
+- Replaces the unsupported `radio calibrate` command (firmware
+  v4.1.5 returns `0x50000016` "unknown command") with the documented
+  SmartSDR / FlexLib sequence: `radio set cal_freq=`, `radio set
+  freq_error_ppb=0`, `radio pll_start`.
+- Watches `pll_done` status for completion with run-specific guards
+  against stale events from a prior calibration firing during a new
+  run.
+- Cross-checked against FlexLib v2.10.1 source.  Fixes #1237, #2095.
+
+**VFO marker controls — tri-state Marker, single Filter Edge (#2141)**
+- The four-button row (Thin / Thick / Edges / Hide) collapses to two:
+  - **Marker** cycles `Off → 1 px → 3 px` on click.  Off skips both
+    the center line and the top triangle, leaving only the passband
+    bracket.
+  - **Filter Edge** is a checkable on/off — checked = edges shown.
+- New `Slice<N>_MarkerWidth` int settings key with one-shot migration
+  from the old `Slice<N>_MarkerThin` bool (`True` → 1, `False` → 3).
+
+**v4.2.18 discovery beacon parsing (#2138, AetherClaude)**
+- Parses two new fields from the FlexLib v4.2.18 discovery packet:
+  `is_system_model` (flags bench / system-build radios) and
+  `turf_region` (turf region indicator distinct from the existing
+  `region` field).  `turf_region` is shown in the connect dialog
+  detail line.
+
+**Other**
+- ATU start added to the keyboard shortcut actions list.
+- Clear action added to the CW decode window context menu (#2116).
+
+### Bug fixes
+
+**Resampler heap corruption (#2114, NF0T)**
+- `r8b::CDSPResampler24::process()` doesn't bounds-check its `l`
+  parameter; passing a block larger than the constructor's
+  `aMaxInLen` silently overflows internal filter buffers.  Bug
+  manifested as a crash when the Qt event loop stalled long enough
+  for `QAudioSource::readAll()` to return more than 4096 frames in
+  one call (typical during DX-cluster spot bursts or heavy UI
+  redraws).  Fix: chunk-and-recurse on each `process*()` path so each
+  call stays within the configured limit.
+
+**Serial PTT input non-functional (#2125, chibondking)**
+- Three layered bugs blocked the serial-PTT path:
+  1. No way to open the port without restarting AetherSDR — the
+     Serial tab had no Open / Close buttons and the auto-open label
+     implied a restart was required.
+  2. `loadSettings()` defaulted CTS / DSR polarity to `ActiveLow`
+     while the dialog combo defaulted to "Active High".  Users who
+     left polarity at the displayed default got silently inverted
+     logic — footswitch press read as inactive, PTT never fired.
+  3. `updatePolling()` was missed when the port was opened, so the
+     polling loop didn't pick up the configured input function.
+- Adds Open / Close buttons to the Serial tab, fixes the polarity
+  default mismatch, and tracks the explicit Open state separately
+  from auto-open via a new `SerialPortOpen` setting.
+
+**Slice audio loss after band changes (#2128, jensenpat)**
+- After `display pan set band=`, the radio sometimes stops mixing
+  slice audio without echoing `audio_mute=1`, leaving the model in a
+  "unmuted but silent" state.  Fix: 300 ms after the band-change
+  command, reassert `slice set <N> audio_mute=0` for any unmuted
+  slice on that pan.
+
+**CWX Live toggle and Send action (#2122, jensenpat)**
+- `Live` button is now a true toggle so operators can turn live
+  keying back off (was force-on only).
+- `Send` button now submits the current input when Live is off
+  (matching Enter-key behavior).
+- Setup exits Live cleanly without duplicate-sending text already
+  keyed character-by-character.
+- Adds `cwx_panel_test` covering Live toggling, Send-click
+  submission, Enter submission, and Live exit safety.
+
+**Connect-radio dialog grouping polish (#2121, jensenpat)**
+- Scopes the `QFrame` callout stylesheet so child labels and
+  checkboxes don't inherit the panel border / background, fixing
+  nested-bordered-box rendering on macOS, Windows, and Linux.
+- Tightens the SmartLink Remote radio list height and moves the
+  Connect Remote button outside the Remote group.
+
+### Internal
+
+- `bool m_markerThin` → `int m_markerWidth` (0 / 1 / 3) propagated
+  through `VfoWidget`, `SpectrumWidget::SliceOverlay`, and the
+  `markerStyleChanged` signal.  Render path skips both the center
+  line and the top triangle when `markerWidth == 0`.
+
+### Acknowledgements
+
+Thanks to **jensenpat** for the WAVE Phase 2, DAX/TCI, calibration,
+band-change, CWX, and dialog polish work; **chibondking** for the
+serial PTT triple-fix; and **NF0T** for catching the r8b heap-
+corruption bug.
+
 ## [v0.9.1] — 2026-04-27
 
 ### Local iambic CW keyer, unified sidetone controls, and CW transmit reliability
