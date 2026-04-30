@@ -1,5 +1,5 @@
 #include "CatControlApplet.h"
-#include "SliceColorManager.h"
+#include "SliceColors.h"
 #include "core/RigctlServer.h"
 #include "core/RigctlPty.h"
 #include "core/AppSettings.h"
@@ -172,7 +172,7 @@ void CatControlApplet::buildUI()
         m_rows[i].badge->setAlignment(Qt::AlignCenter);
         m_rows[i].badge->setStyleSheet(
             QStringLiteral("QLabel { color: %1; font-size: 11px; font-weight: bold; }")
-                .arg(SliceColorManager::instance().hexActive(i)));
+                .arg(kSliceColors[i].hexActive));
         row->addWidget(m_rows[i].badge);
 
         // TCP status
@@ -253,7 +253,7 @@ void CatControlApplet::updateChannelStatus(int ch)
                 .arg(n == 1 ? "" : "s"));
         m_rows[ch].tcpStatus->setStyleSheet(
             n > 0 ? QStringLiteral("QLabel { color: %1; font-size: 10px; }")
-                         .arg(SliceColorManager::instance().hexActive(ch))
+                         .arg(kSliceColors[ch].hexActive)
                    : "QLabel { color: #8090a0; font-size: 10px; }");
     }
 }

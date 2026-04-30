@@ -53,7 +53,6 @@ private:
     QWidget* buildXvtrTab();
     QWidget* buildUsbCablesTab();
     QWidget* buildPeripheralsTab();
-    QWidget* buildUiEnhancementsTab();
 #ifdef HAVE_SERIALPORT
     QWidget* buildSerialTab();
 #endif

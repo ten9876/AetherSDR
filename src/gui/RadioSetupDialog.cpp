@@ -1,7 +1,6 @@
 #include "RadioSetupDialog.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
-#include "SliceColorManager.h"
 #include "models/RadioModel.h"
 #include "core/AppSettings.h"
 #include "core/LogManager.h"
@@ -39,8 +38,6 @@
 #include <QStandardPaths>
 #include <QFileInfo>
 #include <QMessageBox>
-#include <QColorDialog>
-#include <QRadioButton>
 #include <QProgressBar>
 #include <QProcess>
 #include <QListWidget>
@@ -110,11 +107,10 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
     addDeferred("RX",          [this] { return buildRxTab(); });
     addDeferred("Filters",     [this] { return buildFiltersTab(); });
     addDeferred("XVTR",        [this] { return buildXvtrTab(); });
-    addDeferred("USB Cables",      [this] { return buildUsbCablesTab(); });
-    addDeferred("Peripherals",     [this] { return buildPeripheralsTab(); });
-    addDeferred("Themes",          [this] { return buildUiEnhancementsTab(); });
+    addDeferred("USB Cables",  [this] { return buildUsbCablesTab(); });
+    addDeferred("Peripherals", [this] { return buildPeripheralsTab(); });
 #ifdef HAVE_SERIALPORT
-    addDeferred("Serial",          [this] { return buildSerialTab(); });
+    addDeferred("Serial",      [this] { return buildSerialTab(); });
 #endif
 
     connect(tabs, &QTabWidget::currentChanged, this, &RadioSetupDialog::buildDeferredTab);
@@ -3644,163 +3640,6 @@ void RadioSetupDialog::selectTab(const QString& tabName)
             return;
         }
     }
-}
-
-// ── UI Enhancements tab ───────────────────────────────────────────────────────
-
-QWidget* RadioSetupDialog::buildUiEnhancementsTab()
-{
-    static const QString kBtnBase =
-        "QPushButton { border: 1px solid #304050; border-radius: 3px; "
-        "font-weight: bold; font-size: 13px; min-width: 36px; min-height: 36px; }"
-        "QPushButton:hover { border: 2px solid #60a0c0; }";
-
-    auto* page = new QWidget;
-    auto* vbox = new QVBoxLayout(page);
-    vbox->setSpacing(12);
-    vbox->setContentsMargins(16, 16, 16, 16);
-
-    // ── Slice color group ────────────────────────────────────────────────────
-    auto* grp = new QGroupBox("Slice Colors");
-    grp->setStyleSheet(kGroupStyle);
-    auto* grpLayout = new QVBoxLayout(grp);
-    grpLayout->setSpacing(10);
-
-    auto* modeLayout = new QHBoxLayout;
-    auto* defaultsRadio = new QRadioButton("Use Aether defaults");
-    auto* customRadio   = new QRadioButton("Custom colors");
-    defaultsRadio->setStyleSheet("QRadioButton { color: #c8d8e8; font-size: 12px; }");
-    customRadio->setStyleSheet("QRadioButton { color: #c8d8e8; font-size: 12px; }");
-    modeLayout->addWidget(defaultsRadio);
-    modeLayout->addWidget(customRadio);
-    modeLayout->addStretch();
-    grpLayout->addLayout(modeLayout);
-
-    auto* desc = new QLabel(
-        "Customize the color used for each slice marker, filter band, and badge.");
-    desc->setStyleSheet("QLabel { color: #7090a0; font-size: 11px; }");
-    desc->setWordWrap(true);
-    grpLayout->addWidget(desc);
-
-    // Grid of 8 color buttons (A–H)
-    auto* colorGrid = new QHBoxLayout;
-    colorGrid->setSpacing(8);
-
-    static const char kLetters[] = "ABCDEFGH";
-    // One button per slice; holds the current color as its background.
-    QVector<QPushButton*> colorBtns;
-    for (int i = 0; i < AetherSDR::kSliceColorCount; ++i) {
-        auto* col = new QVBoxLayout;
-        col->setSpacing(4);
-
-        auto* lbl = new QLabel(QString(kLetters[i]));
-        lbl->setAlignment(Qt::AlignCenter);
-        lbl->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; }");
-
-        auto* btn = new QPushButton(QString(kLetters[i]));
-        btn->setStyleSheet(kBtnBase);
-        colorBtns.append(btn);
-
-        col->addWidget(lbl);
-        col->addWidget(btn);
-        colorGrid->addLayout(col);
-    }
-    colorGrid->addStretch();
-    grpLayout->addLayout(colorGrid);
-
-    // Reset-all button
-    auto* resetRow = new QHBoxLayout;
-    auto* resetBtn = new QPushButton("Reset All to Defaults");
-    resetBtn->setStyleSheet(
-        "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
-        "border-radius: 3px; color: #c8d8e8; font-size: 11px; padding: 3px 12px; }"
-        "QPushButton:hover { background: #203040; }");
-    resetRow->addWidget(resetBtn);
-    resetRow->addStretch();
-    grpLayout->addLayout(resetRow);
-
-    vbox->addWidget(grp);
-    vbox->addStretch();
-
-    // ── Helpers (capture manager by pointer, buttons by value) ────────────────
-    SliceColorManager* pMgr = &SliceColorManager::instance();
-
-    // Updates a single button's background to reflect current color.
-    auto applyBtnColor = [pMgr, colorBtns](int idx) mutable {
-        QColor c = pMgr->activeColor(idx);
-        bool light = (c.red() * 299 + c.green() * 587 + c.blue() * 114) > 128000;
-        QString textColor = light ? "#000000" : "#ffffff";
-        colorBtns[idx]->setStyleSheet(
-            kBtnBase +
-            QStringLiteral("QPushButton { background: %1; color: %2; }")
-                .arg(c.name(), textColor));
-    };
-
-    auto refreshAllBtns = [applyBtnColor]() mutable {
-        for (int i = 0; i < AetherSDR::kSliceColorCount; ++i)
-            applyBtnColor(i);
-    };
-
-    auto syncModeRadios = [defaultsRadio, customRadio, colorBtns](bool custom) mutable {
-        defaultsRadio->blockSignals(true);
-        customRadio->blockSignals(true);
-        defaultsRadio->setChecked(!custom);
-        customRadio->setChecked(custom);
-        defaultsRadio->blockSignals(false);
-        customRadio->blockSignals(false);
-        for (QPushButton* b : colorBtns)
-            b->setEnabled(custom);
-    };
-
-    // ── Initial state ─────────────────────────────────────────────────────────
-    syncModeRadios(pMgr->useCustomColors());
-    refreshAllBtns();
-
-    // ── Signals ───────────────────────────────────────────────────────────────
-    connect(defaultsRadio, &QRadioButton::toggled, page,
-            [pMgr, syncModeRadios, refreshAllBtns](bool checked) mutable {
-        if (!checked) return;
-        pMgr->setUseCustomColors(false);
-        syncModeRadios(false);
-        refreshAllBtns();
-    });
-
-    connect(customRadio, &QRadioButton::toggled, page,
-            [pMgr, syncModeRadios, refreshAllBtns](bool checked) mutable {
-        if (!checked) return;
-        pMgr->setUseCustomColors(true);
-        syncModeRadios(true);
-        refreshAllBtns();
-    });
-
-    for (int i = 0; i < AetherSDR::kSliceColorCount; ++i) {
-        connect(colorBtns[i], &QPushButton::clicked, page,
-                [i, pMgr, applyBtnColor, page]() mutable {
-            QColor initial = pMgr->customColor(i);
-            QColor chosen = QColorDialog::getColor(initial, page,
-                                                   QStringLiteral("Slice %1 Color")
-                                                       .arg(QChar('A' + i)));
-            if (!chosen.isValid()) return;
-            pMgr->setCustomColor(i, chosen);
-            applyBtnColor(i);
-        });
-    }
-
-    connect(resetBtn, &QPushButton::clicked, page,
-            [pMgr, refreshAllBtns]() mutable {
-        for (int i = 0; i < AetherSDR::kSliceColorCount; ++i)
-            pMgr->resetToDefault(i);
-        refreshAllBtns();
-    });
-
-    // Sync button backgrounds when another widget changes a color
-    connect(pMgr, &SliceColorManager::colorsChanged, page,
-            [syncModeRadios, refreshAllBtns, pMgr]() mutable {
-        syncModeRadios(pMgr->useCustomColors());
-        refreshAllBtns();
-    });
-
-    return page;
 }
 
 } // namespace AetherSDR

@@ -2,7 +2,6 @@
 #include "SpectrumOverlayMenu.h"
 #include "VfoWidget.h"
 #include "SliceColors.h"
-#include "SliceColorManager.h"
 #include <QVariantAnimation>
 
 #ifdef AETHER_GPU_SPECTRUM
@@ -256,9 +255,6 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     };
     connect(m_zoomOutBtn, &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.5); });
     connect(m_zoomInBtn,  &QPushButton::clicked, this, [emitZoom]() { emitZoom(1.0 / 1.5); });
-
-    connect(&SliceColorManager::instance(), &SliceColorManager::colorsChanged,
-            this, [this]() { markOverlayDirty(); });
 }
 
 // ── Multi-VfoWidget management ────────────────────────────────────────────────
@@ -1150,8 +1146,9 @@ void SpectrumWidget::setDbmRange(float minDbm, float maxDbm)
 // ─── Slice color table (shared via SliceColors.h) ────────────────────────────
 
 static QColor sliceColor(int sliceId, bool active) {
-    if (active) return SliceColorManager::instance().activeColor(sliceId);
-    return SliceColorManager::instance().dimColor(sliceId);
+    const auto& c = kSliceColors[sliceId % kSliceColorCount];
+    if (active) return QColor(c.r, c.g, c.b);
+    return QColor(c.dr, c.dg, c.db);
 }
 
 // ─── Multi-slice overlay management ──────────────────────────────────────────

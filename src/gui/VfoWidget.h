@@ -211,6 +211,7 @@ private:
 public:
     void setDiversityAllowed(bool allowed);
     void setSmartSdrPlus(bool has);
+    void setHasExtendedDsp(bool has);
 
     // Per-slice VFO marker display prefs, persisted by slice ID (#1526).
     // markerWidth: 0 = off, 1 = 1 px, 3 = 3 px.
@@ -291,6 +292,7 @@ private:
     QPushButton* m_autotuneLoopBtn{nullptr};
     QPushButton* m_zeroBeatBtn{nullptr};
     bool         m_hasSmartSdrPlus{false};
+    bool         m_hasExtendedDsp{false};
     // RIT/XIT tab
     QPushButton* m_ritBtn{nullptr};
     QPushButton* m_xitBtn{nullptr};

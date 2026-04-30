@@ -498,7 +498,6 @@ set(GUI_SOURCES
     src/gui/ClientDisconnectDialog.cpp
     src/gui/SpectrumWidget.cpp
     src/gui/SpectrumOverlayMenu.cpp
-    src/gui/SliceColorManager.cpp
     src/gui/VfoWidget.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/NetworkDiagnosticsDialog.cpp

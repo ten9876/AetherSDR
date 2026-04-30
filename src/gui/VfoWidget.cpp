@@ -2,7 +2,7 @@
 #include "PhaseKnob.h"
 #include "ComboStyle.h"
 #include "GuardedSlider.h"
-#include "SliceColorManager.h"
+#include "SliceColors.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
 #include "core/AppSettings.h"
@@ -197,12 +197,6 @@ VfoWidget::VfoWidget(QWidget* parent)
     connect(&m_signalMeterAnimation, &QTimer::timeout, this, &VfoWidget::animateSignalMeter);
 
     buildUI();
-
-    connect(&SliceColorManager::instance(), &SliceColorManager::colorsChanged,
-            this, [this]() {
-        syncFromSlice();  // refreshes badge stylesheet
-        update();         // refreshes collapsed-mode painter
-    });
 }
 
 void VfoWidget::wheelEvent(QWheelEvent* ev)
@@ -1918,6 +1912,11 @@ void VfoWidget::setSmartSdrPlus(bool has)
     if (m_slice) rebuildFilterButtons();
 }
 
+void VfoWidget::setHasExtendedDsp(bool has)
+{
+    m_hasExtendedDsp = has;
+}
+
 // ── Per-slice VFO marker display prefs (#1526) ───────────────────────────────
 
 void VfoWidget::setMarkerWidth(int widthPx)
@@ -2117,8 +2116,10 @@ void VfoWidget::paintEvent(QPaintEvent* event)
 
         // Slice letter badge
         int sliceId = m_slice ? m_slice->sliceId() : 0;
+        const char* badgeColor = (sliceId >= 0 && sliceId < kSliceColorCount)
+            ? kSliceColors[sliceId].hexActive : "#0070c0";
         QRect badgeRect(margin, yPos, badgeSize, badgeSize);
-        p.setBrush(SliceColorManager::instance().activeColor(sliceId));
+        p.setBrush(QColor(badgeColor));
         p.setPen(Qt::NoPen);
         p.drawRoundedRect(badgeRect, 3, 3);
 
@@ -2407,7 +2408,6 @@ void VfoWidget::setSlice(SliceModel* slice)
         }
         m_apfBtn->setVisible(isCw);
         m_anfBtn->setVisible(isVoice);
-        m_rnnBtn->setVisible(!isCw && !isFm);
         m_rn2Btn->setVisible(!isCw && !isFm);
         m_anflBtn->setVisible(isVoice);
         m_anftBtn->setVisible(isVoice);
@@ -2415,8 +2415,11 @@ void VfoWidget::setSlice(SliceModel* slice)
         m_nrBtn->setVisible(!isFm);
         m_nr2Btn->setVisible(!isFm);
         m_nbBtn->setVisible(!isFm);
-        m_nrlBtn->setVisible(!isFm);
-        m_nrsBtn->setVisible(!isFm);
+        // 8000-series-only firmware DSP filters (#2177)
+        m_nrlBtn->setVisible(!isFm && m_hasExtendedDsp);
+        m_nrsBtn->setVisible(!isFm && m_hasExtendedDsp);
+        m_rnnBtn->setVisible(!isCw && !isFm && m_hasExtendedDsp);
+        m_nrfBtn->setVisible(!isFm && m_hasExtendedDsp);
 #ifdef HAVE_BNR
         m_bnrBtn->setVisible(!isFm);
 #endif
@@ -2426,7 +2429,6 @@ void VfoWidget::setSlice(SliceModel* slice)
 #ifdef HAVE_DFNR
         m_dfnrBtn->setVisible(!isFm);
 #endif
-        m_nrfBtn->setVisible(!isFm);
         relayoutDspGrid();
         updateFilterLabel();
         if (m_tabStack->isVisible()) adjustSize();
@@ -2787,10 +2789,11 @@ void VfoWidget::syncFromSlice()
     int id = m_slice->sliceId();
     m_sliceBadge->setText(QString(QChar(id >= 0 && id < 8 ? letters[id] : '?')));
     // Color-code the slice badge to match the spectrum overlay colors
+    const char* badgeColor = (id >= 0 && id < kSliceColorCount)
+        ? kSliceColors[id].hexActive : "#0070c0";
     m_sliceBadge->setStyleSheet(
         QString("QLabel { background: %1; color: #000000; "
-                "border-radius: 3px; font-weight: bold; font-size: 11px; }")
-            .arg(SliceColorManager::instance().hexActive(id)));
+                "border-radius: 3px; font-weight: bold; font-size: 11px; }").arg(badgeColor));
     updateFreqLabel();
     updateFilterLabel();
 

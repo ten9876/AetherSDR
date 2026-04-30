@@ -2,7 +2,7 @@
 #include "FilterPassbandWidget.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
-#include "SliceColorManager.h"
+#include "SliceColors.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
 
@@ -1029,7 +1029,7 @@ void RxApplet::setMaxSlices(int maxSlices)
         btn->setEnabled(false);  // disabled until a slice occupies this slot
         btn->setFixedSize(22, 20);
 
-        QString color = SliceColorManager::instance().hexActive(i);
+        const char* color = (i < kSliceColorCount) ? kSliceColors[i].hexActive : "#888888";
         btn->setStyleSheet(
             QString("QToolButton { background: #2a2a2a; color: %1; border: 1px solid %1; "
                     "border-radius: 3px; font-weight: bold; font-size: 10px; padding: 0; }"
@@ -1126,10 +1126,11 @@ void RxApplet::connectSlice(SliceModel* s)
     const QChar letter = QChar('A' + s->sliceId());
     m_sliceBadge->setText(QString(letter));
     const int sid = s->sliceId();
+    const char* badgeColor = (sid >= 0 && sid < kSliceColorCount)
+        ? kSliceColors[sid].hexActive : "#0070c0";
     m_sliceBadge->setStyleSheet(
         QString("QLabel { background: %1; color: #000000; "
-                "border-radius: 3px; font-weight: bold; font-size: 11px; }")
-            .arg(SliceColorManager::instance().hexActive(sid)));
+                "border-radius: 3px; font-weight: bold; font-size: 11px; }").arg(badgeColor));
 
     // Lock
     {
