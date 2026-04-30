@@ -2443,8 +2443,9 @@ void VfoWidget::setSlice(SliceModel* slice)
         m_nrBtn->setVisible(!isFm);
         m_nr2Btn->setVisible(!isFm);
         m_nbBtn->setVisible(!isFm);
+        // NRL is available on 6000-series too (#2177)
+        m_nrlBtn->setVisible(!isFm);
         // 8000-series-only firmware DSP filters (#2177)
-        m_nrlBtn->setVisible(!isFm && m_hasExtendedDsp);
         m_nrsBtn->setVisible(!isFm && m_hasExtendedDsp);
         m_rnnBtn->setVisible(!isCw && !isFm && m_hasExtendedDsp);
         m_nrfBtn->setVisible(!isFm && m_hasExtendedDsp);
@@ -2927,8 +2928,9 @@ void VfoWidget::syncFromSlice()
 #ifdef HAVE_DFNR
     m_dfnrBtn->setVisible(!isFm);
 #endif
+    // NRL is available on 6000-series too (#2177)
+    m_nrlBtn->setVisible(!isFm);
     // 8000-series-only firmware DSP filters (#2177)
-    m_nrlBtn->setVisible(!isFm && m_hasExtendedDsp);
     m_nrsBtn->setVisible(!isFm && m_hasExtendedDsp);
     m_rnnBtn->setVisible(!isCw && !isFm && m_hasExtendedDsp);
     m_nrfBtn->setVisible(!isFm && m_hasExtendedDsp);

@@ -777,13 +777,13 @@ void SpectrumOverlayMenu::setHasExtendedDsp(bool has)
 {
     m_hasExtendedDsp = has;
     if (m_dspRows.isEmpty()) return;
-    // Hide 8000-series-only firmware DSP rows: NRL(4), NRS(5), RNN(6), NRF(8) (#2177)
+    // Hide 8000-series-only firmware DSP rows: NRS(5), RNN(6), NRF(8). NRL(4)
+    // is available on 6000-series too, so it stays visible regardless. (#2177)
     auto hideRow = [](DspRow& r, bool visible) {
         r.btn->setVisible(visible);
         if (r.slider)   r.slider->setVisible(visible);
         if (r.valueLbl) r.valueLbl->setVisible(visible);
     };
-    hideRow(m_dspRows[4], has);
     hideRow(m_dspRows[5], has);
     hideRow(m_dspRows[6], has);
     hideRow(m_dspRows[8], has);
