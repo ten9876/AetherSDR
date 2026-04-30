@@ -17,6 +17,7 @@
 #include "DvkModel.h"
 #include "UsbCableModel.h"
 #include "DaxIqModel.h"
+#include "NavtexModel.h"
 #include "MemoryEntry.h"
 
 #include <QObject>
@@ -61,6 +62,7 @@ public:
     SpotModel&        spotModel()        { return m_spotModel; }
     CwxModel&         cwxModel()         { return m_cwxModel; }
     DvkModel&         dvkModel()         { return m_dvkModel; }
+    NavtexModel&      navtexModel()      { return m_navtexModel; }
     UsbCableModel&    usbCableModel()    { return m_usbCableModel; }
     DaxIqModel&       daxIqModel()       { return m_daxIqModel; }
     bool              hasAmplifier() const { return m_hasAmplifier; }
@@ -452,6 +454,7 @@ private:
     SpotModel        m_spotModel;
     CwxModel         m_cwxModel;
     DvkModel         m_dvkModel;
+    NavtexModel      m_navtexModel;
     UsbCableModel    m_usbCableModel;
     DaxIqModel       m_daxIqModel;
 
