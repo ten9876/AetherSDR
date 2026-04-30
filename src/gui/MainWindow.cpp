@@ -7417,6 +7417,10 @@ void MainWindow::onSliceAdded(SliceModel* s)
         vfo->setSmartSdrPlus(hasPlus);
     }
 
+    // Set extended DSP flag before wireVfoWidget so the mode-change lambda
+    // in setSlice() gates NRL/NRS/RNN/NRF visibility correctly (#2177)
+    vfo->setHasExtendedDsp(m_radioModel.hasExtendedDspFilters());
+
     wireVfoWidget(vfo, s);
 
     // NR2/RN2/RADE are now wired permanently in wireVfoWidget — no
@@ -8025,6 +8029,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     // Set panId on the overlay menu so +RX routes to the correct pan
     menu->setPanId(applet->panId());
     menu->setMemories(m_radioModel.memories());
+
+    // Hide 8000-series-only DSP filters on 6000-series radios (#2177)
+    menu->setHasExtendedDsp(m_radioModel.hasExtendedDspFilters());
 
     // Antenna list → this overlay menu (per-pan, mirrors VfoWidget pattern) (#1260)
     connect(&m_radioModel, &RadioModel::antListChanged,

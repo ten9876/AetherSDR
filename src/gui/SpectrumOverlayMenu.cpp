@@ -742,6 +742,23 @@ void SpectrumOverlayMenu::buildDspPanel()
     // Wiring is done in setSlice() since we need the slice model
 }
 
+void SpectrumOverlayMenu::setHasExtendedDsp(bool has)
+{
+    m_hasExtendedDsp = has;
+    if (m_dspRows.isEmpty()) return;
+    // Hide 8000-series-only firmware DSP rows: NRL(4), NRS(5), RNN(6), NRF(8) (#2177)
+    auto hideRow = [](DspRow& r, bool visible) {
+        r.btn->setVisible(visible);
+        if (r.slider)   r.slider->setVisible(visible);
+        if (r.valueLbl) r.valueLbl->setVisible(visible);
+    };
+    hideRow(m_dspRows[4], has);
+    hideRow(m_dspRows[5], has);
+    hideRow(m_dspRows[6], has);
+    hideRow(m_dspRows[8], has);
+    if (m_dspPanel) m_dspPanel->adjustSize();
+}
+
 void SpectrumOverlayMenu::syncDspPanel()
 {
     if (!m_slice) return;

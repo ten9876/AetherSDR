@@ -1940,6 +1940,11 @@ void VfoWidget::setSmartSdrPlus(bool has)
     if (m_slice) rebuildFilterButtons();
 }
 
+void VfoWidget::setHasExtendedDsp(bool has)
+{
+    m_hasExtendedDsp = has;
+}
+
 // ── Per-slice VFO marker display prefs (#1526) ───────────────────────────────
 
 void VfoWidget::setMarkerWidth(int widthPx)
@@ -2431,7 +2436,6 @@ void VfoWidget::setSlice(SliceModel* slice)
         }
         m_apfBtn->setVisible(isCw);
         m_anfBtn->setVisible(isVoice);
-        m_rnnBtn->setVisible(!isCw && !isFm);
         m_rn2Btn->setVisible(!isCw && !isFm);
         m_anflBtn->setVisible(isVoice);
         m_anftBtn->setVisible(isVoice);
@@ -2439,8 +2443,11 @@ void VfoWidget::setSlice(SliceModel* slice)
         m_nrBtn->setVisible(!isFm);
         m_nr2Btn->setVisible(!isFm);
         m_nbBtn->setVisible(!isFm);
-        m_nrlBtn->setVisible(!isFm);
-        m_nrsBtn->setVisible(!isFm);
+        // 8000-series-only firmware DSP filters (#2177)
+        m_nrlBtn->setVisible(!isFm && m_hasExtendedDsp);
+        m_nrsBtn->setVisible(!isFm && m_hasExtendedDsp);
+        m_rnnBtn->setVisible(!isCw && !isFm && m_hasExtendedDsp);
+        m_nrfBtn->setVisible(!isFm && m_hasExtendedDsp);
 #ifdef HAVE_BNR
         m_bnrBtn->setVisible(!isFm);
 #endif
@@ -2450,7 +2457,6 @@ void VfoWidget::setSlice(SliceModel* slice)
 #ifdef HAVE_DFNR
         m_dfnrBtn->setVisible(!isFm);
 #endif
-        m_nrfBtn->setVisible(!isFm);
         relayoutDspGrid();
         updateFilterLabel();
         if (m_tabStack->isVisible()) adjustSize();
@@ -2906,7 +2912,6 @@ void VfoWidget::syncFromSlice()
     m_tabBtns[1]->setText(isFm ? "OPT" : "DSP");
     m_apfBtn->setVisible(isCw);
     m_anfBtn->setVisible(!isRtty && !isCw && !isDig && !isFm);
-    m_rnnBtn->setVisible(!isCw && !isFm);
     m_rn2Btn->setVisible(!isCw && !isFm);
     m_anflBtn->setVisible(!isRtty && !isCw && !isDig && !isFm);
     m_anftBtn->setVisible(!isRtty && !isCw && !isDig && !isFm);
@@ -2922,9 +2927,11 @@ void VfoWidget::syncFromSlice()
 #ifdef HAVE_DFNR
     m_dfnrBtn->setVisible(!isFm);
 #endif
-    m_nrlBtn->setVisible(!isFm);
-    m_nrsBtn->setVisible(!isFm);
-    m_nrfBtn->setVisible(!isFm);
+    // 8000-series-only firmware DSP filters (#2177)
+    m_nrlBtn->setVisible(!isFm && m_hasExtendedDsp);
+    m_nrsBtn->setVisible(!isFm && m_hasExtendedDsp);
+    m_rnnBtn->setVisible(!isCw && !isFm && m_hasExtendedDsp);
+    m_nrfBtn->setVisible(!isFm && m_hasExtendedDsp);
     m_apfContainer->setVisible(isCw);
     m_digContainer->setVisible(isDig);
     m_fmContainer->setVisible(isFm);

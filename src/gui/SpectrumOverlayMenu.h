@@ -64,6 +64,7 @@ public:
     struct XvtrBand { QString name; double rfFreqMhz; };
     void setXvtrBands(const QVector<XvtrBand>& bands);
     void syncDaxIqChannel(int channel);
+    void setHasExtendedDsp(bool has);
     QPushButton* dspNr2Button() const;
     QPushButton* dspRn2Button() const;
     QPushButton* dspBnrButton() const;
@@ -244,6 +245,7 @@ private:
     QSlider*     m_bgOpacitySlider{nullptr};
     QLabel*      m_bgOpacityLabel{nullptr};
 
+    bool         m_hasExtendedDsp{false};
     QStringList  m_antList;
     QPointer<SliceModel> m_slice;
     bool         m_updatingFromModel{false};

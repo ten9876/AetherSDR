@@ -117,6 +117,16 @@ public:
     int maxSlices() const { return m_maxSlices; }
     static int maxSlicesForModel(const QString& model);
 
+    // Returns true for BigBend/DragonFire-platform radios (8400, 8600,
+    // AU-series, ML-series, CL-series, RT-series) that support the extended
+    // firmware DSP filters (NRL, NRS, RNN, NRF).  6000-series radios don't
+    // expose these filters and the UI hides them when this returns false. (#2177)
+    bool hasExtendedDspFilters() const {
+        return m_model.contains("8400") || m_model.contains("8600")
+            || m_model.contains("AU-")  || m_model.contains("ML-")
+            || m_model.contains("CL-")  || m_model.contains("RT-");
+    }
+
     // Max panadapters supported by this radio model.
     // FLEX-6700: 8 (dual SCU, high-capacity)
     // FLEX-6600 / FLEX-6500 / FLEX-8600 / AU-520: 4 (dual SCU)
