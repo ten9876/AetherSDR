@@ -4696,7 +4696,7 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
 
 void SpectrumWidget::drawSwrSweep(QPainter& p, const QRect& specRect)
 {
-    if (m_swrSweepPoints.isEmpty() && !m_swrSweepRunning)
+    if (m_swrSweepPoints.isEmpty())
         return;
 
     const int rightEdge = specRect.right() - DBM_STRIP_W - 8;

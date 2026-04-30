@@ -32,7 +32,9 @@
 #endif
 #include "models/SliceModel.h"
 #include <QComboBox>
+#include <QContextMenuEvent>
 #include <QLabel>
+#include <QMenu>
 #include "core/AppSettings.h"
 #include <QPushButton>
 #include <QScrollArea>

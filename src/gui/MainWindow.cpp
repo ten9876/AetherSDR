@@ -10788,7 +10788,7 @@ void MainWindow::advanceSwrSweep()
         return;
 
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    auto& tuner = m_radioModel.tunerModel();
+    const auto& tuner = m_radioModel.tunerModel();
 
     if (m_swrSweep.phase == SwrSweepPhase::WaitingForTgxlBypass) {
         if (!tuner.isPresent() || !tuner.isOperate()) {
