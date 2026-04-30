@@ -319,6 +319,8 @@ public:
             m_hasNativeWaterfall = false;  // force FFT fallback until tiles resume
             m_wfPrevTimecode   = 0;
             m_wfPrevTimecodeMs = 0;
+            m_txEndMs = QDateTime::currentMSecsSinceEpoch(); // post-TX blanking (#2117)
+            m_wfBlankerRingCount = 0;                        // reset stale blanker baseline
         }
         m_transmitting = tx;
     }
@@ -626,6 +628,7 @@ private:
 
     bool     m_transmitting{false};
     float    m_preTxAutoBlack{145.0f}; // auto-black threshold saved before TX
+    qint64   m_txEndMs{0};             // post-TX blanking: timestamp of TX→RX transition (#2117)
 
     // Waterfall time scale: ms-per-row derived from tile timecodes + wall-clock.
     // Calibrates over the first 50 tiles, then locks to prevent jitter.

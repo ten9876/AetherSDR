@@ -1331,15 +1331,28 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
         if (!freeze && !m_waterfall.isNull())
             pushWaterfallRow(binsDbm, m_waterfall.width());
     } else {
-        if (m_hasNativeWaterfall) {
+        // Suppress post-TX transient noise rows (#2117).  The receiver AGC
+        // needs ~400 ms to settle after TX→RX; discard waterfall data during
+        // that window so the user doesn't see the bright transient stripe.
+        bool postTxBlanking = false;
+        if (m_txEndMs > 0) {
             const qint64 now = QDateTime::currentMSecsSinceEpoch();
-            if (now - m_lastNativeTileMs > 2000) {
-                m_hasNativeWaterfall = false;
-                qDebug() << "SpectrumWidget: native waterfall tiles timed out, falling back to FFT-derived";
-            }
+            if (now - m_txEndMs < 400)
+                postTxBlanking = true;
+            else
+                m_txEndMs = 0;
         }
-        if (!m_hasNativeWaterfall && !m_waterfall.isNull())
-            pushWaterfallRow(binsDbm, m_waterfall.width());
+        if (!postTxBlanking) {
+            if (m_hasNativeWaterfall) {
+                const qint64 now = QDateTime::currentMSecsSinceEpoch();
+                if (now - m_lastNativeTileMs > 2000) {
+                    m_hasNativeWaterfall = false;
+                    qDebug() << "SpectrumWidget: native waterfall tiles timed out, falling back to FFT-derived";
+                }
+            }
+            if (!m_hasNativeWaterfall && !m_waterfall.isNull())
+                pushWaterfallRow(binsDbm, m_waterfall.width());
+        }
     }
 
     update();
@@ -1360,6 +1373,15 @@ void SpectrumWidget::updateWaterfallRow(const QVector<float>& binsIntensity,
     // Freeze waterfall during TX if show-tx-in-waterfall is off and this pan
     // contains the TX slice. Non-TX pans keep scrolling in multi-pan.
     if (m_transmitting && !m_showTxInWaterfall && m_hasTxSlice) return;
+
+    // Suppress post-TX transient noise rows (#2117). The receiver AGC needs
+    // ~400 ms to settle after TX→RX; discard waterfall data during that
+    // window.
+    if (m_txEndMs > 0) {
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now - m_txEndMs < 400) return;
+        m_txEndMs = 0;
+    }
 
     // Derive ms-per-row by measuring wall-clock / timecode delta.
     // Collect data for the first 50 tiles to converge, then lock the value.
