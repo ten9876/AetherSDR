@@ -3,6 +3,179 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.9.3] — 2026-04-30
+
+### External APD, FreeDV Reporter, Slice Colors, and v4.2 firmware updater
+
+A broad release.  Headline feature is **External APD** support for
+SmartSDR firmware 4.2.18, which lets the radio sample its outgoing
+RF from a coupled feedback path on one of the RX/XVTR inputs so the
+predistortion engine trains against the actual transmitted signal —
+required when a FLEX-8x00 drives an external linear amplifier.
+**FreeDV Reporter** station reporting (NF0T) lands the long-requested
+RADE-integrated reporting flow.  **chibondking** ships customizable
+slice colors plus two serial / pop-out fixes.  AetherSDR's firmware
+updater is rewritten to extract `.ssdr` files natively from
+FlexRadio's v4.2+ MSI installer (no bundled tools needed), and the
+NAVTEX data-layer plumbing lands ahead of the upcoming applet.
+
+A long tail of UI polish and Windows-platform fixes also lands —
+TX→RX waterfall continuity, scroll-wheel debounce, 48 kHz audio
+sink on Windows, applet pop-out persistence, and floating-window
+dark theming.
+
+### Features
+
+**External APD (#2187)**
+- New "APD" tab in Radio Setup with per-TX-antenna external sampler
+  selection (ANT1 / ANT2 / XVTA / XVTB → INTERNAL / RX_A / RX_B /
+  XVTA / XVTB).  Tab is hidden unless the radio reports `apd
+  configurable=1`, so it stays invisible on 6000-series radios and
+  pre-4.2.18 firmware.
+- Equalizer Reset button issues `apd reset` to clear all per-antenna
+  training data.
+- Protocol additions: `apd sampler` sub-object parsing (with
+  fallback-to-INTERNAL for invalid `selected_sampler`), bare
+  `equalizer_reset` flag handling, and the matching `setApdSamplerPort`
+  command path on `TransmitModel`.
+- Cross-checked against `Flex.Smoothlake.FlexLib` v4.2.18 source.
+
+**FreeDV Reporter station reporting with RADE integration (#2173, NF0T)**
+- Adds FreeDV Reporter (https://qso.freedv.org) station-reporting
+  support driven by the RADE modem's sync / SNR / freq-offset events.
+- New connection toggle in the DX Cluster dialog plus per-slice
+  reporting toggle that mirrors RADE engine state to the Reporter
+  WebSocket session.
+- Builds opportunistically — without `Qt6::WebSockets` or `librade`,
+  the toggles silently become no-ops.
+
+**Customizable slice colors (#2155, chibondking)**
+- Per-slice color selection through a new `SliceColorManager`
+  singleton.  Color assignments persist across sessions and are
+  visible in VFO widgets, panadapter overlays, and meter strips.
+
+**Native MSI firmware installer support (#2169)**
+- The firmware updater can now extract `.ssdr` files directly from
+  FlexRadio's v4.2.18+ MSI installer (which switched from PE/COFF
+  self-extracting `.exe` to WiX 6 MSI).  Vendored `libmspack`
+  (LGPL-2.1) handles LZX-compressed CABs; a small OLE Compound File
+  reader pulls the embedded CAB from the MSI envelope.
+- "Browse .ssdr" → "Select Installer..." now accepts `.msi`, `.exe`,
+  and `.ssdr`.  No external tools required (no `7z`, no MSI runtime).
+- Format auto-detection on the first 8 bytes (OLE magic vs. PE/COFF MZ).
+
+**NAVTEX data-layer plumbing (#2186)**
+- New `NavtexModel` covers the SmartSDR `navtex` waveform protocol —
+  per-message Pending → Queued → Sent / Error state, status parsing
+  for `navtex` and `navtex sent`, and a `navtex send` command path
+  with proper quote/backslash escaping for `msg_text`.
+- Foundation for the upcoming NAVTEX applet UI; data layer ships
+  first so other clients (TCI, scripting) can already publish NAVTEX
+  traffic.
+- 21-assertion unit test covers escaping, idempotency, error paths.
+
+**CWX active tracking (#2181)**
+- `RadioModel` tracks CWX send state so the audio gate stays open
+  during long character sends.
+
+**Floating-window dark theme (#2096, AetherClaude)**
+- Pop-out panadapter and floating-container windows now inherit the
+  full dark theme via a new `Theme.h` shared stylesheet, eliminating
+  flash-of-light-theme on window construction.
+
+**Center active VFO when zooming in from keyboard (#2183, jensenpat)**
+- The keyboard zoom-in shortcut now centers the active VFO in the
+  viewport (matches the mouse-wheel zoom behavior).
+
+### Bug fixes
+
+**TX→RX waterfall continuity (#2171, #2182)**
+- Force FFT-fallback rendering on TX→RX transition to prevent a
+  visible gap in the waterfall (#2171).
+- Blank waterfall rows for 400 ms after TX ends so any residual
+  hardware tail doesn't paint over the noise floor (#2182).
+
+**Hide 8000-series DSP filters on 6000-series radios (#2184)**
+- `NRL`, `NRS`, `RNN`, `NRF` filters are FLEX-8x00-only.  6000-series
+  radios no longer show greyed-out controls for filters they can't
+  use.
+
+**Stream-status helper consolidation (#2145)**
+- Deduplicates the per-stream-type status helpers.  Annotates
+  `m_daxTxClientHandle` and documents the TCI receiver-index policy
+  for future contributors.
+
+**TCP close handshake before socket destroy (#2113)**
+- Wait for `disconnected()` before tearing down the QTcpSocket on
+  user-initiated disconnect.  Fixes occasional "connection reset"
+  reports on the radio side.
+
+**rigctld short-form split direction (#2111)**
+- `S` (set split) and `s` (get split) were transposed in the rigctld
+  mapping table, so external loggers couldn't read or set split.
+
+**CW sidetone on Windows (#2105)**
+- `startSidetoneStream()` was never called on Windows because the
+  audio backend init order put it after the first key event.  CW
+  sidetone now starts immediately on connect.
+
+**48 kHz RX audio sink on Windows (#2123)**
+- Prefer 48 kHz over 24 kHz on Windows where WASAPI's resampler
+  introduces audible high-frequency artifacts at 24 kHz.
+
+**Scrollbar styling on applet panels (#2088)**
+- The applet-panel scroll area was inheriting Qt's default thin grey
+  scrollbar; restyles to the dark-theme bar.
+
+**USB mic level gauge on connect (#2086)**
+- The USB mic-level gauge wasn't drawn when connecting with `mic
+  source = PC`; gauge now appears immediately.
+
+**VOX phoneStateChanged on keyboard shortcut (#2084)**
+- VOX setters didn't emit `phoneStateChanged()`, so the UI didn't
+  refresh when VOX was toggled via keyboard shortcut.
+
+**Scroll-wheel debounce (#2151)**
+- Debounces high-frequency `pixelDelta` scroll events from
+  precision-scroll mice in `VfoWidget` and `SpectrumWidget`.
+
+**Marker-width settings cleanup (#2156, mvanhorn)**
+- `Slice<N>_MarkerThin` setting key is now removed after migration
+  to `Slice<N>_MarkerWidth` instead of being left in place.
+
+**Serial PTT — Win32 WaitCommEvent path (#2147, chibondking)**
+- FTDI VCP drivers only refresh DSR/CTS in the completion of a
+  `WaitCommEvent` call; AetherSDR's polling-based detection missed
+  edges on Windows.  Adds a Win32 native event-wait path on top of
+  Qt's serial port for DSR detection.
+
+**Applet pop-out persistence race (#2154, chibondking)**
+- Floating applet windows were sometimes restored at the wrong
+  position because the geometry-save signal raced the close event.
+  Systemic fix wires save before destruction.
+
+**Windows build guard for FreeDV Reporter (#2186)**
+- The FreeDV Reporter `freedvReportingToggled` connect-lambda used
+  RADE-guarded symbols inside an `#ifdef HAVE_WEBSOCKETS` block.
+  Windows has WebSockets but no RADE → undefined-identifier compile
+  errors.  Added the missing `HAVE_RADE` inner guard.
+
+### Docs
+
+- **Data-modes help refresh (#1939)** — replaces lingering "DIGI
+  applet" references with the current independent-tile UI vocabulary.
+- **DIGI applet scrub (#2179)** — sweeps the remaining stale
+  references in tooltips and dialog text.
+
+### Acknowledgements
+
+Thanks to **NF0T** for the FreeDV Reporter station-reporting
+integration; **chibondking** for slice colors, the serial PTT
+WaitCommEvent fix, and the applet pop-out race; **jensenpat** for
+the keyboard zoom-center shortcut; **mvanhorn** for the marker-key
+cleanup; and **AetherClaude** for the bulk of the long-tail bug
+fixes.
+
 ## [v0.9.2.1] — 2026-04-29
 
 ### TGXL direct autotune for firmware 4.2 compatibility

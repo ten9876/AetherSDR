@@ -10,7 +10,7 @@
 
 AetherSDR brings FlexRadio operation to Linux without Wine or virtual machines. Built from the ground up with Qt6 and C++20, it speaks the SmartSDR protocol natively and aims to replicate the full SmartSDR experience.
 
-**Current version: 0.9.2.1** | [Download](https://github.com/ten9876/AetherSDR/releases/latest) | [Discussions](https://github.com/ten9876/AetherSDR/discussions) | [What's New](https://github.com/ten9876/AetherSDR/releases)
+**Current version: 0.9.3** | [Download](https://github.com/ten9876/AetherSDR/releases/latest) | [Discussions](https://github.com/ten9876/AetherSDR/discussions) | [What's New](https://github.com/ten9876/AetherSDR/releases)
 
 > **Cross-platform downloads available:** Linux AppImage, macOS universal DMG, Windows installer and portable ZIP.
 > Linux is the primary supported platform. macOS and Windows builds are provided as a courtesy.
@@ -41,7 +41,7 @@ AetherSDR brings FlexRadio operation to Linux without Wine or virtual machines. 
 - **FreeDV RADE** — AI-based digital voice codec with client-side neural encoder/decoder
 - **4o3a Tuner Genius XL** — relay control, autotune, 3x1 antenna switch, SWR/power gauges
 - **Multi-Flex** — independent operation alongside SmartSDR/Maestro with clickable dashboard
-- **Adaptive predistortion (APD)** — SmartSignal toggle and status display for FLEX-8000 series
+- **Adaptive predistortion (APD)** — SmartSignal toggle and status display for FLEX-8000 series, including **External APD** sampler-port selection (firmware 4.2.18+) for training APD against an external linear amplifier's output
 
 ---
 
