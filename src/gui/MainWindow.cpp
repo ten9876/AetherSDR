@@ -10769,12 +10769,9 @@ void MainWindow::startFreeDvReporting(int sliceId)
         callsign = m_radioModel.callsign();
     } else {
         callsign = cs.value("FreeDvMyCallsign", "").toString().trimmed().toUpper();
-        if (callsign.isEmpty())
-            callsign = QStringLiteral("N0CALL");
     }
 
-    // Grid: GPS (if hardware present, locked, and user prefers it),
-    // then user-saved value, then mandatory fallback AA00.
+    // Grid: GPS (if hardware present, locked, and user prefers it), else user-saved.
     QString grid;
     if (cs.value("FreeDvUseGpsGrid", "True").toString() == "True"
             && m_radioModel.hasGpsHardware()
@@ -10782,8 +10779,17 @@ void MainWindow::startFreeDvReporting(int sliceId)
         grid = m_radioModel.gpsGrid();
     } else {
         grid = cs.value("FreeDvMyGrid", "").toString().trimmed().toUpper();
-        if (grid.isEmpty())
-            grid = QStringLiteral("AA00");
+    }
+
+    // Refuse to broadcast placeholder data to the public FreeDV Reporter
+    // map — the dialog already validates this when the user toggles the
+    // checkbox, but RADE auto-activation can hit this path without going
+    // through the toggle, so guard here too.
+    if (callsign.isEmpty() || grid.isEmpty()) {
+        qCWarning(lcDxCluster)
+            << "FreeDvReporting: refusing to enable — callsign or grid empty"
+            << "(callsign='" << callsign << "', grid='" << grid << "')";
+        return;
     }
 
     const QString message = cs.value("FreeDvMyMessage", "").toString();

@@ -25,7 +25,9 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QMessageBox>
 #include <QRegularExpression>
+#include <QSignalBlocker>
 #include <QTimer>
 
 namespace AetherSDR {
@@ -1559,6 +1561,40 @@ void DxClusterDialog::buildFreeDvTab(QTabWidget* tabs)
     m_fdvReportCheck = new QCheckBox("Enable FreeDV Reporter reporting when RADE is active");
     m_fdvReportCheck->setChecked(s.value("FreeDvAutoReport", "False").toString() == "True");
     connect(m_fdvReportCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (on) {
+            // Resolve the effective callsign and grid the same way
+            // MainWindow::startFreeDvReporting() does — radio/GPS first,
+            // user-entered fields as fallback.  Refuse to enable if either
+            // is empty so we don't broadcast placeholder data ("N0CALL" /
+            // "AA00") to the public FreeDV Reporter map.
+            QString callsign;
+            if (m_fdvUseRadioCallsignCheck->isChecked()
+                    && !m_radioModel->callsign().isEmpty()) {
+                callsign = m_radioModel->callsign();
+            } else {
+                callsign = m_fdvCallsignEdit->text().trimmed();
+            }
+
+            QString grid;
+            if (m_fdvUseGpsCheck && m_fdvUseGpsCheck->isChecked()
+                    && m_radioModel->hasGpsHardware()
+                    && !m_radioModel->gpsGrid().isEmpty()) {
+                grid = m_radioModel->gpsGrid();
+            } else {
+                grid = m_fdvGridEdit->text().trimmed();
+            }
+
+            if (callsign.isEmpty() || grid.isEmpty()) {
+                QMessageBox::warning(this, "FreeDV Reporter",
+                    "Please set both a callsign and a grid square before "
+                    "enabling reporter broadcasting.\n\n"
+                    "Reporter broadcasts to a public, community-shared map; "
+                    "blank or placeholder values would pollute it.");
+                QSignalBlocker block(m_fdvReportCheck);
+                m_fdvReportCheck->setChecked(false);
+                return;
+            }
+        }
         auto& as = AppSettings::instance();
         as.setValue("FreeDvAutoReport", on ? "True" : "False");
         as.save();
