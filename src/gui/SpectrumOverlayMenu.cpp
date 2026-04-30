@@ -398,14 +398,39 @@ void SpectrumOverlayMenu::buildAntPanel()
     sweepRow->addWidget(m_swrClearBtn, 1);
     vbox->addLayout(sweepRow);
 
+    auto* sweepPowerRow = new QHBoxLayout;
+    sweepPowerRow->setSpacing(4);
+    auto* sweepPowerTitle = new QLabel("PWR");
+    sweepPowerTitle->setStyleSheet(kLabelStyle);
+    sweepPowerTitle->setFixedWidth(28);
+    sweepPowerRow->addWidget(sweepPowerTitle);
+    m_swrPowerSlider = new GuardedSlider(Qt::Horizontal);
+    m_swrPowerSlider->setRange(1, 10);
+    m_swrPowerSlider->setValue(1);
+    m_swrPowerSlider->setStyleSheet(kSliderStyle);
+    sweepPowerRow->addWidget(m_swrPowerSlider, 1);
+    m_swrPowerLabel = new QLabel("1 W");
+    m_swrPowerLabel->setStyleSheet(kLabelStyle);
+    m_swrPowerLabel->setFixedWidth(kValueW);
+    m_swrPowerLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    sweepPowerRow->addWidget(m_swrPowerLabel);
+    vbox->addLayout(sweepPowerRow);
+
     connect(m_swrStartBtn, &QPushButton::clicked, this, [this]() {
         const int sliceId = m_slice ? m_slice->sliceId() : -1;
+        const int watts = m_swrPowerSlider ? m_swrPowerSlider->value() : 1;
         hideAllSubPanels();
-        emit swrSweepStartRequested(sliceId);
+        emit swrSweepStartRequested(sliceId, watts);
     });
     connect(m_swrClearBtn, &QPushButton::clicked, this, [this]() {
         hideAllSubPanels();
         emit swrSweepClearRequested();
+    });
+    connect(m_swrPowerSlider, &QSlider::valueChanged, this, [this](int watts) {
+        watts = qBound(1, watts, 10);
+        if (m_swrPowerLabel)
+            m_swrPowerLabel->setText(QString("%1 W").arg(watts));
+        emit swrSweepPowerChanged(watts);
     });
 
     // ANT panel tooltips
@@ -415,6 +440,7 @@ void SpectrumOverlayMenu::buildAntPanel()
     m_wnbSlider->setToolTip("Adjusts WNB threshold. Higher values blank more aggressively.");
     m_swrStartBtn->setToolTip("Run a low-power tune sweep across the current TX band and plot SWR on the panadapter.");
     m_swrClearBtn->setToolTip("Clear the displayed SWR sweep trace.");
+    m_swrPowerSlider->setToolTip("Sets the low-power tune carrier used for SWR sweeps.");
 
     m_antPanel->setFixedWidth(180);
     m_antPanel->adjustSize();
@@ -1499,6 +1525,18 @@ void SpectrumOverlayMenu::setWnbState(bool on, int level)
     m_wnbBtn->setChecked(on);
     m_wnbSlider->setValue(level);
     m_wnbLabel->setText(QString::number(level));
+}
+
+void SpectrumOverlayMenu::setSwrSweepPowerWatts(int watts)
+{
+    if (!m_swrPowerSlider)
+        return;
+
+    watts = qBound(1, watts, 10);
+    QSignalBlocker blocker(m_swrPowerSlider);
+    m_swrPowerSlider->setValue(watts);
+    if (m_swrPowerLabel)
+        m_swrPowerLabel->setText(QString("%1 W").arg(watts));
 }
 
 void SpectrumOverlayMenu::setRfGain(int gain)

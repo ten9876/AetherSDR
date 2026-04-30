@@ -359,6 +359,10 @@ void TransmitModel::setRfPower(int power)
 void TransmitModel::setTunePower(int power)
 {
     power = qBound(0, power, 100);
+    if (m_tunePower != power) {
+        m_tunePower = power;
+        emit stateChanged();
+    }
     emit commandReady(QString("transmit set tunepower=%1").arg(power));
 }
 

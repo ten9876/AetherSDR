@@ -208,7 +208,7 @@ private:
 
     BandSnapshot captureCurrentBandState() const;
     void restoreBandState(const BandSnapshot& snap);
-    void startSwrSweep(int requestedSliceId = -1);
+    void startSwrSweep(int requestedSliceId = -1, int sweepPowerWatts = 1);
     void clearSwrSweepPlot();
     void advanceSwrSweep();
     void finishSwrSweep(bool aborted, const QString& reason = {});
@@ -447,6 +447,8 @@ private:
         qint64 sampleNotBeforeMs{0};
         qint64 phaseStartedAtMs{0};
         float minimumForwardPowerW{0.0f};
+        int originalTunePower{0};
+        int sweepTunePower{1};
         bool tuneStarted{false};
         bool finalAborted{false};
         bool clearPlotOnFinish{false};

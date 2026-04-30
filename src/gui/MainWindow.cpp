@@ -192,6 +192,10 @@ constexpr int kSwrSweepTuneStopWaitMs = 350;
 constexpr int kSwrSweepTuneStopTimeoutMs = 1800;
 constexpr int kSwrSweepTgxlRestoreTimeoutMs = 3500;
 constexpr int kSwrSweepMaxPoints = 260;
+constexpr int kSwrSweepMinPowerW = 1;
+constexpr int kSwrSweepDefaultPowerW = 1;
+constexpr int kSwrSweepMaxPowerW = 10;
+constexpr const char* kSwrSweepPowerSettingKey = "SwrSweepPowerWatts";
 
 int panCountForLayoutId(const QString& layoutId)
 {
@@ -8789,6 +8793,26 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         s.setValue(sw->settingsKey("DisplayRfGain"), QString::number(gain));
         s.save();
     });
+    const int savedSweepPower = qBound(
+        kSwrSweepMinPowerW,
+        AppSettings::instance().value(kSwrSweepPowerSettingKey,
+                                      QString::number(kSwrSweepDefaultPowerW)).toInt(),
+        kSwrSweepMaxPowerW);
+    menu->setSwrSweepPowerWatts(savedSweepPower);
+    connect(menu, &SpectrumOverlayMenu::swrSweepPowerChanged,
+            this, [this, menu](int watts) {
+        watts = qBound(kSwrSweepMinPowerW, watts, kSwrSweepMaxPowerW);
+        auto& s = AppSettings::instance();
+        s.setValue(kSwrSweepPowerSettingKey, QString::number(watts));
+        s.save();
+        for (auto* applet : m_panStack ? m_panStack->allApplets() : QList<PanadapterApplet*>{}) {
+            auto* otherMenu = applet && applet->spectrumWidget()
+                ? applet->spectrumWidget()->overlayMenu()
+                : nullptr;
+            if (otherMenu && otherMenu != menu)
+                otherMenu->setSwrSweepPowerWatts(watts);
+        }
+    });
     connect(menu, &SpectrumOverlayMenu::swrSweepStartRequested,
             this, &MainWindow::startSwrSweep);
     connect(menu, &SpectrumOverlayMenu::swrSweepClearRequested,
@@ -10635,17 +10659,19 @@ void MainWindow::beginSwrSweepRf()
     statusBar()->showMessage(
         tr("SWR sweep running on %1 with Tune Power %2 W%3. Press Esc to stop.")
             .arg(QString::fromLatin1(band.name))
-            .arg(m_radioModel.transmitModel().tunePower())
+            .arg(m_swrSweep.sweepTunePower)
             .arg(m_swrSweep.sourceLabel.isEmpty()
                      ? QString()
                      : QStringLiteral(" (%1)").arg(m_swrSweep.sourceLabel)),
         5000);
 }
 
-void MainWindow::startSwrSweep(int requestedSliceId)
+void MainWindow::startSwrSweep(int requestedSliceId, int sweepPowerWatts)
 {
     if (m_swrSweep.running)
         return;
+
+    sweepPowerWatts = qBound(kSwrSweepMinPowerW, sweepPowerWatts, kSwrSweepMaxPowerW);
 
     if (!m_radioModel.isConnected()) {
         QMessageBox::warning(this, tr("SWR Sweep"),
@@ -10681,9 +10707,9 @@ void MainWindow::startSwrSweep(int requestedSliceId)
                              tr("Stop transmit or tune before starting an SWR sweep."));
         return;
     }
-    if (tx.tunePower() <= 0) {
+    if (m_radioModel.hasAmplifier() && m_radioModel.ampOperate()) {
         QMessageBox::warning(this, tr("SWR Sweep"),
-                             tr("Tune Power is 0 W. Set a non-zero Tune Power first."));
+                             tr("Put the Power Genius XL amplifier in STANDBY before running an SWR sweep."));
         return;
     }
 
@@ -10736,8 +10762,10 @@ void MainWindow::startSwrSweep(int requestedSliceId)
     m_swrSweep.originalFreqMhz = s->frequency();
     m_swrSweep.frequencies = sweepFreqs;
     m_swrSweep.currentIndex = 0;
+    m_swrSweep.originalTunePower = tx.tunePower();
+    m_swrSweep.sweepTunePower = sweepPowerWatts;
     m_swrSweep.minimumForwardPowerW = qBound(0.05f,
-                                             static_cast<float>(tx.tunePower()) * 0.05f,
+                                             static_cast<float>(sweepPowerWatts) * 0.05f,
                                              1.0f);
     auto& tuner = m_radioModel.tunerModel();
     m_swrSweep.tgxlOriginalOperate = tuner.isOperate();
@@ -10766,6 +10794,7 @@ void MainWindow::startSwrSweep(int requestedSliceId)
     }
 
     setSwrSweepInputsLocked(true);
+    tx.setTunePower(sweepPowerWatts);
 
     if (m_swrSweep.tgxlBypassRequested) {
         m_swrSweep.phase = SwrSweepPhase::WaitingForTgxlBypass;
@@ -10954,6 +10983,8 @@ void MainWindow::finishSwrSweepAfterTuneStopped()
             s && m_swrSweep.originalFreqMhz > 0.0) {
             s->setFrequency(m_swrSweep.originalFreqMhz);
         }
+        if (m_swrSweep.originalTunePower != m_swrSweep.sweepTunePower)
+            m_radioModel.transmitModel().setTunePower(m_swrSweep.originalTunePower);
 
         if (m_swrSweep.finalAborted && !m_swrSweep.panId.isEmpty()
             && m_swrSweep.originalPanCenterMhz > 0.0
