@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QHash>
 #include <QMap>
 #include <QString>
 #include <QStringList>
@@ -99,6 +100,13 @@ public:
     bool    apdEnabled()        const { return m_apdEnabled; }
     bool    apdConfigurable()   const { return m_apdConfigurable; }
     bool    apdEqualizerActive()const { return m_apdEqActive; }
+
+    // External APD per-TX-antenna sampler-port assignment (SmartSDR 4.2.18+).
+    struct ApdSampler {
+        QString     selected{"INTERNAL"};
+        QStringList available{"INTERNAL"};
+    };
+    ApdSampler apdSampler(const QString& txAnt) const { return m_apdSamplers.value(txAnt); }
     // Reset all state to defaults on disconnect — different radio models
     // have different capabilities (APD, max power, pan count, etc.)
     void resetState();
@@ -121,6 +129,7 @@ public:
     void applyInterlockStatus(const QMap<QString, QString>& kvs);
     void applyAtuStatus(const QMap<QString, QString>& kvs);
     void applyApdStatus(const QMap<QString, QString>& kvs);
+    void applyApdSamplerStatus(const QMap<QString, QString>& kvs);
     void setProfileList(const QStringList& profiles);
     void setActiveProfile(const QString& profile);
     void setMicProfileList(const QStringList& profiles);
@@ -141,6 +150,8 @@ public:
     void setAtuMemories(bool on);
     void loadProfile(const QString& name);
     void setApdEnabled(bool on);
+    void setApdSamplerPort(const QString& txAnt, const QString& port);
+    void resetApdEqualizer();
 
     // ── Mic / monitor / processor commands ────────────────────────────────
     void setMicSelection(const QString& input);
@@ -189,6 +200,8 @@ signals:
     void micInputListChanged();
     void phoneStateChanged();       // VOX or CW property changed
     void apdStateChanged();
+    void apdSamplerChanged(const QString& txAnt);
+    void apdEqualizerResetReceived();
     void maxPowerLevelChanged(int maxWatts);
     void commandReady(const QString& cmd);
 
@@ -199,6 +212,7 @@ private:
     bool m_apdEnabled{false};
     bool m_apdConfigurable{false};
     bool m_apdEqActive{false};
+    QHash<QString, ApdSampler> m_apdSamplers;  // keyed by ANT1/ANT2/XVTA/XVTB
 
     // Transmit state
     int  m_rfPower{100};

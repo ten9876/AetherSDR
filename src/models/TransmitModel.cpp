@@ -13,6 +13,7 @@ void TransmitModel::resetState()
     m_apdEnabled = false;
     m_apdConfigurable = false;
     m_apdEqActive = false;
+    m_apdSamplers.clear();
     m_rfPower = 100;
     m_tunePower = 10;
     m_tune = false;
@@ -268,8 +269,46 @@ void TransmitModel::applyApdStatus(const QMap<QString, QString>& kvs)
         bool v = kvs["equalizer_active"] == "1";
         if (m_apdEqActive != v) { m_apdEqActive = v; changed = true; }
     }
+    // Bare flag (no `=`) — radio signals all per-antenna equalizers cleared.
+    if (kvs.contains("equalizer_reset")) {
+        if (m_apdEqActive) { m_apdEqActive = false; changed = true; }
+        emit apdEqualizerResetReceived();
+    }
 
     if (changed) emit apdStateChanged();
+}
+
+// "apd sampler tx_ant=ANT1 selected_sampler=RX_A valid_samplers=RX_A,XVTA"
+void TransmitModel::applyApdSamplerStatus(const QMap<QString, QString>& kvs)
+{
+    const QString txAnt = kvs.value("tx_ant").toUpper();
+    if (txAnt.isEmpty()) return;
+
+    ApdSampler s = m_apdSamplers.value(txAnt);
+    bool changed = false;
+
+    if (kvs.contains("valid_samplers")) {
+        QStringList ports = kvs["valid_samplers"].split(',', Qt::SkipEmptyParts);
+        QStringList avail{"INTERNAL"};
+        for (const auto& p : ports) {
+            const QString u = p.trimmed().toUpper();
+            if (!u.isEmpty() && !avail.contains(u)) avail.append(u);
+        }
+        if (s.available != avail) { s.available = avail; changed = true; }
+    }
+
+    if (kvs.contains("selected_sampler")) {
+        QString sel = kvs["selected_sampler"].toUpper();
+        // Match FlexLib: if selected_sampler isn't in the available list,
+        // fall back to INTERNAL.
+        if (!s.available.contains(sel)) sel = "INTERNAL";
+        if (s.selected != sel) { s.selected = sel; changed = true; }
+    }
+
+    if (changed) {
+        m_apdSamplers.insert(txAnt, s);
+        emit apdSamplerChanged(txAnt);
+    }
 }
 
 void TransmitModel::setApdEnabled(bool on)
@@ -279,6 +318,18 @@ void TransmitModel::setApdEnabled(bool on)
         emit apdStateChanged();
     }
     emit commandReady(QString("apd enable=%1").arg(on ? 1 : 0));
+}
+
+void TransmitModel::setApdSamplerPort(const QString& txAnt, const QString& port)
+{
+    if (txAnt.isEmpty() || port.isEmpty()) return;
+    emit commandReady(QString("apd sampler tx_ant=%1 sample_port=%2")
+                          .arg(txAnt.toUpper(), port.toUpper()));
+}
+
+void TransmitModel::resetApdEqualizer()
+{
+    emit commandReady(QStringLiteral("apd reset"));
 }
 
 void TransmitModel::setProfileList(const QStringList& profiles)

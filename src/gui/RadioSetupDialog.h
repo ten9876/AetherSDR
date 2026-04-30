@@ -10,6 +10,7 @@ class QLineEdit;
 class QGroupBox;
 class QProgressBar;
 class QPushButton;
+class QComboBox;
 
 namespace AetherSDR {
 
@@ -52,6 +53,8 @@ private:
     QWidget* buildAudioTab();
     QWidget* buildFiltersTab();
     QWidget* buildXvtrTab();
+    QWidget* buildApdTab();
+    void     refreshApdSamplerCombo(const QString& txAnt);
     QWidget* buildUsbCablesTab();
     QWidget* buildPeripheralsTab();
     QWidget* buildUiEnhancementsTab();
@@ -94,6 +97,10 @@ private:
     // Lazy tab construction — deferred builders keyed by tab index (#1776)
     QHash<int, std::function<QWidget*()>> m_deferredBuilders;
     void buildDeferredTab(int index);
+
+    // External APD tab (visible only when the radio reports apd configurable=1)
+    int                       m_apdTabIndex{-1};
+    QHash<QString, QComboBox*> m_apdSamplerCombos;
 };
 
 } // namespace AetherSDR

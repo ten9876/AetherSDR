@@ -110,6 +110,15 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
     addDeferred("RX",          [this] { return buildRxTab(); });
     addDeferred("Filters",     [this] { return buildFiltersTab(); });
     addDeferred("XVTR",        [this] { return buildXvtrTab(); });
+    // External APD tab (#2186) — only present on radios that report
+    // `apd configurable=1` (FLEX-8x00 series with SmartSDR 4.2.18+).
+    m_apdTabIndex = tabs->addTab(new QWidget, "APD");
+    m_deferredBuilders[m_apdTabIndex] = [this] { return buildApdTab(); };
+    tabs->setTabVisible(m_apdTabIndex, m_model->transmitModel().apdConfigurable());
+    connect(&m_model->transmitModel(), &TransmitModel::apdStateChanged,
+            this, [this, tabs] {
+        tabs->setTabVisible(m_apdTabIndex, m_model->transmitModel().apdConfigurable());
+    });
     addDeferred("USB Cables",      [this] { return buildUsbCablesTab(); });
     addDeferred("Peripherals",     [this] { return buildPeripheralsTab(); });
     addDeferred("Themes",          [this] { return buildUiEnhancementsTab(); });
@@ -2402,6 +2411,112 @@ QWidget* RadioSetupDialog::buildXvtrTab()
 
     vbox->addWidget(xvtrTabs);
     return page;
+}
+
+// ── APD tab (External Adaptive Pre-Distortion) ──────────────────────────────
+//
+// Per-TX-antenna selection of the sample port the radio uses for APD
+// adaptation.  INTERNAL samples inside the radio (legacy behaviour);
+// RX_A/RX_B/XVTA/XVTB take a coupled feedback signal from one of the
+// receive or transverter inputs — required to train APD against the
+// real RF when transmitting through an external linear amplifier.
+//
+// Tab is added eagerly but kept hidden until the radio reports
+// `apd configurable=1`.  Only the FLEX-8x00 series on SmartSDR 4.2.18+
+// reports this; older firmware and 6000-series radios stay hidden.
+
+QWidget* RadioSetupDialog::buildApdTab()
+{
+    auto* page = new QWidget;
+    auto* vbox = new QVBoxLayout(page);
+    vbox->setSpacing(8);
+
+    // Model header — matches other tabs (e.g. Filters, TX)
+    {
+        auto* hdr = new QHBoxLayout;
+        hdr->addStretch(1);
+        auto* modelLbl = new QLabel(m_model->model());
+        modelLbl->setStyleSheet("QLabel { color: #00c8ff; font-size: 20px; font-weight: bold; }");
+        hdr->addWidget(modelLbl);
+        vbox->addLayout(hdr);
+    }
+
+    auto& tx = m_model->transmitModel();
+
+    // External Sampler group — 2-column grid: ANT1/XVTA on the top row,
+    // ANT2/XVTB on the bottom row, then the Reset button on its own row.
+    {
+        auto* group = new QGroupBox("External Sampler (per TX ANT)");
+        group->setStyleSheet(kGroupStyle);
+        auto* grid = new QGridLayout(group);
+        grid->setSpacing(8);
+
+        // Row, col-pair, antenna name → builds label + combo, hooks signals.
+        auto buildRow = [&](int row, int colBase, const QString& ant) {
+            auto* lbl = new QLabel(ant + ":");
+            lbl->setStyleSheet(kLabelStyle);
+            grid->addWidget(lbl, row, colBase);
+
+            auto* combo = new QComboBox;
+            const auto s = tx.apdSampler(ant);
+            combo->addItems(s.available);
+            combo->setCurrentText(s.selected);
+            AetherSDR::applyComboStyle(combo);
+            grid->addWidget(combo, row, colBase + 1);
+
+            m_apdSamplerCombos.insert(ant, combo);
+
+            connect(combo, &QComboBox::currentTextChanged, this,
+                    [this, ant](const QString& port) {
+                if (port.isEmpty()) return;
+                m_model->transmitModel().setApdSamplerPort(ant, port);
+            });
+        };
+
+        buildRow(0, 0, "ANT1");
+        buildRow(0, 2, "XVTA");
+        buildRow(1, 0, "ANT2");
+        buildRow(1, 2, "XVTB");
+
+        // Equalizer Reset button (row 2) — clears all per-antenna training.
+        auto* resetLbl = new QLabel("Equalizer Reset:");
+        resetLbl->setStyleSheet(kLabelStyle);
+        grid->addWidget(resetLbl, 2, 0);
+
+        auto* resetBtn = new QPushButton("Reset");
+        resetBtn->setStyleSheet(
+            "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
+            "border-radius: 3px; color: #c8d8e8; font-size: 11px; "
+            "font-weight: bold; padding: 3px 16px; }"
+            "QPushButton:hover { background: #203040; }");
+        connect(resetBtn, &QPushButton::clicked, this, [this] {
+            m_model->transmitModel().resetApdEqualizer();
+        });
+        grid->addWidget(resetBtn, 2, 1, Qt::AlignLeft);
+
+        vbox->addWidget(group);
+    }
+
+    // Live updates: when sampler status arrives later (e.g. ANT changes,
+    // first-connection populate), refresh the relevant combo's options
+    // without firing change-signals back to the radio.
+    connect(&tx, &TransmitModel::apdSamplerChanged, this,
+            &RadioSetupDialog::refreshApdSamplerCombo);
+
+    vbox->addStretch(1);
+    return page;
+}
+
+void RadioSetupDialog::refreshApdSamplerCombo(const QString& txAnt)
+{
+    auto* combo = m_apdSamplerCombos.value(txAnt);
+    if (!combo) return;
+
+    const auto s = m_model->transmitModel().apdSampler(txAnt);
+    QSignalBlocker b(combo);
+    combo->clear();
+    combo->addItems(s.available);
+    combo->setCurrentText(s.selected);
 }
 
 // ── USB Cables tab ───────────────────────────────────────────────────────────
