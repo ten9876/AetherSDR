@@ -4955,6 +4955,7 @@ void MainWindow::buildMenuBar()
                 this, [this] { QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->startConnection(); }); });
         connect(dlg, &DxClusterDialog::freedvStopRequested,
                 this, [this] { QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->stopConnection(); }); });
+#ifdef HAVE_RADE
         connect(dlg, &DxClusterDialog::freedvReportingToggled,
                 this, [this](bool on) {
                     if (on) {
@@ -4964,6 +4965,7 @@ void MainWindow::buildMenuBar()
                         stopFreeDvReporting(m_radeSliceId);
                     }
                 });
+#endif
 #endif
         connect(dlg, &DxClusterDialog::spotsClearedAll,
                 this, [this] {
