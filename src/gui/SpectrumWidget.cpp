@@ -235,17 +235,13 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
         const double newBw = std::clamp(m_bandwidthMhz * factor, m_minBwMhz, m_maxBwMhz);
         if (newBw == m_bandwidthMhz) return;  // already at the hard limit
 
-        // When zooming in, shift center toward the active VFO so it stays visible
+        // When zooming in, center on the active VFO so repeated clicks do not
+        // push it toward the panadapter edge (#1932).
         double newCenter = m_centerMhz;
         if (factor < 1.0) {  // zooming in
             const auto* ao = activeOverlay();
-            if (ao) {
-                const double halfBw = newBw / 2.0;
-                if (ao->freqMhz > newCenter + halfBw)
-                    newCenter = ao->freqMhz - halfBw * 0.8;
-                else if (ao->freqMhz < newCenter - halfBw)
-                    newCenter = ao->freqMhz + halfBw * 0.8;
-            }
+            if (ao)
+                newCenter = ao->freqMhz;
         }
 
         reprojectWaterfall(m_centerMhz, m_bandwidthMhz, newCenter, newBw);
