@@ -22,6 +22,7 @@ struct AgDeviceInfo {
     quint16   port{9007};
     int       radioPorts{2};
     int       antennaPorts{8};
+    int       webPort{0};  // web UI port (0 = unknown, use SS_ManualPort fallback)
     QString   mode;       // "master" / "slave"
 };
 
@@ -93,6 +94,7 @@ public:
     bool isConnected()   const { return m_connected; }
     bool isConnecting()  const { return m_tcpSocket != nullptr && !m_connected; }
     bool isPresent()     const { return !m_discoveredDevices.isEmpty(); }
+    static bool isShackSwitch(const AgDeviceInfo& info);
     QString peerAddress() const;
     quint16 peerPort() const;
     const AgDeviceInfo& connectedDevice() const { return m_device; }
@@ -102,6 +104,7 @@ public:
     QList<AgBandInfo>     bands()             const { return m_bands; }
     AgPortStatus          portA()             const { return m_portA; }
     AgPortStatus          portB()             const { return m_portB; }
+    int                   lastRadioBand()     const { return m_lastRadioBand; }
 
     // Select antenna for a port (portId: 1=A, 2=B, antennaId: 1–N).
     // Sets rxant to antennaId. Sets txant only if the antenna has TX

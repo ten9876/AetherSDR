@@ -586,6 +586,7 @@ set(GUI_SOURCES
     src/gui/MeterSlider.cpp
     src/gui/PhaseKnob.cpp
     src/gui/AntennaGeniusApplet.cpp
+    src/gui/ShackSwitchApplet.cpp
     src/gui/TitleBar.cpp
     src/gui/SupportDialog.cpp
     src/gui/SliceTroubleshootingDialog.cpp

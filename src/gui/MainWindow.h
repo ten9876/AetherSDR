@@ -408,6 +408,7 @@ private:
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     QTimer* m_bsExpiryTimer{nullptr};    // band-stack bookmark auto-expiry, started on connect only (#1471)
     QTimer* m_bsAutoSaveTimer{nullptr};  // band-stack dwell auto-save (single-shot per dwell window)
+    QTimer* m_agManualConnectTimer{nullptr}; // deferred AG manual connect — cancelled on disconnect
     class CwxLocalKeyer* m_cwxLocalKeyer{nullptr};  // local Morse keyer for CWX sidetone
     std::unique_ptr<class IambicKeyer> m_iambicKeyer;  // local iambic state machine for paddle sidetone
     qint64 m_bsConnectGraceUntilMs{0};   // suppress auto-save right after connect
