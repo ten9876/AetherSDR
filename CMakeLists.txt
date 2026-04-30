@@ -1206,6 +1206,16 @@ add_executable(memory_recall_policy_test
 target_include_directories(memory_recall_policy_test PRIVATE src)
 target_link_libraries(memory_recall_policy_test PRIVATE Qt6::Core)
 
+add_executable(transmit_model_apd_test
+    tests/transmit_model_apd_test.cpp
+    src/models/TransmitModel.cpp
+    src/core/LogManager.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(transmit_model_apd_test PRIVATE src)
+target_link_libraries(transmit_model_apd_test PRIVATE Qt6::Core Qt6::Test)
+set_target_properties(transmit_model_apd_test PROPERTIES AUTOMOC ON)
+
 # Help guide search tests - needs QApplication + Widgets.
 add_executable(help_dialog_test
     tests/help_dialog_test.cpp

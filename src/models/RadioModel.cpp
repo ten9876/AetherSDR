@@ -2679,9 +2679,25 @@ void RadioModel::onStatusReceived(const QString& object,
         return;
     }
 
-    // APD status: "apd enable=1 ..."
-    if (object == "apd") {
-        m_transmitModel.applyApdStatus(kvs);
+    // APD status family.  Forms:
+    //   "apd enable=1 configurable=1"               → object "apd"
+    //   "apd equalizer_active=1 ant=ANT1 freq=... rfpower=..."  → object "apd"
+    //   "apd equalizer_reset"                        → object "apd equalizer_reset"
+    //   "apd sampler tx_ant=ANT1 selected_sampler=RX_A valid_samplers=..."
+    //                                                → object "apd sampler"
+    // Our parser splits object/kvs at the last space before the first '=',
+    // so any leading bare flags get absorbed into the object name.
+    if (object == "apd sampler") {
+        m_transmitModel.applyApdSamplerStatus(kvs);
+        return;
+    }
+    if (object == "apd" || object.startsWith("apd ")) {
+        QMap<QString, QString> merged = kvs;
+        if (object.length() > 3) {
+            const QStringList flags = object.mid(4).split(' ', Qt::SkipEmptyParts);
+            for (const auto& f : flags) merged.insert(f, QString{});
+        }
+        m_transmitModel.applyApdStatus(merged);
         return;
     }
 
