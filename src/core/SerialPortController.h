@@ -3,8 +3,10 @@
 #include <QObject>
 #include <QString>
 
-#ifdef HAVE_SERIALPORT
+#if defined(HAVE_SERIALPORT) || defined(Q_OS_WIN)
 #include <QElapsedTimer>
+#endif
+#ifdef HAVE_SERIALPORT
 #ifndef Q_OS_WIN
 #include <QSerialPort>
 #include <QTimer>
