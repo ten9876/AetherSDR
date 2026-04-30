@@ -145,7 +145,7 @@
 3. Reopen WSJT-X — TCI should reconnect and audio should flow again
 
 ### D5. TCI with DAX already running
-1. Enable DAX in the DIGI applet (Autostart DAX)
+1. Enable DAX in the DAX Audio tile (Autostart DAX)
 2. Then connect WSJT-X via TCI
 3. Both should work simultaneously
 4. Disconnect WSJT-X — user's DAX should remain active
@@ -203,8 +203,8 @@
 
 ### DAX RX Audio
 
-#### G1. DAX RX via DIGI applet (Autostart DAX)
-1. Open DIGI applet, check "Autostart DAX"
+#### G1. DAX RX via DAX Audio tile (Autostart DAX)
+1. Open the DAX Audio tile (click `DAX` in the applet tray), check "Autostart DAX"
 2. Check log for `stream create type=dax_rx dax_channel=1`
 3. Open WSJT-X configured to use DAX audio device (not TCI)
 4. WSJT-X should show waterfall activity and produce FT8 decodes
@@ -248,7 +248,7 @@
 ### DAX IQ Streaming
 
 #### G8. DAX IQ stream creation
-1. Enable DAX IQ on a slice (DIGI applet → IQ channel selector)
+1. Enable DAX IQ on a slice (DAX IQ tile → IQ channel selector)
 2. Check log for `stream create type=dax_iq dax_channel=<ch>`
 3. An IQ-capable application (e.g., SDR++) should receive IQ data
 
@@ -292,7 +292,7 @@
 ### TCI Audio — Lifecycle
 
 #### G16. TCI audio_start creates DAX RX streams
-1. DAX Autostart OFF in DIGI applet
+1. DAX Autostart OFF in the DAX Audio tile
 2. Connect TCI client, send `audio_start;`
 3. Check log for:
    - `slice set <id> dax=<ch>` (channel assignment)
@@ -329,7 +329,7 @@
 ### Cross-Path Interactions
 
 #### G21. DAX bridge + TCI simultaneous
-1. Enable DAX Autostart in DIGI applet (creates DAX bridge streams)
+1. Enable DAX Autostart in the DAX Audio tile (creates DAX bridge streams)
 2. Connect WSJT-X via TCI (creates TCI's own DAX streams or piggybacks)
 3. Both should receive audio simultaneously
 4. Disable DAX Autostart — TCI should continue working (owns its own streams)

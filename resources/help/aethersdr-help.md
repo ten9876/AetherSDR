@@ -228,18 +228,24 @@ This applet is mode-sensitive. In phone-oriented modes it exposes microphone-ori
 
 The EQ applet is for transmit and receive equalization. Small moves are best. Shape the audio, then listen and measure before making another large adjustment.
 
-### `DIGI`
+### `CAT`, `DAX`, `TCI`, `IQ` (data mode tiles)
 
-The DIGI applet is the bridge between AetherSDR and external software. It handles:
+The bridge between AetherSDR and external software is split across four
+independent, drag-reorderable tiles. Each one is toggled from its own button
+in the applet tray:
 
-- CAT over TCP
-- virtual TTY or PTY control
-- TCI server enablement
-- DAX enablement
-- DAX receive and transmit levels
-- DAX IQ integration
+- **`CAT`** — CAT Control tile: rigctld TCP servers + virtual TTY/PTY ports
+  for any application that speaks Hamlib rigctld
+- **`DAX`** — DAX Audio tile: virtual audio devices for the four RX channels
+  and the TX channel, with per-channel gain and level meters
+- **`TCI`** — TCI Server tile: WebSocket server speaking the TCI v2.0
+  protocol (CAT + audio + IQ + CW + spots in one connection)
+- **`IQ`** — DAX IQ tile: raw I/Q streams at 24/48/96/192 kHz for SDR
+  applications
 
-If you use computer-driven digital modes, this applet deserves a permanent place in your operating layout.
+If you use computer-driven digital modes, the relevant tiles deserve a
+permanent place in your operating layout. See **Configuring Data Modes** in
+the help topics for the full setup walkthrough.
 
 ### `MTR`
 
