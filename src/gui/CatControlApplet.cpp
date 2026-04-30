@@ -1,5 +1,4 @@
 #include "CatControlApplet.h"
-#include "SliceColors.h"
 #include "SliceColorManager.h"
 #include "core/RigctlServer.h"
 #include "core/RigctlPty.h"

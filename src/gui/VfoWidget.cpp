@@ -2,7 +2,6 @@
 #include "PhaseKnob.h"
 #include "ComboStyle.h"
 #include "GuardedSlider.h"
-#include "SliceColors.h"
 #include "SliceColorManager.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"

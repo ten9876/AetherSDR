@@ -21,7 +21,9 @@ SliceColorManager::SliceColorManager()
 
 int SliceColorManager::safeIdx(int sliceId)
 {
-    Q_ASSERT(sliceId >= 0);
+    // Defensive: callers normally pass 0..kSliceColorCount-1, but transient
+    // sentinels (e.g. -1 during slice teardown) must not index out of range
+    // or invoke implementation-defined behavior on negative-modulo.
     return std::abs(sliceId) % kSliceColorCount;
 }
 

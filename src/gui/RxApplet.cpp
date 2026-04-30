@@ -2,7 +2,6 @@
 #include "FilterPassbandWidget.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
-#include "SliceColors.h"
 #include "SliceColorManager.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
