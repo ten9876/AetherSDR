@@ -318,6 +318,14 @@ RadioModel::RadioModel(QObject* parent)
     connect(&m_dvkModel, &DvkModel::commandReady, this, [this](const QString& cmd){
         sendCmd(cmd);
     });
+    connect(&m_navtexModel, &NavtexModel::commandReady, this, [this](const QString& cmd){
+        sendCmd(cmd);
+    });
+    connect(&m_navtexModel, &NavtexModel::replyCommandReady, this, [this](const QString& cmd, int seq){
+        sendCmd(cmd, [this, seq](int respVal, const QString& body){
+            m_navtexModel.handleSendResponse(seq, static_cast<uint>(respVal), body);
+        });
+    });
     connect(&m_usbCableModel, &UsbCableModel::commandReady, this, [this](const QString& cmd){
         sendCmd(cmd);
     });
@@ -1468,6 +1476,7 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
             sendCmd("sub radio all");
             sendCmd("sub codec all");
             sendCmd("sub dvk all");
+            sendCmd("sub navtex all");
             sendCmd("sub usb_cable all");
             sendCmd("sub spot all");
             sendCmd("sub license all");
@@ -2839,6 +2848,12 @@ void RadioModel::onStatusReceived(const QString& object,
     if (object.startsWith("dvk")) {
         // Pass both the object string (may contain "added"/"deleted") and KVs
         m_dvkModel.applyStatus(object, kvs);
+        return;
+    }
+
+    // NAVTEX status (v4.2.18): "navtex status=Active" or "navtex sent idx=1 serial_num=42"
+    if (object.startsWith("navtex")) {
+        m_navtexModel.parseStatus(object, kvs);
         return;
     }
 

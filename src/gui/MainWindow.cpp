@@ -4955,6 +4955,7 @@ void MainWindow::buildMenuBar()
                 this, [this] { QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->startConnection(); }); });
         connect(dlg, &DxClusterDialog::freedvStopRequested,
                 this, [this] { QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->stopConnection(); }); });
+#ifdef HAVE_RADE
         connect(dlg, &DxClusterDialog::freedvReportingToggled,
                 this, [this](bool on) {
                     if (on) {
@@ -4964,6 +4965,7 @@ void MainWindow::buildMenuBar()
                         stopFreeDvReporting(m_radeSliceId);
                     }
                 });
+#endif
 #endif
         connect(dlg, &DxClusterDialog::spotsClearedAll,
                 this, [this] {
@@ -7186,7 +7188,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
                 txSliceId = sl->sliceId();
                 const QString& m = sl->mode();
                 isDigital = (m == "DIGU" || m == "DIGL" || m == "RTTY"
-                          || m == "DFM"  || m == "NFM");
+                          || m == "DFM"  || m == "NFM"  || m == "NT");
                 break;
             }
         }
@@ -7342,7 +7344,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
             // Disable client-side DSP in digital and CW modes — NR2/RN2/BNR
             // corrupt digital data (#534) and suppress CW tones (#784)
             bool disableDsp = (mode == "DIGU" || mode == "DIGL" || mode == "RTTY"
-                            || mode == "CW"   || mode == "CWL");
+                            || mode == "CW"   || mode == "CWL"  || mode == "NT");
             if (disableDsp) {
                 if (m_audio->nr2Enabled())
                     QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });

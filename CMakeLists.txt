@@ -491,6 +491,7 @@ set(MODEL_SOURCES
     src/models/SpotModel.cpp
     src/models/CwxModel.cpp
     src/models/DvkModel.cpp
+    src/models/NavtexModel.cpp
     src/models/BandSettings.cpp
     src/models/BandPlanManager.cpp
     src/models/XvtrPolicy.cpp
@@ -1144,6 +1145,13 @@ add_executable(passive_spots_policy_test
 )
 target_include_directories(passive_spots_policy_test PRIVATE src)
 target_link_libraries(passive_spots_policy_test PRIVATE Qt6::Core)
+
+add_executable(navtex_model_test
+    tests/navtex_model_test.cpp
+    src/models/NavtexModel.cpp
+)
+target_include_directories(navtex_model_test PRIVATE src)
+target_link_libraries(navtex_model_test PRIVATE Qt6::Core Qt6::Test)
 
 add_executable(ole_compound_file_test
     tests/ole_compound_file_test.cpp
