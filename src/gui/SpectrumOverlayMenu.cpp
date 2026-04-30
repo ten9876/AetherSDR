@@ -379,11 +379,42 @@ void SpectrumOverlayMenu::buildAntPanel()
         emit wnbLevelChanged(v);
     });
 
+    const QString sweepBtnStyle =
+        "QPushButton { background: rgba(38, 34, 24, 235); "
+        "border: 1px solid #705820; border-radius: 2px; "
+        "color: #ffd070; font-size: 10px; font-weight: bold; padding: 1px 4px; }"
+        "QPushButton:hover { background: rgba(120, 80, 20, 210); "
+        "border: 1px solid #ffc040; color: #ffffff; }"
+        "QPushButton:disabled { color: #706858; border-color: #403828; }";
+    auto* sweepRow = new QHBoxLayout;
+    sweepRow->setSpacing(4);
+    m_swrStartBtn = new QPushButton("Start Sweep");
+    m_swrStartBtn->setMinimumHeight(22);
+    m_swrStartBtn->setStyleSheet(sweepBtnStyle);
+    m_swrClearBtn = new QPushButton("Clear Sweep");
+    m_swrClearBtn->setMinimumHeight(22);
+    m_swrClearBtn->setStyleSheet(sweepBtnStyle);
+    sweepRow->addWidget(m_swrStartBtn, 1);
+    sweepRow->addWidget(m_swrClearBtn, 1);
+    vbox->addLayout(sweepRow);
+
+    connect(m_swrStartBtn, &QPushButton::clicked, this, [this]() {
+        const int sliceId = m_slice ? m_slice->sliceId() : -1;
+        hideAllSubPanels();
+        emit swrSweepStartRequested(sliceId);
+    });
+    connect(m_swrClearBtn, &QPushButton::clicked, this, [this]() {
+        hideAllSubPanels();
+        emit swrSweepClearRequested();
+    });
+
     // ANT panel tooltips
     m_rxAntCmb->setToolTip("Select the receive antenna port for this slice.");
     m_rfGainSlider->setToolTip("Adjusts receiver IF gain. Lower values reduce strong-signal overload.");
     m_wnbBtn->setToolTip("Wideband noise blanker \u2014 suppresses correlated impulse noise across the full panadapter bandwidth.");
     m_wnbSlider->setToolTip("Adjusts WNB threshold. Higher values blank more aggressively.");
+    m_swrStartBtn->setToolTip("Run a low-power tune sweep across the current TX band and plot SWR on the panadapter.");
+    m_swrClearBtn->setToolTip("Clear the displayed SWR sweep trace.");
 
     m_antPanel->setFixedWidth(180);
     m_antPanel->adjustSize();

@@ -179,6 +179,19 @@ constexpr int kPanFollowAnimationDurationMs = 110;
 constexpr int kSliderShortcutLeaseMs = 2000;
 constexpr int kPanadapterSliceCapacityStatusMs = 4000;
 constexpr qint64 kXvtrWaterfallDecisionLogIntervalMs = 20000;
+constexpr double kSwrSweepStepMhz = 0.020;
+constexpr double kSwrSweepEdgeGuardMhz = 0.005;
+constexpr double kSwrSweepPanPaddingMhz = 0.020;
+constexpr int kSwrSweepPollMs = 50;
+constexpr int kSwrSweepInitialSettleMs = 350;
+constexpr int kSwrSweepStepSettleMs = 160;
+constexpr int kSwrSweepMaxSettleMs = 900;
+constexpr int kSwrSweepTgxlBypassTimeoutMs = 3500;
+constexpr int kSwrSweepTgxlRelaySettleMs = 250;
+constexpr int kSwrSweepTuneStopWaitMs = 350;
+constexpr int kSwrSweepTuneStopTimeoutMs = 1800;
+constexpr int kSwrSweepTgxlRestoreTimeoutMs = 3500;
+constexpr int kSwrSweepMaxPoints = 260;
 
 int panCountForLayoutId(const QString& layoutId)
 {
@@ -939,6 +952,11 @@ MainWindow::MainWindow(QWidget* parent)
     buildMenuBar();
     buildUI();
     registerShortcutActions();
+
+    m_swrSweepTimer.setTimerType(Qt::PreciseTimer);
+    m_swrSweepTimer.setInterval(kSwrSweepPollMs);
+    connect(&m_swrSweepTimer, &QTimer::timeout,
+            this, &MainWindow::advanceSwrSweep);
 
     if (auto* wave = m_appletPanel ? m_appletPanel->waveApplet() : nullptr) {
         connect(m_audio, &AudioEngine::scopeSamplesReady,
@@ -4306,6 +4324,14 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
     // which widget has focus (buttons, combos, etc. won't steal Space).
     if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
         auto* ke = static_cast<QKeyEvent*>(event);
+        if (m_swrSweep.running) {
+            if (event->type() == QEvent::KeyPress
+                && ke->key() == Qt::Key_Escape
+                && !ke->isAutoRepeat()) {
+                finishSwrSweep(true, QStringLiteral("SWR sweep stopped"));
+            }
+            return true;
+        }
         if (ke->key() == Qt::Key_Space && !ke->isAutoRepeat()
             && !shortcutInputCaptured()
             && m_radioModel.isConnected()) {
@@ -6832,6 +6858,8 @@ void MainWindow::onConnectionStateChanged(bool connected)
             }
         }
     } else {
+        if (m_swrSweep.running)
+            finishSwrSweep(true, QStringLiteral("SWR sweep stopped on disconnect"));
         QMetaObject::invokeMethod(m_dxCluster, [=] { m_dxCluster->disconnect(); });
         QMetaObject::invokeMethod(m_rbnClient, [=] { m_rbnClient->disconnect(); });
         QMetaObject::invokeMethod(m_wsjtxClient, [=] { m_wsjtxClient->stopListening(); });
@@ -7643,6 +7671,8 @@ void MainWindow::applyTuneRequest(SliceModel* slice, double mhz,
                                   TuneIntent intent, const char* source)
 {
     if (!slice)
+        return;
+    if (m_swrSweep.running)
         return;
 
     const double oldFreqMhz = slice->frequency();
@@ -8759,6 +8789,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         s.setValue(sw->settingsKey("DisplayRfGain"), QString::number(gain));
         s.save();
     });
+    connect(menu, &SpectrumOverlayMenu::swrSweepStartRequested,
+            this, &MainWindow::startSwrSweep);
+    connect(menu, &SpectrumOverlayMenu::swrSweepClearRequested,
+            this, &MainWindow::clearSwrSweepPlot);
 
     // ── NR2/RN2 overlay toggle → AudioEngine ───────────────────────────
     // Button sync back to overlay + VFO handled by nr2/rn2EnabledChanged above.
@@ -10469,6 +10503,519 @@ void MainWindow::restoreBandState(const BandSnapshot& snap)
         sw->setWnbActive(snap.wnbOn);
     }
     m_updatingFromModel = false;
+}
+
+SliceModel* MainWindow::swrSweepTargetSlice(int requestedSliceId) const
+{
+    if (requestedSliceId >= 0)
+        return m_radioModel.slice(requestedSliceId);
+
+    if (auto* s = activeSlice(); s && s->isTxSlice())
+        return s;
+
+    for (auto* s : m_radioModel.slices()) {
+        if (s && s->isTxSlice())
+            return s;
+    }
+
+    return activeSlice();
+}
+
+void MainWindow::setSwrSweepInputsLocked(bool locked)
+{
+    if (locked) {
+        m_swrSweep.appletPanelWasEnabled = !m_appletPanel || m_appletPanel->isEnabled();
+        m_swrSweep.panStackWasEnabled = !m_panStack || m_panStack->isEnabled();
+        if (m_appletPanel)
+            m_appletPanel->setEnabled(false);
+        if (m_panStack)
+            m_panStack->setEnabled(false);
+        setFocus(Qt::OtherFocusReason);
+        return;
+    }
+
+    if (m_appletPanel)
+        m_appletPanel->setEnabled(m_swrSweep.appletPanelWasEnabled);
+    if (m_panStack)
+        m_panStack->setEnabled(m_swrSweep.panStackWasEnabled);
+}
+
+void MainWindow::clearSwrSweepPlot()
+{
+    if (m_swrSweep.running) {
+        m_swrSweep.clearPlotOnFinish = true;
+        finishSwrSweep(true, QStringLiteral("SWR sweep cleared"));
+        return;
+    }
+
+    m_swrSweep.samples.clear();
+    m_swrSweep.sourceLabel.clear();
+    for (auto* applet : m_panStack ? m_panStack->allApplets() : QList<PanadapterApplet*>{}) {
+        if (auto* sw = applet ? applet->spectrumWidget() : nullptr)
+            sw->clearSwrSweepPoints();
+    }
+    statusBar()->showMessage(QStringLiteral("SWR sweep plot cleared"), 2500);
+}
+
+void MainWindow::updateSwrSweepOverlay(double currentFreqMhz)
+{
+    QVector<SpectrumWidget::SwrSweepPoint> points;
+    points.reserve(m_swrSweep.samples.size());
+    for (const auto& sample : m_swrSweep.samples)
+        points.append({sample.freqMhz, sample.swr});
+
+    if (!m_panStack)
+        return;
+
+    for (auto* applet : m_panStack->allApplets()) {
+        auto* sw = applet ? applet->spectrumWidget() : nullptr;
+        if (!sw)
+            continue;
+        if (applet->panId() == m_swrSweep.panId) {
+            sw->setSwrSweepPoints(points, m_swrSweep.running, currentFreqMhz,
+                                  m_swrSweep.sourceLabel);
+        } else if (m_swrSweep.running) {
+            sw->clearSwrSweepPoints();
+        }
+    }
+}
+
+void MainWindow::commandSwrSweepFrequency(double freqMhz, int settleMs)
+{
+    auto* s = m_radioModel.slice(m_swrSweep.sliceId);
+    if (!s) {
+        finishSwrSweep(true, QStringLiteral("SWR sweep stopped: slice closed"));
+        return;
+    }
+
+    s->setFrequency(freqMhz);
+    if (auto* sw = spectrumForSlice(s))
+        sw->setSliceOverlayFreq(s->sliceId(), freqMhz);
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    m_swrSweep.commandIssuedAtMs = now;
+    m_swrSweep.sampleNotBeforeMs = now + settleMs;
+    updateSwrSweepOverlay(freqMhz);
+}
+
+void MainWindow::beginSwrSweepRf()
+{
+    if (!m_swrSweep.running)
+        return;
+
+    auto* s = m_radioModel.slice(m_swrSweep.sliceId);
+    if (!s) {
+        finishSwrSweep(true, QStringLiteral("SWR sweep stopped: slice closed"));
+        return;
+    }
+
+    if (m_swrSweep.meterSource == SwrSweepMeterSource::Tgxl) {
+        const auto& tuner = m_radioModel.tunerModel();
+        if (!tuner.isPresent() || !tuner.isOperate() || !tuner.isBypass()) {
+            finishSwrSweep(true,
+                           QStringLiteral("SWR sweep stopped: TGXL bypass was not confirmed"));
+            return;
+        }
+    }
+
+    const QString bandName = BandSettings::bandForFrequency(m_swrSweep.originalFreqMhz);
+    const BandDef& band = BandSettings::bandDef(bandName);
+    const double displayCenter = (band.lowMhz + band.highMhz) * 0.5;
+    const double displayBw = (band.highMhz - band.lowMhz) + 2.0 * kSwrSweepPanPaddingMhz;
+
+    m_swrSweep.phase = SwrSweepPhase::Sweeping;
+    m_swrSweep.phaseStartedAtMs = QDateTime::currentMSecsSinceEpoch();
+    applyPanRangeRequest(m_swrSweep.panId, displayCenter, displayBw, "swr-sweep");
+
+    commandSwrSweepFrequency(m_swrSweep.frequencies.first(), kSwrSweepInitialSettleMs);
+    m_radioModel.transmitModel().startTune();
+    m_swrSweep.tuneStarted = true;
+    m_swrSweepTimer.start(kSwrSweepPollMs);
+
+    statusBar()->showMessage(
+        tr("SWR sweep running on %1 with Tune Power %2 W%3. Press Esc to stop.")
+            .arg(QString::fromLatin1(band.name))
+            .arg(m_radioModel.transmitModel().tunePower())
+            .arg(m_swrSweep.sourceLabel.isEmpty()
+                     ? QString()
+                     : QStringLiteral(" (%1)").arg(m_swrSweep.sourceLabel)),
+        5000);
+}
+
+void MainWindow::startSwrSweep(int requestedSliceId)
+{
+    if (m_swrSweep.running)
+        return;
+
+    if (!m_radioModel.isConnected()) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("Connect to a radio before starting an SWR sweep."));
+        return;
+    }
+    if (m_splitActive) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("Disable split before running an SWR sweep."));
+        return;
+    }
+
+    auto* s = swrSweepTargetSlice(requestedSliceId);
+    if (!s || !s->isTxSlice()) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("Select the TX slice before running an SWR sweep."));
+        return;
+    }
+    if (s->isLocked()) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("Unlock the TX slice before running an SWR sweep."));
+        return;
+    }
+    if (s->panId().isEmpty() || !spectrumForSlice(s)) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("The TX slice needs a visible panadapter before running an SWR sweep."));
+        return;
+    }
+
+    auto& tx = m_radioModel.transmitModel();
+    if (tx.isTuning() || tx.isMox() || tx.isTransmitting()) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("Stop transmit or tune before starting an SWR sweep."));
+        return;
+    }
+    if (tx.tunePower() <= 0) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("Tune Power is 0 W. Set a non-zero Tune Power first."));
+        return;
+    }
+
+    const QString bandName = BandSettings::bandForFrequency(s->frequency());
+    const BandDef& band = BandSettings::bandDef(bandName);
+    if (bandName == QLatin1String("GEN") || band.lowMhz <= 0.0 || band.highMhz <= band.lowMhz) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("The current TX frequency is not inside a supported amateur band."));
+        return;
+    }
+    if (bandName == QLatin1String("60m")) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("SWR sweep is disabled on 60 m because the band is channelized."));
+        return;
+    }
+
+    const double safeLow = band.lowMhz + kSwrSweepEdgeGuardMhz;
+    const double safeHigh = band.highMhz - kSwrSweepEdgeGuardMhz;
+    if (safeHigh <= safeLow) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("This band is too narrow for the configured SWR sweep guard."));
+        return;
+    }
+
+    const double displayBw = (band.highMhz - band.lowMhz) + 2.0 * kSwrSweepPanPaddingMhz;
+    if (displayBw > m_radioModel.maxPanBandwidthMhz()) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("This band is wider than the radio can display in one panadapter."));
+        return;
+    }
+
+    QVector<double> sweepFreqs;
+    for (double f = safeLow; f <= safeHigh + 1.0e-9; f += kSwrSweepStepMhz)
+        sweepFreqs.append(std::round(f * 1.0e6) / 1.0e6);
+    if (sweepFreqs.isEmpty()) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("No in-band sweep points were available."));
+        return;
+    }
+    if (sweepFreqs.size() > kSwrSweepMaxPoints) {
+        QMessageBox::warning(this, tr("SWR Sweep"),
+                             tr("This band would need too many sweep points for one fast pass."));
+        return;
+    }
+
+    m_swrSweep = SwrSweepState{};
+    m_swrSweep.running = true;
+    m_swrSweep.sliceId = s->sliceId();
+    m_swrSweep.panId = s->panId();
+    m_swrSweep.originalFreqMhz = s->frequency();
+    m_swrSweep.frequencies = sweepFreqs;
+    m_swrSweep.currentIndex = 0;
+    m_swrSweep.minimumForwardPowerW = qBound(0.05f,
+                                             static_cast<float>(tx.tunePower()) * 0.05f,
+                                             1.0f);
+    auto& tuner = m_radioModel.tunerModel();
+    m_swrSweep.tgxlOriginalOperate = tuner.isOperate();
+    m_swrSweep.tgxlOriginalBypass = tuner.isBypass();
+    if (tuner.isPresent() && tuner.isOperate()) {
+        m_swrSweep.meterSource = SwrSweepMeterSource::Tgxl;
+        m_swrSweep.sourceLabel = QStringLiteral("TGXL BYPASS");
+        if (!tuner.isBypass()) {
+            m_swrSweep.tgxlBypassRequested = true;
+            m_swrSweep.tgxlRestoreNeeded = true;
+        }
+    } else {
+        m_swrSweep.sourceLabel = tuner.isPresent()
+            ? QStringLiteral("RADIO")
+            : QString();
+    }
+
+    if (auto* sw = spectrumForSlice(s)) {
+        m_swrSweep.originalPanCenterMhz = sw->centerMhz();
+        m_swrSweep.originalPanBandwidthMhz = sw->bandwidthMhz();
+    }
+
+    for (auto* applet : m_panStack ? m_panStack->allApplets() : QList<PanadapterApplet*>{}) {
+        if (auto* sw = applet ? applet->spectrumWidget() : nullptr)
+            sw->clearSwrSweepPoints();
+    }
+
+    setSwrSweepInputsLocked(true);
+
+    if (m_swrSweep.tgxlBypassRequested) {
+        m_swrSweep.phase = SwrSweepPhase::WaitingForTgxlBypass;
+        m_swrSweep.phaseStartedAtMs = QDateTime::currentMSecsSinceEpoch();
+        tuner.setBypass(true);
+        m_swrSweepTimer.start(kSwrSweepPollMs);
+        statusBar()->showMessage(
+            tr("Preparing SWR sweep: placing TGXL in BYPASS before applying RF..."),
+            5000);
+        updateSwrSweepOverlay(-1.0);
+        return;
+    }
+
+    beginSwrSweepRf();
+}
+
+void MainWindow::advanceSwrSweep()
+{
+    if (!m_swrSweep.running)
+        return;
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    auto& tuner = m_radioModel.tunerModel();
+
+    if (m_swrSweep.phase == SwrSweepPhase::WaitingForTgxlBypass) {
+        if (!tuner.isPresent() || !tuner.isOperate()) {
+            finishSwrSweep(true,
+                           QStringLiteral("SWR sweep stopped: TGXL is no longer available"));
+            return;
+        }
+        if (tuner.isBypass()) {
+            m_swrSweep.phase = SwrSweepPhase::TgxlBypassSettle;
+            m_swrSweep.phaseStartedAtMs = now;
+            statusBar()->showMessage(
+                tr("TGXL BYPASS confirmed. Waiting for relays to settle..."),
+                2500);
+            return;
+        }
+        if (now - m_swrSweep.phaseStartedAtMs >= kSwrSweepTgxlBypassTimeoutMs) {
+            finishSwrSweep(true,
+                           QStringLiteral("SWR sweep stopped: TGXL did not enter bypass"));
+        }
+        return;
+    }
+
+    if (m_swrSweep.phase == SwrSweepPhase::TgxlBypassSettle) {
+        if (!tuner.isPresent() || !tuner.isOperate() || !tuner.isBypass()) {
+            finishSwrSweep(true,
+                           QStringLiteral("SWR sweep stopped: TGXL left bypass"));
+            return;
+        }
+        if (now - m_swrSweep.phaseStartedAtMs >= kSwrSweepTgxlRelaySettleMs)
+            beginSwrSweepRf();
+        return;
+    }
+
+    if (m_swrSweep.phase == SwrSweepPhase::StoppingTune) {
+        const bool waitedMinimum = now - m_swrSweep.phaseStartedAtMs >= kSwrSweepTuneStopWaitMs;
+        const bool stopped = !m_radioModel.transmitModel().isTuning();
+        const bool timedOut = now - m_swrSweep.phaseStartedAtMs >= kSwrSweepTuneStopTimeoutMs;
+        if (!waitedMinimum || (!stopped && !timedOut))
+            return;
+
+        finishSwrSweepAfterTuneStopped();
+        return;
+    }
+
+    if (m_swrSweep.phase == SwrSweepPhase::RestoringTgxl) {
+        const bool restored = !tuner.isPresent()
+            || tuner.isBypass() == m_swrSweep.tgxlOriginalBypass;
+        if (restored) {
+            completeSwrSweepFinish();
+            return;
+        }
+        if (now - m_swrSweep.phaseStartedAtMs >= kSwrSweepTgxlRestoreTimeoutMs) {
+            m_swrSweep.tgxlRestoreTimedOut = true;
+            completeSwrSweepFinish();
+        }
+        return;
+    }
+
+    auto* s = m_radioModel.slice(m_swrSweep.sliceId);
+    if (!s) {
+        finishSwrSweep(true, QStringLiteral("SWR sweep stopped: slice closed"));
+        return;
+    }
+
+    if (m_swrSweep.phase != SwrSweepPhase::Sweeping)
+        return;
+
+    if (m_swrSweep.meterSource == SwrSweepMeterSource::Tgxl
+        && (!tuner.isPresent() || !tuner.isOperate() || !tuner.isBypass())) {
+        finishSwrSweep(true, QStringLiteral("SWR sweep stopped: TGXL left bypass"));
+        return;
+    }
+
+    if (now < m_swrSweep.sampleNotBeforeMs)
+        return;
+
+    const auto& meters = m_radioModel.meterModel();
+    const bool useTgxlMeters = m_swrSweep.meterSource == SwrSweepMeterSource::Tgxl;
+    const bool swrFresh = useTgxlMeters
+        ? meters.tgxlSwrUpdatedAtMs() >= m_swrSweep.sampleNotBeforeMs
+        : meters.swrUpdatedAtMs() >= m_swrSweep.sampleNotBeforeMs;
+    const bool fwdFresh = useTgxlMeters
+        ? meters.tgxlFwdPowerUpdatedAtMs() >= m_swrSweep.sampleNotBeforeMs
+        : meters.fwdPowerUpdatedAtMs() >= m_swrSweep.sampleNotBeforeMs;
+    const bool hasForwardPower =
+        (useTgxlMeters ? meters.tgxlFwdPower() : meters.fwdPowerInstant())
+            >= m_swrSweep.minimumForwardPowerW;
+    if (!swrFresh || !fwdFresh || !hasForwardPower) {
+        if (now - m_swrSweep.commandIssuedAtMs < kSwrSweepMaxSettleMs)
+            return;
+
+        if (!swrFresh) {
+            finishSwrSweep(true,
+                           useTgxlMeters
+                               ? QStringLiteral("SWR sweep stopped: no fresh TGXL SWR meter data")
+                               : QStringLiteral("SWR sweep stopped: no fresh SWR meter data"));
+        } else {
+            finishSwrSweep(true,
+                           useTgxlMeters
+                               ? QStringLiteral("SWR sweep stopped: no TGXL forward power detected")
+                               : QStringLiteral("SWR sweep stopped: no forward power detected"));
+        }
+        return;
+    }
+
+    if (m_swrSweep.currentIndex < 0
+        || m_swrSweep.currentIndex >= m_swrSweep.frequencies.size()) {
+        finishSwrSweep(false, QStringLiteral("SWR sweep complete"));
+        return;
+    }
+
+    float swr = useTgxlMeters ? meters.tgxlSwr() : meters.swr();
+    if (!std::isfinite(static_cast<double>(swr)) || swr < 1.0f)
+        swr = 1.0f;
+
+    const double sampleFreq = m_swrSweep.frequencies[m_swrSweep.currentIndex];
+    m_swrSweep.samples.append({sampleFreq, swr});
+    updateSwrSweepOverlay(sampleFreq);
+
+    ++m_swrSweep.currentIndex;
+    if (m_swrSweep.currentIndex >= m_swrSweep.frequencies.size()) {
+        finishSwrSweep(false, QStringLiteral("SWR sweep complete"));
+        return;
+    }
+
+    commandSwrSweepFrequency(m_swrSweep.frequencies[m_swrSweep.currentIndex],
+                             kSwrSweepStepSettleMs);
+}
+
+void MainWindow::finishSwrSweep(bool aborted, const QString& reason)
+{
+    if (!m_swrSweep.running)
+        return;
+
+    if (!reason.isEmpty())
+        m_swrSweep.finalReason = reason;
+    m_swrSweep.finalAborted = m_swrSweep.finalAborted || aborted;
+
+    if (m_swrSweep.phase == SwrSweepPhase::StoppingTune
+        || m_swrSweep.phase == SwrSweepPhase::RestoringTgxl) {
+        return;
+    }
+
+    if (m_radioModel.isConnected() && m_swrSweep.tuneStarted) {
+        m_radioModel.transmitModel().stopTune();
+        m_swrSweep.phase = SwrSweepPhase::StoppingTune;
+        m_swrSweep.phaseStartedAtMs = QDateTime::currentMSecsSinceEpoch();
+        m_swrSweepTimer.start(kSwrSweepPollMs);
+        statusBar()->showMessage(tr("Stopping SWR sweep tune carrier..."), 2500);
+        return;
+    }
+
+    finishSwrSweepAfterTuneStopped();
+}
+
+void MainWindow::finishSwrSweepAfterTuneStopped()
+{
+    if (!m_swrSweep.running)
+        return;
+
+    if (m_radioModel.isConnected()) {
+        if (auto* s = m_radioModel.slice(m_swrSweep.sliceId);
+            s && m_swrSweep.originalFreqMhz > 0.0) {
+            s->setFrequency(m_swrSweep.originalFreqMhz);
+        }
+
+        if (m_swrSweep.finalAborted && !m_swrSweep.panId.isEmpty()
+            && m_swrSweep.originalPanCenterMhz > 0.0
+            && m_swrSweep.originalPanBandwidthMhz > 0.0) {
+            applyPanRangeRequest(m_swrSweep.panId,
+                                 m_swrSweep.originalPanCenterMhz,
+                                 m_swrSweep.originalPanBandwidthMhz,
+                                 "swr-sweep-stop");
+        }
+
+        auto& tuner = m_radioModel.tunerModel();
+        if (m_swrSweep.tgxlRestoreNeeded
+            && tuner.isPresent()
+            && tuner.isOperate()
+            && (tuner.isBypass() != m_swrSweep.tgxlOriginalBypass
+                || m_swrSweep.tgxlBypassRequested)) {
+            tuner.setBypass(m_swrSweep.tgxlOriginalBypass);
+            m_swrSweep.phase = SwrSweepPhase::RestoringTgxl;
+            m_swrSweep.phaseStartedAtMs = QDateTime::currentMSecsSinceEpoch();
+            m_swrSweepTimer.start(kSwrSweepPollMs);
+            statusBar()->showMessage(tr("Restoring TGXL tuner state..."), 3000);
+            return;
+        }
+    }
+
+    completeSwrSweepFinish();
+}
+
+void MainWindow::completeSwrSweepFinish()
+{
+    if (!m_swrSweep.running)
+        return;
+
+    m_swrSweepTimer.stop();
+
+    const bool clearPlot = m_swrSweep.clearPlotOnFinish;
+    const bool aborted = m_swrSweep.finalAborted;
+    QString msg = m_swrSweep.finalReason.isEmpty()
+        ? (aborted ? QStringLiteral("SWR sweep stopped")
+                   : QStringLiteral("SWR sweep complete"))
+        : m_swrSweep.finalReason;
+    if (m_swrSweep.tgxlRestoreTimedOut)
+        msg += QStringLiteral("; TGXL restore was not confirmed");
+
+    m_swrSweep.running = false;
+    m_swrSweep.phase = SwrSweepPhase::Idle;
+
+    if (clearPlot) {
+        m_swrSweep.samples.clear();
+        m_swrSweep.sourceLabel.clear();
+        for (auto* applet : m_panStack ? m_panStack->allApplets() : QList<PanadapterApplet*>{}) {
+            if (auto* sw = applet ? applet->spectrumWidget() : nullptr)
+                sw->clearSwrSweepPoints();
+        }
+        msg = QStringLiteral("SWR sweep plot cleared");
+    } else {
+        updateSwrSweepOverlay(-1.0);
+    }
+
+    setSwrSweepInputsLocked(false);
+
+    statusBar()->showMessage(msg, aborted ? 3000 : 5000);
 }
 
 // ─── GUI control handlers ─────────────────────────────────────────────────────

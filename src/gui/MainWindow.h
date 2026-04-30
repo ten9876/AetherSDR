@@ -208,6 +208,17 @@ private:
 
     BandSnapshot captureCurrentBandState() const;
     void restoreBandState(const BandSnapshot& snap);
+    void startSwrSweep(int requestedSliceId = -1);
+    void clearSwrSweepPlot();
+    void advanceSwrSweep();
+    void finishSwrSweep(bool aborted, const QString& reason = {});
+    void beginSwrSweepRf();
+    void finishSwrSweepAfterTuneStopped();
+    void completeSwrSweepFinish();
+    void commandSwrSweepFrequency(double freqMhz, int settleMs);
+    void updateSwrSweepOverlay(double currentFreqMhz = -1.0);
+    void setSwrSweepInputsLocked(bool locked);
+    SliceModel* swrSweepTargetSlice(int requestedSliceId = -1) const;
 
     // Core objects
     RadioDiscovery    m_discovery;
@@ -404,6 +415,53 @@ private:
     bool m_spacePttActive{false};          // true while Space is held for PTT
     QPointer<QAbstractSlider> m_sliderShortcutLease;
     QTimer m_sliderShortcutLeaseTimer;
+    struct SwrSweepSample {
+        double freqMhz{0.0};
+        float swr{1.0f};
+    };
+    enum class SwrSweepPhase {
+        Idle,
+        WaitingForTgxlBypass,
+        TgxlBypassSettle,
+        Sweeping,
+        StoppingTune,
+        RestoringTgxl,
+    };
+    enum class SwrSweepMeterSource {
+        Radio,
+        Tgxl,
+    };
+    struct SwrSweepState {
+        bool running{false};
+        SwrSweepPhase phase{SwrSweepPhase::Idle};
+        SwrSweepMeterSource meterSource{SwrSweepMeterSource::Radio};
+        int sliceId{-1};
+        QString panId;
+        double originalFreqMhz{0.0};
+        double originalPanCenterMhz{0.0};
+        double originalPanBandwidthMhz{0.0};
+        QVector<double> frequencies;
+        QVector<SwrSweepSample> samples;
+        int currentIndex{-1};
+        qint64 commandIssuedAtMs{0};
+        qint64 sampleNotBeforeMs{0};
+        qint64 phaseStartedAtMs{0};
+        float minimumForwardPowerW{0.0f};
+        bool tuneStarted{false};
+        bool finalAborted{false};
+        bool clearPlotOnFinish{false};
+        bool tgxlOriginalOperate{false};
+        bool tgxlOriginalBypass{false};
+        bool tgxlBypassRequested{false};
+        bool tgxlRestoreNeeded{false};
+        bool tgxlRestoreTimedOut{false};
+        QString finalReason;
+        QString sourceLabel;
+        bool appletPanelWasEnabled{true};
+        bool panStackWasEnabled{true};
+    };
+    SwrSweepState m_swrSweep;
+    QTimer m_swrSweepTimer;
     bool m_minimalMode{false};             // true when spectrum is hidden (#208)
     QAction* m_minimalModeAction{nullptr};
     bool m_panadapterConnectionAnimationVisible{false};

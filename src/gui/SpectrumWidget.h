@@ -301,6 +301,16 @@ public:
         QVector<SpotMarker> spots;
     };
 
+    struct SwrSweepPoint {
+        double freqMhz{0.0};
+        float swr{1.0f};
+    };
+    void setSwrSweepPoints(const QVector<SwrSweepPoint>& points,
+                           bool running = false,
+                           double currentFreqMhz = -1.0,
+                           const QString& sourceLabel = {});
+    void clearSwrSweepPoints();
+
     void setShowSpots(bool on) { m_showSpots = on; update(); }
     bool showSpots() const { return m_showSpots; }
     void setSpotFontSize(int px) { m_spotFontSize = px; update(); }
@@ -401,6 +411,7 @@ private:
     void drawBandPlan(QPainter& p, const QRect& specRect);
     void drawTnfMarkers(QPainter& p, const QRect& specRect);
     void drawSpotMarkers(QPainter& p, const QRect& specRect);
+    void drawSwrSweep(QPainter& p, const QRect& specRect);
     void showSpotClusterPopup(const SpotCluster& cluster, const QPoint& globalPos);
     const TnfMarker* tnfMarkerById(int id) const;
     QColor tnfColor(const TnfMarker& tnf) const;
@@ -649,6 +660,10 @@ private:
     QVector<TnfMarker> m_tnfMarkers;
     bool m_tnfGlobalEnabled{true};
     QVector<SpotMarker> m_spotMarkers;
+    QVector<SwrSweepPoint> m_swrSweepPoints;
+    bool   m_swrSweepRunning{false};
+    double m_swrSweepCurrentFreqMhz{-1.0};
+    QString m_swrSweepSourceLabel;
     struct SpotHitRect {
         QRect rect;
         double freqMhz;

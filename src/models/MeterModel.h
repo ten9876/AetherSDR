@@ -77,12 +77,19 @@ public:
 
     // Convenience: forward power in watts.
     float fwdPower() const { return m_fwdPower; }
+    float fwdPowerInstant() const { return m_fwdPowerInstant; }
+    float tgxlFwdPower() const { return m_tgxlFwdPwr; }
 
     // Convenience: SWR.
     float swr() const { return m_swr; }
+    float tgxlSwr() const { return m_tgxlSwr; }
 
     // Timestamp of the last TX meter sample (milliseconds since epoch).
     qint64 txMetersUpdatedAtMs() const { return m_lastTxMeterUpdateMs; }
+    qint64 fwdPowerUpdatedAtMs() const { return m_lastFwdPowerUpdateMs; }
+    qint64 swrUpdatedAtMs() const { return m_lastSwrUpdateMs; }
+    qint64 tgxlFwdPowerUpdatedAtMs() const { return m_lastTgxlFwdPowerUpdateMs; }
+    qint64 tgxlSwrUpdatedAtMs() const { return m_lastTgxlSwrUpdateMs; }
     bool hasRecentTxMeters(qint64 maxAgeMs) const;
 
     // Convenience: mic peak level (dBFS) and derived compression reduction (dB).
@@ -181,12 +188,17 @@ private:
     quint32 m_tgxlHandle{0}; // TGXL amplifier handle for meter disambiguation
     float m_tgxlFwdPwr{0.0f};
     float m_tgxlSwr{1.0f};
+    qint64 m_lastTgxlFwdPowerUpdateMs{0};
+    qint64 m_lastTgxlSwrUpdateMs{0};
 
     // Cached values
     float m_sLevel{-130.0f};
     float m_fwdPower{0.0f};
+    float m_fwdPowerInstant{0.0f};
     float m_swr{1.0f};
     qint64 m_lastTxMeterUpdateMs{0};
+    qint64 m_lastFwdPowerUpdateMs{0};
+    qint64 m_lastSwrUpdateMs{0};
     float m_micPeak{-50.0f};
     float m_compPeak{0.0f};       // derived compression reduction for the reversed gauge
     bool m_hasCompPeakValue{false};

@@ -57,6 +57,10 @@ void MeterModel::setTgxlHandle(quint32 handle)
     // causing all AMP meters to be routed to the PGXL slot (#600).
     m_tgxlFwdIdx = -1;
     m_tgxlSwrIdx = -1;
+    m_tgxlFwdPwr = 0.0f;
+    m_tgxlSwr = 1.0f;
+    m_lastTgxlFwdPowerUpdateMs = 0;
+    m_lastTgxlSwrUpdateMs = 0;
     m_ampFwdPwrIdx = -1;
     m_ampSwrIdx = -1;
     m_ampTempIdx = -1;
@@ -228,6 +232,16 @@ void MeterModel::removeMeter(int index)
     if (index == m_ampFwdPwrIdx) m_ampFwdPwrIdx = -1;
     if (index == m_ampSwrIdx)    m_ampSwrIdx = -1;
     if (index == m_ampTempIdx)   m_ampTempIdx = -1;
+    if (index == m_tgxlFwdIdx) {
+        m_tgxlFwdIdx = -1;
+        m_tgxlFwdPwr = 0.0f;
+        m_lastTgxlFwdPowerUpdateMs = 0;
+    }
+    if (index == m_tgxlSwrIdx) {
+        m_tgxlSwrIdx = -1;
+        m_tgxlSwr = 1.0f;
+        m_lastTgxlSwrUpdateMs = 0;
+    }
 
     recomputeSourceIndexMins();
     if (compressionMapChanged) {
@@ -282,10 +296,15 @@ void MeterModel::clear()
     m_tgxlHandle = 0;
     m_tgxlFwdPwr = 0.0f;
     m_tgxlSwr = 1.0f;
+    m_lastTgxlFwdPowerUpdateMs = 0;
+    m_lastTgxlSwrUpdateMs = 0;
     m_sLevel = -130.0f;
     m_fwdPower = 0.0f;
+    m_fwdPowerInstant = 0.0f;
     m_swr = 1.0f;
     m_lastTxMeterUpdateMs = 0;
+    m_lastFwdPowerUpdateMs = 0;
+    m_lastSwrUpdateMs = 0;
     m_micPeak = -50.0f;
     clearCompressionState();
     m_micLevel = -50.0f;
@@ -609,11 +628,13 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         if (isSliceLevel) {
             // no-op, already emitted
         } else if (idx == m_fwdPwrIdx) {
-            m_lastTxMeterUpdateMs = QDateTime::currentMSecsSinceEpoch();
+            m_lastTxMeterUpdateMs = packetUpdatedMs;
+            m_lastFwdPowerUpdateMs = m_lastTxMeterUpdateMs;
             // FWDPWR meter reports in dBm — convert to watts for display.
             // watts = 10^(dBm/10) / 1000
             // e.g. 50 dBm = 100 W, 47 dBm ≈ 50 W, 40 dBm = 10 W
             float watts = std::pow(10.0f, v / 10.0f) / 1000.0f;
+            m_fwdPowerInstant = watts;
             // Smooth: fast attack (α=0.5) to track peaks, slow decay (α=0.15)
             // for stable display without jitter (#980)
             if (m_fwdPower < 0.01f) {
@@ -624,7 +645,8 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             }
             txChanged = true;
         } else if (idx == m_swrIdx) {
-            m_lastTxMeterUpdateMs = QDateTime::currentMSecsSinceEpoch();
+            m_lastTxMeterUpdateMs = packetUpdatedMs;
+            m_lastSwrUpdateMs = m_lastTxMeterUpdateMs;
             m_swr = v;
             txChanged = true;
         } else if (idx == m_micPeakIdx) {
@@ -668,10 +690,12 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
             hwChanged = true;
         } else if (idx == m_tgxlFwdIdx) {
             m_tgxlFwdPwr = std::pow(10.0f, v / 10.0f) / 1000.0f;
+            m_lastTgxlFwdPowerUpdateMs = packetUpdatedMs;
             tgxlChanged = true;
         } else if (idx == m_tgxlSwrIdx) {
             float rho = std::pow(10.0f, -v / 20.0f);
             m_tgxlSwr = (rho < 0.999f) ? (1.0f + rho) / (1.0f - rho) : 99.9f;
+            m_lastTgxlSwrUpdateMs = packetUpdatedMs;
             tgxlChanged = true;
         } else if (idx == m_ampFwdPwrIdx) {
             m_ampFwdPwr = std::pow(10.0f, v / 10.0f) / 1000.0f;  // dBm → watts

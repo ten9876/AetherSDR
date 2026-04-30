@@ -48,9 +48,7 @@
 #include <QScrollBar>
 #include <QPainter>
 #include <QPixmap>
-#include <QMenu>
 #include <QTimer>
-#include <QContextMenuEvent>
 
 namespace AetherSDR {
 

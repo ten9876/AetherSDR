@@ -3291,6 +3291,7 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             drawTnfMarkers(p, specRect);
             if (m_showSpots)
                 drawSpotMarkers(p, specRect);
+            drawSwrSweep(p, specRect);
             drawSliceMarkers(p, specRect, wfRect);
             drawOffScreenSlices(p, specRect);
 
@@ -3824,6 +3825,7 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
         drawTimeScale(p, wfRect);
         drawTnfMarkers(p, specRect);
         if (m_showSpots) drawSpotMarkers(p, specRect);
+        drawSwrSweep(p, specRect);
         drawSliceMarkers(p, specRect, wfRect);
         drawOffScreenSlices(p, specRect);
         drawConnectionAnimation(p, specRect);
@@ -4345,6 +4347,27 @@ void SpectrumWidget::setSpotMarkers(const QVector<SpotMarker>& markers)
     markOverlayDirty();
 }
 
+void SpectrumWidget::setSwrSweepPoints(const QVector<SwrSweepPoint>& points,
+                                       bool running,
+                                       double currentFreqMhz,
+                                       const QString& sourceLabel)
+{
+    m_swrSweepPoints = points;
+    m_swrSweepRunning = running;
+    m_swrSweepCurrentFreqMhz = currentFreqMhz;
+    m_swrSweepSourceLabel = sourceLabel;
+    markOverlayDirty();
+}
+
+void SpectrumWidget::clearSwrSweepPoints()
+{
+    m_swrSweepPoints.clear();
+    m_swrSweepRunning = false;
+    m_swrSweepCurrentFreqMhz = -1.0;
+    m_swrSweepSourceLabel.clear();
+    markOverlayDirty();
+}
+
 void SpectrumWidget::setTnfGlobalEnabled(bool on)
 {
     m_tnfGlobalEnabled = on;
@@ -4669,6 +4692,197 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
     }
 
     p.setFont(QFont());  // restore default
+}
+
+void SpectrumWidget::drawSwrSweep(QPainter& p, const QRect& specRect)
+{
+    if (m_swrSweepPoints.isEmpty() && !m_swrSweepRunning)
+        return;
+
+    const int rightEdge = specRect.right() - DBM_STRIP_W - 8;
+    const int plotLeft = specRect.left() + 8;
+    const int plotHeight = qBound(42, specRect.height() / 5, 64);
+
+    int wantedTop = specRect.top() + 6;
+    bool sawVfo = false;
+    for (auto it = m_vfoWidgets.cbegin(); it != m_vfoWidgets.cend(); ++it) {
+        auto* vfo = it.value();
+        if (!vfo || !vfo->isVisible())
+            continue;
+        sawVfo = true;
+        wantedTop = qMax(wantedTop, vfo->geometry().bottom() + 8);
+    }
+    if (!sawVfo && !m_sliceOverlays.isEmpty())
+        wantedTop = specRect.top() + 96;
+
+    const int minTop = specRect.top() + 6;
+    const int maxTop = qMax(minTop, specRect.bottom() - plotHeight - 8);
+    const int plotTop = qBound(minTop, wantedTop, maxTop);
+    const QRect plotRect(plotLeft, plotTop,
+                         qMax(0, rightEdge - plotLeft), plotHeight);
+    if (plotRect.width() < 80 || plotRect.height() < 28)
+        return;
+
+    float maxSwr = 3.0f;
+    for (const auto& point : m_swrSweepPoints) {
+        if (std::isfinite(static_cast<double>(point.swr)))
+            maxSwr = qMax(maxSwr, point.swr);
+    }
+    maxSwr = qBound(2.0f, std::ceil(maxSwr * 2.0f) / 2.0f, 10.0f);
+    constexpr float minSwr = 1.0f;
+    const float swrRange = qMax(0.1f, maxSwr - minSwr);
+
+    auto yForSwr = [&](float swr) {
+        const float clipped = qBound(minSwr, swr, maxSwr);
+        const float frac = (clipped - minSwr) / swrRange;
+        return plotRect.bottom() - frac * plotRect.height();
+    };
+
+    p.save();
+    p.setClipRect(specRect);
+    p.setRenderHint(QPainter::Antialiasing, true);
+
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0x06, 0x0d, 0x12, 190));
+    p.drawRoundedRect(plotRect, 3, 3);
+
+    p.setPen(QPen(QColor(0x80, 0x90, 0xa0, 120), 1, Qt::DotLine));
+    p.drawLine(plotRect.left(), yForSwr(1.5f), plotRect.right(), yForSwr(1.5f));
+    p.drawLine(plotRect.left(), yForSwr(2.0f), plotRect.right(), yForSwr(2.0f));
+
+    struct PlotPoint {
+        QPointF pos;
+        float swr{1.0f};
+    };
+    QVector<PlotPoint> visiblePoints;
+    QPolygonF poly;
+    for (const auto& point : m_swrSweepPoints) {
+        if (!std::isfinite(static_cast<double>(point.freqMhz))
+            || !std::isfinite(static_cast<double>(point.swr))) {
+            continue;
+        }
+        const int x = mhzToX(point.freqMhz);
+        if (x < plotRect.left() - 4 || x > plotRect.right() + 4)
+            continue;
+        const QPointF pos(x, yForSwr(point.swr));
+        visiblePoints.append({pos, point.swr});
+        poly << pos;
+    }
+
+    if (poly.size() >= 2) {
+        p.setPen(QPen(QColor(0xff, 0xc0, 0x40, 230), 2));
+        p.drawPolyline(poly);
+    }
+    p.setPen(QPen(QColor(0x0a, 0x0a, 0x14, 220), 1));
+    p.setBrush(QColor(0xff, 0xc0, 0x40, 240));
+    for (const QPointF& pt : poly)
+        p.drawEllipse(pt, 3.2, 3.2);
+
+    if (m_swrSweepCurrentFreqMhz > 0.0) {
+        const int cx = mhzToX(m_swrSweepCurrentFreqMhz);
+        if (cx >= plotRect.left() && cx <= plotRect.right()) {
+            p.setPen(QPen(QColor(0x00, 0xb4, 0xd8, 210), 1, Qt::DashLine));
+            p.drawLine(cx, plotRect.top(), cx, plotRect.bottom());
+        }
+    }
+
+    QFont f = p.font();
+    f.setPixelSize(10);
+    f.setBold(true);
+    p.setFont(f);
+    const QFontMetrics fm(f);
+    const QString latest = m_swrSweepPoints.isEmpty()
+        ? QStringLiteral("SWR Sweep")
+        : QStringLiteral("SWR %1:1").arg(m_swrSweepPoints.last().swr, 0, 'f', 2);
+    QString label = m_swrSweepRunning
+        ? latest + QStringLiteral("  RUN")
+        : latest;
+    if (!m_swrSweepSourceLabel.isEmpty())
+        label += QStringLiteral("  ") + m_swrSweepSourceLabel;
+    const int labelW = fm.horizontalAdvance(label) + 8;
+    const int labelH = fm.height() + 2;
+    int labelX = plotRect.left() + 4;
+    int labelY = plotRect.top() - labelH - 3;
+    if (labelY < specRect.top() + 3)
+        labelY = plotRect.top() + 3;
+
+    QRect labelRect(labelX, labelY, labelW, labelH);
+    if (m_overlayMenu && m_overlayMenu->isVisible()
+        && labelRect.intersects(m_overlayMenu->geometry().adjusted(-4, -4, 8, 4))) {
+        labelX = m_overlayMenu->geometry().right() + 8;
+        const int maxLabelX = qMax(plotRect.left() + 4, plotRect.right() - labelW - 4);
+        labelX = qBound(plotRect.left() + 4, labelX, maxLabelX);
+        labelRect.moveLeft(labelX);
+    }
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0x0a, 0x0a, 0x14, 220));
+    p.drawRoundedRect(labelRect, 2, 2);
+    p.setPen(QColor(0xff, 0xd0, 0x70));
+    p.drawText(labelRect, Qt::AlignCenter, label);
+
+    if (!visiblePoints.isEmpty()) {
+        const int valueGap = 4;
+        const int valueH = fm.height() + 4;
+        const bool placeBelow = plotRect.bottom() + valueGap + valueH
+            <= specRect.bottom() - 4;
+        const int valueY = placeBelow
+            ? plotRect.bottom() + valueGap
+            : plotRect.bottom() - valueH - 4;
+        constexpr int kMinValueSpacingPx = 86;
+        int lastLabelRight = -1000000;
+        int lastLabeled = -1;
+
+        auto drawValueLabel = [&](int i, bool force) {
+            const PlotPoint& point = visiblePoints[i];
+            const QString text = QString::number(point.swr, 'f', 2);
+            const int valueW = fm.horizontalAdvance(text) + 8;
+            int x = qRound(point.pos.x()) - valueW / 2;
+            x = qBound(plotRect.left() + 2, x, plotRect.right() - valueW - 2);
+            const QRect valueRect(x, valueY, valueW, valueH);
+            if (!force && valueRect.left() <= lastLabelRight + 6)
+                return;
+
+            p.setPen(QPen(QColor(0xff, 0xd0, 0x70, 130), 1));
+            const qreal notchY = std::clamp(point.pos.y(),
+                                            qreal(plotRect.top() + 2),
+                                            qreal(plotRect.bottom()));
+            const QPointF notchTop(point.pos.x(), notchY);
+            const QPointF notchBottom(point.pos.x(),
+                                      placeBelow ? valueRect.top() : valueRect.bottom());
+            p.drawLine(notchTop, notchBottom);
+
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(0x0a, 0x0a, 0x14, 230));
+            p.drawRoundedRect(valueRect, 2, 2);
+            p.setPen(QColor(0xff, 0xe0, 0x90));
+            p.drawText(valueRect, Qt::AlignCenter, text);
+
+            lastLabelRight = valueRect.right();
+            lastLabeled = i;
+        };
+
+        for (int i = 0; i < visiblePoints.size(); ++i) {
+            const bool first = (i == 0);
+            const bool spaced = qRound(visiblePoints[i].pos.x()) > lastLabelRight + kMinValueSpacingPx;
+            if (first || spaced)
+                drawValueLabel(i, first);
+        }
+
+        const int lastIndex = visiblePoints.size() - 1;
+        if (lastLabeled != lastIndex)
+            drawValueLabel(lastIndex, false);
+    }
+
+    const QString scaleLabel = QStringLiteral("%1").arg(maxSwr, 0, 'f', 1);
+    p.setPen(QColor(0x80, 0x90, 0xa0, 180));
+    p.drawText(plotRect.right() - fm.horizontalAdvance(scaleLabel) - 4,
+               plotRect.top() + fm.ascent() + 3,
+               scaleLabel);
+    p.drawText(plotRect.right() - fm.horizontalAdvance("1.0") - 4,
+               plotRect.bottom() - 3,
+               "1.0");
+
+    p.restore();
 }
 
 void SpectrumWidget::showSpotClusterPopup(const SpotCluster& cluster, const QPoint& globalPos)
