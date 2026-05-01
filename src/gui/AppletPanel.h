@@ -42,6 +42,7 @@ class DaxApplet;
 class TciApplet;
 class DaxIqApplet;
 class AntennaGeniusApplet;
+class ShackSwitchApplet;
 class MeterApplet;
 class MqttApplet;
 
@@ -105,6 +106,7 @@ public:
     TciApplet*      tciApplet()      { return m_tciApplet; }
     DaxIqApplet*    daxIqApplet()    { return m_daxIqApplet; }
     AntennaGeniusApplet* agApplet()  { return m_agApplet; }
+    ShackSwitchApplet*   ssApplet()  { return m_ssApplet; }
     MeterApplet*  meterApplet()  { return m_meterApplet; }
 #ifdef HAVE_MQTT
     MqttApplet*   mqttApplet()   { return m_mqttApplet; }
@@ -118,6 +120,9 @@ public:
 
     // Show/hide the AG button and applet based on Antenna Genius presence.
     void setAgVisible(bool visible);
+
+    // Show/hide the ShackSwitch applet based on device presence.
+    void setShackSwitchVisible(bool visible);
 
     // Reset applet order to default
     void resetOrder();
@@ -213,12 +218,14 @@ private:
     TciApplet*     m_tciApplet{nullptr};
     DaxIqApplet*   m_daxIqApplet{nullptr};
     AntennaGeniusApplet* m_agApplet{nullptr};
+    ShackSwitchApplet*   m_ssApplet{nullptr};
     MeterApplet* m_meterApplet{nullptr};
 #ifdef HAVE_MQTT
     MqttApplet*  m_mqttApplet{nullptr};
 #endif
     QPushButton* m_tuneBtn{nullptr};
     QPushButton* m_agBtn{nullptr};
+    QPushButton* m_ssBtn{nullptr};
     QVBoxLayout* m_stack{nullptr};
     QScrollArea* m_scrollArea{nullptr};
     QWidget*     m_dropIndicator{nullptr};

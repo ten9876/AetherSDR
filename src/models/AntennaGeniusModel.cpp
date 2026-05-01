@@ -112,6 +112,7 @@ void AntennaGeniusModel::onDiscoveryDatagram()
         info.name     = kvs.value("name").replace('_', ' ');
         info.radioPorts   = kvs.value("ports", "2").toInt();
         info.antennaPorts = kvs.value("antennas", "8").toInt();
+        info.webPort      = kvs.value("webport", "0").toInt();
         info.mode     = kvs.value("mode");
 
         if (info.serial.isEmpty() || info.ip.isNull())
@@ -136,6 +137,20 @@ void AntennaGeniusModel::onDiscoveryDatagram()
             if (wasEmpty)
                 emit presenceChanged(true);
         }
+
+        // Late enrichment: if a UDP beacon arrives after the prologue, update m_device
+        // with the full serial/webPort/antennaPorts now that we have them.
+        // Runs on every beacon so it works even if the device was already known.
+        if (m_connected &&
+            (m_device.serial.endsWith("-manual") || m_device.serial.startsWith("manual-")) &&
+            !m_device.ip.isNull() && m_device.ip == info.ip) {
+            m_device.serial       = info.serial;
+            m_device.name         = info.name;
+            m_device.webPort      = info.webPort;
+            m_device.radioPorts   = info.radioPorts;
+            m_device.antennaPorts = info.antennaPorts;
+            emit antennasChanged();
+        }
     }
 }
 
@@ -144,9 +159,9 @@ void AntennaGeniusModel::onDiscoveryDatagram()
 void AntennaGeniusModel::connectToDevice(const AgDeviceInfo& info)
 {
     // Always clean up any existing socket — connected or still pending.
-    // Multiple auto-connect triggers can fire in quick succession; without
-    // this the device accepts the first socket while AetherSDR's active
-    // socket is a later one.
+    // Multiple auto-connect triggers (radio connect + UDP beacon) can fire
+    // in quick succession; without this the R4 accepts the first socket and
+    // sends its greeting there while AetherSDR's active socket is a later one.
     if (m_tcpSocket) {
         m_tcpSocket->abort();
         m_tcpSocket->deleteLater();
@@ -282,6 +297,26 @@ void AntennaGeniusModel::onTcpReadyRead()
                     m_device.version = parts[0].mid(1);  // skip 'V'
                 qCDebug(lcTuner) << "AntennaGenius: prologue received, version"
                          << m_device.version;
+                // If connected via manual IP, enrich from UDP-discovered list.
+                // Matches "G0JKN-manual" (ShackSwitch) and legacy "manual-<ip>" serials.
+                if (m_device.serial.endsWith("-manual") || m_device.serial.startsWith("manual-")) {
+                    for (const auto& d : m_discoveredDevices) {
+                        if (!d.ip.isNull() && d.ip == m_device.ip) {
+                            m_device.serial       = d.serial;
+                            m_device.name         = d.name;
+                            m_device.webPort      = d.webPort;
+                            m_device.radioPorts   = d.radioPorts;
+                            m_device.antennaPorts = d.antennaPorts;
+                            break;
+                        }
+                    }
+                    // UDP beacon not yet received — infer port count from firmware version.
+                    // Uno Q sends V2.0, R4 sends V1.0. This runs before emit connected()
+                    // so the applet sees the correct radioPorts immediately.
+                    if (m_device.serial.endsWith("-manual") || m_device.serial.startsWith("manual-"))
+                        m_device.radioPorts = (m_device.version == "2.0") ? 2 : 1;
+                }
+
                 m_connected = true;
                 emit connected();
 
@@ -522,11 +557,16 @@ void AntennaGeniusModel::selectAntenna(int portId, int antennaId)
 
     // Prevent selecting an antenna already in use by the other port.
     // Antenna 0 (deselect) is always allowed.
-    const auto& otherPort = (portId == 1) ? m_portB : m_portA;
-    if (antennaId > 0 && otherPort.rxAntenna == antennaId) {
-        qCDebug(lcTuner) << "AntennaGenius: antenna" << antennaName(antennaId)
-                 << "already in use on port" << otherPort.portId << "— blocked";
-        return;
+    // ShackSwitch is a single-radio device — no port B conflict is possible.
+    const bool isShackSwitch = m_device.serial.startsWith("G0JKN") ||
+                               m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
+    if (!isShackSwitch) {
+        const auto& otherPort = (portId == 1) ? m_portB : m_portA;
+        if (antennaId > 0 && otherPort.rxAntenna == antennaId) {
+            qCDebug(lcTuner) << "AntennaGenius: antenna" << antennaName(antennaId)
+                     << "already in use on port" << otherPort.portId << "— blocked";
+            return;
+        }
     }
 
     const auto& ps = (portId == 1) ? m_portA : m_portB;
@@ -634,6 +674,14 @@ void AntennaGeniusModel::setRadioFrequency(double freqMhz)
 
     if (matchedBand == 0) return;
 
+    // ShackSwitch manages its own band→antenna mapping — don't override it.
+    const bool isShackSwitch = m_device.serial.startsWith("G0JKN") ||
+                               m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
+    if (isShackSwitch) {
+        qCDebug(lcTuner) << "AG-FREQ: ShackSwitch connected — skipping auto-recall";
+        return;
+    }
+
     // Recall saved antenna for new band.
     int saved = recallBandAntenna(1, matchedBand);
     if (saved > 0 && saved != m_portA.rxAntenna) {
@@ -668,6 +716,14 @@ void AntennaGeniusModel::onBandChanged(int portId, int oldBand, int oldAnt, int 
 {
     qCDebug(lcTuner) << "AntennaGenius: port" << portId << "band changed"
              << bandName(oldBand) << "→" << bandName(newBand);
+
+    // ShackSwitch manages its own band→antenna mapping — don't override it.
+    const bool isShackSwitch = m_device.serial.startsWith("G0JKN") ||
+                               m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
+    if (isShackSwitch) {
+        qCDebug(lcTuner) << "AntennaGenius: ShackSwitch connected — skipping band recall for port" << portId;
+        return;
+    }
 
     // Save the antenna for the old band, but only as a default if no
     // user selection already exists.  selectAntenna() is the authoritative
@@ -728,6 +784,12 @@ bool AntennaGeniusModel::canRxOnBand(int antennaId, int bandId) const
             return (a.rxBandMask >> bandId) & 1;
     }
     return false;
+}
+
+bool AntennaGeniusModel::isShackSwitch(const AgDeviceInfo& info)
+{
+    return info.serial.startsWith(QStringLiteral("G0JKN")) ||
+           info.name.contains(QStringLiteral("ShackSwitch"), Qt::CaseInsensitive);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

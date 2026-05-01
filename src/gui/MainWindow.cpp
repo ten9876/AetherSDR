@@ -60,6 +60,7 @@
 #include "TciApplet.h"
 #include "DaxIqApplet.h"
 #include "AntennaGeniusApplet.h"
+#include "ShackSwitchApplet.h"
 #include "RadioSetupDialog.h"
 #include "NetworkDiagnosticsDialog.h"
 #include "PropDashboardDialog.h"
@@ -3448,10 +3449,56 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
 
-    // ── Antenna Genius applet: external 4O3A antenna switch ──────────────────
+    // ── Antenna Genius / ShackSwitch applets ────────────────────────────────
+    // Both share AntennaGeniusModel (ShackSwitch speaks the AG protocol).
+    // On device discovery we check the serial: G0JKN-* → ShackSwitch applet,
+    // anything else → Antenna Genius applet. On device lost, hide both.
     m_appletPanel->agApplet()->setModel(&m_antennaGenius);
+    m_appletPanel->ssApplet()->setModel(&m_antennaGenius);
+
+    connect(&m_antennaGenius, &AntennaGeniusModel::deviceDiscovered,
+            this, [this](const AgDeviceInfo& info) {
+        const bool isSS = AntennaGeniusModel::isShackSwitch(info);
+        m_appletPanel->setShackSwitchVisible(isSS);
+        m_appletPanel->setAgVisible(!isSS);
+        if (isSS) {
+            // Clear saved AG IP so ShackSwitch never auto-connects via the AG path again
+            AppSettings::instance().setValue("AG_ManualIp", QString());
+        }
+    });
+
+    // On TCP connect: re-check device type (manual-IP path serial is now enriched
+    // from discovered list; if still manual, fall back to IP lookup).
+    // Also clears AG_ManualIp if we're connected to a ShackSwitch so it won't
+    // auto-connect via the AG path on the next startup.
+    connect(&m_antennaGenius, &AntennaGeniusModel::connected,
+            this, [this]() {
+        const AgDeviceInfo& dev = m_antennaGenius.connectedDevice();
+        bool isSS = AntennaGeniusModel::isShackSwitch(dev);
+        if (!isSS) {
+            // UDP may not have arrived yet — look up by IP in discovered list
+            for (const auto& d : m_antennaGenius.discoveredDevices()) {
+                if (!d.ip.isNull() && d.ip == dev.ip) {
+                    isSS = AntennaGeniusModel::isShackSwitch(d);
+                    break;
+                }
+            }
+        }
+        if (isSS) {
+            m_appletPanel->setShackSwitchVisible(true);
+            m_appletPanel->setAgVisible(false);
+            // Stop the AG row auto-connecting to ShackSwitch on next startup
+            AppSettings::instance().setValue("AG_ManualIp", QString());
+        }
+    });
+
     connect(&m_antennaGenius, &AntennaGeniusModel::presenceChanged,
-            m_appletPanel, &AppletPanel::setAgVisible);
+            this, [this](bool present) {
+        if (!present) {
+            m_appletPanel->setAgVisible(false);
+            m_appletPanel->setShackSwitchVisible(false);
+        }
+    });
 
     // ── 8-channel CAT: rigctld + PTY (A-H, each bound to a slice) ────────────
     {
@@ -6851,13 +6898,47 @@ void MainWindow::onConnectionStateChanged(bool connected)
                 quint16 pgxlPort = static_cast<quint16>(cs.value("PGXL_ManualPort", "9008").toInt());
                 m_pgxlConn.connectToPgxl(pgxlIp, pgxlPort);
             }
+            // If SS_ManualIp is set, connect to ShackSwitch immediately using a
+            // G0JKN serial so device-type detection works from the start.
+            // This bypasses the UDP discovery race condition entirely.
+            QString ssIp = cs.value("SS_ManualIp", "").toString();
+            if (!ssIp.isEmpty() && !m_antennaGenius.isConnected()) {
+                AgDeviceInfo ssInfo;
+                ssInfo.ip         = QHostAddress(ssIp);
+                ssInfo.port       = 9007;
+                ssInfo.serial     = QStringLiteral("G0JKN-manual");
+                ssInfo.name       = QStringLiteral("ShackSwitch");
+                ssInfo.radioPorts = 1;  // ShackSwitch is always single-radio
+                m_antennaGenius.connectToDevice(ssInfo);
+            }
+
+            // Delay AG manual connect by 7s so UDP discovery can run first.
+            // If ShackSwitch already connected above, isConnected() = true → skips.
+            // A real AG (no UDP broadcast, no SS_ManualIp) still connects after delay.
             QString agIp = cs.value("AG_ManualIp", "").toString();
-            if (!agIp.isEmpty() && !m_antennaGenius.isConnected()) {
+            if (!agIp.isEmpty()) {
                 quint16 agPort = static_cast<quint16>(cs.value("AG_ManualPort", "9007").toInt());
-                m_antennaGenius.connectToAddress(QHostAddress(agIp), agPort);
+                if (m_agManualConnectTimer) {
+                    m_agManualConnectTimer->stop();
+                    m_agManualConnectTimer->deleteLater();
+                    m_agManualConnectTimer = nullptr;
+                }
+                m_agManualConnectTimer = new QTimer(this);
+                m_agManualConnectTimer->setSingleShot(true);
+                connect(m_agManualConnectTimer, &QTimer::timeout, this, [this, agIp, agPort]() {
+                    m_agManualConnectTimer = nullptr;
+                    if (!m_antennaGenius.isConnected())
+                        m_antennaGenius.connectToAddress(QHostAddress(agIp), agPort);
+                });
+                m_agManualConnectTimer->start(7000);
             }
         }
     } else {
+        if (m_agManualConnectTimer) {
+            m_agManualConnectTimer->stop();
+            m_agManualConnectTimer->deleteLater();
+            m_agManualConnectTimer = nullptr;
+        }
         if (m_swrSweep.running)
             finishSwrSweep(true, QStringLiteral("SWR sweep stopped on disconnect"));
         QMetaObject::invokeMethod(m_dxCluster, [=] { m_dxCluster->disconnect(); });

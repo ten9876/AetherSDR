@@ -33,6 +33,8 @@
 #include <QDialogButtonBox>
 #include <QCheckBox>
 #include <QTimer>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QMediaDevices>
 #include <QAudioDevice>
 #include <QFileDialog>
@@ -3552,6 +3554,8 @@ QWidget* RadioSetupDialog::buildSerialTab()
 }
 #endif
 
+
+
 // ─── Peripherals tab — manual IP connect for TGXL, PGXL, AG (#914) ───────────
 
 QWidget* RadioSetupDialog::buildPeripheralsTab()
@@ -3706,18 +3710,74 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
         connect(m_pgxl, &PgxlConnection::disconnected, this, updatePgxl);
     }
 
-    // Row 3: Antenna Genius (AG)
+    // Row 3: Antenna Genius (AG) — hide "Connected" when ShackSwitch is using the model
     if (m_ag) {
+        auto isRealAg = [this]() {
+            if (!m_ag->isConnected()) return false;
+            return !AntennaGeniusModel::isShackSwitch(m_ag->connectedDevice());
+        };
         auto updateAg = buildRow(3, "Antenna Genius (AG)", "AG_ManualIp", "AG_ManualPort", 9007,
             [this](const QString& ip, quint16 port) {
                 m_ag->connectToAddress(QHostAddress(ip), port);
             },
             [this]() { m_ag->disconnectFromDevice(); },
-            [this]() { return m_ag->isConnected(); },
+            isRealAg,
             [this]() { return m_ag->peerAddress(); },
             [this]() { return m_ag->peerPort(); });
-        connect(m_ag, &AntennaGeniusModel::connected, this, updateAg);
+        connect(m_ag, &AntennaGeniusModel::connected,    this, updateAg);
         connect(m_ag, &AntennaGeniusModel::disconnected, this, updateAg);
+    }
+
+    // Row 4: ShackSwitch — Connect/Disconnect + status (same pattern as AG)
+    //         plus a small "⚙ Web UI" button that opens the device's web interface.
+    if (m_ag) {
+        auto isSsConnected = [this]() {
+            return m_ag->isConnected() &&
+                   AntennaGeniusModel::isShackSwitch(m_ag->connectedDevice());
+        };
+        auto updateSs = buildRow(4, "ShackSwitch", "SS_ManualIp", "SS_ControlPort", 9007,
+            [this](const QString& ip, quint16 /*port*/) {
+                // Always connect on port 9007 (AG control protocol)
+                AgDeviceInfo info;
+                info.ip     = QHostAddress(ip);
+                info.port   = 9007;
+                info.serial = QStringLiteral("G0JKN-manual");
+                info.name   = QStringLiteral("ShackSwitch");
+                m_ag->connectToDevice(info);
+            },
+            [this]() { m_ag->disconnectFromDevice(); },
+            isSsConnected,
+            [this]() { return m_ag->peerAddress(); },
+            [this]() { return (quint16)9007; });
+        connect(m_ag, &AntennaGeniusModel::connected,    this, updateSs);
+        connect(m_ag, &AntennaGeniusModel::disconnected, this, updateSs);
+
+        // "⚙ Web UI" button — opens ShackSwitch web interface in a compact app window
+        auto* webBtn = new QPushButton("⚙ Web UI");
+        webBtn->setStyleSheet(kBtnStyle);
+        webBtn->setToolTip("Open ShackSwitch web interface");
+        grid->addWidget(webBtn, 4, 5);
+        connect(webBtn, &QPushButton::clicked, this, [this]() {
+            auto& s = AppSettings::instance();
+            QString ip = s.value("SS_ManualIp", "").toString();
+            // Only use live address if the connected device is actually the ShackSwitch
+            if (ip.isEmpty() && m_ag->isConnected()) {
+                if (AntennaGeniusModel::isShackSwitch(m_ag->connectedDevice()))
+                    ip = m_ag->peerAddress();
+            }
+            if (ip.isEmpty()) return;
+            // Use beacon webPort only when advertising a valid port (>1024).
+            int port = 0;
+            if (m_ag->isConnected()) {
+                const auto& dev = m_ag->connectedDevice();
+                if (AntennaGeniusModel::isShackSwitch(dev) && dev.webPort > 1024)
+                    port = dev.webPort;
+            }
+            if (port <= 1024)
+                port = s.value("SS_WebPort", "5000").toInt();
+            if (port <= 1024) port = 5000;
+            QDesktopServices::openUrl(QUrl("http://" + ip + ":" + QString::number(port) + "/"));
+        });
     }
 
     for (auto* lbl : group->findChildren<QLabel*>())

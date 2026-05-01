@@ -26,6 +26,7 @@
 #include "TciApplet.h"
 #include "DaxIqApplet.h"
 #include "AntennaGeniusApplet.h"
+#include "ShackSwitchApplet.h"
 #include "MeterApplet.h"
 #ifdef HAVE_MQTT
 #include "MqttApplet.h"
@@ -53,7 +54,7 @@
 namespace AetherSDR {
 
 const QStringList AppletPanel::kDefaultOrder = {
-    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "WAVE", "TXDSP", "CAT", "DAX", "TCI", "IQ", "MTR", "AG"
+    "RX", "TUN", "AMP", "TX", "PHNE", "P/CW", "EQ", "WAVE", "TXDSP", "CAT", "DAX", "TCI", "IQ", "MTR", "AG", "SS"
 };
 
 // ── Drop-aware scroll area ──────────────────────────────────────────────────
@@ -738,6 +739,14 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         m_appletOrder.append(entry);
     }
 
+    // ShackSwitch applet — shown instead of/alongside AG for G0JKN ShackSwitch devices
+    m_ssApplet = new ShackSwitchApplet;
+    {
+        auto entry = makeEntry("SS", "ShackSwitch", m_ssApplet, false, btnRow1, btnLayout1);
+        m_ssBtn = entry.btn;
+        m_appletOrder.append(entry);
+    }
+
 #ifdef HAVE_MQTT
     m_mqttApplet = new MqttApplet;
     m_appletOrder.append(makeEntry("MQTT", "MQTT", m_mqttApplet, false, btnRow2, btnLayout2));
@@ -978,6 +987,11 @@ void AppletPanel::setAmpVisible(bool visible)
 void AppletPanel::setAgVisible(bool visible)
 {
     applyConditionalPresence(m_agBtn, "Applet_AG", visible);
+}
+
+void AppletPanel::setShackSwitchVisible(bool visible)
+{
+    applyConditionalPresence(m_ssBtn, "Applet_SS", visible);
 }
 
 bool AppletPanel::controlsLocked() const

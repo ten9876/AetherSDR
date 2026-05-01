@@ -292,8 +292,8 @@ void AntennaGeniusApplet::setModel(AntennaGeniusModel* model)
         m_deviceCombo->addItem(label, info.serial);
         m_statusLabel->setText("Device found");
 
-        // Auto-connect to first discovered device.
-        if (!m_model->isConnected() && m_deviceCombo->count() == 1) {
+        // Auto-connect to first discovered device — but not ShackSwitch (handled by SS applet).
+        if (!AntennaGeniusModel::isShackSwitch(info) && !m_model->isConnected() && m_deviceCombo->count() == 1) {
             m_model->connectToDevice(info);
         }
     });
