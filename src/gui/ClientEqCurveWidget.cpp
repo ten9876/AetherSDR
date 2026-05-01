@@ -537,8 +537,7 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
         static const Seg segs[] = {
             {   20.0f,    99.0f, QColor(0x30, 0x60, 0xff), 0.40f, "E-SSB"   },
             {  100.0f,  3000.0f, QColor(0xff, 0x80, 0x00), 0.40f, "SSB"     },
-            { 3000.0f,  4000.0f, QColor(0x30, 0x60, 0xff), 0.40f, "E-SSB"   },
-            { 4000.0f,  6000.0f, QColor(0x30, 0x60, 0xff), 0.20f, "Voodoo"  },
+            { 3000.0f,  6000.0f, QColor(0x30, 0x60, 0xff), 0.40f, "E-SSB"   },
             { 6000.0f, 20000.0f, QColor(0xc0, 0x30, 0x30), 0.40f, "AM / FM" },
         };
         const QColor bg(0x0a, 0x0a, 0x14);
