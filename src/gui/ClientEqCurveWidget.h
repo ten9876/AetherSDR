@@ -63,6 +63,14 @@ public:
     void setSmoothingOctaveFraction(int n);
     int  smoothingOctaveFraction() const { return m_smoothingFraction; }
 
+    // Audio band-plan strip occupies the bottom this-many pixels of the
+    // drawing rect.  Exposed so derived widgets can avoid intercepting
+    // clicks in the strip area.
+    static constexpr int kAudioBandStripPx = 14;
+
+    int filterLowCutHz()  const { return m_filterLowCutHz;  }
+    int filterHighCutHz() const { return m_filterHighCutHz; }
+
     // Free-function smoothing for unit tests — operates on a flat
     // dB-bin vector with explicit sample rate.  Same algorithm the
     // widget runs internally.

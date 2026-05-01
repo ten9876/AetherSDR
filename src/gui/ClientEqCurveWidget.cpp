@@ -19,10 +19,11 @@ constexpr float kMinHz   = 20.0f;
 constexpr float kMaxHz   = 20000.0f;
 constexpr float kDbRange = 18.0f;   // ±18 dB vertical extent
 // Bottom strip showing band-plan-style audio modulation regions
-// (E-SSB / SSB / Voodoo / AM-FM).  Reserved at the bottom of the
-// drawing rect; freq labels move above it; analyzer + curves clip
-// to (h - kAudioBandStripH).
-constexpr int   kAudioBandStripH = 14;
+// (E-SSB / SSB / AM-FM).  Reserved at the bottom of the drawing
+// rect; freq labels move above it; analyzer + curves clip to
+// (h - kAudioBandStripH).  Mirrors ClientEqCurveWidget::kAudioBandStripPx
+// for the derived editor canvas's hit-test logic.
+constexpr int   kAudioBandStripH = ClientEqCurveWidget::kAudioBandStripPx;
 
 const float kGridFreqs[] = {
     20.0f, 50.0f, 100.0f, 200.0f, 500.0f,

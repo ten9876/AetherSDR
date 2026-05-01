@@ -254,6 +254,12 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
     // but the canvas needed to be constructed before this push could land.
     m_canvas->setSmoothingOctaveFraction(m_savedSmoothingFraction);
     eqColumn->addWidget(m_canvas, 1);
+    // Forward cutoff-line drag events as a path-tagged signal so MainWindow
+    // can dispatch to TransmitModel (TX) or the active SliceModel (RX).
+    connect(m_canvas, &ClientEqEditorCanvas::cutoffsDragged,
+            this, [this](int audioLow, int audioHigh) {
+        emit cutoffsDragRequested(m_path, audioLow, audioHigh);
+    });
 
     m_paramRow = new ClientEqParamRow;
     eqColumn->addWidget(m_paramRow);

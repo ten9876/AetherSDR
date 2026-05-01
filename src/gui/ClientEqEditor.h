@@ -54,6 +54,12 @@ signals:
     // read/write the same ClientEq::enabled flag underneath.
     void bypassToggled(ClientEqApplet::Path path, bool bypassed);
 
+    // Fired live during a cutoff-line drag.  Audio-domain Hz; MainWindow
+    // converts back to TX-filter writes (path = Tx) or active-slice
+    // filter writes with mode-aware offset reflection (path = Rx).
+    void cutoffsDragRequested(ClientEqApplet::Path path,
+                              int audioLowHz, int audioHighHz);
+
 protected:
     void closeEvent(QCloseEvent* ev) override;
     void moveEvent(QMoveEvent* ev) override;

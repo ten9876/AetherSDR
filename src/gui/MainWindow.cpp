@@ -3858,6 +3858,42 @@ ClientEqEditor* MainWindow::ensureClientEqEditor()
         const auto& tx = m_radioModel.transmitModel();
         m_clientEqEditor->setTxFilterCutoffs(tx.txFilterLow(), tx.txFilterHigh());
         pushRxFilterCutoffsToEq();
+
+        // Cutoff-line drag → write to the radio.  TX is direct (audio
+        // domain == TransmitModel domain).  RX requires a mode-aware
+        // conversion back from audio-domain to slice filter offsets.
+        connect(m_clientEqEditor, &ClientEqEditor::cutoffsDragRequested,
+                this, [this](ClientEqApplet::Path path, int audioLo, int audioHi) {
+            if (path == ClientEqApplet::Path::Tx) {
+                auto& txm = m_radioModel.transmitModel();
+                if (audioLo != txm.txFilterLow())  txm.setTxFilterLow(audioLo);
+                if (audioHi != txm.txFilterHigh()) txm.setTxFilterHigh(audioHi);
+                return;
+            }
+            // RX: convert audio-domain Hz back to slice filter offsets
+            // based on the active slice's mode.
+            auto* s = activeSlice();
+            if (!s) return;
+            const QString mode = s->mode();
+            int lo = audioLo;
+            int hi = audioHi;
+            if (mode == "LSB" || mode == "DIGL") {
+                // Lower-sideband: filter offsets are negative; the audio
+                // low edge maps to the high (closest-to-zero) offset and
+                // vice versa.
+                lo = -audioHi;
+                hi = -audioLo;
+            } else if (mode == "AM" || mode == "SAM" || mode == "FM"
+                    || mode == "NFM" || mode == "DFM" || mode == "DSB") {
+                // Symmetric around carrier — only audio_high meaningfully
+                // controls bandwidth; audio_low is fixed at 0.
+                lo = -audioHi;
+                hi =  audioHi;
+            }
+            // USB / DIGU / FDV / CW / RTTY / others: audio domain matches
+            // slice domain directly — pass through.
+            s->setFilterWidth(lo, hi);
+        });
     }
     return m_clientEqEditor;
 }
