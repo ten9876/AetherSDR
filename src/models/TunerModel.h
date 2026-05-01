@@ -39,7 +39,7 @@ public:
     float   fwdPower()  const { return m_fwdPower; }  // forward power in watts (from direct TGXL status)
     float   swr()       const { return m_swr; }       // SWR ratio (from direct TGXL status)
     bool    hasAntennaSwitch() const { return m_oneByThree; }  // true for TGXL 3x1 model (one_by_three=1)
-    bool    isPresent() const { return !m_handle.isEmpty(); }
+    bool    isPresent() const { return !m_handle.isEmpty() || m_directPresence; }
     bool    hasDirectConnection() const;
 
     // Apply key=value pairs from a TCP status message.
@@ -88,6 +88,7 @@ private:
     bool    m_oneByThree{false}; // true for TGXL 3x1 model (from one_by_three=1)
 
     TgxlConnection* m_directConn{nullptr};
+    bool            m_directPresence{false};
 };
 
 } // namespace AetherSDR

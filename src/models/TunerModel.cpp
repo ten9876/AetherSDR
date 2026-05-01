@@ -17,9 +17,9 @@ TunerModel::TunerModel(QObject* parent)
 void TunerModel::setHandle(const QString& handle)
 {
     if (m_handle == handle) return;
-    bool wasPres = !m_handle.isEmpty();
+    bool wasPres = isPresent();
     m_handle = handle;
-    bool nowPres = !m_handle.isEmpty();
+    bool nowPres = isPresent();
     qCDebug(lcTuner) << "TunerModel: handle set to" << m_handle;
     if (wasPres != nowPres)
         emit presenceChanged(nowPres);
@@ -145,10 +145,17 @@ void TunerModel::setDirectConnection(TgxlConnection* conn)
     if (m_directConn) {
         connect(m_directConn, &TgxlConnection::connected, this, [this]() {
             qCDebug(lcTuner) << "TunerModel: direct TGXL connection established";
+            bool wasPres = isPresent();
+            m_directPresence = true;
+            if (!wasPres)
+                emit presenceChanged(true);
             emit directConnectionChanged(true);
         });
         connect(m_directConn, &TgxlConnection::disconnected, this, [this]() {
             qCDebug(lcTuner) << "TunerModel: direct TGXL connection lost";
+            m_directPresence = false;
+            if (!isPresent())
+                emit presenceChanged(false);
             emit directConnectionChanged(false);
         });
         // Update relay values from direct state pushes

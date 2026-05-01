@@ -2940,6 +2940,20 @@ void RadioModel::onStatusReceived(const QString& object,
         if (m.hasMatch()) {
             const QString handle = m.captured(1);
             const QString model = kvs.value("model");
+            qCDebug(lcProtocol) << "RadioModel: amplifier status handle=" << handle << "model=" << model;
+
+            // Handle removal
+            if (kvs.contains("removed")) {
+                if (handle == m_tunerModel.handle())
+                    m_tunerModel.setHandle({});
+                if (handle == m_ampHandle) {
+                    m_ampHandle.clear();
+                    m_hasAmplifier = false;
+                    m_ampModel.clear();
+                    emit amplifierChanged(false);
+                }
+                return;
+            }
 
             // Route TunerGeniusXL to TunerModel
             if (model == "TunerGeniusXL" || handle == m_tunerModel.handle()) {
