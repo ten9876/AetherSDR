@@ -252,6 +252,18 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
         p.drawLine(0, static_cast<int>(y), r.width(), static_cast<int>(y));
     }
 
+    // 3 kHz reference line — marks the upper edge of the standard SSB
+    // voice passband.  Faint dashed yellow so it's a guide, not a
+    // distraction.  Drawn behind the EQ curves and analyzer.
+    {
+        QPen pen(QColor(220, 200, 80, 110));
+        pen.setWidth(1);
+        pen.setStyle(Qt::DashLine);
+        p.setPen(pen);
+        const float x = freqToX(3000.0f);
+        p.drawLine(static_cast<int>(x), 0, static_cast<int>(x), r.height());
+    }
+
     // Freq labels along the bottom, tiny.
     {
         QFont f = p.font();
