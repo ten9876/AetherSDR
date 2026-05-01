@@ -49,6 +49,28 @@ public:
     // back to false resumes the normal decay.
     void setPeakHoldFrozen(bool frozen);
 
+    // Fractional-octave smoothing for the analyzer trace (display-only;
+    // does not affect EQ math).  Value is N where the smoothing window
+    // is 1/N octave centered on each bin's frequency:
+    //   96 → effectively off (window ≤ 1 bin everywhere)
+    //   24 → gentle, close to raw
+    //   12 → typical default
+    //    6 → shape decisions
+    //    3 → room-correction style, very smooth
+    // Linear-power average across the window — matches FabFilter Pro-Q
+    // and is acoustically more correct than dB averaging.  Peak-hold
+    // continues to track raw bins so transient peaks aren't masked.
+    void setSmoothingOctaveFraction(int n);
+    int  smoothingOctaveFraction() const { return m_smoothingFraction; }
+
+    // Free-function smoothing for unit tests — operates on a flat
+    // dB-bin vector with explicit sample rate.  Same algorithm the
+    // widget runs internally.
+    static std::vector<float> applyFractionalOctaveSmoothing(
+        const std::vector<float>& binsDb,
+        double sampleRate,
+        int octaveFraction);
+
 signals:
     void selectedBandChanged(int idx);
     // Fired whenever band params mutate on the audio side from user
@@ -78,9 +100,14 @@ protected:
     int                m_selectedBand{-1};
     bool               m_showFilled{true};
     std::vector<float> m_fftBinsDb;      // empty = no analyzer drawn
-    std::vector<float> m_peakHoldDb;     // per-bin peak-hold trail
+    std::vector<float> m_fftBinsDbSmoothed;  // fractional-octave smoothed copy used for drawing
+    std::vector<float> m_peakHoldDb;     // per-bin peak-hold trail (operates on raw bins)
     bool               m_peakHoldFrozen{false};
     double             m_fftSampleRate{24000.0};
+    int                m_smoothingFraction{96};  // 96 = effectively off
+
+private:
+    void applySmoothing();
 };
 
 } // namespace AetherSDR

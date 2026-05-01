@@ -92,9 +92,12 @@ void ClientEqCurveWidget::setFftBinsDb(const std::vector<float>& binsDb,
     m_fftBinsDb = binsDb;
     m_fftSampleRate = sampleRate > 0.0 ? sampleRate : 24000.0;
 
+    applySmoothing();
+
     // Peak-hold trail: per-bin running max, decaying ~10 dB/sec at 25 Hz
     // updates so recent resonances stay visible without permanent clutter.
-    // Frozen mode skips decay so the trace sticks at the max.
+    // Frozen mode skips decay so the trace sticks at the max.  Operates on
+    // raw bins so transient resonances aren't masked by smoothing.
     constexpr float kPeakDecayDb = 0.5f;
     constexpr float kPeakFloorDb = -100.0f;
     if (m_peakHoldDb.size() != m_fftBinsDb.size()) {
@@ -111,6 +114,60 @@ void ClientEqCurveWidget::setFftBinsDb(const std::vector<float>& binsDb,
 void ClientEqCurveWidget::setPeakHoldFrozen(bool frozen)
 {
     m_peakHoldFrozen = frozen;
+}
+
+void ClientEqCurveWidget::setSmoothingOctaveFraction(int n)
+{
+    if (m_smoothingFraction == n) return;
+    m_smoothingFraction = n;
+    applySmoothing();
+    update();
+}
+
+std::vector<float> ClientEqCurveWidget::applyFractionalOctaveSmoothing(
+    const std::vector<float>& binsDb, double sampleRate, int octaveFraction)
+{
+    const int N = static_cast<int>(binsDb.size());
+    if (N < 2 || octaveFraction <= 0 || octaveFraction >= 96)
+        return binsDb;
+
+    // Window half-width in octaves: ±1/(2N).
+    const double halfOct = 1.0 / (2.0 * static_cast<double>(octaveFraction));
+    const double mulHi   = std::exp2( halfOct);
+    const double mulLo   = std::exp2(-halfOct);
+    // bin i frequency = i * sampleRate / fftSize, where fftSize = 2*(N-1)
+    const double binHz   = sampleRate / static_cast<double>((N - 1) * 2);
+
+    std::vector<float> out(N, 0.0f);
+    out[0] = binsDb[0];
+    for (int i = 1; i < N; ++i) {
+        const double fc = i * binHz;
+        const int jLo = std::max(0,
+            static_cast<int>(std::floor(fc * mulLo / binHz)));
+        const int jHi = std::min(N - 1,
+            static_cast<int>(std::ceil (fc * mulHi / binHz)));
+
+        // Linear-power average → back to dB.  Matches FabFilter Pro-Q
+        // / Voxengo SPAN convention.
+        double sumLin = 0.0;
+        const int span = jHi - jLo + 1;
+        for (int j = jLo; j <= jHi; ++j) {
+            sumLin += std::pow(10.0, static_cast<double>(binsDb[j]) / 10.0);
+        }
+        const double meanLin = sumLin / static_cast<double>(span);
+        out[i] = static_cast<float>(10.0 * std::log10(meanLin + 1e-12));
+    }
+    return out;
+}
+
+void ClientEqCurveWidget::applySmoothing()
+{
+    if (m_smoothingFraction >= 96 || m_fftBinsDb.size() < 2) {
+        m_fftBinsDbSmoothed = m_fftBinsDb;
+        return;
+    }
+    m_fftBinsDbSmoothed = applyFractionalOctaveSmoothing(
+        m_fftBinsDb, m_fftSampleRate, m_smoothingFraction);
 }
 
 float ClientEqCurveWidget::freqToX(float hz) const
@@ -205,8 +262,13 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
     // Live FFT analyzer — filled gradient showing what's actually flowing
     // through the audio path post-EQ.  Drawn early so every EQ-visual
     // layer sits on top.  Scale: -70 dB → bottom, 0 dB → top.
+    // Filled region uses fractional-octave-smoothed bins (m_fftBinsDbSmoothed)
+    // so the visual matches the user's smoothing selection.  Peak-hold trace
+    // below stays on raw bins so transient peaks aren't masked.
     if (!m_fftBinsDb.empty()) {
         const int bins = static_cast<int>(m_fftBinsDb.size());
+        const std::vector<float>& drawBins = (m_fftBinsDbSmoothed.size() == m_fftBinsDb.size())
+            ? m_fftBinsDbSmoothed : m_fftBinsDb;
         const float minDb = -70.0f;
         const float maxDb =   0.0f;
         const float h = static_cast<float>(r.height());
@@ -226,7 +288,7 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
                             static_cast<float>((bins - 1) * 2);
             const float x = freqToX(f);
             if (x < 0 || x > r.width()) continue;
-            const float y = dbfsToY(m_fftBinsDb[i]);
+            const float y = dbfsToY(drawBins[i]);
             if (!started) { fftPath.lineTo(x, h); started = true; }
             fftPath.lineTo(x, y);
             lastX = x;

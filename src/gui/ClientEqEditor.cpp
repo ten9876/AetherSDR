@@ -90,6 +90,56 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
         hint->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
         row->addWidget(hint, 1);
 
+        // Smoothing — fractional-octave display smoothing for the FFT
+        // analyzer trace.  Doesn't affect EQ math, just the visual.
+        // Persisted globally (single user preference, shared between RX
+        // and TX editors).
+        auto* smoothingLbl = new QLabel("Smoothing:");
+        smoothingLbl->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
+        row->addWidget(smoothingLbl);
+
+        auto* smoothingCombo = new QComboBox;
+        smoothingCombo->addItem("Off (1/96)", 96);
+        smoothingCombo->addItem("1/24",       24);
+        smoothingCombo->addItem("1/12",       12);
+        smoothingCombo->addItem("1/6",         6);
+        smoothingCombo->addItem("1/3",         3);
+        smoothingCombo->setFixedHeight(24);
+        smoothingCombo->setToolTip(
+            "Fractional-octave smoothing applied to the analyzer trace.\n"
+            "Lower fraction = smoother (1/3 = most, 1/96 = off).\n"
+            "Affects display only — EQ math is unchanged.");
+        smoothingCombo->setStyleSheet(
+            "QComboBox {"
+            "  background: #0e1b28; color: #c8d8e8;"
+            "  border: 1px solid #243a4e; border-radius: 3px;"
+            "  padding: 2px 8px; font-size: 11px; font-weight: bold;"
+            "}"
+            "QComboBox:hover { background: #1a2a3a; }"
+            "QComboBox::drop-down { border: none; width: 16px; }"
+            "QComboBox QAbstractItemView {"
+            "  background: #0e1b28; color: #c8d8e8;"
+            "  selection-background-color: #1a3a5a;"
+            "  border: 1px solid #243a4e;"
+            "}");
+
+        const int savedFraction = AppSettings::instance()
+            .value("ClientEqSmoothingFraction", "96").toInt();
+        const int savedIdx = smoothingCombo->findData(savedFraction);
+        smoothingCombo->setCurrentIndex(savedIdx >= 0 ? savedIdx : 0);
+        if (m_canvas)
+            m_canvas->setSmoothingOctaveFraction(savedFraction);
+
+        connect(smoothingCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this, smoothingCombo](int idx) {
+            const int n = smoothingCombo->itemData(idx).toInt();
+            if (m_canvas) m_canvas->setSmoothingOctaveFraction(n);
+            AppSettings::instance().setValue(
+                "ClientEqSmoothingFraction", QString::number(n));
+            AppSettings::instance().save();
+        });
+        row->addWidget(smoothingCombo);
+
         // Peak Hold — when checked, the analyzer's per-bin peak trace
         // stops decaying so the highest level seen at each frequency
         // stays put.  Useful for spotting resonances while tuning.

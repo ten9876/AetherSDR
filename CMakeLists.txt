@@ -1094,6 +1094,17 @@ add_executable(client_eq_test
 )
 target_include_directories(client_eq_test PRIVATE src)
 
+# Fractional-octave smoothing — exercises the static helper on
+# ClientEqCurveWidget with no live widget required.
+add_executable(client_eq_smoothing_test
+    tests/client_eq_smoothing_test.cpp
+    src/gui/ClientEqCurveWidget.cpp
+    src/core/ClientEq.cpp
+)
+target_include_directories(client_eq_smoothing_test PRIVATE src)
+target_link_libraries(client_eq_smoothing_test PRIVATE Qt6::Widgets)
+set_target_properties(client_eq_smoothing_test PROPERTIES AUTOMOC ON)
+
 add_executable(client_comp_test
     tests/client_comp_test.cpp
     src/core/ClientComp.cpp
