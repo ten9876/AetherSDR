@@ -143,13 +143,14 @@ void TransmitModel::applyTransmitStatus(const QMap<QString, QString>& kvs)
         int v = qBound(0, kvs["noise_gate_level"].toInt(), 100);
         if (m_dexpLevel != v) { m_dexpLevel = v; phoneChanged = true; }
     }
+    bool filterCutoffChanged = false;
     if (kvs.contains("lo")) {
         int v = qBound(0, kvs["lo"].toInt(), 10000);
-        if (m_txFilterLow != v) { m_txFilterLow = v; phoneChanged = true; }
+        if (m_txFilterLow != v) { m_txFilterLow = v; phoneChanged = true; filterCutoffChanged = true; }
     }
     if (kvs.contains("hi")) {
         int v = qBound(0, kvs["hi"].toInt(), 10000);
-        if (m_txFilterHigh != v) { m_txFilterHigh = v; phoneChanged = true; }
+        if (m_txFilterHigh != v) { m_txFilterHigh = v; phoneChanged = true; filterCutoffChanged = true; }
     }
 
     // ── CW keys ──────────────────────────────────────────────────────────
@@ -215,6 +216,7 @@ void TransmitModel::applyTransmitStatus(const QMap<QString, QString>& kvs)
     if (tuneChanged_) emit tuneChanged(m_tune);
     if (micChanged) emit micStateChanged();
     if (phoneChanged) emit phoneStateChanged();
+    if (filterCutoffChanged) emit txFilterCutoffChanged(m_txFilterLow, m_txFilterHigh);
 }
 
 void TransmitModel::applyInterlockStatus(const QMap<QString, QString>& kvs)

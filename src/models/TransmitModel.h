@@ -199,6 +199,10 @@ signals:
     void micProfileListChanged();
     void micInputListChanged();
     void phoneStateChanged();       // VOX or CW property changed
+    // Fires only when txFilterLow / txFilterHigh actually change.  Use this
+    // instead of phoneStateChanged for slot work that should NOT run on
+    // every VOX/CW/dexp/mic-boost/etc. status update.
+    void txFilterCutoffChanged(int lowHz, int highHz);
     void apdStateChanged();
     void apdSamplerChanged(const QString& txAnt);
     void apdEqualizerResetReceived();

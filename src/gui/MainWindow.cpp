@@ -3072,18 +3072,21 @@ MainWindow::MainWindow(QWidget* parent)
     wireEqEditOpen(m_appletPanel->clientEqRxApplet());
 
     // Push TX low/high filter cutoffs to the EQ canvases as dashed yellow
-    // guide lines.  Initial values + live sync via TransmitModel::phoneStateChanged.
-    auto pushTxFilterCutoffsToEq = [this]() {
-        const auto& tx = m_radioModel.transmitModel();
-        const int lo = tx.txFilterLow();
-        const int hi = tx.txFilterHigh();
+    // guide lines.  Subscribes to the *dedicated* txFilterCutoffChanged
+    // signal — NOT the omnibus phoneStateChanged which fires on every
+    // VOX/CW/mic-boost/dexp/etc. transmit-status update and would
+    // cascade unnecessary repaints into the audio path during TX.
+    auto pushTxFilterCutoffsToEq = [this](int lo, int hi) {
         if (m_appletPanel && m_appletPanel->clientEqTxApplet())
             m_appletPanel->clientEqTxApplet()->setTxFilterCutoffs(lo, hi);
         if (m_clientEqEditor)
             m_clientEqEditor->setTxFilterCutoffs(lo, hi);
     };
-    pushTxFilterCutoffsToEq();
-    connect(&m_radioModel.transmitModel(), &TransmitModel::phoneStateChanged,
+    {
+        const auto& tx = m_radioModel.transmitModel();
+        pushTxFilterCutoffsToEq(tx.txFilterLow(), tx.txFilterHigh());
+    }
+    connect(&m_radioModel.transmitModel(), &TransmitModel::txFilterCutoffChanged,
             this, pushTxFilterCutoffsToEq);
 
     // ── Client Compressor applets: TX (#1661) + RX (Phase 7.3) ─────────────
