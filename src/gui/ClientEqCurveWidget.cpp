@@ -92,12 +92,11 @@ void ClientEqCurveWidget::setFftBinsDb(const std::vector<float>& binsDb,
     m_fftBinsDb = binsDb;
     m_fftSampleRate = sampleRate > 0.0 ? sampleRate : 24000.0;
 
-    applySmoothing();
-
     // Peak-hold trail: per-bin running max, decaying ~10 dB/sec at 25 Hz
     // updates so recent resonances stay visible without permanent clutter.
     // Frozen mode skips decay so the trace sticks at the max.  Operates on
-    // raw bins so transient resonances aren't masked by smoothing.
+    // raw bins so peak-detection is sample-accurate; visual smoothing of
+    // the peak trace happens in applySmoothing() below.
     constexpr float kPeakDecayDb = 0.5f;
     constexpr float kPeakFloorDb = -100.0f;
     if (m_peakHoldDb.size() != m_fftBinsDb.size()) {
@@ -108,6 +107,11 @@ void ClientEqCurveWidget::setFftBinsDb(const std::vector<float>& binsDb,
         const float decayed = m_peakHoldDb[i] - decayStep;
         m_peakHoldDb[i] = std::max(decayed, m_fftBinsDb[i]);
     }
+
+    // Smoothing runs AFTER peak-hold update so both buffers reflect the
+    // current frame.  Generates m_fftBinsDbSmoothed and m_peakHoldDbSmoothed.
+    applySmoothing();
+
     update();
 }
 
@@ -164,10 +168,16 @@ void ClientEqCurveWidget::applySmoothing()
 {
     if (m_smoothingFraction >= 96 || m_fftBinsDb.size() < 2) {
         m_fftBinsDbSmoothed = m_fftBinsDb;
+        m_peakHoldDbSmoothed = m_peakHoldDb;
         return;
     }
     m_fftBinsDbSmoothed = applyFractionalOctaveSmoothing(
         m_fftBinsDb, m_fftSampleRate, m_smoothingFraction);
+    // Smooth peak-hold for display too — peak-hold logic still operates
+    // on raw bins for max tracking, but the visible trace gets the same
+    // smoothing as the live FFT so the user sees a consistent picture.
+    m_peakHoldDbSmoothed = applyFractionalOctaveSmoothing(
+        m_peakHoldDb, m_fftSampleRate, m_smoothingFraction);
 }
 
 float ClientEqCurveWidget::freqToX(float hz) const
@@ -313,8 +323,12 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
         // Peak-hold line — same dBFS scale as the live spectrum.  Drawn
         // on top so resonances and harsh peaks stand out as the user
         // tunes.  Soft off-white reads cleanly against the cool-cyan
-        // analyzer.
-        if (!m_peakHoldDb.empty() && m_peakHoldDb.size() == m_fftBinsDb.size()) {
+        // analyzer.  Reads the smoothed peak-hold buffer so changing
+        // the Smoothing combo visibly affects the dominant trace.
+        const std::vector<float>& peakBins =
+            (m_peakHoldDbSmoothed.size() == m_peakHoldDb.size())
+                ? m_peakHoldDbSmoothed : m_peakHoldDb;
+        if (!peakBins.empty() && peakBins.size() == m_fftBinsDb.size()) {
             QPainterPath peakPath;
             bool peakStarted = false;
             for (int i = 1; i < bins; ++i) {
@@ -323,7 +337,7 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
                                 static_cast<float>((bins - 1) * 2);
                 const float x = freqToX(f);
                 if (x < 0 || x > r.width()) continue;
-                const float y = dbfsToY(m_peakHoldDb[i]);
+                const float y = dbfsToY(peakBins[i]);
                 if (!peakStarted) { peakPath.moveTo(x, y); peakStarted = true; }
                 else              peakPath.lineTo(x, y);
             }

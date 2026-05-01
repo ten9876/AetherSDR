@@ -101,7 +101,8 @@ protected:
     bool               m_showFilled{true};
     std::vector<float> m_fftBinsDb;      // empty = no analyzer drawn
     std::vector<float> m_fftBinsDbSmoothed;  // fractional-octave smoothed copy used for drawing
-    std::vector<float> m_peakHoldDb;     // per-bin peak-hold trail (operates on raw bins)
+    std::vector<float> m_peakHoldDb;     // per-bin peak-hold trail (raw, used for max tracking)
+    std::vector<float> m_peakHoldDbSmoothed;  // smoothed copy of peak-hold used for drawing
     bool               m_peakHoldFrozen{false};
     double             m_fftSampleRate{24000.0};
     int                m_smoothingFraction{96};  // 96 = effectively off
