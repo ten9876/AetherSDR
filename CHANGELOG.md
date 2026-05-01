@@ -3,6 +3,155 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.9.4] — 2026-05-01
+
+### AetherSweep, ShackSwitch, and multi-client startup hardening
+
+A heavy community-contribution release.  Headline feature is **AetherSweep**
+(jensenpat) — an in-panadapter SWR sweep analyzer that walks the current TX
+band, plots SWR live on the spectrum surface, and handles TGXL bypass +
+external-amplifier safety.  **ShackSwitch** support (nigelfenton) lands as a
+new Peripherals tab + dedicated applet, integrating any builder's open-source
+Arduino antenna switch over the Antenna Genius protocol.
+
+A trio of substantial reliability fixes from jensenpat addresses long-standing
+multi-client startup issues — when SmartSDR or DAX is already connected,
+AetherSDR's panadapter creation, slice ownership, and PC audio stream
+acquisition now all hold up under the racey status interleavings the
+ShackSwitch and DAX users were hitting.  Plus a focused mix of platform
+fixes: macOS DMG dark-theme on pop-out windows (Chaosuk97), Windows
+without-Qt6::SerialPort build (NF0T), NRL gating correctness on 6000-series
+radios.
+
+### Features
+
+**AetherSweep — in-panadapter SWR analyzer (#2202, #2220, #2230, jensenpat)**
+- New Start/Clear Sweep buttons under the ANT slice menu, plus a 1-10 W
+  sweep-power slider with cross-panel sync.  Persisted as
+  `SwrSweepPowerWatts` and defaults to 1 W.
+- Walks the current TX band stepping a tune carrier in 20 kHz increments
+  with edge guards, sampling fresh SWR + forward-power meter data per step,
+  and overlays the curve on the panadapter directly under the slice flag.
+- Per-band-edge guard, max-260-points cap, and 60 m channelized-band
+  refusal.  Refuses to start when split is active, when transmitting,
+  when the band is wider than the radio's max pan width, or when a PGXL
+  amplifier is in OPERATE mode (forces user to STANDBY first).
+- Full TGXL handling: snapshots OPERATE/BYPASS state, places TGXL into
+  BYPASS to read raw antenna SWR, restores original state on completion
+  or abort.  Reads radio-side SWR while TGXL is bypassed (TGXL stops
+  emitting RL meter packets in bypass — #2229).
+- 5-phase state machine with explicit timeouts: WaitingForTgxlBypass,
+  TgxlBypassSettle, Sweeping, StoppingTune, RestoringTgxl.
+- Esc to abort.  Inputs locked during sweep so the user can't accidentally
+  retune mid-pass.  Disconnect mid-sweep cleanly stops the carrier and
+  releases TGXL.
+- Optimistic `setTunePower()` update so the sweep's chosen power lands
+  immediately rather than racing the radio's status echo.
+- Sweep result label shows source — `RADIO` for direct measurement,
+  `TGXL BYPASS` for tuner-bypassed measurement.
+
+**ShackSwitch antenna switch integration (#2214, #2227, nigelfenton)**
+- New **Peripherals** tab in Radio Setup with auto-discovery and manual-IP
+  connect for ShackSwitch devices via the Antenna Genius (AG) UDP/TCP
+  protocol on port 9007.
+- New **ShackSwitchApplet** — compact panel with up to 8 labelled
+  antenna-port buttons, click-to-switch, active-port highlight.  SO2R
+  dual-radio mode shows Input A / Input B side-by-side with conflict
+  detection.  Single-radio mode (4-port R4 hardware) hides Input B
+  automatically.
+- Dummy-load / deselect (clicking the active port deselects it) and
+  per-port labels driven by the device's own configuration.
+- Integration is invisible to users without ShackSwitch hardware —
+  detected by the `name="ShackSwitch"` field in the AG broadcast beacon.
+- Web UI launcher button opens the device's local web interface.
+- Reference hardware: ShackSwitch v2.0 (Arduino Uno Q, SO2R, 8-port) and
+  ShackSwitch R4 (Arduino Uno R4 WiFi, single-radio, 4-port).
+
+### Bug fixes
+
+**Multi-client startup panadapter creation (#2222, jensenpat)**
+- AetherSDR's startup pan creation now holds up cleanly when SmartSDR,
+  DAX, or another GUI/audio client is already connected.  The radio
+  replays status for all current pans/slices/streams on connect; without
+  this fix, AetherSDR could correctly reject other clients' objects but
+  then fail to instantiate its own `PanadapterModel` if ownership status
+  arrived out of order.
+- Adds `display panafall create x=100 y=100` (FlexLib v4.2.18 syntax)
+  with capability-based fallback to legacy `panadapter create`.
+- New `ensureOwnedPanadapter()` factory; deferred-status replay queue
+  for `display pan` frames that arrive without `client_handle`; waterfall
+  ordering recovery via `panadapter=...` parent ID lookup.
+- Routes failure cases through the existing `panadapterLimitReached` /
+  `sliceCreateFailed` status-bar signals so radio resource exhaustion
+  is visible instead of looking like a startup hang.
+
+**PC audio remote stream ownership (#2226, jensenpat)**
+- Fixes PC Audio failure when SmartSDR / DAX is already running — the
+  shared `remote_audio_rx` pipe was being silently removed because
+  AetherSDR was parsing the `stream create` response body as decimal
+  instead of hex.  `"4000009"` (no `0x` prefix) was becoming
+  `0x003D0F09` instead of `0x04000009`, so the create-response stream
+  didn't match the status-reported stream and AetherSDR removed the
+  real one.
+- Extracts a new `RadioStatusOwnership` helper (header-only, fully
+  unit-tested) that handles ownership decisions for both panadapters
+  and remote audio streams — defer when no `client_handle`, claim
+  when ours, ignore when another client's.
+- Stream-acquisition state machine now tracks create-pending,
+  remove-requested, and adopted-from-status separately so toggling
+  PC Audio doesn't race the create response.
+- Adds `radio_status_ownership_test` with 25 assertions covering all
+  the ownership decisions and the headline parse bug.
+- Fixes #2037, #1418, #1473.
+
+**TGXL meter goes silent during bypass (#2229, #2230)**
+- AetherSweep aborted with "no fresh TGXL SWR meter data" whenever the
+  TGXL was in OPERATE before sweep start.  The TGXL stops emitting `RL`
+  (return-loss) meter packets while in BYPASS — bypass relays are
+  passive wire-through, no measurement engine.
+- Switches the meter source to RADIO while the TGXL is bypassed; the
+  radio's own SWR coupler measures the same physical signal through
+  the bypassed relays.  UI label still shows `TGXL BYPASS` since
+  that's what describes the configuration.
+
+**Pop-out applet panel white background on macOS (#2190, Chaosuk97)**
+- macOS DMG builds rendered floating windows with a white background
+  even though the dark-theme stylesheet was applied — the CI-built
+  `libqcocoa.dylib` enforced `Qt::WA_StyledBackground` more strictly
+  than Homebrew's Qt 6.11.0 build.
+- Adds `setAttribute(Qt::WA_StyledBackground, true)` on all three
+  floating-window classes (`FloatingContainerWindow`, `PanFloatingWindow`,
+  `MainWindow::floatAppletPanel`).  Cross-platform safe: the attribute
+  is harmless on Linux/Windows where it was a no-op, and now the
+  pop-out applet panel correctly themed on every platform (was
+  defaulting to system theme on Linux/Windows too — latent bug fixed
+  as a side effect).
+
+**Windows build without Qt6::SerialPort (#2195, NF0T)**
+- Compile error introduced by #2147: the `<QElapsedTimer>` include was
+  guarded by `#ifdef HAVE_SERIALPORT` while `m_debounceTimer` is declared
+  under `#if defined(HAVE_SERIALPORT) || defined(Q_OS_WIN)`.  Mismatch
+  broke the Windows-without-SerialPort build configuration.  Widens the
+  include guard to match.
+
+**NRL DSP filter visible on 6000-series radios (#2219)**
+- Fixes regression from #2184 where NRL was incorrectly grouped with
+  the 8000-series-only firmware DSP filters (NRS, RNN, NRF).  NRL is
+  available on 6000-series too — only NRS/RNN/NRF require BigBend /
+  DragonFire hardware.  Fixes #2198.
+
+### Acknowledgements
+
+Massive contributor batch this cycle:
+
+- **jensenpat** — AetherSweep (3 PRs: feature + power-control polish + TGXL
+  meter fix), multi-client panadapter startup, PC audio ownership.  This
+  release wouldn't be the leap it is without his work.
+- **nigelfenton** — ShackSwitch integration (3 PRs across the cycle:
+  protocol fix, full integration, callsign-detection cleanup).
+- **NF0T** — Windows build fix.
+- **Chaosuk97** — macOS DMG dark-theme fix.
+
 ## [v0.9.3] — 2026-04-30
 
 ### External APD, FreeDV Reporter, Slice Colors, and v4.2 firmware updater
