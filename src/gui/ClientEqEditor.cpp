@@ -382,11 +382,29 @@ void ClientEqEditor::showForPath(ClientEqApplet::Path path)
         static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
     setWindowTitle(title);
 
+    // RX path doesn't have meaningful TX filter cutoffs — clear any
+    // guide lines left over from a prior TX-path show.  TX path re-applies
+    // the cached cutoffs so swapping RX → TX restores the dashed guides.
+    if (m_canvas) {
+        if (path == ClientEqApplet::Path::Rx)
+            m_canvas->setFilterCutoffs(0, 0);
+        else
+            m_canvas->setFilterCutoffs(m_txFilterLowCutHz, m_txFilterHighCutHz);
+    }
+
     if (!isVisible()) {
         show();
     }
     raise();
     activateWindow();
+}
+
+void ClientEqEditor::setTxFilterCutoffs(int lowHz, int highHz)
+{
+    m_txFilterLowCutHz = lowHz;
+    m_txFilterHighCutHz = highHz;
+    if (m_canvas && m_path == ClientEqApplet::Path::Tx)
+        m_canvas->setFilterCutoffs(lowHz, highHz);
 }
 
 void ClientEqEditor::closeEvent(QCloseEvent* ev)

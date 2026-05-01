@@ -33,6 +33,10 @@ public:
     // both views stay in sync.
     void refreshEnableFromEngine();
 
+    // Push the radio's TX low/high filter cutoffs as dashed yellow guide
+    // lines on the canvas.  No-op for RX-bound applets.
+    void setTxFilterCutoffs(int lowHz, int highHz);
+
 signals:
     // Fired when the user clicks Edit (currently no in-applet trigger;
     // editor opens via the chain widget's double-click gesture).

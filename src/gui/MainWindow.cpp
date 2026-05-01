@@ -3071,6 +3071,21 @@ MainWindow::MainWindow(QWidget* parent)
     wireEqEditOpen(m_appletPanel->clientEqTxApplet());
     wireEqEditOpen(m_appletPanel->clientEqRxApplet());
 
+    // Push TX low/high filter cutoffs to the EQ canvases as dashed yellow
+    // guide lines.  Initial values + live sync via TransmitModel::phoneStateChanged.
+    auto pushTxFilterCutoffsToEq = [this]() {
+        const auto& tx = m_radioModel.transmitModel();
+        const int lo = tx.txFilterLow();
+        const int hi = tx.txFilterHigh();
+        if (m_appletPanel && m_appletPanel->clientEqTxApplet())
+            m_appletPanel->clientEqTxApplet()->setTxFilterCutoffs(lo, hi);
+        if (m_clientEqEditor)
+            m_clientEqEditor->setTxFilterCutoffs(lo, hi);
+    };
+    pushTxFilterCutoffsToEq();
+    connect(&m_radioModel.transmitModel(), &TransmitModel::phoneStateChanged,
+            this, pushTxFilterCutoffsToEq);
+
     // ── Client Compressor applets: TX (#1661) + RX (Phase 7.3) ─────────────
     m_appletPanel->clientCompTxApplet()->setAudioEngine(m_audio);
     m_appletPanel->clientCompRxApplet()->setAudioEngine(m_audio);
@@ -3815,6 +3830,11 @@ ClientEqEditor* MainWindow::ensureClientEqEditor()
             if (m_appletPanel->clientChainApplet())
                 m_appletPanel->clientChainApplet()->refreshFromEngine();
         });
+        // Push current TX filter cutoffs so the dashed guide lines render
+        // immediately when the editor opens — the phoneStateChanged
+        // wiring in the MainWindow ctor only fires on subsequent changes.
+        const auto& tx = m_radioModel.transmitModel();
+        m_clientEqEditor->setTxFilterCutoffs(tx.txFilterLow(), tx.txFilterHigh());
     }
     return m_clientEqEditor;
 }

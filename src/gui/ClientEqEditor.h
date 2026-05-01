@@ -38,6 +38,11 @@ public:
     // Safe to call whether or not the window is currently visible.
     void showForPath(ClientEqApplet::Path path);
 
+    // Push the radio's TX low/high filter cutoffs to the canvas as
+    // dashed yellow guide lines.  No-op when the editor's current path
+    // is RX.  Pass 0 for either edge to suppress that guide.
+    void setTxFilterCutoffs(int lowHz, int highHz);
+
 signals:
     // Fired when the bypass button is toggled in the editor. The docked
     // applet subscribes so its Enable toggle stays in sync — both widgets
@@ -68,6 +73,8 @@ private:
 
     AudioEngine*               m_audio{nullptr};
     ClientEqApplet::Path       m_path{ClientEqApplet::Path::Rx};
+    int                        m_txFilterLowCutHz{0};
+    int                        m_txFilterHighCutHz{0};
     // The frameless title bar carries the active path label (e.g.
     // "Aetherial Parametric EQ — TX").  Held as a void* + cast at use
     // site to keep the inline EditorFramelessTitleBar class out of the

@@ -128,6 +128,14 @@ void ClientEqCurveWidget::setSmoothingOctaveFraction(int n)
     update();
 }
 
+void ClientEqCurveWidget::setFilterCutoffs(int lowHz, int highHz)
+{
+    if (m_filterLowCutHz == lowHz && m_filterHighCutHz == highHz) return;
+    m_filterLowCutHz = lowHz;
+    m_filterHighCutHz = highHz;
+    update();
+}
+
 std::vector<float> ClientEqCurveWidget::applyFractionalOctaveSmoothing(
     const std::vector<float>& binsDb, double sampleRate, int octaveFraction)
 {
@@ -252,16 +260,24 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
         p.drawLine(0, static_cast<int>(y), r.width(), static_cast<int>(y));
     }
 
-    // 3 kHz reference line — marks the upper edge of the standard SSB
-    // voice passband.  Faint dashed yellow so it's a guide, not a
-    // distraction.  Drawn behind the EQ curves and analyzer.
-    {
+    // TX filter cutoff guides — faint dashed yellow vertical lines at
+    // the radio's current Phone low-cut and high-cut values, so the user
+    // can see where their EQ shape lands relative to what's actually
+    // passed to the radio.  Drawn behind the EQ curves and analyzer.
+    // Cutoffs of 0 mean "not set / RX path" — skip drawing.
+    if (m_filterLowCutHz > 0 || m_filterHighCutHz > 0) {
         QPen pen(QColor(220, 200, 80, 110));
         pen.setWidth(1);
         pen.setStyle(Qt::DashLine);
         p.setPen(pen);
-        const float x = freqToX(3000.0f);
-        p.drawLine(static_cast<int>(x), 0, static_cast<int>(x), r.height());
+        if (m_filterLowCutHz > 0) {
+            const float x = freqToX(static_cast<float>(m_filterLowCutHz));
+            p.drawLine(static_cast<int>(x), 0, static_cast<int>(x), r.height());
+        }
+        if (m_filterHighCutHz > 0) {
+            const float x = freqToX(static_cast<float>(m_filterHighCutHz));
+            p.drawLine(static_cast<int>(x), 0, static_cast<int>(x), r.height());
+        }
     }
 
     // Freq labels along the bottom, tiny.

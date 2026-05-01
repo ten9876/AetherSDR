@@ -71,6 +71,13 @@ public:
         double sampleRate,
         int octaveFraction);
 
+    // Draw faint dashed yellow vertical guides at the radio's TX
+    // low / high filter cutoff frequencies.  Pass 0 for either edge
+    // to skip drawing it.  Designed for the TX EQ where the cutoffs
+    // are meaningful — the RX EQ won't call this and the lines stay
+    // hidden.
+    void setFilterCutoffs(int lowHz, int highHz);
+
 signals:
     void selectedBandChanged(int idx);
     // Fired whenever band params mutate on the audio side from user
@@ -106,6 +113,8 @@ protected:
     bool               m_peakHoldFrozen{false};
     double             m_fftSampleRate{24000.0};
     int                m_smoothingFraction{96};  // 96 = effectively off
+    int                m_filterLowCutHz{0};      // 0 = don't draw
+    int                m_filterHighCutHz{0};     // 0 = don't draw
 
 private:
     void applySmoothing();
