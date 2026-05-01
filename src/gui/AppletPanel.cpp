@@ -369,8 +369,10 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_scrollArea->setWidgetResizable(true);
     m_scrollArea->setStyleSheet(
-        "QScrollBar:vertical { background: #0a0a14; width: 6px; }"
-        "QScrollBar::handle:vertical { background: #304050; border-radius: 3px; }"
+        "QScrollBar:vertical { background: transparent; width: 12px; }"
+        "QScrollBar:vertical:hover { background: #0a0a14; }"
+        "QScrollBar::handle:vertical { background: transparent; border-radius: 4px; min-height: 20px; }"
+        "QScrollBar::handle:vertical:hover, QScrollBar::handle:vertical:pressed { background: #4a6880; }"
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }");
 
     auto* container = new QWidget;
