@@ -2934,15 +2934,37 @@ void RadioModel::onStatusReceived(const QString& object,
     //   model=TunerGeniusXL  → antenna tuner (TGXL)
     //   model=PowerGeniusXL  → power amplifier (PGXL)
     // "amplifier <handle> model=TunerGeniusXL operate=1 relayC1=20 ..."
+    //
+    // Removal can arrive in two forms (matches FlexLib Radio.cs:14060/14073
+    // which uses substring `s.Contains("removed")`):
+    //   1) bare:  "amplifier <handle> removed"        → trailing token, no '='
+    //   2) kvs:   "amplifier <handle> ... removed=1"  → key in kvs map
+    // Form 1 lands in `object` because our parser treats a body with no '='
+    // as all-object-name; form 2 lands in `kvs` as a normal key.
     static const QRegularExpression ampRe(R"(^amplifier\s+(\S+)$)");
+    static const QRegularExpression ampRemovedRe(R"(^amplifier\s+(\S+)\s+removed$)");
     if (object.startsWith("amplifier")) {
+        const auto rm = ampRemovedRe.match(object);
+        if (rm.hasMatch()) {
+            const QString handle = rm.captured(1);
+            qCDebug(lcProtocol) << "RadioModel: amplifier removed (bare) handle=" << handle;
+            if (handle == m_tunerModel.handle())
+                m_tunerModel.setHandle({});
+            if (handle == m_ampHandle) {
+                m_ampHandle.clear();
+                m_hasAmplifier = false;
+                m_ampModel.clear();
+                emit amplifierChanged(false);
+            }
+            return;
+        }
         const auto m = ampRe.match(object);
         if (m.hasMatch()) {
             const QString handle = m.captured(1);
             const QString model = kvs.value("model");
             qCDebug(lcProtocol) << "RadioModel: amplifier status handle=" << handle << "model=" << model;
 
-            // Handle removal
+            // Handle removal (kvs form)
             if (kvs.contains("removed")) {
                 if (handle == m_tunerModel.handle())
                     m_tunerModel.setHandle({});
