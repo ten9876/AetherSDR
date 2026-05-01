@@ -75,6 +75,7 @@ private:
     ClientEqApplet::Path       m_path{ClientEqApplet::Path::Rx};
     int                        m_txFilterLowCutHz{0};
     int                        m_txFilterHighCutHz{0};
+    int                        m_savedSmoothingFraction{96};
     // The frameless title bar carries the active path label (e.g.
     // "Aetherial Parametric EQ — TX").  Held as a void* + cast at use
     // site to keep the inline EditorFramelessTitleBar class out of the

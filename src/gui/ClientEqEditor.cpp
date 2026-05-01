@@ -117,8 +117,11 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
             .value("ClientEqSmoothingFraction", "96").toInt();
         const int savedIdx = smoothingCombo->findData(savedFraction);
         smoothingCombo->setCurrentIndex(savedIdx >= 0 ? savedIdx : 0);
-        if (m_canvas)
-            m_canvas->setSmoothingOctaveFraction(savedFraction);
+        // Cache the saved fraction on a member so it can be applied to
+        // m_canvas later — the canvas isn't constructed yet at this point
+        // in the toolbar setup.  Pushing to m_canvas here was a no-op
+        // because m_canvas is still nullptr.
+        m_savedSmoothingFraction = savedFraction;
 
         connect(smoothingCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, [this, smoothingCombo](int idx) {
@@ -246,6 +249,10 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
 
     m_canvas = new ClientEqEditorCanvas;
     m_canvas->setAudioEngine(m_audio);
+    // Apply the saved smoothing fraction now that the canvas exists.
+    // The combo box already shows the right value from the toolbar build,
+    // but the canvas needed to be constructed before this push could land.
+    m_canvas->setSmoothingOctaveFraction(m_savedSmoothingFraction);
     eqColumn->addWidget(m_canvas, 1);
 
     m_paramRow = new ClientEqParamRow;
