@@ -998,7 +998,9 @@ void RxApplet::setAfGain(int pct)
 void RxApplet::setMaxSlices(int maxSlices)
 {
     // Only create buttons once
-    if (!m_sliceBtns.isEmpty()) return;
+    if (!m_sliceBtns.isEmpty()) {
+        return;
+    }
 
     if (maxSlices <= 1) {
         m_sliceTabRow->setVisible(false);

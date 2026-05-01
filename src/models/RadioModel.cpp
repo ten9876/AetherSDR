@@ -1351,7 +1351,10 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                             else if (key == "name")        m_nickname = val;
                             else if (key == "region")      m_region = val;
                             else if (key == "options")     m_radioOptions = val;
-                            else if (key == "model")       m_model = val;
+                            else if (key == "model") {
+                                m_model = val;
+                                m_maxSlices = maxSlicesForModel(m_model);
+                            }
                             else if (key == "chassis_serial") m_chassisSerial = val;
                             else if (key == "software_ver")   m_version = val;
                             else if (key == "ip")             m_ip = val;
