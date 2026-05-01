@@ -161,6 +161,9 @@ private:
     void routeCwDecoderOutput();  // wire CW decoder to the pan owning the active slice
     SpectrumWidget* spectrumForSlice(SliceModel* s) const;
     void wireVfoWidget(VfoWidget* w, SliceModel* s);
+    // Push the active RX slice's filter passband (converted from
+    // protocol offsets to audio-domain low/high) to the RX EQ canvases.
+    void pushRxFilterCutoffsToEq();
     void enableNr2WithWisdom();  // Wisdom-gated NR2 enable (shared by VFO + overlay)
     void updateNr2Availability(); // Disable NR2 when Opus is active (#1597)
     void registerShortcutActions();

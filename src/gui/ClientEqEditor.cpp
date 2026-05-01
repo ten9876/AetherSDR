@@ -389,12 +389,12 @@ void ClientEqEditor::showForPath(ClientEqApplet::Path path)
         static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
     setWindowTitle(title);
 
-    // RX path doesn't have meaningful TX filter cutoffs — clear any
-    // guide lines left over from a prior TX-path show.  TX path re-applies
-    // the cached cutoffs so swapping RX → TX restores the dashed guides.
+    // Re-apply the cached cutoffs for whichever path we're switching to,
+    // so RX/TX swaps restore the correct dashed guides without waiting
+    // for the next slice/filter event.
     if (m_canvas) {
         if (path == ClientEqApplet::Path::Rx)
-            m_canvas->setFilterCutoffs(0, 0);
+            m_canvas->setFilterCutoffs(m_rxFilterLowCutHz, m_rxFilterHighCutHz);
         else
             m_canvas->setFilterCutoffs(m_txFilterLowCutHz, m_txFilterHighCutHz);
     }
@@ -412,6 +412,14 @@ void ClientEqEditor::setTxFilterCutoffs(int lowHz, int highHz)
     m_txFilterHighCutHz = highHz;
     if (m_canvas && m_path == ClientEqApplet::Path::Tx)
         m_canvas->setFilterCutoffs(lowHz, highHz);
+}
+
+void ClientEqEditor::setRxFilterCutoffs(int audioLowHz, int audioHighHz)
+{
+    m_rxFilterLowCutHz = audioLowHz;
+    m_rxFilterHighCutHz = audioHighHz;
+    if (m_canvas && m_path == ClientEqApplet::Path::Rx)
+        m_canvas->setFilterCutoffs(audioLowHz, audioHighHz);
 }
 
 void ClientEqEditor::closeEvent(QCloseEvent* ev)

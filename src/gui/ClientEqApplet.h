@@ -37,6 +37,11 @@ public:
     // lines on the canvas.  No-op for RX-bound applets.
     void setTxFilterCutoffs(int lowHz, int highHz);
 
+    // Push the active RX slice's filter passband (in audio-frequency
+    // domain) as dashed yellow guide lines on the canvas.  No-op for
+    // TX-bound applets.
+    void setRxFilterCutoffs(int audioLowHz, int audioHighHz);
+
 signals:
     // Fired when the user clicks Edit (currently no in-applet trigger;
     // editor opens via the chain widget's double-click gesture).

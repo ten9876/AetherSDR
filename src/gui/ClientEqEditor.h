@@ -43,6 +43,11 @@ public:
     // is RX.  Pass 0 for either edge to suppress that guide.
     void setTxFilterCutoffs(int lowHz, int highHz);
 
+    // Push the active RX slice's filter passband (audio-frequency
+    // domain) to the canvas.  No-op when the editor's current path is TX.
+    // Cached so RX → TX → RX path swaps restore the correct guides.
+    void setRxFilterCutoffs(int audioLowHz, int audioHighHz);
+
 signals:
     // Fired when the bypass button is toggled in the editor. The docked
     // applet subscribes so its Enable toggle stays in sync — both widgets
@@ -75,6 +80,8 @@ private:
     ClientEqApplet::Path       m_path{ClientEqApplet::Path::Rx};
     int                        m_txFilterLowCutHz{0};
     int                        m_txFilterHighCutHz{0};
+    int                        m_rxFilterLowCutHz{0};
+    int                        m_rxFilterHighCutHz{0};
     int                        m_savedSmoothingFraction{96};
     // The frameless title bar carries the active path label (e.g.
     // "Aetherial Parametric EQ — TX").  Held as a void* + cast at use
