@@ -18,6 +18,11 @@ namespace {
 constexpr float kMinHz   = 20.0f;
 constexpr float kMaxHz   = 20000.0f;
 constexpr float kDbRange = 18.0f;   // ±18 dB vertical extent
+// Bottom strip showing band-plan-style audio modulation regions
+// (E-SSB / SSB / Voodoo / AM-FM).  Reserved at the bottom of the
+// drawing rect; freq labels move above it; analyzer + curves clip
+// to (h - kAudioBandStripH).
+constexpr int   kAudioBandStripH = 14;
 
 const float kGridFreqs[] = {
     20.0f, 50.0f, 100.0f, 200.0f, 500.0f,
@@ -206,14 +211,16 @@ float ClientEqCurveWidget::xToFreq(float x) const
 
 float ClientEqCurveWidget::dbToY(float db) const
 {
-    const float h = static_cast<float>(height());
+    // Reserve the bottom strip for the audio band-plan band — curves
+    // and handles clip above it.
+    const float h = static_cast<float>(height() - kAudioBandStripH);
     const float norm = (kDbRange - db) / (2.0f * kDbRange);  // +db = top
     return std::clamp(norm * h, 0.0f, h);
 }
 
 float ClientEqCurveWidget::yToDb(float y) const
 {
-    const float h = static_cast<float>(height());
+    const float h = static_cast<float>(height() - kAudioBandStripH);
     const float norm = std::clamp(y / h, 0.0f, 1.0f);
     return kDbRange - norm * (2.0f * kDbRange);
 }
@@ -292,7 +299,7 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
             const int w = p.fontMetrics().horizontalAdvance(lbl);
             int x = static_cast<int>(freqToX(hz)) - w / 2;
             x = std::clamp(x, 2, r.width() - w - 2);
-            p.drawText(x, r.height() - 2, lbl);
+            p.drawText(x, r.height() - kAudioBandStripH - 2, lbl);
             (void)fh;
         }
     }
@@ -309,7 +316,8 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
             ? m_fftBinsDbSmoothed : m_fftBinsDb;
         const float minDb = -70.0f;
         const float maxDb =   0.0f;
-        const float h = static_cast<float>(r.height());
+        // Clip the analyzer to above the audio band-plan strip.
+        const float h = static_cast<float>(r.height() - kAudioBandStripH);
         auto dbfsToY = [&](float db) {
             const float n = (db - minDb) / (maxDb - minDb);
             return (1.0f - std::clamp(n, 0.0f, 1.0f)) * h;
@@ -512,6 +520,53 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
         p.setBrush(c);
         p.setPen(QPen(QColor("#08121d"), 1.5));
         p.drawEllipse(center, 4.0, 4.0);
+    }
+
+    // Audio band-plan strip — fixed segments along the bottom showing
+    // common modulation regions.  Colors and license blend match the
+    // panadapter band plan (CW=#3060ff, Phone=#ff8000, Data=#c03030;
+    // 0.40 = E,G class blend, 0.20 = E-only blend).  Drawn last so it
+    // covers any analyzer / curve content underneath.
+    {
+        struct Seg {
+            float lowHz, highHz;
+            QColor color;
+            float blend;
+            const char* label;
+        };
+        static const Seg segs[] = {
+            {    0.0f,    99.0f, QColor(0x30, 0x60, 0xff), 0.40f, "E-SSB"   },
+            {  100.0f,  3000.0f, QColor(0xff, 0x80, 0x00), 0.40f, "SSB"     },
+            { 3000.0f,  4000.0f, QColor(0x30, 0x60, 0xff), 0.40f, "E-SSB"   },
+            { 4000.0f,  6000.0f, QColor(0x30, 0x60, 0xff), 0.20f, "Voodoo"  },
+            { 6000.0f, 20000.0f, QColor(0xc0, 0x30, 0x30), 0.40f, "AM / FM" },
+        };
+        const QColor bg(0x0a, 0x0a, 0x14);
+        const int stripY = r.height() - kAudioBandStripH;
+
+        QFont stripF = p.font();
+        stripF.setPointSize(7);
+        stripF.setBold(true);
+        p.setFont(stripF);
+
+        for (const auto& seg : segs) {
+            const int x1 = static_cast<int>(freqToX(seg.lowHz));
+            const int x2 = static_cast<int>(freqToX(seg.highHz));
+            if (x2 <= x1) continue;
+            QColor fill(
+                static_cast<int>(seg.color.red()   * seg.blend + bg.red()   * (1.0f - seg.blend)),
+                static_cast<int>(seg.color.green() * seg.blend + bg.green() * (1.0f - seg.blend)),
+                static_cast<int>(seg.color.blue()  * seg.blend + bg.blue()  * (1.0f - seg.blend)),
+                255);
+            p.fillRect(x1, stripY, x2 - x1, kAudioBandStripH, fill);
+            p.setPen(QColor(0x0f, 0x0f, 0x1a, 200));
+            p.drawLine(x1, stripY, x1, stripY + kAudioBandStripH);
+            if (x2 - x1 > 24) {
+                p.setPen(Qt::white);
+                p.drawText(QRect(x1, stripY, x2 - x1, kAudioBandStripH),
+                           Qt::AlignCenter, QString::fromLatin1(seg.label));
+            }
+        }
     }
 }
 
