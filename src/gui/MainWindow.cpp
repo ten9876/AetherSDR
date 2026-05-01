@@ -3793,18 +3793,26 @@ MainWindow::~MainWindow()
 #endif
     // Stop audio processing on the worker thread before destruction (#502).
     // Use BlockingQueuedConnection to ensure completion before we proceed.
-    if (m_audio && m_audioThread->isRunning()) {
-        QMetaObject::invokeMethod(m_audio, [this]() {
-            m_audio->setNr2Enabled(false);
-            m_audio->setRn2Enabled(false);
-            m_audio->setBnrEnabled(false);
-            m_audio->stopRxStream();
-            m_audio->stopTxStream();
+    if (m_audio && m_audioThread && m_audioThread->isRunning()) {
+        AudioEngine* audio = m_audio;
+        QMetaObject::invokeMethod(audio, [audio]() {
+            audio->setNr2Enabled(false);
+            audio->setRn2Enabled(false);
+            audio->setBnrEnabled(false);
+            audio->stopRxStream();
+            audio->stopTxStream();
         }, Qt::BlockingQueuedConnection);
+        audio->deleteLater();
+        m_audioThread->quit();
+        m_audioThread->wait(3000);
+    } else {
+        delete m_audio;
     }
-    m_audioThread->quit();
-    m_audioThread->wait(3000);
-    delete m_audio;
+    if (m_audioThread && m_audioThread->isRunning()) {
+        m_audioThread->quit();
+        m_audioThread->wait(3000);
+    }
+    m_audio = nullptr;
 
     // Stop external controller thread (#502)
     if (m_extCtrlThread && m_extCtrlThread->isRunning()) {
@@ -3815,21 +3823,59 @@ MainWindow::~MainWindow()
         QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->close(); },
                                   Qt::BlockingQueuedConnection);
 #endif
-        m_extCtrlThread->quit();
-        m_extCtrlThread->wait(3000);
-    }
-#ifdef HAVE_SERIALPORT
-    // Move back to main thread so the destructor runs safely here.
-    m_serialPort->moveToThread(QThread::currentThread());
-    m_flexControl->moveToThread(QThread::currentThread());
-    delete m_serialPort;
-    delete m_flexControl;
-#endif
 #ifdef HAVE_MIDI
-    delete m_midiControl;
+        if (m_midiControl) {
+            QMetaObject::invokeMethod(m_midiControl, &MidiControlManager::closePort,
+                                      Qt::BlockingQueuedConnection);
+        }
 #endif
 #ifdef HAVE_HIDAPI
-    delete m_hidEncoder;
+        if (m_hidEncoder) {
+            QMetaObject::invokeMethod(m_hidEncoder, &HidEncoderManager::close,
+                                      Qt::BlockingQueuedConnection);
+        }
+#endif
+#ifdef HAVE_SERIALPORT
+        if (m_serialPort) {
+            m_serialPort->deleteLater();
+        }
+        if (m_flexControl) {
+            m_flexControl->deleteLater();
+        }
+#endif
+#ifdef HAVE_MIDI
+        if (m_midiControl) {
+            m_midiControl->deleteLater();
+        }
+#endif
+#ifdef HAVE_HIDAPI
+        if (m_hidEncoder) {
+            m_hidEncoder->deleteLater();
+        }
+#endif
+        m_extCtrlThread->quit();
+        m_extCtrlThread->wait(3000);
+    } else {
+#ifdef HAVE_SERIALPORT
+        delete m_serialPort;
+        delete m_flexControl;
+#endif
+#ifdef HAVE_MIDI
+        delete m_midiControl;
+#endif
+#ifdef HAVE_HIDAPI
+        delete m_hidEncoder;
+#endif
+    }
+#ifdef HAVE_SERIALPORT
+    m_serialPort = nullptr;
+    m_flexControl = nullptr;
+#endif
+#ifdef HAVE_MIDI
+    m_midiControl = nullptr;
+#endif
+#ifdef HAVE_HIDAPI
+    m_hidEncoder = nullptr;
 #endif
 }
 
@@ -4083,15 +4129,58 @@ void MainWindow::closeEvent(QCloseEvent* event)
 
     // Stop spot client worker thread
     if (m_spotThread) {
-        m_spotThread->quit();
-        m_spotThread->wait(3000);
-        delete m_dxCluster;  m_dxCluster = nullptr;
-        delete m_rbnClient;  m_rbnClient = nullptr;
-        delete m_wsjtxClient; m_wsjtxClient = nullptr;
-        delete m_spotCollectorClient; m_spotCollectorClient = nullptr;
-        delete m_potaClient;  m_potaClient = nullptr;
+        if (m_spotThread->isRunning()) {
+            DxClusterClient* dxCluster = m_dxCluster;
+            DxClusterClient* rbnClient = m_rbnClient;
+            WsjtxClient* wsjtxClient = m_wsjtxClient;
+            SpotCollectorClient* spotCollectorClient = m_spotCollectorClient;
+            PotaClient* potaClient = m_potaClient;
 #ifdef HAVE_WEBSOCKETS
-        delete m_freedvClient; m_freedvClient = nullptr;
+            FreeDvClient* freedvClient = m_freedvClient;
+#endif
+            QMetaObject::invokeMethod(dxCluster, [dxCluster] { dxCluster->disconnect(); },
+                                      Qt::BlockingQueuedConnection);
+            QMetaObject::invokeMethod(rbnClient, [rbnClient] { rbnClient->disconnect(); },
+                                      Qt::BlockingQueuedConnection);
+            QMetaObject::invokeMethod(wsjtxClient, [wsjtxClient] { wsjtxClient->stopListening(); },
+                                      Qt::BlockingQueuedConnection);
+            QMetaObject::invokeMethod(spotCollectorClient,
+                                      [spotCollectorClient] { spotCollectorClient->stopListening(); },
+                                      Qt::BlockingQueuedConnection);
+            QMetaObject::invokeMethod(potaClient, [potaClient] { potaClient->stopPolling(); },
+                                      Qt::BlockingQueuedConnection);
+#ifdef HAVE_WEBSOCKETS
+            QMetaObject::invokeMethod(freedvClient,
+                                      [freedvClient] { freedvClient->stopConnection(); },
+                                      Qt::BlockingQueuedConnection);
+#endif
+            dxCluster->deleteLater();
+            rbnClient->deleteLater();
+            wsjtxClient->deleteLater();
+            spotCollectorClient->deleteLater();
+            potaClient->deleteLater();
+#ifdef HAVE_WEBSOCKETS
+            freedvClient->deleteLater();
+#endif
+            m_spotThread->quit();
+            m_spotThread->wait(3000);
+        } else {
+            delete m_dxCluster;
+            delete m_rbnClient;
+            delete m_wsjtxClient;
+            delete m_spotCollectorClient;
+            delete m_potaClient;
+#ifdef HAVE_WEBSOCKETS
+            delete m_freedvClient;
+#endif
+        }
+        m_dxCluster = nullptr;
+        m_rbnClient = nullptr;
+        m_wsjtxClient = nullptr;
+        m_spotCollectorClient = nullptr;
+        m_potaClient = nullptr;
+#ifdef HAVE_WEBSOCKETS
+        m_freedvClient = nullptr;
 #endif
     }
 

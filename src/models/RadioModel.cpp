@@ -383,22 +383,38 @@ RadioModel::~RadioModel()
     QObject::disconnect(m_panStream, nullptr, this, nullptr);
 
     // Stop connection thread (#502)
-    if (m_connection) {
-        QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio,
+    if (m_connection && m_connThread && m_connThread->isRunning()) {
+        RadioConnection* connection = m_connection;
+        QMetaObject::invokeMethod(connection, &RadioConnection::disconnectFromRadio,
                                   Qt::BlockingQueuedConnection);
+        connection->deleteLater();
+        m_connThread->quit();
+        m_connThread->wait(3000);
+    } else {
+        delete m_connection;
     }
-    m_connThread->quit();
-    m_connThread->wait(3000);
-    delete m_connection;
+    if (m_connThread && m_connThread->isRunning()) {
+        m_connThread->quit();
+        m_connThread->wait(3000);
+    }
+    m_connection = nullptr;
 
     // Stop network thread (#502)
-    if (m_panStream) {
-        QMetaObject::invokeMethod(m_panStream, &PanadapterStream::stop,
+    if (m_panStream && m_networkThread && m_networkThread->isRunning()) {
+        PanadapterStream* panStream = m_panStream;
+        QMetaObject::invokeMethod(panStream, &PanadapterStream::stop,
                                   Qt::BlockingQueuedConnection);
+        panStream->deleteLater();
+        m_networkThread->quit();
+        m_networkThread->wait(3000);
+    } else {
+        delete m_panStream;
     }
-    m_networkThread->quit();
-    m_networkThread->wait(3000);
-    delete m_panStream;
+    if (m_networkThread && m_networkThread->isRunning()) {
+        m_networkThread->quit();
+        m_networkThread->wait(3000);
+    }
+    m_panStream = nullptr;
 }
 
 bool RadioModel::isConnected() const
