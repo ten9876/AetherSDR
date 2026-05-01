@@ -96,6 +96,30 @@ QString hexId(quint32 value)
         .arg(QString::number(value, 16).rightJustified(8, QLatin1Char('0')));
 }
 
+QString normalizePanadapterId(QString text)
+{
+    text = text.trimmed();
+    if (text.isEmpty())
+        return QString();
+
+    if (text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
+        text = text.mid(2);
+
+    bool ok = false;
+    const quint32 id = text.toUInt(&ok, 16);
+    return ok ? hexId(id) : text;
+}
+
+QString parsePanadapterCreateId(const QString& body)
+{
+    const QMap<QString, QString> kvs = CommandParser::parseKVs(body);
+    if (kvs.contains(QStringLiteral("pan")))
+        return normalizePanadapterId(kvs.value(QStringLiteral("pan")));
+    if (kvs.contains(QStringLiteral("id")))
+        return normalizePanadapterId(kvs.value(QStringLiteral("id")));
+    return normalizePanadapterId(body);
+}
+
 struct StreamObjectParts {
     bool valid{false};
     quint32 streamId{0};
@@ -905,31 +929,40 @@ void RadioModel::createPanadapter()
         emit panadapterLimitReached(limit, m_model);
         return;
     }
-    qCDebug(lcProtocol) << "RadioModel::createPanadapter: sending display panafall create";
-    sendCmd("display panafall create x=100 y=100", [this](int code, const QString& body) {
+    const auto handleCreatedPan = [this](const QString& source, int code, const QString& body) {
         if (code != 0) {
-            qCWarning(lcProtocol) << "RadioModel: panadapter create failed, code"
-                       << Qt::hex << code << "body:" << body;
+            qCWarning(lcProtocol) << "RadioModel:" << source << "failed, code"
+                                  << Qt::hex << code << "body:" << body;
+            emit panadapterLimitReached(maxPanadapters(), m_model);
             return;
         }
-        // Parse pan ID from response
-        QString panId;
-        const QMap<QString, QString> kvs = CommandParser::parseKVs(body);
-        if (kvs.contains("pan"))       panId = kvs["pan"];
-        else if (kvs.contains("id"))   panId = kvs["id"];
-        else                           panId = body.trimmed();
+        const QString panId = parsePanadapterCreateId(body);
 
         qCDebug(lcProtocol) << "RadioModel: new panadapter created, pan_id =" << panId;
 
-        // The radio will push display pan status for this panId,
-        // which triggers PanadapterModel creation in onStatusReceived
-        // and emits panadapterAdded. Configure after a short delay.
         if (!panId.isEmpty()) {
+            ensureOwnedPanadapter(panId);
             QTimer::singleShot(200, this, [this, panId]() {
                 sendCmd(QString("display pan set %1 xpixels=1024 ypixels=700").arg(panId));
                 sendCmd(QString("display pan set %1 fps=25 min_dbm=-130 max_dbm=-40").arg(panId));
             });
         }
+    };
+
+    qCDebug(lcProtocol) << "RadioModel::createPanadapter: sending display panafall create";
+    sendCmd("display panafall create x=100 y=100", [this, handleCreatedPan](int code, const QString& body) {
+        if (code == 0) {
+            handleCreatedPan(QStringLiteral("display panafall create"), code, body);
+            return;
+        }
+
+        qCWarning(lcProtocol) << "RadioModel: display panafall create failed, code"
+                              << Qt::hex << code << "body:" << body
+                              << "- trying legacy panadapter create";
+        sendCmd("panadapter create",
+                [handleCreatedPan](int legacyCode, const QString& legacyBody) {
+            handleCreatedPan(QStringLiteral("panadapter create"), legacyCode, legacyBody);
+        });
     });
 }
 
@@ -2165,6 +2198,50 @@ quint32 RadioModel::clientHandle() const
     return m_connection->clientHandle();
 }
 
+PanadapterModel* RadioModel::ensureOwnedPanadapter(const QString& panId)
+{
+    const QString normalizedPanId = normalizePanadapterId(panId);
+    if (normalizedPanId.isEmpty())
+        return nullptr;
+
+    if (auto* existing = m_panadapters.value(normalizedPanId, nullptr))
+        return existing;
+
+    auto* pan = new PanadapterModel(normalizedPanId, this);
+    pan->setClientHandle(QString::number(clientHandle(), 16));
+    m_panadapters[normalizedPanId] = pan;
+    if (m_activePanId.isEmpty())
+        m_activePanId = normalizedPanId;
+
+    connect(pan, &PanadapterModel::waterfallIdChanged,
+            this, &RadioModel::updateStreamFilters);
+    updateStreamFilters();
+
+    sendCmd(QString("display pan rfgain_info %1").arg(normalizedPanId),
+            [pan](int code, const QString& body) {
+        if (code != 0 || body.isEmpty()) return;
+        QStringList vals = body.split(',');
+        if (vals.size() < 3) return;
+        int low = vals[0].trimmed().toInt();
+        int high = vals[1].trimmed().toInt();
+        int step = vals[2].trimmed().toInt();
+        if (step > 0)
+            pan->setRfGainInfo(low, high, step);
+    });
+
+    qCDebug(lcProtocol) << "RadioModel: claimed panadapter" << normalizedPanId;
+    emit panadapterAdded(pan);
+
+    const auto pending = m_pendingPanStatuses.take(normalizedPanId);
+    if (!pending.isEmpty()) {
+        qCDebug(lcProtocol) << "RadioModel: applying deferred panadapter status for"
+                            << normalizedPanId;
+        handlePanadapterStatus(normalizedPanId, pending);
+    }
+
+    return pan;
+}
+
 quint32 RadioModel::ourClientHandle() const { return clientHandle(); }
 
 void RadioModel::emitOtherClientsChanged()
@@ -2563,6 +2640,7 @@ void RadioModel::onStatusReceived(const QString& object,
             // Handle pan removal — "display pan 0x40000001 removed" arrives
             // with no '=' so the parser puts the whole string in 'object'
             if (kvs.contains("removed") || object.endsWith("removed")) {
+                m_pendingPanStatuses.remove(panId);
                 auto* pan = m_panadapters.take(panId);
                 if (pan) {
                     m_panStream->unregisterPanStream(pan->panStreamId());
@@ -2591,36 +2669,17 @@ void RadioModel::onStatusReceived(const QString& object,
                 // AND matches our handle. Early status messages may arrive
                 // without client_handle — defer until ownership is confirmed.
                 // This prevents briefly adopting another Multi-Flex client's pan.
-                if (!kvs.contains("client_handle"))
+                if (!kvs.contains("client_handle")) {
+                    m_pendingPanStatuses[panId] = kvs;
                     return;  // defer — can't confirm ownership yet
-                quint32 owner = kvs["client_handle"].toUInt(nullptr, 16);
-                if (owner != clientHandle())
+                }
+                quint32 owner = parseClientHandle(kvs["client_handle"]);
+                if (owner != clientHandle()) {
+                    m_pendingPanStatuses.remove(panId);
                     return;  // not our panadapter, ignore
+                }
 
-                auto* pan = new PanadapterModel(panId, this);
-                pan->setClientHandle(QString::number(clientHandle(), 16));
-                m_panadapters[panId] = pan;
-                if (m_activePanId.isEmpty())
-                    m_activePanId = panId;
-                // Re-register stream IDs when waterfall ID arrives (it's not
-                // available at pan creation time — comes later in display pan status)
-                connect(pan, &PanadapterModel::waterfallIdChanged,
-                        this, &RadioModel::updateStreamFilters);
-                updateStreamFilters();
-                // Query RF gain range from radio (varies by model)
-                sendCmd(QString("display pan rfgain_info %1").arg(panId),
-                        [pan](int code, const QString& body) {
-                    if (code != 0 || body.isEmpty()) return;
-                    QStringList vals = body.split(',');
-                    if (vals.size() < 3) return;
-                    int low = vals[0].trimmed().toInt();
-                    int high = vals[1].trimmed().toInt();
-                    int step = vals[2].trimmed().toInt();
-                    if (step > 0)
-                        pan->setRfGainInfo(low, high, step);
-                });
-                qCDebug(lcProtocol) << "RadioModel: claimed panadapter" << panId;
-                emit panadapterAdded(pan);
+                ensureOwnedPanadapter(panId);
             }
             handlePanadapterStatus(panId, kvs);
         }
@@ -2638,23 +2697,35 @@ void RadioModel::onStatusReceived(const QString& object,
             // The waterfallId is set on PanadapterModel by the "display pan" status
             // message which contains "waterfall=0x42xxxxxx".
             bool ours = false;
+            PanadapterModel* ownerPan = nullptr;
             for (auto* pan : m_panadapters) {
-                if (pan->waterfallId() == wfId) { ours = true; break; }
+                if (pan->waterfallId() == wfId) {
+                    ours = true;
+                    ownerPan = pan;
+                    break;
+                }
             }
+            const QString parentPanId = normalizePanadapterId(kvs.value(QStringLiteral("panadapter")));
+            if (!ownerPan && !parentPanId.isEmpty())
+                ownerPan = m_panadapters.value(parentPanId, nullptr);
             if (!ours) {
                 // Not yet associated via display pan status — check client_handle
                 if (!kvs.contains("client_handle"))
                     return;  // defer — can't confirm ownership yet
-                quint32 owner = kvs["client_handle"].toUInt(nullptr, 16);
+                quint32 owner = parseClientHandle(kvs["client_handle"]);
                 if (owner != clientHandle())
                     return;  // not our waterfall
-                // Own it but don't force-associate — the display pan status
-                // will set the correct waterfallId on the right pan.
+                if (!ownerPan && !parentPanId.isEmpty())
+                    ownerPan = ensureOwnedPanadapter(parentPanId);
+                if (ownerPan && ownerPan->waterfallId().isEmpty())
+                    ownerPan->setWaterfallId(wfId);
                 ours = true;
             }
 
-            if (activeWfId().isEmpty())
-                setActiveWfId(wfId);
+            if (ownerPan)
+                ownerPan->applyWaterfallStatus(kvs);
+            if (activeWfId().isEmpty() && ownerPan == activePanadapter())
+                ownerPan->setWaterfallId(wfId);
             updateStreamFilters();
             qCDebug(lcProtocol) << "RadioModel: claimed waterfall" << wfId;
         }
@@ -3384,16 +3455,9 @@ void RadioModel::configureWaterfall()
     });
 }
 
-// ─── Standalone mode: create panadapter + slice ───────────────────────────────
-//
-// SmartSDR API 1.4.0.0 standalone flow:
-//   1. "panadapter create"
-//      → R|0|pan=0x40000000         (KV response; key is "pan")
-//   2. "slice create pan=0x40000000 freq=14.225000 antenna=ANT1 mode=USB"
-//      → R|0|<slice_index>          (decimal, e.g. "0")
-//   3. Radio emits S messages for the new panadapter and slice.
-//
-// Note: "display panafall create" (v2+ syntax) returns 0x50000016 on this firmware.
+// Standalone mode: create panadapter + slice.
+// FlexLib v4.2.18 uses "display panafall create x=100 y=100"; keep the
+// legacy "panadapter create" as a fallback for older firmware.
 
 void RadioModel::createDefaultSlice(const QString& freqMhz,
                                      const QString& mode,
@@ -3402,50 +3466,76 @@ void RadioModel::createDefaultSlice(const QString& freqMhz,
     qCDebug(lcProtocol) << "RadioModel: standalone mode — creating panadapter + slice"
              << freqMhz << mode << antenna;
 
-    sendCmd("panadapter create",
-        [this, freqMhz, mode, antenna](int code, const QString& body) {
-            if (code != 0) {
-                qCWarning(lcProtocol) << "RadioModel: panadapter create failed, code" << Qt::hex << code
-                           << "body:" << body;
+    const auto handleCreatedPan =
+        [this, freqMhz, mode, antenna](const QString& source,
+                                       int code,
+                                       const QString& body) -> bool {
+        if (code != 0) {
+            qCWarning(lcProtocol) << "RadioModel:" << source << "failed, code"
+                                  << Qt::hex << code << "body:" << body;
+            emit panadapterLimitReached(maxPanadapters(), m_model);
+            return false;
+        }
+
+        qCDebug(lcProtocol) << "RadioModel:" << source << "response body:" << body;
+        const QString panId = parsePanadapterCreateId(body);
+        if (panId.isEmpty()) {
+            qCWarning(lcProtocol) << "RadioModel:" << source
+                                  << "returned empty pan_id";
+            return false;
+        }
+
+        qCDebug(lcProtocol) << "RadioModel: panadapter created, pan_id =" << panId;
+        createDefaultSliceOnPan(panId, freqMhz, mode, antenna);
+        return true;
+    };
+
+    sendCmd("display panafall create x=100 y=100",
+        [this, handleCreatedPan](int code, const QString& body) {
+            if (code == 0) {
+                handleCreatedPan(QStringLiteral("display panafall create"), code, body);
                 return;
             }
 
-            qCDebug(lcProtocol) << "RadioModel: panadapter create response body:" << body;
-
-            // Response body may be a bare hex ID ("0x40000000") or KV ("pan=0x40000000").
-            // Parse KVs first; fall back to treating the whole body as the ID.
-            QString panId;
-            const QMap<QString, QString> kvs = CommandParser::parseKVs(body);
-            if (kvs.contains("pan")) {
-                panId = kvs["pan"];
-            } else if (kvs.contains("id")) {
-                panId = kvs["id"];
-            } else {
-                panId = body.trimmed();
-            }
-
-            qCDebug(lcProtocol) << "RadioModel: panadapter created, pan_id =" << panId;
-
-            if (panId.isEmpty()) {
-                qCWarning(lcProtocol) << "RadioModel: panadapter create returned empty pan_id";
-                return;
-            }
-
-            const QString sliceCmd =
-                QString("slice create pan=%1 freq=%2 antenna=%3 mode=%4")
-                    .arg(panId, freqMhz, antenna, mode);
-
-            sendCmd(sliceCmd,
-                [panId](int code2, const QString& body2) {
-                    if (code2 != 0) {
-                        qCWarning(lcProtocol) << "RadioModel: slice create failed, code"
-                                   << Qt::hex << code2 << "body:" << body2;
-                    } else {
-                        qCDebug(lcProtocol) << "RadioModel: slice created, index =" << body2;
-                        // Radio now emits S|slice N ... status messages;
-                        // handleSliceStatus() picks them up automatically.
-                    }
+            qCWarning(lcProtocol) << "RadioModel: display panafall create failed, code"
+                                  << Qt::hex << code << "body:" << body
+                                  << "- trying legacy panadapter create";
+            sendCmd("panadapter create",
+                [handleCreatedPan](int legacyCode, const QString& legacyBody) {
+                    handleCreatedPan(QStringLiteral("panadapter create"),
+                                     legacyCode,
+                                     legacyBody);
                 });
+        });
+}
+
+void RadioModel::createDefaultSliceOnPan(const QString& panId,
+                                         const QString& freqMhz,
+                                         const QString& mode,
+                                         const QString& antenna)
+{
+    auto* pan = ensureOwnedPanadapter(panId);
+    if (!pan) {
+        qCWarning(lcProtocol) << "RadioModel: cannot create slice without panadapter id";
+        return;
+    }
+
+    const QString sliceCmd =
+        QString("slice create pan=%1 freq=%2 antenna=%3 mode=%4")
+            .arg(pan->panId(), freqMhz, antenna, mode);
+
+    sendCmd(sliceCmd,
+        [this, panId = pan->panId()](int code, const QString& body) {
+            if (code != 0) {
+                qCWarning(lcProtocol) << "RadioModel: slice create failed for pan"
+                                      << panId << "code" << Qt::hex << code
+                                      << "body:" << body;
+                emit sliceCreateFailed(maxSlices(), m_model);
+            } else {
+                qCDebug(lcProtocol) << "RadioModel: slice created, index =" << body;
+                // Radio now emits S|slice N ... status messages;
+                // handleSliceStatus() picks them up automatically.
+            }
         });
 }
 

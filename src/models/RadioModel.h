@@ -428,6 +428,7 @@ private:
     using ResponseCallback = RadioConnection::ResponseCallback;
     quint32 sendCmd(const QString& command, ResponseCallback cb = nullptr);
     quint32 clientHandle() const;
+    PanadapterModel* ensureOwnedPanadapter(const QString& panId);
     void updateStreamFilters();
     void handleGpsStatus(const QString& rawBody);
     void emitOtherClientsChanged();
@@ -436,6 +437,10 @@ private:
     void createDefaultSlice(const QString& freqMhz = "14.225000",
                             const QString& mode    = "USB",
                             const QString& antenna = "ANT1");
+    void createDefaultSliceOnPan(const QString& panId,
+                                 const QString& freqMhz,
+                                 const QString& mode,
+                                 const QString& antenna);
 
     RadioConnection*  m_connection{nullptr};
     QThread*          m_connThread{nullptr};
@@ -523,6 +528,7 @@ private:
 
     QMap<QString, PanadapterModel*> m_panadapters;  // panId → model
     QString m_activePanId;       // currently active panadapter
+    QMap<QString, QMap<QString, QString>> m_pendingPanStatuses;
 
     bool    m_hasAmplifier{false};  // true if a power amp (PGXL) is detected
     QString m_ampHandle;             // amplifier handle for commands
