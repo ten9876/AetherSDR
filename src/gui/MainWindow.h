@@ -161,6 +161,9 @@ private:
     void routeCwDecoderOutput();  // wire CW decoder to the pan owning the active slice
     SpectrumWidget* spectrumForSlice(SliceModel* s) const;
     void wireVfoWidget(VfoWidget* w, SliceModel* s);
+    // Push the active RX slice's filter passband (converted from
+    // protocol offsets to audio-domain low/high) to the RX EQ canvases.
+    void pushRxFilterCutoffsToEq();
     void enableNr2WithWisdom();  // Wisdom-gated NR2 enable (shared by VFO + overlay)
     void updateNr2Availability(); // Disable NR2 when Opus is active (#1597)
     void registerShortcutActions();
@@ -208,7 +211,7 @@ private:
 
     BandSnapshot captureCurrentBandState() const;
     void restoreBandState(const BandSnapshot& snap);
-    void startSwrSweep(int requestedSliceId = -1);
+    void startSwrSweep(int requestedSliceId = -1, int sweepPowerWatts = 1);
     void clearSwrSweepPlot();
     void advanceSwrSweep();
     void finishSwrSweep(bool aborted, const QString& reason = {});
@@ -408,6 +411,7 @@ private:
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     QTimer* m_bsExpiryTimer{nullptr};    // band-stack bookmark auto-expiry, started on connect only (#1471)
     QTimer* m_bsAutoSaveTimer{nullptr};  // band-stack dwell auto-save (single-shot per dwell window)
+    QTimer* m_agManualConnectTimer{nullptr}; // deferred AG manual connect — cancelled on disconnect
     class CwxLocalKeyer* m_cwxLocalKeyer{nullptr};  // local Morse keyer for CWX sidetone
     std::unique_ptr<class IambicKeyer> m_iambicKeyer;  // local iambic state machine for paddle sidetone
     qint64 m_bsConnectGraceUntilMs{0};   // suppress auto-save right after connect
@@ -447,6 +451,8 @@ private:
         qint64 sampleNotBeforeMs{0};
         qint64 phaseStartedAtMs{0};
         float minimumForwardPowerW{0.0f};
+        int originalTunePower{0};
+        int sweepTunePower{1};
         bool tuneStarted{false};
         bool finalAborted{false};
         bool clearPlotOnFinish{false};

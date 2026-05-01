@@ -176,6 +176,8 @@ QJsonObject buildAudioDevicesSnapshot(const AudioEngine* audio, const QJsonObjec
 
     const QJsonObject transmit = snapshot["transmit"].toObject();
     const QJsonObject mic = transmit["mic"].toObject();
+    const QJsonObject radio = snapshot["radio"].toObject();
+    const QJsonObject remoteAudioRx = radio["remote_audio_rx"].toObject();
     const bool pcAudioEnabled = isSavedTrue(QStringLiteral("PcAudioEnabled"), QStringLiteral("True"));
 
     QJsonObject rxRoute;
@@ -183,6 +185,13 @@ QJsonObject buildAudioDevicesSnapshot(const AudioEngine* audio, const QJsonObjec
     rxRoute["source"] = "PcAudioEnabled app setting";
     rxRoute["selected_output_device"] = selectedOutput.description();
     rxRoute["radio_lineout_available"] = true;
+    rxRoute["remote_audio_rx_stream_id"] = remoteAudioRx["stream_id"];
+    rxRoute["remote_audio_rx_stream_id_known"] = remoteAudioRx["stream_id_known"];
+    rxRoute["remote_audio_rx_create_pending"] = remoteAudioRx["create_pending"];
+    rxRoute["remote_audio_rx_remove_requested"] = remoteAudioRx["remove_requested"];
+    rxRoute["remote_audio_rx_status_seen"] = remoteAudioRx["status_seen"];
+    rxRoute["remote_audio_rx_owned_by_us"] = remoteAudioRx["owned_by_us"];
+    rxRoute["remote_audio_rx_expected"] = remoteAudioRx["stream_expected"];
     obj["rx_route"] = rxRoute;
 
     QJsonObject txRoute;
@@ -199,7 +208,6 @@ QJsonObject buildAudioDevicesSnapshot(const AudioEngine* audio, const QJsonObjec
     volumes["pc_master_volume_pct"] = AppSettings::instance().value("MasterVolume", "100").toInt();
     volumes["pc_mic_gain_pct"] = AppSettings::instance().value("PcMicGain", 100).toInt();
 
-    const QJsonObject radio = snapshot["radio"].toObject();
     const QJsonObject radioAudio = radio["audio_outputs"].toObject();
     volumes["radio_lineout_gain"] = radioAudio["lineout_gain"];
     volumes["radio_lineout_mute"] = radioAudio["lineout_mute"];

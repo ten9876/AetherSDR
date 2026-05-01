@@ -38,11 +38,27 @@ public:
     // Safe to call whether or not the window is currently visible.
     void showForPath(ClientEqApplet::Path path);
 
+    // Push the radio's TX low/high filter cutoffs to the canvas as
+    // dashed yellow guide lines.  No-op when the editor's current path
+    // is RX.  Pass 0 for either edge to suppress that guide.
+    void setTxFilterCutoffs(int lowHz, int highHz);
+
+    // Push the active RX slice's filter passband (audio-frequency
+    // domain) to the canvas.  No-op when the editor's current path is TX.
+    // Cached so RX → TX → RX path swaps restore the correct guides.
+    void setRxFilterCutoffs(int audioLowHz, int audioHighHz);
+
 signals:
     // Fired when the bypass button is toggled in the editor. The docked
     // applet subscribes so its Enable toggle stays in sync — both widgets
     // read/write the same ClientEq::enabled flag underneath.
     void bypassToggled(ClientEqApplet::Path path, bool bypassed);
+
+    // Fired live during a cutoff-line drag.  Audio-domain Hz; MainWindow
+    // converts back to TX-filter writes (path = Tx) or active-slice
+    // filter writes with mode-aware offset reflection (path = Rx).
+    void cutoffsDragRequested(ClientEqApplet::Path path,
+                              int audioLowHz, int audioHighHz);
 
 protected:
     void closeEvent(QCloseEvent* ev) override;
@@ -68,6 +84,11 @@ private:
 
     AudioEngine*               m_audio{nullptr};
     ClientEqApplet::Path       m_path{ClientEqApplet::Path::Rx};
+    int                        m_txFilterLowCutHz{0};
+    int                        m_txFilterHighCutHz{0};
+    int                        m_rxFilterLowCutHz{0};
+    int                        m_rxFilterHighCutHz{0};
+    int                        m_savedSmoothingFraction{96};
     // The frameless title bar carries the active path label (e.g.
     // "Aetherial Parametric EQ — TX").  Held as a void* + cast at use
     // site to keep the inline EditorFramelessTitleBar class out of the

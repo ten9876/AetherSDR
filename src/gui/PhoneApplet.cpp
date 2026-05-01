@@ -287,12 +287,21 @@ void PhoneApplet::buildUI()
 
         m_lowCutDown = new PhoneTriBtn(PhoneTriBtn::Left);
         m_lowCutDown->setAccessibleName("TX low cut decrease");
+        // Step buttons snap the value to the next multiple of 50 Hz in
+        // the chosen direction (rather than the old +/-50 from current).
+        // Example: at 87 Hz, ▲ → 100, ▼ → 50.  The radio accepts any
+        // integer Hz so this is purely a UI nicety.
         auto lowCutDown = [this]() {
-            if (m_model) m_model->setTxFilterLow(qMax(0, m_model->txFilterLow() - 50));
+            if (!m_model) return;
+            const int v = m_model->txFilterLow();
+            const int snapped = ((v - 1) / 50) * 50;
+            m_model->setTxFilterLow(qMax(0, snapped));
         };
         auto lowCutUp = [this]() {
-            if (m_model) m_model->setTxFilterLow(
-                qMin(m_model->txFilterHigh() - 50, m_model->txFilterLow() + 50));
+            if (!m_model) return;
+            const int v = m_model->txFilterLow();
+            const int snapped = ((v / 50) + 1) * 50;
+            m_model->setTxFilterLow(qMin(m_model->txFilterHigh() - 50, snapped));
         };
         connect(m_lowCutDown, &QPushButton::clicked, this, lowCutDown);
         lowRow->addWidget(m_lowCutDown);
@@ -335,12 +344,16 @@ void PhoneApplet::buildUI()
         m_highCutDown = new PhoneTriBtn(PhoneTriBtn::Left);
         m_highCutDown->setAccessibleName("TX high cut decrease");
         auto highCutDown = [this]() {
-            if (m_model) m_model->setTxFilterHigh(
-                qMax(m_model->txFilterLow() + 50, m_model->txFilterHigh() - 50));
+            if (!m_model) return;
+            const int v = m_model->txFilterHigh();
+            const int snapped = ((v - 1) / 50) * 50;
+            m_model->setTxFilterHigh(qMax(m_model->txFilterLow() + 50, snapped));
         };
         auto highCutUp = [this]() {
-            if (m_model) m_model->setTxFilterHigh(
-                qMin(10000, m_model->txFilterHigh() + 50));
+            if (!m_model) return;
+            const int v = m_model->txFilterHigh();
+            const int snapped = ((v / 50) + 1) * 50;
+            m_model->setTxFilterHigh(qMin(10000, snapped));
         };
         connect(m_highCutDown, &QPushButton::clicked, this, highCutDown);
         highRow->addWidget(m_highCutDown);

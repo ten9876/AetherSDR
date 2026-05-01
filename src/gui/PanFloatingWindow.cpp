@@ -20,6 +20,7 @@ PanFloatingWindow::PanFloatingWindow(QWidget* parent)
     // constructor bitmask and need an explicit call before show().
     setWindowFlags(flags);
     setMinimumSize(400, 300);
+    setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet(darkThemeStylesheet());
 
     m_layout = new QVBoxLayout(this);

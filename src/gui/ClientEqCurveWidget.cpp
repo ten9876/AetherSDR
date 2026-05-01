@@ -18,6 +18,12 @@ namespace {
 constexpr float kMinHz   = 20.0f;
 constexpr float kMaxHz   = 20000.0f;
 constexpr float kDbRange = 18.0f;   // ±18 dB vertical extent
+// Bottom strip showing band-plan-style audio modulation regions
+// (E-SSB / SSB / AM-FM).  Reserved at the bottom of the drawing
+// rect; freq labels move above it; analyzer + curves clip to
+// (h - kAudioBandStripH).  Mirrors ClientEqCurveWidget::kAudioBandStripPx
+// for the derived editor canvas's hit-test logic.
+constexpr int   kAudioBandStripH = ClientEqCurveWidget::kAudioBandStripPx;
 
 const float kGridFreqs[] = {
     20.0f, 50.0f, 100.0f, 200.0f, 500.0f,
@@ -94,7 +100,9 @@ void ClientEqCurveWidget::setFftBinsDb(const std::vector<float>& binsDb,
 
     // Peak-hold trail: per-bin running max, decaying ~10 dB/sec at 25 Hz
     // updates so recent resonances stay visible without permanent clutter.
-    // Frozen mode skips decay so the trace sticks at the max.
+    // Frozen mode skips decay so the trace sticks at the max.  Operates on
+    // raw bins so peak-detection is sample-accurate; visual smoothing of
+    // the peak trace happens in applySmoothing() below.
     constexpr float kPeakDecayDb = 0.5f;
     constexpr float kPeakFloorDb = -100.0f;
     if (m_peakHoldDb.size() != m_fftBinsDb.size()) {
@@ -105,12 +113,85 @@ void ClientEqCurveWidget::setFftBinsDb(const std::vector<float>& binsDb,
         const float decayed = m_peakHoldDb[i] - decayStep;
         m_peakHoldDb[i] = std::max(decayed, m_fftBinsDb[i]);
     }
+
+    // Smoothing runs AFTER peak-hold update so both buffers reflect the
+    // current frame.  Generates m_fftBinsDbSmoothed and m_peakHoldDbSmoothed.
+    applySmoothing();
+
     update();
 }
 
 void ClientEqCurveWidget::setPeakHoldFrozen(bool frozen)
 {
     m_peakHoldFrozen = frozen;
+}
+
+void ClientEqCurveWidget::setSmoothingOctaveFraction(int n)
+{
+    if (m_smoothingFraction == n) return;
+    m_smoothingFraction = n;
+    applySmoothing();
+    update();
+}
+
+void ClientEqCurveWidget::setFilterCutoffs(int lowHz, int highHz)
+{
+    if (m_filterLowCutHz == lowHz && m_filterHighCutHz == highHz) return;
+    m_filterLowCutHz = lowHz;
+    m_filterHighCutHz = highHz;
+    update();
+}
+
+std::vector<float> ClientEqCurveWidget::applyFractionalOctaveSmoothing(
+    const std::vector<float>& binsDb, double sampleRate, int octaveFraction)
+{
+    const int N = static_cast<int>(binsDb.size());
+    if (N < 2 || octaveFraction <= 0 || octaveFraction >= 96)
+        return binsDb;
+
+    // Window half-width in octaves: ±1/(2N).
+    const double halfOct = 1.0 / (2.0 * static_cast<double>(octaveFraction));
+    const double mulHi   = std::exp2( halfOct);
+    const double mulLo   = std::exp2(-halfOct);
+    // bin i frequency = i * sampleRate / fftSize, where fftSize = 2*(N-1)
+    const double binHz   = sampleRate / static_cast<double>((N - 1) * 2);
+
+    std::vector<float> out(N, 0.0f);
+    out[0] = binsDb[0];
+    for (int i = 1; i < N; ++i) {
+        const double fc = i * binHz;
+        const int jLo = std::max(0,
+            static_cast<int>(std::floor(fc * mulLo / binHz)));
+        const int jHi = std::min(N - 1,
+            static_cast<int>(std::ceil (fc * mulHi / binHz)));
+
+        // Linear-power average → back to dB.  Matches FabFilter Pro-Q
+        // / Voxengo SPAN convention.
+        double sumLin = 0.0;
+        const int span = jHi - jLo + 1;
+        for (int j = jLo; j <= jHi; ++j) {
+            sumLin += std::pow(10.0, static_cast<double>(binsDb[j]) / 10.0);
+        }
+        const double meanLin = sumLin / static_cast<double>(span);
+        out[i] = static_cast<float>(10.0 * std::log10(meanLin + 1e-12));
+    }
+    return out;
+}
+
+void ClientEqCurveWidget::applySmoothing()
+{
+    if (m_smoothingFraction >= 96 || m_fftBinsDb.size() < 2) {
+        m_fftBinsDbSmoothed = m_fftBinsDb;
+        m_peakHoldDbSmoothed = m_peakHoldDb;
+        return;
+    }
+    m_fftBinsDbSmoothed = applyFractionalOctaveSmoothing(
+        m_fftBinsDb, m_fftSampleRate, m_smoothingFraction);
+    // Smooth peak-hold for display too — peak-hold logic still operates
+    // on raw bins for max tracking, but the visible trace gets the same
+    // smoothing as the live FFT so the user sees a consistent picture.
+    m_peakHoldDbSmoothed = applyFractionalOctaveSmoothing(
+        m_peakHoldDb, m_fftSampleRate, m_smoothingFraction);
 }
 
 float ClientEqCurveWidget::freqToX(float hz) const
@@ -131,14 +212,16 @@ float ClientEqCurveWidget::xToFreq(float x) const
 
 float ClientEqCurveWidget::dbToY(float db) const
 {
-    const float h = static_cast<float>(height());
+    // Reserve the bottom strip for the audio band-plan band — curves
+    // and handles clip above it.
+    const float h = static_cast<float>(height() - kAudioBandStripH);
     const float norm = (kDbRange - db) / (2.0f * kDbRange);  // +db = top
     return std::clamp(norm * h, 0.0f, h);
 }
 
 float ClientEqCurveWidget::yToDb(float y) const
 {
-    const float h = static_cast<float>(height());
+    const float h = static_cast<float>(height() - kAudioBandStripH);
     const float norm = std::clamp(y / h, 0.0f, 1.0f);
     return kDbRange - norm * (2.0f * kDbRange);
 }
@@ -185,6 +268,26 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
         p.drawLine(0, static_cast<int>(y), r.width(), static_cast<int>(y));
     }
 
+    // TX filter cutoff guides — faint dashed yellow vertical lines at
+    // the radio's current Phone low-cut and high-cut values, so the user
+    // can see where their EQ shape lands relative to what's actually
+    // passed to the radio.  Drawn behind the EQ curves and analyzer.
+    // Cutoffs of 0 mean "not set / RX path" — skip drawing.
+    if (m_filterLowCutHz > 0 || m_filterHighCutHz > 0) {
+        QPen pen(QColor(220, 200, 80, 110));
+        pen.setWidth(1);
+        pen.setStyle(Qt::DashLine);
+        p.setPen(pen);
+        if (m_filterLowCutHz > 0) {
+            const float x = freqToX(static_cast<float>(m_filterLowCutHz));
+            p.drawLine(static_cast<int>(x), 0, static_cast<int>(x), r.height());
+        }
+        if (m_filterHighCutHz > 0) {
+            const float x = freqToX(static_cast<float>(m_filterHighCutHz));
+            p.drawLine(static_cast<int>(x), 0, static_cast<int>(x), r.height());
+        }
+    }
+
     // Freq labels along the bottom, tiny.
     {
         QFont f = p.font();
@@ -197,7 +300,7 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
             const int w = p.fontMetrics().horizontalAdvance(lbl);
             int x = static_cast<int>(freqToX(hz)) - w / 2;
             x = std::clamp(x, 2, r.width() - w - 2);
-            p.drawText(x, r.height() - 2, lbl);
+            p.drawText(x, r.height() - kAudioBandStripH - 2, lbl);
             (void)fh;
         }
     }
@@ -205,11 +308,17 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
     // Live FFT analyzer — filled gradient showing what's actually flowing
     // through the audio path post-EQ.  Drawn early so every EQ-visual
     // layer sits on top.  Scale: -70 dB → bottom, 0 dB → top.
+    // Filled region uses fractional-octave-smoothed bins (m_fftBinsDbSmoothed)
+    // so the visual matches the user's smoothing selection.  Peak-hold trace
+    // below stays on raw bins so transient peaks aren't masked.
     if (!m_fftBinsDb.empty()) {
         const int bins = static_cast<int>(m_fftBinsDb.size());
+        const std::vector<float>& drawBins = (m_fftBinsDbSmoothed.size() == m_fftBinsDb.size())
+            ? m_fftBinsDbSmoothed : m_fftBinsDb;
         const float minDb = -70.0f;
         const float maxDb =   0.0f;
-        const float h = static_cast<float>(r.height());
+        // Clip the analyzer to above the audio band-plan strip.
+        const float h = static_cast<float>(r.height() - kAudioBandStripH);
         auto dbfsToY = [&](float db) {
             const float n = (db - minDb) / (maxDb - minDb);
             return (1.0f - std::clamp(n, 0.0f, 1.0f)) * h;
@@ -226,7 +335,7 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
                             static_cast<float>((bins - 1) * 2);
             const float x = freqToX(f);
             if (x < 0 || x > r.width()) continue;
-            const float y = dbfsToY(m_fftBinsDb[i]);
+            const float y = dbfsToY(drawBins[i]);
             if (!started) { fftPath.lineTo(x, h); started = true; }
             fftPath.lineTo(x, y);
             lastX = x;
@@ -251,8 +360,12 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
         // Peak-hold line — same dBFS scale as the live spectrum.  Drawn
         // on top so resonances and harsh peaks stand out as the user
         // tunes.  Soft off-white reads cleanly against the cool-cyan
-        // analyzer.
-        if (!m_peakHoldDb.empty() && m_peakHoldDb.size() == m_fftBinsDb.size()) {
+        // analyzer.  Reads the smoothed peak-hold buffer so changing
+        // the Smoothing combo visibly affects the dominant trace.
+        const std::vector<float>& peakBins =
+            (m_peakHoldDbSmoothed.size() == m_peakHoldDb.size())
+                ? m_peakHoldDbSmoothed : m_peakHoldDb;
+        if (!peakBins.empty() && peakBins.size() == m_fftBinsDb.size()) {
             QPainterPath peakPath;
             bool peakStarted = false;
             for (int i = 1; i < bins; ++i) {
@@ -261,7 +374,7 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
                                 static_cast<float>((bins - 1) * 2);
                 const float x = freqToX(f);
                 if (x < 0 || x > r.width()) continue;
-                const float y = dbfsToY(m_peakHoldDb[i]);
+                const float y = dbfsToY(peakBins[i]);
                 if (!peakStarted) { peakPath.moveTo(x, y); peakStarted = true; }
                 else              peakPath.lineTo(x, y);
             }
@@ -408,6 +521,52 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
         p.setBrush(c);
         p.setPen(QPen(QColor("#08121d"), 1.5));
         p.drawEllipse(center, 4.0, 4.0);
+    }
+
+    // Audio band-plan strip — fixed segments along the bottom showing
+    // common modulation regions.  Colors and license blend match the
+    // panadapter band plan (CW=#3060ff, Phone=#ff8000, Data=#c03030;
+    // 0.40 = E,G class blend, 0.20 = E-only blend).  Drawn last so it
+    // covers any analyzer / curve content underneath.
+    {
+        struct Seg {
+            float lowHz, highHz;
+            QColor color;
+            float blend;
+            const char* label;
+        };
+        static const Seg segs[] = {
+            {   20.0f,    99.0f, QColor(0x30, 0x60, 0xff), 0.40f, "E-SSB"   },
+            {  100.0f,  3000.0f, QColor(0xff, 0x80, 0x00), 0.40f, "SSB"     },
+            { 3000.0f,  6000.0f, QColor(0x30, 0x60, 0xff), 0.40f, "E-SSB"   },
+            { 6000.0f, 20000.0f, QColor(0xc0, 0x30, 0x30), 0.40f, "AM / FM" },
+        };
+        const QColor bg(0x0a, 0x0a, 0x14);
+        const int stripY = r.height() - kAudioBandStripH;
+
+        QFont stripF = p.font();
+        stripF.setPointSize(7);
+        stripF.setBold(true);
+        p.setFont(stripF);
+
+        for (const auto& seg : segs) {
+            const int x1 = static_cast<int>(freqToX(seg.lowHz));
+            const int x2 = static_cast<int>(freqToX(seg.highHz));
+            if (x2 <= x1) continue;
+            QColor fill(
+                static_cast<int>(seg.color.red()   * seg.blend + bg.red()   * (1.0f - seg.blend)),
+                static_cast<int>(seg.color.green() * seg.blend + bg.green() * (1.0f - seg.blend)),
+                static_cast<int>(seg.color.blue()  * seg.blend + bg.blue()  * (1.0f - seg.blend)),
+                255);
+            p.fillRect(x1, stripY, x2 - x1, kAudioBandStripH, fill);
+            p.setPen(QColor(0x0f, 0x0f, 0x1a, 200));
+            p.drawLine(x1, stripY, x1, stripY + kAudioBandStripH);
+            if (x2 - x1 > 24) {
+                p.setPen(Qt::white);
+                p.drawText(QRect(x1, stripY, x2 - x1, kAudioBandStripH),
+                           Qt::AlignCenter, QString::fromLatin1(seg.label));
+            }
+        }
     }
 }
 

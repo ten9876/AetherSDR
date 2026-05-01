@@ -4,6 +4,7 @@
 #include "ClientEqIconRow.h"
 #include "ClientEqOutputFader.h"
 #include "ClientEqParamRow.h"
+#include "ComboStyle.h"
 #include "EditorFramelessTitleBar.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
@@ -90,6 +91,48 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
         hint->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
         row->addWidget(hint, 1);
 
+        // Smoothing — fractional-octave display smoothing for the FFT
+        // analyzer trace.  Doesn't affect EQ math, just the visual.
+        // Persisted globally (single user preference, shared between RX
+        // and TX editors).
+        auto* smoothingLbl = new QLabel("Smoothing:");
+        smoothingLbl->setStyleSheet(
+            "QLabel { color: #c8d8e8; font-size: 11px; font-weight: bold; }");
+        row->addWidget(smoothingLbl);
+
+        auto* smoothingCombo = new QComboBox;
+        smoothingCombo->addItem("Off (1/96)", 96);
+        smoothingCombo->addItem("1/24",       24);
+        smoothingCombo->addItem("1/12",       12);
+        smoothingCombo->addItem("1/6",         6);
+        smoothingCombo->addItem("1/3",         3);
+        smoothingCombo->setFixedHeight(24);
+        smoothingCombo->setToolTip(
+            "Fractional-octave smoothing applied to the analyzer trace.\n"
+            "Lower fraction = smoother (1/3 = most, 1/96 = off).\n"
+            "Affects display only — EQ math is unchanged.");
+        AetherSDR::applyComboStyle(smoothingCombo);
+
+        const int savedFraction = AppSettings::instance()
+            .value("ClientEqSmoothingFraction", "96").toInt();
+        const int savedIdx = smoothingCombo->findData(savedFraction);
+        smoothingCombo->setCurrentIndex(savedIdx >= 0 ? savedIdx : 0);
+        // Cache the saved fraction on a member so it can be applied to
+        // m_canvas later — the canvas isn't constructed yet at this point
+        // in the toolbar setup.  Pushing to m_canvas here was a no-op
+        // because m_canvas is still nullptr.
+        m_savedSmoothingFraction = savedFraction;
+
+        connect(smoothingCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this, smoothingCombo](int idx) {
+            const int n = smoothingCombo->itemData(idx).toInt();
+            if (m_canvas) m_canvas->setSmoothingOctaveFraction(n);
+            AppSettings::instance().setValue(
+                "ClientEqSmoothingFraction", QString::number(n));
+            AppSettings::instance().save();
+        });
+        row->addWidget(smoothingCombo);
+
         // Peak Hold — when checked, the analyzer's per-bin peak trace
         // stops decaying so the highest level seen at each frequency
         // stays put.  Useful for spotting resonances while tuning.
@@ -134,19 +177,7 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
             "• Chebyshev — steeper transition, 1 dB passband ripple\n"
             "• Bessel — linear phase, gentler rolloff\n"
             "• Elliptic — steepest transition, ripple in both bands");
-        m_familyCombo->setStyleSheet(
-            "QComboBox {"
-            "  background: #0e1b28; color: #c8d8e8;"
-            "  border: 1px solid #243a4e; border-radius: 3px;"
-            "  padding: 2px 8px; font-size: 11px; font-weight: bold;"
-            "}"
-            "QComboBox:hover { background: #1a2a3a; }"
-            "QComboBox::drop-down { border: none; width: 16px; }"
-            "QComboBox QAbstractItemView {"
-            "  background: #0e1b28; color: #c8d8e8;"
-            "  selection-background-color: #1a3a5a;"
-            "  border: 1px solid #243a4e;"
-            "}");
+        AetherSDR::applyComboStyle(m_familyCombo);
         connect(m_familyCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, [this](int idx) {
             ClientEq* eq = (m_path == ClientEqApplet::Path::Rx)
@@ -218,7 +249,17 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
 
     m_canvas = new ClientEqEditorCanvas;
     m_canvas->setAudioEngine(m_audio);
+    // Apply the saved smoothing fraction now that the canvas exists.
+    // The combo box already shows the right value from the toolbar build,
+    // but the canvas needed to be constructed before this push could land.
+    m_canvas->setSmoothingOctaveFraction(m_savedSmoothingFraction);
     eqColumn->addWidget(m_canvas, 1);
+    // Forward cutoff-line drag events as a path-tagged signal so MainWindow
+    // can dispatch to TransmitModel (TX) or the active SliceModel (RX).
+    connect(m_canvas, &ClientEqEditorCanvas::cutoffsDragged,
+            this, [this](int audioLow, int audioHigh) {
+        emit cutoffsDragRequested(m_path, audioLow, audioHigh);
+    });
 
     m_paramRow = new ClientEqParamRow;
     eqColumn->addWidget(m_paramRow);
@@ -354,11 +395,37 @@ void ClientEqEditor::showForPath(ClientEqApplet::Path path)
         static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
     setWindowTitle(title);
 
+    // Re-apply the cached cutoffs for whichever path we're switching to,
+    // so RX/TX swaps restore the correct dashed guides without waiting
+    // for the next slice/filter event.
+    if (m_canvas) {
+        if (path == ClientEqApplet::Path::Rx)
+            m_canvas->setFilterCutoffs(m_rxFilterLowCutHz, m_rxFilterHighCutHz);
+        else
+            m_canvas->setFilterCutoffs(m_txFilterLowCutHz, m_txFilterHighCutHz);
+    }
+
     if (!isVisible()) {
         show();
     }
     raise();
     activateWindow();
+}
+
+void ClientEqEditor::setTxFilterCutoffs(int lowHz, int highHz)
+{
+    m_txFilterLowCutHz = lowHz;
+    m_txFilterHighCutHz = highHz;
+    if (m_canvas && m_path == ClientEqApplet::Path::Tx)
+        m_canvas->setFilterCutoffs(lowHz, highHz);
+}
+
+void ClientEqEditor::setRxFilterCutoffs(int audioLowHz, int audioHighHz)
+{
+    m_rxFilterLowCutHz = audioLowHz;
+    m_rxFilterHighCutHz = audioHighHz;
+    if (m_canvas && m_path == ClientEqApplet::Path::Rx)
+        m_canvas->setFilterCutoffs(audioLowHz, audioHighHz);
 }
 
 void ClientEqEditor::closeEvent(QCloseEvent* ev)

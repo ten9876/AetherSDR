@@ -477,6 +477,7 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
     const QJsonObject ownership = radio["ownership"].toObject();
     const QJsonObject oscillator = radio["oscillator"].toObject();
     const QJsonObject audioOutputs = radio["audio_outputs"].toObject();
+    const QJsonObject remoteAudioRx = radio["remote_audio_rx"].toObject();
     const QJsonObject filterSharpness = radio["filter_sharpness"].toObject();
     const QJsonObject telemetry = radio["telemetry"].toObject();
     const QJsonObject amplifier = radio["amplifier"].toObject();
@@ -559,6 +560,15 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
                  .arg(audioOutputs["headphone_gain"].toInt())
                  .arg(yesNo(audioOutputs["headphone_mute"].toBool()))
                  .arg(yesNo(audioOutputs["front_speaker_mute"].toBool()));
+    lines << QString("- Remote audio RX: stream `%1`, expected `%2`, pending `%3`, status seen `%4`, owned by us `%5`, compression `%6`")
+                 .arg(orPlaceholder(remoteAudioRx["stream_id"].toString()))
+                 .arg(yesNo(remoteAudioRx["stream_expected"].toBool()))
+                 .arg(yesNo(remoteAudioRx["create_pending"].toBool()))
+                 .arg(yesNo(remoteAudioRx["status_seen"].toBool()))
+                 .arg(yesNo(remoteAudioRx["owned_by_us"].toBool()))
+                 .arg(orPlaceholder(remoteAudioRx["compression"].toString()));
+    lines << QString("- Remote audio route note: %1")
+                 .arg(orPlaceholder(remoteAudioRx["routing_note"].toString()));
     lines << QString("- Oscillator: setting `%1`, locked `%2`, ext `%3`, TCXO `%4`")
                  .arg(orPlaceholder(oscillator["setting"].toString()))
                  .arg(yesNo(oscillator["locked"].toBool()))
@@ -645,6 +655,13 @@ QString SliceTroubleshootingDialog::buildSummary(const QJsonObject& snapshot)
                  .arg(formatPercentValue(audioVolumes["engine_rx_volume_pct"]))
                  .arg(formatBoolValue(audioVolumes["engine_rx_muted"]))
                  .arg(formatBoolValue(audioDevices["rx_streaming"]));
+    lines << QString("- Radio stream route: remote_audio_rx `%1`, expected `%2`, create pending `%3`, remove requested `%4`, status seen `%5`, owned by us `%6`")
+                 .arg(orPlaceholder(rxRoute["remote_audio_rx_stream_id"].toString()))
+                 .arg(formatBoolValue(rxRoute["remote_audio_rx_expected"]))
+                 .arg(formatBoolValue(rxRoute["remote_audio_rx_create_pending"]))
+                 .arg(formatBoolValue(rxRoute["remote_audio_rx_remove_requested"]))
+                 .arg(formatBoolValue(rxRoute["remote_audio_rx_status_seen"]))
+                 .arg(formatBoolValue(rxRoute["remote_audio_rx_owned_by_us"]));
     lines << QString("- TX input route: `%1` (mic `%2`, DAX `%3`), PC mic gain `%4`, TX stream `%5`, DAX TX mode `%6`, DAX radio route `%7`")
                  .arg(orPlaceholder(txRoute["input"].toString(), "Unknown"))
                  .arg(orPlaceholder(txRoute["mic_selection"].toString()))

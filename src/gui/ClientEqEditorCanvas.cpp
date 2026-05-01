@@ -52,6 +52,30 @@ int ClientEqEditorCanvas::hitTestHandle(const QPointF& pos) const
     return best;
 }
 
+ClientEqEditorCanvas::CutoffEdge
+ClientEqEditorCanvas::hitTestCutoffEdge(const QPointF& pos) const
+{
+    constexpr int kHitTol = 5;
+    // Don't intercept clicks in the bottom band-plan strip area.
+    if (pos.y() > height() - kAudioBandStripPx) return CutoffEdge::None;
+
+    const int lo = filterLowCutHz();
+    const int hi = filterHighCutHz();
+    int bestDist = kHitTol + 1;
+    CutoffEdge best = CutoffEdge::None;
+    if (lo > 0) {
+        const int lx = static_cast<int>(freqToX(static_cast<float>(lo)));
+        const int dx = static_cast<int>(std::abs(pos.x() - lx));
+        if (dx <= kHitTol && dx < bestDist) { bestDist = dx; best = CutoffEdge::Low; }
+    }
+    if (hi > 0) {
+        const int hx = static_cast<int>(freqToX(static_cast<float>(hi)));
+        const int dx = static_cast<int>(std::abs(pos.x() - hx));
+        if (dx <= kHitTol && dx < bestDist) { bestDist = dx; best = CutoffEdge::High; }
+    }
+    return best;
+}
+
 void ClientEqEditorCanvas::persist()
 {
     if (m_audio) m_audio->saveClientEqSettings();
@@ -66,6 +90,16 @@ void ClientEqEditorCanvas::mousePressEvent(QMouseEvent* ev)
 
     const int idx = hitTestHandle(ev->position());
     if (idx < 0) {
+        // Cutoff-edge drag has lower priority than band handles, but
+        // higher than clearing selection.  Start a cutoff drag if the
+        // click lands on (or within ~5 px of) one of the dashed lines.
+        const CutoffEdge edge = hitTestCutoffEdge(ev->position());
+        if (edge != CutoffEdge::None) {
+            m_draggingCutoff = edge;
+            setCursor(Qt::SizeHorCursor);
+            ev->accept();
+            return;
+        }
         // Clicking empty canvas clears selection so the icon row + param
         // row lose their highlight. Keeps the UI honest about where focus is.
         setSelectedBand(-1);
@@ -95,7 +129,36 @@ void ClientEqEditorCanvas::mousePressEvent(QMouseEvent* ev)
 
 void ClientEqEditorCanvas::mouseMoveEvent(QMouseEvent* ev)
 {
-    if (m_draggingBand < 0 || !m_eq) { QWidget::mouseMoveEvent(ev); return; }
+    // Cutoff-edge drag — convert mouseX to Hz, clamp, and emit the
+    // updated audio-domain low/high so the editor can write back to
+    // TransmitModel (TX) or the active SliceModel (RX).  The display
+    // updates locally via setFilterCutoffs() so the line tracks the
+    // cursor without waiting for the radio's status echo.
+    if (m_draggingCutoff != CutoffEdge::None) {
+        constexpr int kMinHz = 20;
+        constexpr int kMaxHz = 10000;
+        constexpr int kMinSpan = 50;  // FlexLib's filter-width minimum
+        const int newHz = static_cast<int>(std::round(
+            xToFreq(static_cast<float>(ev->position().x()))));
+        int lo = filterLowCutHz();
+        int hi = filterHighCutHz();
+        if (m_draggingCutoff == CutoffEdge::Low)
+            lo = std::clamp(newHz, kMinHz, std::max(kMinHz, hi - kMinSpan));
+        else
+            hi = std::clamp(newHz, lo + kMinSpan, kMaxHz);
+        setFilterCutoffs(lo, hi);  // local visual update
+        emit cutoffsDragged(lo, hi);
+        ev->accept();
+        return;
+    }
+
+    if (m_draggingBand < 0 || !m_eq) {
+        // Hover state — show size cursor over a cutoff line so the user
+        // knows it's draggable, crosshair otherwise.
+        const CutoffEdge edge = hitTestCutoffEdge(ev->position());
+        setCursor(edge != CutoffEdge::None ? Qt::SizeHorCursor : Qt::CrossCursor);
+        QWidget::mouseMoveEvent(ev); return;
+    }
 
     const auto bp = m_eq->band(m_draggingBand);
     ClientEq::BandParams next = bp;
@@ -133,6 +196,12 @@ void ClientEqEditorCanvas::mouseMoveEvent(QMouseEvent* ev)
 
 void ClientEqEditorCanvas::mouseReleaseEvent(QMouseEvent* ev)
 {
+    if (m_draggingCutoff != CutoffEdge::None) {
+        m_draggingCutoff = CutoffEdge::None;
+        setCursor(Qt::CrossCursor);
+        ev->accept();
+        return;
+    }
     if (m_draggingBand < 0) { QWidget::mouseReleaseEvent(ev); return; }
     m_draggingBand = -1;
     m_dragShift = false;

@@ -60,6 +60,7 @@
 #include "TciApplet.h"
 #include "DaxIqApplet.h"
 #include "AntennaGeniusApplet.h"
+#include "ShackSwitchApplet.h"
 #include "RadioSetupDialog.h"
 #include "NetworkDiagnosticsDialog.h"
 #include "PropDashboardDialog.h"
@@ -192,6 +193,10 @@ constexpr int kSwrSweepTuneStopWaitMs = 350;
 constexpr int kSwrSweepTuneStopTimeoutMs = 1800;
 constexpr int kSwrSweepTgxlRestoreTimeoutMs = 3500;
 constexpr int kSwrSweepMaxPoints = 260;
+constexpr int kSwrSweepMinPowerW = 1;
+constexpr int kSwrSweepDefaultPowerW = 1;
+constexpr int kSwrSweepMaxPowerW = 10;
+constexpr const char* kSwrSweepPowerSettingKey = "SwrSweepPowerWatts";
 
 int panCountForLayoutId(const QString& layoutId)
 {
@@ -3066,6 +3071,43 @@ MainWindow::MainWindow(QWidget* parent)
     wireEqEditOpen(m_appletPanel->clientEqTxApplet());
     wireEqEditOpen(m_appletPanel->clientEqRxApplet());
 
+    // Push TX low/high filter cutoffs to the EQ canvases as dashed yellow
+    // guide lines.  Subscribes to the *dedicated* txFilterCutoffChanged
+    // signal — NOT the omnibus phoneStateChanged which fires on every
+    // VOX/CW/mic-boost/dexp/etc. transmit-status update and would
+    // cascade unnecessary repaints into the audio path during TX.
+    auto pushTxFilterCutoffsToEq = [this](int lo, int hi) {
+        if (m_appletPanel && m_appletPanel->clientEqTxApplet())
+            m_appletPanel->clientEqTxApplet()->setTxFilterCutoffs(lo, hi);
+        if (m_clientEqEditor)
+            m_clientEqEditor->setTxFilterCutoffs(lo, hi);
+    };
+    {
+        const auto& tx = m_radioModel.transmitModel();
+        pushTxFilterCutoffsToEq(tx.txFilterLow(), tx.txFilterHigh());
+    }
+    connect(&m_radioModel.transmitModel(), &TransmitModel::txFilterCutoffChanged,
+            this, pushTxFilterCutoffsToEq);
+
+    // RX filter passband guide lines on the RX EQ canvas — fed by the
+    // currently-active RX slice.  filterLow / filterHigh on a slice are
+    // *offsets* (e.g. -3000..0 for LSB, 0..3000 for USB, -3000..3000 for
+    // AM); the EQ canvas plots in absolute audio-frequency.  Convert:
+    //   audio_high = max(|lo|, |hi|)
+    //   audio_low  = (lo and hi same sign / one zero) ? min(|lo|, |hi|) : 0
+    // Then push to the docked RX-bound applet + floating editor (if open).
+    // setActiveSlice() and SliceModel::filterChanged both call this lambda
+    // so the guides track both slice swaps and live filter drags.
+    pushRxFilterCutoffsToEq();
+    connect(&m_radioModel, &RadioModel::sliceAdded, this, [this](SliceModel* s) {
+        if (!s) return;
+        connect(s, &SliceModel::filterChanged, this,
+                [this, s](int /*lo*/, int /*hi*/) {
+            if (s->sliceId() == m_activeSliceId)
+                pushRxFilterCutoffsToEq();
+        });
+    });
+
     // ── Client Compressor applets: TX (#1661) + RX (Phase 7.3) ─────────────
     m_appletPanel->clientCompTxApplet()->setAudioEngine(m_audio);
     m_appletPanel->clientCompRxApplet()->setAudioEngine(m_audio);
@@ -3448,10 +3490,56 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
 
-    // ── Antenna Genius applet: external 4O3A antenna switch ──────────────────
+    // ── Antenna Genius / ShackSwitch applets ────────────────────────────────
+    // Both share AntennaGeniusModel (ShackSwitch speaks the AG protocol).
+    // On device discovery we check the name: "ShackSwitch" → ShackSwitch applet,
+    // anything else → Antenna Genius applet. On device lost, hide both.
     m_appletPanel->agApplet()->setModel(&m_antennaGenius);
+    m_appletPanel->ssApplet()->setModel(&m_antennaGenius);
+
+    connect(&m_antennaGenius, &AntennaGeniusModel::deviceDiscovered,
+            this, [this](const AgDeviceInfo& info) {
+        const bool isSS = AntennaGeniusModel::isShackSwitch(info);
+        m_appletPanel->setShackSwitchVisible(isSS);
+        m_appletPanel->setAgVisible(!isSS);
+        if (isSS) {
+            // Clear saved AG IP so ShackSwitch never auto-connects via the AG path again
+            AppSettings::instance().setValue("AG_ManualIp", QString());
+        }
+    });
+
+    // On TCP connect: re-check device type (manual-IP path serial is now enriched
+    // from discovered list; if still manual, fall back to IP lookup).
+    // Also clears AG_ManualIp if we're connected to a ShackSwitch so it won't
+    // auto-connect via the AG path on the next startup.
+    connect(&m_antennaGenius, &AntennaGeniusModel::connected,
+            this, [this]() {
+        const AgDeviceInfo& dev = m_antennaGenius.connectedDevice();
+        bool isSS = AntennaGeniusModel::isShackSwitch(dev);
+        if (!isSS) {
+            // UDP may not have arrived yet — look up by IP in discovered list
+            for (const auto& d : m_antennaGenius.discoveredDevices()) {
+                if (!d.ip.isNull() && d.ip == dev.ip) {
+                    isSS = AntennaGeniusModel::isShackSwitch(d);
+                    break;
+                }
+            }
+        }
+        if (isSS) {
+            m_appletPanel->setShackSwitchVisible(true);
+            m_appletPanel->setAgVisible(false);
+            // Stop the AG row auto-connecting to ShackSwitch on next startup
+            AppSettings::instance().setValue("AG_ManualIp", QString());
+        }
+    });
+
     connect(&m_antennaGenius, &AntennaGeniusModel::presenceChanged,
-            m_appletPanel, &AppletPanel::setAgVisible);
+            this, [this](bool present) {
+        if (!present) {
+            m_appletPanel->setAgVisible(false);
+            m_appletPanel->setShackSwitchVisible(false);
+        }
+    });
 
     // ── 8-channel CAT: rigctld + PTY (A-H, each bound to a slice) ────────────
     {
@@ -3763,6 +3851,48 @@ ClientEqEditor* MainWindow::ensureClientEqEditor()
             }
             if (m_appletPanel->clientChainApplet())
                 m_appletPanel->clientChainApplet()->refreshFromEngine();
+        });
+        // Push current TX + RX filter cutoffs so the dashed guide lines
+        // render immediately when the editor opens — the cutoff-change
+        // wiring in the MainWindow ctor only fires on subsequent changes.
+        const auto& tx = m_radioModel.transmitModel();
+        m_clientEqEditor->setTxFilterCutoffs(tx.txFilterLow(), tx.txFilterHigh());
+        pushRxFilterCutoffsToEq();
+
+        // Cutoff-line drag → write to the radio.  TX is direct (audio
+        // domain == TransmitModel domain).  RX requires a mode-aware
+        // conversion back from audio-domain to slice filter offsets.
+        connect(m_clientEqEditor, &ClientEqEditor::cutoffsDragRequested,
+                this, [this](ClientEqApplet::Path path, int audioLo, int audioHi) {
+            if (path == ClientEqApplet::Path::Tx) {
+                auto& txm = m_radioModel.transmitModel();
+                if (audioLo != txm.txFilterLow())  txm.setTxFilterLow(audioLo);
+                if (audioHi != txm.txFilterHigh()) txm.setTxFilterHigh(audioHi);
+                return;
+            }
+            // RX: convert audio-domain Hz back to slice filter offsets
+            // based on the active slice's mode.
+            auto* s = activeSlice();
+            if (!s) return;
+            const QString mode = s->mode();
+            int lo = audioLo;
+            int hi = audioHi;
+            if (mode == "LSB" || mode == "DIGL") {
+                // Lower-sideband: filter offsets are negative; the audio
+                // low edge maps to the high (closest-to-zero) offset and
+                // vice versa.
+                lo = -audioHi;
+                hi = -audioLo;
+            } else if (mode == "AM" || mode == "SAM" || mode == "FM"
+                    || mode == "NFM" || mode == "DFM" || mode == "DSB") {
+                // Symmetric around carrier — only audio_high meaningfully
+                // controls bandwidth; audio_low is fixed at 0.
+                lo = -audioHi;
+                hi =  audioHi;
+            }
+            // USB / DIGU / FDV / CW / RTTY / others: audio domain matches
+            // slice domain directly — pass through.
+            s->setFilterWidth(lo, hi);
         });
     }
     return m_clientEqEditor;
@@ -6851,13 +6981,47 @@ void MainWindow::onConnectionStateChanged(bool connected)
                 quint16 pgxlPort = static_cast<quint16>(cs.value("PGXL_ManualPort", "9008").toInt());
                 m_pgxlConn.connectToPgxl(pgxlIp, pgxlPort);
             }
+            // If SS_ManualIp is set, connect to ShackSwitch immediately using a
+            // synthetic serial so device-type detection works from the start.
+            // This bypasses the UDP discovery race condition entirely.
+            QString ssIp = cs.value("SS_ManualIp", "").toString();
+            if (!ssIp.isEmpty() && !m_antennaGenius.isConnected()) {
+                AgDeviceInfo ssInfo;
+                ssInfo.ip         = QHostAddress(ssIp);
+                ssInfo.port       = 9007;
+                ssInfo.serial     = QStringLiteral("ShackSwitch-manual");
+                ssInfo.name       = QStringLiteral("ShackSwitch");
+                ssInfo.radioPorts = 1;  // ShackSwitch is always single-radio
+                m_antennaGenius.connectToDevice(ssInfo);
+            }
+
+            // Delay AG manual connect by 7s so UDP discovery can run first.
+            // If ShackSwitch already connected above, isConnected() = true → skips.
+            // A real AG (no UDP broadcast, no SS_ManualIp) still connects after delay.
             QString agIp = cs.value("AG_ManualIp", "").toString();
-            if (!agIp.isEmpty() && !m_antennaGenius.isConnected()) {
+            if (!agIp.isEmpty()) {
                 quint16 agPort = static_cast<quint16>(cs.value("AG_ManualPort", "9007").toInt());
-                m_antennaGenius.connectToAddress(QHostAddress(agIp), agPort);
+                if (m_agManualConnectTimer) {
+                    m_agManualConnectTimer->stop();
+                    m_agManualConnectTimer->deleteLater();
+                    m_agManualConnectTimer = nullptr;
+                }
+                m_agManualConnectTimer = new QTimer(this);
+                m_agManualConnectTimer->setSingleShot(true);
+                connect(m_agManualConnectTimer, &QTimer::timeout, this, [this, agIp, agPort]() {
+                    m_agManualConnectTimer = nullptr;
+                    if (!m_antennaGenius.isConnected())
+                        m_antennaGenius.connectToAddress(QHostAddress(agIp), agPort);
+                });
+                m_agManualConnectTimer->start(7000);
             }
         }
     } else {
+        if (m_agManualConnectTimer) {
+            m_agManualConnectTimer->stop();
+            m_agManualConnectTimer->deleteLater();
+            m_agManualConnectTimer = nullptr;
+        }
         if (m_swrSweep.running)
             finishSwrSweep(true, QStringLiteral("SWR sweep stopped on disconnect"));
         QMetaObject::invokeMethod(m_dxCluster, [=] { m_dxCluster->disconnect(); });
@@ -7604,6 +7768,30 @@ SliceModel* MainWindow::activeSlice() const
     return m_radioModel.slice(m_activeSliceId);
 }
 
+void MainWindow::pushRxFilterCutoffsToEq()
+{
+    int audioLow = 0;
+    int audioHigh = 0;
+    if (auto* s = activeSlice()) {
+        const int lo = s->filterLow();
+        const int hi = s->filterHigh();
+        const int absLo = std::abs(lo);
+        const int absHi = std::abs(hi);
+        // Same sign (or one zero): one-sided passband — audio range
+        // is [min(|lo|, |hi|), max(|lo|, |hi|)].  This covers SSB
+        // (one of lo/hi is 0) and CW (lo/hi both same sign around pitch).
+        // Opposite signs: symmetric around carrier (AM/FM/SAM) — audio
+        // baseband starts at 0 and runs to max(|lo|, |hi|).
+        const bool sameSign = (lo >= 0 && hi >= 0) || (lo <= 0 && hi <= 0);
+        audioLow  = sameSign ? std::min(absLo, absHi) : 0;
+        audioHigh = std::max(absLo, absHi);
+    }
+    if (m_appletPanel && m_appletPanel->clientEqRxApplet())
+        m_appletPanel->clientEqRxApplet()->setRxFilterCutoffs(audioLow, audioHigh);
+    if (m_clientEqEditor)
+        m_clientEqEditor->setRxFilterCutoffs(audioLow, audioHigh);
+}
+
 const char* MainWindow::tuneIntentName(TuneIntent intent)
 {
     switch (intent) {
@@ -7772,6 +7960,11 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
     // (m_updatingFromModel is set in the activeChanged handler).
     if (sliceId != prevId && !m_updatingFromModel)
         s->setActive(true);
+
+    // Update RX EQ filter-cutoff guides whenever the active slice swaps —
+    // the new slice may have a different mode / filter shape.
+    if (sliceId != prevId)
+        pushRxFilterCutoffsToEq();
 
     // Active slice changed → restart dwell window for the new active slice
     if (sliceId != prevId && m_bsAutoSaveTimer) {
@@ -8788,6 +8981,26 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         auto& s = AppSettings::instance();
         s.setValue(sw->settingsKey("DisplayRfGain"), QString::number(gain));
         s.save();
+    });
+    const int savedSweepPower = qBound(
+        kSwrSweepMinPowerW,
+        AppSettings::instance().value(kSwrSweepPowerSettingKey,
+                                      QString::number(kSwrSweepDefaultPowerW)).toInt(),
+        kSwrSweepMaxPowerW);
+    menu->setSwrSweepPowerWatts(savedSweepPower);
+    connect(menu, &SpectrumOverlayMenu::swrSweepPowerChanged,
+            this, [this, menu](int watts) {
+        watts = qBound(kSwrSweepMinPowerW, watts, kSwrSweepMaxPowerW);
+        auto& s = AppSettings::instance();
+        s.setValue(kSwrSweepPowerSettingKey, QString::number(watts));
+        s.save();
+        for (auto* applet : m_panStack ? m_panStack->allApplets() : QList<PanadapterApplet*>{}) {
+            auto* otherMenu = applet && applet->spectrumWidget()
+                ? applet->spectrumWidget()->overlayMenu()
+                : nullptr;
+            if (otherMenu && otherMenu != menu)
+                otherMenu->setSwrSweepPowerWatts(watts);
+        }
     });
     connect(menu, &SpectrumOverlayMenu::swrSweepStartRequested,
             this, &MainWindow::startSwrSweep);
@@ -10635,17 +10848,19 @@ void MainWindow::beginSwrSweepRf()
     statusBar()->showMessage(
         tr("SWR sweep running on %1 with Tune Power %2 W%3. Press Esc to stop.")
             .arg(QString::fromLatin1(band.name))
-            .arg(m_radioModel.transmitModel().tunePower())
+            .arg(m_swrSweep.sweepTunePower)
             .arg(m_swrSweep.sourceLabel.isEmpty()
                      ? QString()
                      : QStringLiteral(" (%1)").arg(m_swrSweep.sourceLabel)),
         5000);
 }
 
-void MainWindow::startSwrSweep(int requestedSliceId)
+void MainWindow::startSwrSweep(int requestedSliceId, int sweepPowerWatts)
 {
     if (m_swrSweep.running)
         return;
+
+    sweepPowerWatts = qBound(kSwrSweepMinPowerW, sweepPowerWatts, kSwrSweepMaxPowerW);
 
     if (!m_radioModel.isConnected()) {
         QMessageBox::warning(this, tr("SWR Sweep"),
@@ -10681,9 +10896,9 @@ void MainWindow::startSwrSweep(int requestedSliceId)
                              tr("Stop transmit or tune before starting an SWR sweep."));
         return;
     }
-    if (tx.tunePower() <= 0) {
+    if (m_radioModel.hasAmplifier() && m_radioModel.ampOperate()) {
         QMessageBox::warning(this, tr("SWR Sweep"),
-                             tr("Tune Power is 0 W. Set a non-zero Tune Power first."));
+                             tr("Put the Power Genius XL amplifier in STANDBY before running an SWR sweep."));
         return;
     }
 
@@ -10736,15 +10951,22 @@ void MainWindow::startSwrSweep(int requestedSliceId)
     m_swrSweep.originalFreqMhz = s->frequency();
     m_swrSweep.frequencies = sweepFreqs;
     m_swrSweep.currentIndex = 0;
+    m_swrSweep.originalTunePower = tx.tunePower();
+    m_swrSweep.sweepTunePower = sweepPowerWatts;
     m_swrSweep.minimumForwardPowerW = qBound(0.05f,
-                                             static_cast<float>(tx.tunePower()) * 0.05f,
+                                             static_cast<float>(sweepPowerWatts) * 0.05f,
                                              1.0f);
     auto& tuner = m_radioModel.tunerModel();
     m_swrSweep.tgxlOriginalOperate = tuner.isOperate();
     m_swrSweep.tgxlOriginalBypass = tuner.isBypass();
     if (tuner.isPresent() && tuner.isOperate()) {
-        m_swrSweep.meterSource = SwrSweepMeterSource::Tgxl;
         m_swrSweep.sourceLabel = QStringLiteral("TGXL BYPASS");
+        // Read radio-side SWR even when TGXL is bypassed: in bypass the TGXL
+        // is a passive wire-through and stops emitting RL meter packets, so
+        // tgxlSwrUpdatedAtMs never advances.  The radio's SWR coupler sees
+        // the antenna directly through the bypassed relays — equivalent
+        // reading, reliably emitted during the tune carrier.  (#2229)
+        m_swrSweep.meterSource = SwrSweepMeterSource::Radio;
         if (!tuner.isBypass()) {
             m_swrSweep.tgxlBypassRequested = true;
             m_swrSweep.tgxlRestoreNeeded = true;
@@ -10766,6 +10988,7 @@ void MainWindow::startSwrSweep(int requestedSliceId)
     }
 
     setSwrSweepInputsLocked(true);
+    tx.setTunePower(sweepPowerWatts);
 
     if (m_swrSweep.tgxlBypassRequested) {
         m_swrSweep.phase = SwrSweepPhase::WaitingForTgxlBypass;
@@ -10788,7 +11011,7 @@ void MainWindow::advanceSwrSweep()
         return;
 
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    auto& tuner = m_radioModel.tunerModel();
+    const auto& tuner = m_radioModel.tunerModel();
 
     if (m_swrSweep.phase == SwrSweepPhase::WaitingForTgxlBypass) {
         if (!tuner.isPresent() || !tuner.isOperate()) {
@@ -10954,6 +11177,8 @@ void MainWindow::finishSwrSweepAfterTuneStopped()
             s && m_swrSweep.originalFreqMhz > 0.0) {
             s->setFrequency(m_swrSweep.originalFreqMhz);
         }
+        if (m_swrSweep.originalTunePower != m_swrSweep.sweepTunePower)
+            m_radioModel.transmitModel().setTunePower(m_swrSweep.originalTunePower);
 
         if (m_swrSweep.finalAborted && !m_swrSweep.panId.isEmpty()
             && m_swrSweep.originalPanCenterMhz > 0.0
@@ -11837,6 +12062,8 @@ void MainWindow::floatAppletPanel()
     m_appletPanelFloatWindow = new QWidget(nullptr, Qt::Window);
     m_appletPanelFloatWindow->setWindowTitle("AetherSDR — Applet Panel");
     m_appletPanelFloatWindow->setAttribute(Qt::WA_DeleteOnClose, false);
+    m_appletPanelFloatWindow->setAttribute(Qt::WA_StyledBackground, true);
+    m_appletPanelFloatWindow->setStyleSheet(darkThemeStylesheet());
     auto* layout = new QVBoxLayout(m_appletPanelFloatWindow);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);

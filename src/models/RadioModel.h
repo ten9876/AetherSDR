@@ -19,6 +19,7 @@
 #include "DaxIqModel.h"
 #include "NavtexModel.h"
 #include "MemoryEntry.h"
+#include "RadioStatusOwnership.h"
 
 #include <QObject>
 #include <QString>
@@ -406,6 +407,10 @@ private:
     void handleProfileStatus(const QString& object, const QMap<QString, QString>& kvs);
     void handleProfileStatusRaw(const QString& profileType, const QString& rawBody);
     void traceDaxStreamStatus(const QString& object, const QMap<QString, QString>& kvs);
+    bool handleRemoteAudioRxStreamStatus(const QString& object,
+                                         const QMap<QString, QString>& kvs);
+    void scheduleRxAudioStreamEnsure(const QString& reason);
+    void logRemoteAudioRxSummary(const QString& reason) const;
 
     void configurePan();
     void configureWaterfall();
@@ -428,6 +433,7 @@ private:
     using ResponseCallback = RadioConnection::ResponseCallback;
     quint32 sendCmd(const QString& command, ResponseCallback cb = nullptr);
     quint32 clientHandle() const;
+    PanadapterModel* ensureOwnedPanadapter(const QString& panId);
     void updateStreamFilters();
     void handleGpsStatus(const QString& rawBody);
     void emitOtherClientsChanged();
@@ -436,6 +442,10 @@ private:
     void createDefaultSlice(const QString& freqMhz = "14.225000",
                             const QString& mode    = "USB",
                             const QString& antenna = "ANT1");
+    void createDefaultSliceOnPan(const QString& panId,
+                                 const QString& freqMhz,
+                                 const QString& mode,
+                                 const QString& antenna);
 
     RadioConnection*  m_connection{nullptr};
     QThread*          m_connThread{nullptr};
@@ -523,6 +533,7 @@ private:
 
     QMap<QString, PanadapterModel*> m_panadapters;  // panId → model
     QString m_activePanId;       // currently active panadapter
+    QMap<QString, QMap<QString, QString>> m_pendingPanStatuses;
 
     bool    m_hasAmplifier{false};  // true if a power amp (PGXL) is detected
     QString m_ampHandle;             // amplifier handle for commands
@@ -614,7 +625,7 @@ private:
     QMap<int, MemoryEntry> m_memories;
     QStringList m_globalProfiles;
     QString     m_activeGlobalProfile;
-    QString     m_rxAudioStreamId;
+    RadioStatusOwnership::RemoteAudioRxTracking m_rxAudio;
     struct DaxStreamDebugState {
         QString type;
         quint32 clientHandle{0};

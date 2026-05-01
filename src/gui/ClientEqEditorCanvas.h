@@ -30,6 +30,11 @@ public:
     // edit.  The ClientEq pointer itself is set via setEq() on the base.
     void setAudioEngine(AudioEngine* engine);
 
+signals:
+    // Emitted live during a cutoff-line drag.  Audio-domain Hz values;
+    // the editor / MainWindow translate to TX-filter or RX-slice writes.
+    void cutoffsDragged(int audioLowHz, int audioHighHz);
+
 protected:
     void mousePressEvent(QMouseEvent* ev) override;
     void mouseMoveEvent(QMouseEvent* ev) override;
@@ -42,6 +47,12 @@ private:
     // or -1 if no handle within kHandleHitRadius.
     int hitTestHandle(const QPointF& pos) const;
 
+    enum class CutoffEdge { None, Low, High };
+    // Hit-test against the dashed yellow cutoff guide lines.  Returns
+    // which edge (if any) the cursor is within ~5 px of horizontally.
+    // Excludes the band-plan strip area at the bottom.
+    CutoffEdge hitTestCutoffEdge(const QPointF& pos) const;
+
     // Save current band state to settings (called after every edit so
     // the user doesn't lose work on crash / quit).
     void persist();
@@ -53,6 +64,8 @@ private:
     float   m_dragStartFreqHz{0};
     float   m_dragStartGainDb{0};
     float   m_dragStartQ{0};
+
+    CutoffEdge m_draggingCutoff{CutoffEdge::None};
 };
 
 } // namespace AetherSDR

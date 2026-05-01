@@ -51,4 +51,16 @@ void ClientEqApplet::refreshEnableFromEngine()
     syncEnableFromEngine();
 }
 
+void ClientEqApplet::setTxFilterCutoffs(int lowHz, int highHz)
+{
+    if (!m_curve || m_currentPath != Path::Tx) return;
+    m_curve->setFilterCutoffs(lowHz, highHz);
+}
+
+void ClientEqApplet::setRxFilterCutoffs(int audioLowHz, int audioHighHz)
+{
+    if (!m_curve || m_currentPath != Path::Rx) return;
+    m_curve->setFilterCutoffs(audioLowHz, audioHighHz);
+}
+
 } // namespace AetherSDR

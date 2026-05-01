@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AetherSDR VERSION 0.9.3 LANGUAGES C CXX)
+project(AetherSDR VERSION 0.9.4 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -586,6 +586,7 @@ set(GUI_SOURCES
     src/gui/MeterSlider.cpp
     src/gui/PhaseKnob.cpp
     src/gui/AntennaGeniusApplet.cpp
+    src/gui/ShackSwitchApplet.cpp
     src/gui/TitleBar.cpp
     src/gui/SupportDialog.cpp
     src/gui/SliceTroubleshootingDialog.cpp
@@ -1093,6 +1094,17 @@ add_executable(client_eq_test
 )
 target_include_directories(client_eq_test PRIVATE src)
 
+# Fractional-octave smoothing — exercises the static helper on
+# ClientEqCurveWidget with no live widget required.
+add_executable(client_eq_smoothing_test
+    tests/client_eq_smoothing_test.cpp
+    src/gui/ClientEqCurveWidget.cpp
+    src/core/ClientEq.cpp
+)
+target_include_directories(client_eq_smoothing_test PRIVATE src)
+target_link_libraries(client_eq_smoothing_test PRIVATE Qt6::Widgets)
+set_target_properties(client_eq_smoothing_test PROPERTIES AUTOMOC ON)
+
 add_executable(client_comp_test
     tests/client_comp_test.cpp
     src/core/ClientComp.cpp
@@ -1169,6 +1181,15 @@ add_executable(xvtr_policy_test
 )
 target_include_directories(xvtr_policy_test PRIVATE src)
 target_link_libraries(xvtr_policy_test PRIVATE Qt6::Core)
+
+add_executable(radio_status_ownership_test
+    tests/radio_status_ownership_test.cpp
+    src/core/CommandParser.cpp
+)
+target_include_directories(radio_status_ownership_test PRIVATE src)
+target_link_libraries(radio_status_ownership_test PRIVATE Qt6::Core)
+enable_testing()
+add_test(NAME radio_status_ownership_test COMMAND radio_status_ownership_test)
 
 add_executable(cw_sidetone_test
     tests/cw_sidetone_test.cpp

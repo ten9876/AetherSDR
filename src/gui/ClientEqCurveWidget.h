@@ -49,6 +49,43 @@ public:
     // back to false resumes the normal decay.
     void setPeakHoldFrozen(bool frozen);
 
+    // Fractional-octave smoothing for the analyzer trace (display-only;
+    // does not affect EQ math).  Value is N where the smoothing window
+    // is 1/N octave centered on each bin's frequency:
+    //   96 → effectively off (window ≤ 1 bin everywhere)
+    //   24 → gentle, close to raw
+    //   12 → typical default
+    //    6 → shape decisions
+    //    3 → room-correction style, very smooth
+    // Linear-power average across the window — matches FabFilter Pro-Q
+    // and is acoustically more correct than dB averaging.  Peak-hold
+    // continues to track raw bins so transient peaks aren't masked.
+    void setSmoothingOctaveFraction(int n);
+    int  smoothingOctaveFraction() const { return m_smoothingFraction; }
+
+    // Audio band-plan strip occupies the bottom this-many pixels of the
+    // drawing rect.  Exposed so derived widgets can avoid intercepting
+    // clicks in the strip area.
+    static constexpr int kAudioBandStripPx = 14;
+
+    int filterLowCutHz()  const { return m_filterLowCutHz;  }
+    int filterHighCutHz() const { return m_filterHighCutHz; }
+
+    // Free-function smoothing for unit tests — operates on a flat
+    // dB-bin vector with explicit sample rate.  Same algorithm the
+    // widget runs internally.
+    static std::vector<float> applyFractionalOctaveSmoothing(
+        const std::vector<float>& binsDb,
+        double sampleRate,
+        int octaveFraction);
+
+    // Draw faint dashed yellow vertical guides at the radio's TX
+    // low / high filter cutoff frequencies.  Pass 0 for either edge
+    // to skip drawing it.  Designed for the TX EQ where the cutoffs
+    // are meaningful — the RX EQ won't call this and the lines stay
+    // hidden.
+    void setFilterCutoffs(int lowHz, int highHz);
+
 signals:
     void selectedBandChanged(int idx);
     // Fired whenever band params mutate on the audio side from user
@@ -78,9 +115,17 @@ protected:
     int                m_selectedBand{-1};
     bool               m_showFilled{true};
     std::vector<float> m_fftBinsDb;      // empty = no analyzer drawn
-    std::vector<float> m_peakHoldDb;     // per-bin peak-hold trail
+    std::vector<float> m_fftBinsDbSmoothed;  // fractional-octave smoothed copy used for drawing
+    std::vector<float> m_peakHoldDb;     // per-bin peak-hold trail (raw, used for max tracking)
+    std::vector<float> m_peakHoldDbSmoothed;  // smoothed copy of peak-hold used for drawing
     bool               m_peakHoldFrozen{false};
     double             m_fftSampleRate{24000.0};
+    int                m_smoothingFraction{96};  // 96 = effectively off
+    int                m_filterLowCutHz{0};      // 0 = don't draw
+    int                m_filterHighCutHz{0};     // 0 = don't draw
+
+private:
+    void applySmoothing();
 };
 
 } // namespace AetherSDR

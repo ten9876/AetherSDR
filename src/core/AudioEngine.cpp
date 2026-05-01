@@ -1103,45 +1103,51 @@ bool AudioEngine::copyRecentClientEqTxSamples(float* out, int count) const
 
 void AudioEngine::applyClientEqTxInt16(QByteArray& int16stereo)
 {
-    if (!m_clientEqTx || !m_clientEqTx->isEnabled()) return;
     if (int16stereo.isEmpty()) return;
-
-    // int16 stereo → float32 stereo → EQ → int16 stereo (in place).
     const int samples = int16stereo.size() / static_cast<int>(sizeof(int16_t));
     if ((samples & 1) != 0) return;  // must be stereo
     const int frames = samples / 2;
 
-    m_clientEqTxScratch.resize(samples * static_cast<int>(sizeof(float)));
-    auto* f32 = reinterpret_cast<float*>(m_clientEqTxScratch.data());
-    const auto* i16 = reinterpret_cast<const int16_t*>(int16stereo.constData());
-    for (int i = 0; i < samples; ++i) {
-        f32[i] = i16[i] / 32768.0f;
-    }
+    // EQ processing only when enabled.  The tap below runs regardless
+    // so the editor's TX FFT analyzer always reflects live mic input,
+    // even when the EQ stage is bypassed in the CHAIN widget.
+    if (m_clientEqTx && m_clientEqTx->isEnabled()) {
+        m_clientEqTxScratch.resize(samples * static_cast<int>(sizeof(float)));
+        auto* f32 = reinterpret_cast<float*>(m_clientEqTxScratch.data());
+        const auto* i16 = reinterpret_cast<const int16_t*>(int16stereo.constData());
+        for (int i = 0; i < samples; ++i) {
+            f32[i] = i16[i] / 32768.0f;
+        }
 
-    m_clientEqTx->process(f32, frames, 2);
+        m_clientEqTx->process(f32, frames, 2);
 
-    auto* out = reinterpret_cast<int16_t*>(int16stereo.data());
-    for (int i = 0; i < samples; ++i) {
-        out[i] = static_cast<int16_t>(std::clamp(f32[i] * 32768.0f,
-                                                 -32768.0f, 32767.0f));
+        auto* out = reinterpret_cast<int16_t*>(int16stereo.data());
+        for (int i = 0; i < samples; ++i) {
+            out[i] = static_cast<int16_t>(std::clamp(f32[i] * 32768.0f,
+                                                     -32768.0f, 32767.0f));
+        }
     }
-    // Feed the editor's TX FFT tap with the post-EQ signal (what the
-    // radio is actually about to transmit).
-    tapClientEqTxInt16(out, frames);
+    // Always tap — bypassed-EQ case means tap captures pre-EQ samples
+    // (which equal post-EQ samples since no processing happened).
+    tapClientEqTxInt16(reinterpret_cast<const int16_t*>(int16stereo.constData()),
+                       frames);
 }
 
 void AudioEngine::applyClientEqTxFloat32(QByteArray& float32)
 {
-    if (!m_clientEqTx || !m_clientEqTx->isEnabled()) return;
     if (float32.isEmpty()) return;
-
     const int samples = float32.size() / static_cast<int>(sizeof(float));
     // feedDaxTxAudio can deliver mono OR stereo float32 (depends on packet
     // class). Treat even sample counts as stereo, odd counts as mono.
     const int channels = (samples % 2 == 0) ? 2 : 1;
     const int frames = samples / channels;
-    m_clientEqTx->process(reinterpret_cast<float*>(float32.data()),
-                          frames, channels);
+
+    if (m_clientEqTx && m_clientEqTx->isEnabled()) {
+        m_clientEqTx->process(reinterpret_cast<float*>(float32.data()),
+                              frames, channels);
+    }
+    // Always tap so the editor's TX FFT analyzer reflects live audio
+    // even when the EQ stage is bypassed in the CHAIN widget.
     tapClientEqTxFloat32(reinterpret_cast<const float*>(float32.constData()),
                          samples, channels);
 }
