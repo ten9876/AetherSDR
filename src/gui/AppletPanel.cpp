@@ -739,7 +739,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
         m_appletOrder.append(entry);
     }
 
-    // ShackSwitch applet — shown instead of/alongside AG for G0JKN ShackSwitch devices
+    // ShackSwitch applet — shown instead of/alongside AG for ShackSwitch devices
     m_ssApplet = new ShackSwitchApplet;
     {
         auto entry = makeEntry("SS", "ShackSwitch", m_ssApplet, false, btnRow1, btnLayout1);

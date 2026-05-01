@@ -3451,7 +3451,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     // ── Antenna Genius / ShackSwitch applets ────────────────────────────────
     // Both share AntennaGeniusModel (ShackSwitch speaks the AG protocol).
-    // On device discovery we check the serial: G0JKN-* → ShackSwitch applet,
+    // On device discovery we check the name: "ShackSwitch" → ShackSwitch applet,
     // anything else → Antenna Genius applet. On device lost, hide both.
     m_appletPanel->agApplet()->setModel(&m_antennaGenius);
     m_appletPanel->ssApplet()->setModel(&m_antennaGenius);
@@ -6899,14 +6899,14 @@ void MainWindow::onConnectionStateChanged(bool connected)
                 m_pgxlConn.connectToPgxl(pgxlIp, pgxlPort);
             }
             // If SS_ManualIp is set, connect to ShackSwitch immediately using a
-            // G0JKN serial so device-type detection works from the start.
+            // synthetic serial so device-type detection works from the start.
             // This bypasses the UDP discovery race condition entirely.
             QString ssIp = cs.value("SS_ManualIp", "").toString();
             if (!ssIp.isEmpty() && !m_antennaGenius.isConnected()) {
                 AgDeviceInfo ssInfo;
                 ssInfo.ip         = QHostAddress(ssIp);
                 ssInfo.port       = 9007;
-                ssInfo.serial     = QStringLiteral("G0JKN-manual");
+                ssInfo.serial     = QStringLiteral("ShackSwitch-manual");
                 ssInfo.name       = QStringLiteral("ShackSwitch");
                 ssInfo.radioPorts = 1;  // ShackSwitch is always single-radio
                 m_antennaGenius.connectToDevice(ssInfo);

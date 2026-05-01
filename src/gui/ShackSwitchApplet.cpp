@@ -296,16 +296,14 @@ void ShackSwitchApplet::setModel(AntennaGeniusModel* model)
 
     connect(m_model, &AntennaGeniusModel::deviceDiscovered, this,
             [this](const AgDeviceInfo& info) {
-        const bool isShackSwitch = info.serial.startsWith("G0JKN") ||
-                                   info.name.contains("ShackSwitch", Qt::CaseInsensitive);
+        const bool isShackSwitch = info.name.contains("ShackSwitch", Qt::CaseInsensitive);
         if (isShackSwitch && !m_model->isConnected() && !m_model->isConnecting())
             m_model->connectToDevice(info);
     });
 
     connect(m_model, &AntennaGeniusModel::connected, this, [this]() {
         const auto& dev = m_model->connectedDevice();
-        bool isShackSwitch = dev.serial.startsWith("G0JKN") ||
-                             dev.name.contains("ShackSwitch", Qt::CaseInsensitive);
+        bool isShackSwitch = dev.name.contains("ShackSwitch", Qt::CaseInsensitive);
         if (!isShackSwitch) return;
 
         QString ip = dev.ip.toString();
@@ -416,8 +414,7 @@ void ShackSwitchApplet::updateInputHeaders()
     const auto portB = m_model->portB();
 
     const auto& dev = m_model->connectedDevice();
-    const bool isShackSwitch = dev.serial.startsWith("G0JKN") ||
-                               dev.name.contains("ShackSwitch", Qt::CaseInsensitive);
+    const bool isShackSwitch = dev.name.contains("ShackSwitch", Qt::CaseInsensitive);
     const bool singlePort = isShackSwitch && dev.radioPorts < 2;
     const int  activeAnt  = singlePort
                           ? (portA.rxAntenna > 0 ? portA.rxAntenna : portB.rxAntenna)
@@ -451,8 +448,7 @@ void ShackSwitchApplet::checkConflict(int rxA, int rxB)
     // Single-port: no B port, nothing to conflict
     if (!m_model) return;
     const auto& dev = m_model->connectedDevice();
-    const bool singlePort = (dev.serial.startsWith("G0JKN") ||
-                             dev.name.contains("ShackSwitch", Qt::CaseInsensitive))
+    const bool singlePort = dev.name.contains("ShackSwitch", Qt::CaseInsensitive)
                             && dev.radioPorts < 2;
     if (singlePort) {
         m_blinkTimer.stop();
@@ -544,8 +540,7 @@ void ShackSwitchApplet::onBlinkTick()
     m_blinkState = !m_blinkState;
     if (!m_model) return;
     const auto& dev = m_model->connectedDevice();
-    const bool singlePort = (dev.serial.startsWith("G0JKN") ||
-                             dev.name.contains("ShackSwitch", Qt::CaseInsensitive))
+    const bool singlePort = dev.name.contains("ShackSwitch", Qt::CaseInsensitive)
                             && dev.radioPorts < 2;
     const auto portA = m_model->portA();
     const auto portB = m_model->portB();

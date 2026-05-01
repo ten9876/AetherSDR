@@ -994,11 +994,11 @@ management feature (clear all, band grouping, auto-expiry).
   server-speaks-first (`V1.0 AG`).  Result: AetherSDR waits for the
   greeting, R4 waits for client data → TCP deadlock → every AG
   connect silently hangs.
-- Detect ShackSwitch devices (`serial.startsWith("G0JKN")` or
-  `name.contains("ShackSwitch")`) and send an empty `\r\n` on TCP
-  connect.  R4 firmware discards empty lines before the greeting,
-  protocol proceeds normally.  Real 4O3A Antenna Genius devices do
-  not match the check — zero impact on existing AG behaviour.
+- Detect ShackSwitch devices (`name.contains("ShackSwitch")`) and send
+  an empty `\r\n` on TCP connect.  R4 firmware discards empty lines
+  before the greeting, protocol proceeds normally.  Real 4O3A Antenna
+  Genius devices do not match the check — zero impact on existing AG
+  behaviour.
 - Also fix a reconnect-race by replacing the `if (m_connected)` guard
   with an unconditional socket abort in `connectToDevice`, plus
   add an `isConnecting()` helper for UI state.

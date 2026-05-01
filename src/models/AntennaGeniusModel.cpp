@@ -243,8 +243,7 @@ void AntennaGeniusModel::onTcpConnected()
     // For ShackSwitch (R4) the server speaks first ("V1.0 AG"), so we send an
     // empty line to trigger available() on the R4 side without affecting the
     // protocol (the R4 discards empty lines before the greeting is sent).
-    const bool isShackSwitch = m_device.serial.startsWith("G0JKN") ||
-                               m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
+    const bool isShackSwitch = m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
     if (isShackSwitch && m_tcpSocket) {
         m_tcpSocket->write("\r\n");
         m_tcpSocket->flush();
@@ -298,7 +297,7 @@ void AntennaGeniusModel::onTcpReadyRead()
                 qCDebug(lcTuner) << "AntennaGenius: prologue received, version"
                          << m_device.version;
                 // If connected via manual IP, enrich from UDP-discovered list.
-                // Matches "G0JKN-manual" (ShackSwitch) and legacy "manual-<ip>" serials.
+                // Matches "ShackSwitch-manual" and legacy "manual-<ip>" serials.
                 if (m_device.serial.endsWith("-manual") || m_device.serial.startsWith("manual-")) {
                     for (const auto& d : m_discoveredDevices) {
                         if (!d.ip.isNull() && d.ip == m_device.ip) {
@@ -558,8 +557,7 @@ void AntennaGeniusModel::selectAntenna(int portId, int antennaId)
     // Prevent selecting an antenna already in use by the other port.
     // Antenna 0 (deselect) is always allowed.
     // ShackSwitch is a single-radio device — no port B conflict is possible.
-    const bool isShackSwitch = m_device.serial.startsWith("G0JKN") ||
-                               m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
+    const bool isShackSwitch = m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
     if (!isShackSwitch) {
         const auto& otherPort = (portId == 1) ? m_portB : m_portA;
         if (antennaId > 0 && otherPort.rxAntenna == antennaId) {
@@ -675,8 +673,7 @@ void AntennaGeniusModel::setRadioFrequency(double freqMhz)
     if (matchedBand == 0) return;
 
     // ShackSwitch manages its own band→antenna mapping — don't override it.
-    const bool isShackSwitch = m_device.serial.startsWith("G0JKN") ||
-                               m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
+    const bool isShackSwitch = m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
     if (isShackSwitch) {
         qCDebug(lcTuner) << "AG-FREQ: ShackSwitch connected — skipping auto-recall";
         return;
@@ -718,8 +715,7 @@ void AntennaGeniusModel::onBandChanged(int portId, int oldBand, int oldAnt, int 
              << bandName(oldBand) << "→" << bandName(newBand);
 
     // ShackSwitch manages its own band→antenna mapping — don't override it.
-    const bool isShackSwitch = m_device.serial.startsWith("G0JKN") ||
-                               m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
+    const bool isShackSwitch = m_device.name.contains("ShackSwitch", Qt::CaseInsensitive);
     if (isShackSwitch) {
         qCDebug(lcTuner) << "AntennaGenius: ShackSwitch connected — skipping band recall for port" << portId;
         return;
@@ -788,8 +784,7 @@ bool AntennaGeniusModel::canRxOnBand(int antennaId, int bandId) const
 
 bool AntennaGeniusModel::isShackSwitch(const AgDeviceInfo& info)
 {
-    return info.serial.startsWith(QStringLiteral("G0JKN")) ||
-           info.name.contains(QStringLiteral("ShackSwitch"), Qt::CaseInsensitive);
+    return info.name.contains(QStringLiteral("ShackSwitch"), Qt::CaseInsensitive);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

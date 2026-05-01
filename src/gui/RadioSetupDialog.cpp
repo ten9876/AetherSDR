@@ -3741,7 +3741,7 @@ QWidget* RadioSetupDialog::buildPeripheralsTab()
                 AgDeviceInfo info;
                 info.ip     = QHostAddress(ip);
                 info.port   = 9007;
-                info.serial = QStringLiteral("G0JKN-manual");
+                info.serial = QStringLiteral("ShackSwitch-manual");
                 info.name   = QStringLiteral("ShackSwitch");
                 m_ag->connectToDevice(info);
             },

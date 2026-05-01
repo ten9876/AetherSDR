@@ -12,9 +12,9 @@ namespace AetherSDR {
 
 class AntennaGeniusModel;
 
-// ShackSwitch applet — compact antenna switcher panel for G0JKN ShackSwitch.
+// ShackSwitch applet — compact antenna switcher panel for ShackSwitch devices.
 //
-// Detected by AG-protocol serial "G0JKN-SW". Replaces the generic AG applet
+// Detected by AG-protocol device name "ShackSwitch". Replaces the generic AG applet
 // layout with a single antenna list and compact Input A / Input B header cards.
 //
 // Layout (top to bottom):
