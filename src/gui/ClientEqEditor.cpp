@@ -4,6 +4,7 @@
 #include "ClientEqIconRow.h"
 #include "ClientEqOutputFader.h"
 #include "ClientEqParamRow.h"
+#include "ComboStyle.h"
 #include "EditorFramelessTitleBar.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
@@ -110,19 +111,7 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
             "Fractional-octave smoothing applied to the analyzer trace.\n"
             "Lower fraction = smoother (1/3 = most, 1/96 = off).\n"
             "Affects display only — EQ math is unchanged.");
-        smoothingCombo->setStyleSheet(
-            "QComboBox {"
-            "  background: #0e1b28; color: #c8d8e8;"
-            "  border: 1px solid #243a4e; border-radius: 3px;"
-            "  padding: 2px 8px; font-size: 11px; font-weight: bold;"
-            "}"
-            "QComboBox:hover { background: #1a2a3a; }"
-            "QComboBox::drop-down { border: none; width: 16px; }"
-            "QComboBox QAbstractItemView {"
-            "  background: #0e1b28; color: #c8d8e8;"
-            "  selection-background-color: #1a3a5a;"
-            "  border: 1px solid #243a4e;"
-            "}");
+        AetherSDR::applyComboStyle(smoothingCombo);
 
         const int savedFraction = AppSettings::instance()
             .value("ClientEqSmoothingFraction", "96").toInt();
@@ -185,19 +174,7 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
             "• Chebyshev — steeper transition, 1 dB passband ripple\n"
             "• Bessel — linear phase, gentler rolloff\n"
             "• Elliptic — steepest transition, ripple in both bands");
-        m_familyCombo->setStyleSheet(
-            "QComboBox {"
-            "  background: #0e1b28; color: #c8d8e8;"
-            "  border: 1px solid #243a4e; border-radius: 3px;"
-            "  padding: 2px 8px; font-size: 11px; font-weight: bold;"
-            "}"
-            "QComboBox:hover { background: #1a2a3a; }"
-            "QComboBox::drop-down { border: none; width: 16px; }"
-            "QComboBox QAbstractItemView {"
-            "  background: #0e1b28; color: #c8d8e8;"
-            "  selection-background-color: #1a3a5a;"
-            "  border: 1px solid #243a4e;"
-            "}");
+        AetherSDR::applyComboStyle(m_familyCombo);
         connect(m_familyCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, [this](int idx) {
             ClientEq* eq = (m_path == ClientEqApplet::Path::Rx)
