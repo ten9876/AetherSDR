@@ -42,6 +42,7 @@
 #include "core/LogManager.h"
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 namespace AetherSDR {
 
@@ -245,6 +246,10 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
         }
 
         reprojectWaterfall(m_centerMhz, m_bandwidthMhz, newCenter, newBw);
+        if (!reprojectSpectrum(m_centerMhz, m_bandwidthMhz, newCenter, newBw)) {
+            m_bins.clear();
+            m_smoothed.clear();
+        }
         m_centerMhz = newCenter;
         m_bandwidthMhz = newBw;
         markOverlayDirty();
@@ -1001,6 +1006,60 @@ void SpectrumWidget::reprojectWaterfall(double oldCenterMhz, double oldBandwidth
 #endif
 }
 
+bool SpectrumWidget::reprojectSpectrum(double oldCenterMhz, double oldBandwidthMhz,
+                                       double newCenterMhz, double newBandwidthMhz)
+{
+    if (oldBandwidthMhz <= 0.0 || newBandwidthMhz <= 0.0) {
+        return false;
+    }
+
+    const double oldStartMhz = oldCenterMhz - oldBandwidthMhz / 2.0;
+    const double oldEndMhz = oldCenterMhz + oldBandwidthMhz / 2.0;
+    const double newStartMhz = newCenterMhz - newBandwidthMhz / 2.0;
+    const double newEndMhz = newCenterMhz + newBandwidthMhz / 2.0;
+    const double overlapStartMhz = std::max(oldStartMhz, newStartMhz);
+    const double overlapEndMhz = std::min(oldEndMhz, newEndMhz);
+    if (overlapEndMhz <= overlapStartMhz) {
+        return false;
+    }
+
+    auto reprojectBins = [&](QVector<float>& bins) {
+        const int binCount = bins.size();
+        if (binCount <= 0) {
+            return;
+        }
+
+        const QVector<float> oldBins = std::move(bins);
+        QVector<float> reprojected(binCount, m_refLevel - m_dynamicRange);
+
+        for (int dst = 0; dst < binCount; ++dst) {
+            const double dstFrac = (static_cast<double>(dst) + 0.5) / binCount;
+            const double freqMhz = newStartMhz + dstFrac * newBandwidthMhz;
+            if (freqMhz < overlapStartMhz || freqMhz > overlapEndMhz) {
+                continue;
+            }
+
+            const double srcPos = ((freqMhz - oldStartMhz) / oldBandwidthMhz) * binCount - 0.5;
+            const int srcLeft = static_cast<int>(std::floor(srcPos));
+            const int srcRight = srcLeft + 1;
+            if (srcLeft < 0 || srcRight >= binCount) {
+                const int src = std::clamp(static_cast<int>(std::round(srcPos)), 0, binCount - 1);
+                reprojected[dst] = oldBins[src];
+                continue;
+            }
+
+            const float t = static_cast<float>(srcPos - srcLeft);
+            reprojected[dst] = oldBins[srcLeft] * (1.0f - t) + oldBins[srcRight] * t;
+        }
+
+        bins = std::move(reprojected);
+    };
+
+    reprojectBins(m_bins);
+    reprojectBins(m_smoothed);
+    return !m_bins.isEmpty() || !m_smoothed.isEmpty();
+}
+
 void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
 {
     if (centerMhz == m_centerMhz && bandwidthMhz == m_bandwidthMhz)
@@ -1051,9 +1110,13 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
         if (oldBandwidthMhz > 0.0 && bandwidthMhz > 0.0) {
             reprojectWaterfall(oldCenterMhz, oldBandwidthMhz, centerMhz, bandwidthMhz);
         }
-        m_bins.clear();
-        m_smoothed.clear();
-        m_wfWriteRow = 0;
+        const bool keptSpectrum = reprojectSpectrum(oldCenterMhz, oldBandwidthMhz,
+                                                    centerMhz, bandwidthMhz);
+        if (!keptSpectrum) {
+            m_bins.clear();
+            m_smoothed.clear();
+            m_wfWriteRow = 0;
+        }
         m_centerMhz       = centerMhz;
         m_panCenterTarget = centerMhz;
         markOverlayDirty();
@@ -2179,6 +2242,10 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         const double mouseXFrac = static_cast<double>(m_bwDragStartX) / width() - 0.5;
         const double zoomCenter = m_bwDragAnchorMhz - mouseXFrac * newBw;
         reprojectWaterfall(m_centerMhz, m_bandwidthMhz, zoomCenter, newBw);
+        if (!reprojectSpectrum(m_centerMhz, m_bandwidthMhz, zoomCenter, newBw)) {
+            m_bins.clear();
+            m_smoothed.clear();
+        }
         m_bandwidthMhz = newBw;
         m_centerMhz = zoomCenter;
         markOverlayDirty();
@@ -2634,6 +2701,10 @@ bool SpectrumWidget::event(QEvent* ev)
             const double anchorMhz = m_centerMhz + mouseXFrac * m_bandwidthMhz;
             const double newCenter = anchorMhz - mouseXFrac * newBw;
             reprojectWaterfall(m_centerMhz, m_bandwidthMhz, newCenter, newBw);
+            if (!reprojectSpectrum(m_centerMhz, m_bandwidthMhz, newCenter, newBw)) {
+                m_bins.clear();
+                m_smoothed.clear();
+            }
             m_bandwidthMhz = newBw;
             m_centerMhz = newCenter;
             markOverlayDirty();

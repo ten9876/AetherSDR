@@ -755,6 +755,8 @@ private:
 
     void reprojectWaterfall(double oldCenterMhz, double oldBandwidthMhz,
                             double newCenterMhz, double newBandwidthMhz);
+    bool reprojectSpectrum(double oldCenterMhz, double oldBandwidthMhz,
+                           double newCenterMhz, double newBandwidthMhz);
 };
 
 } // namespace AetherSDR
