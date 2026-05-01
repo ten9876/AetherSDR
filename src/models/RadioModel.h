@@ -19,6 +19,7 @@
 #include "DaxIqModel.h"
 #include "NavtexModel.h"
 #include "MemoryEntry.h"
+#include "RadioStatusOwnership.h"
 
 #include <QObject>
 #include <QString>
@@ -406,6 +407,10 @@ private:
     void handleProfileStatus(const QString& object, const QMap<QString, QString>& kvs);
     void handleProfileStatusRaw(const QString& profileType, const QString& rawBody);
     void traceDaxStreamStatus(const QString& object, const QMap<QString, QString>& kvs);
+    bool handleRemoteAudioRxStreamStatus(const QString& object,
+                                         const QMap<QString, QString>& kvs);
+    void scheduleRxAudioStreamEnsure(const QString& reason);
+    void logRemoteAudioRxSummary(const QString& reason) const;
 
     void configurePan();
     void configureWaterfall();
@@ -620,7 +625,7 @@ private:
     QMap<int, MemoryEntry> m_memories;
     QStringList m_globalProfiles;
     QString     m_activeGlobalProfile;
-    QString     m_rxAudioStreamId;
+    RadioStatusOwnership::RemoteAudioRxTracking m_rxAudio;
     struct DaxStreamDebugState {
         QString type;
         quint32 clientHandle{0};

@@ -3,6 +3,7 @@
 #include "core/AppSettings.h"
 #include "core/LogManager.h"
 #include "core/StreamStatus.h"
+#include "RadioStatusOwnership.h"
 #include <QCoreApplication>
 #include <QDebug>
 #include <QJsonArray>
@@ -642,7 +643,7 @@ void RadioModel::disconnectFromRadio()
         // Graceful disconnect: send stream remove + client disconnect and
         // wait for TCP flush before closing. Prevents Maestro lockup. (#1359)
         quint32 handle = clientHandle();
-        QString streamId = m_rxAudioStreamId;
+        QString streamId = RadioStatusOwnership::streamCommandId(m_rxAudio.streamId);
         QMetaObject::invokeMethod(m_connection, [this, handle, streamId]() {
             m_connection->gracefulDisconnect(handle, streamId);
         }, Qt::BlockingQueuedConnection);
@@ -1212,7 +1213,7 @@ void RadioModel::handleForcedClientDisconnect()
     }
 
     const quint32 handle = clientHandle();
-    const QString streamId = m_rxAudioStreamId;
+    const QString streamId = RadioStatusOwnership::streamCommandId(m_rxAudio.streamId);
     if (m_connection->isConnected()) {
         QMetaObject::invokeMethod(m_connection, [conn = m_connection, handle, streamId]() {
             conn->gracefulDisconnect(handle, streamId);
@@ -1421,26 +1422,10 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                         }
 
                         // Create remote_audio_rx if PC Audio is on OR TCI autostart
-                        // is enabled. The stream's existence tells the radio to route
-                        // audio to PC instead of its physical outputs. (#1014, #1051)
-                        {
-                        bool needStream = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True"
-                            || AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
-                        if (needStream) {
-                            sendCmd(
-                                QString("stream create type=remote_audio_rx compression=%1").arg(audioCompressionParam()),
-                                [this](int code, const QString& body) {
-                                    if (code == 0) {
-                                        m_rxAudioStreamId = body.trimmed();
-                                        qCDebug(lcProtocol) << "RadioModel: remote_audio_rx stream created, id:" << m_rxAudioStreamId;
-                                    } else
-                                        qCWarning(lcProtocol) << "RadioModel: stream create remote_audio_rx failed, code"
-                                                   << Qt::hex << code << "body:" << body;
-                                });
-                        } else {
-                            qCDebug(lcProtocol) << "RadioModel: PC audio disabled, no TCI — skipping remote_audio_rx";
-                        }
-                        }
+                        // is enabled. Defer briefly so SmartConnect/restored stream
+                        // status can be adopted before we ask the radio for another
+                        // stream. (#1014, #1051, #2037)
+                        scheduleRxAudioStreamEnsure(QStringLiteral("connect"));
 
         // Request DAX TX audio stream (PC mic → radio, DAX mode)
                         sendCmd(
@@ -1667,7 +1652,7 @@ void RadioModel::onDisconnected()
     m_chassisSerial.clear();
     m_callsign.clear();
     m_region.clear();
-    m_rxAudioStreamId.clear();
+    m_rxAudio = {};
     m_netCwStreamId = 0;
     m_netCwIndex = 1;
     m_lineoutGain = 50;
@@ -2154,25 +2139,199 @@ void RadioModel::setAmpOperate(bool on)
 
 void RadioModel::createRxAudioStream()
 {
-    if (!m_rxAudioStreamId.isEmpty()) return;  // already exists
+    if (m_rxAudio.streamId != 0) {
+        logRemoteAudioRxSummary(QStringLiteral("create skipped: stream already known"));
+        return;
+    }
+    if (m_rxAudio.createPending) {
+        logRemoteAudioRxSummary(QStringLiteral("create skipped: request already pending"));
+        return;
+    }
+
+    m_rxAudio.createPending = true;
+    m_rxAudio.removeRequested = false;
+    logRemoteAudioRxSummary(QStringLiteral("create requested"));
     sendCmd(QString("stream create type=remote_audio_rx compression=%1").arg(audioCompressionParam()),
         [this](int code, const QString& body) {
+            m_rxAudio.createPending = false;
             if (code == 0) {
-                m_rxAudioStreamId = body.trimmed();
-                qCDebug(lcProtocol) << "RadioModel: remote_audio_rx stream created, id:" << m_rxAudioStreamId;
+                const quint32 streamId = RadioStatusOwnership::parseCreateResponseStreamId(body);
+                if (streamId == 0) {
+                    qCWarning(lcProtocol) << "RadioModel: stream create remote_audio_rx returned unparseable body:"
+                                          << body;
+                    logRemoteAudioRxSummary(QStringLiteral("create response unparseable"));
+                    return;
+                }
+
+                if (m_rxAudio.streamId != 0 && m_rxAudio.streamId != streamId) {
+                    const quint32 oldStreamId = m_rxAudio.streamId;
+                    qCDebug(lcProtocol) << "RadioModel: replacing restored remote_audio_rx"
+                                        << RadioStatusOwnership::hexId(oldStreamId)
+                                        << "with create response"
+                                        << RadioStatusOwnership::hexId(streamId);
+                    sendCmd(QString("stream remove %1").arg(RadioStatusOwnership::hexId(oldStreamId)));
+                }
+
+                m_rxAudio.streamId = streamId;
+                m_rxAudio.clientHandle = clientHandle();
+                m_rxAudio.compression = audioCompressionParam();
+                qCDebug(lcProtocol) << "RadioModel: remote_audio_rx stream created, id:"
+                                    << RadioStatusOwnership::hexId(streamId);
+                logRemoteAudioRxSummary(QStringLiteral("create response adopted"));
+                if (m_rxAudio.removeRequested)
+                    removeRxAudioStream();
             } else {
                 qCWarning(lcProtocol) << "RadioModel: stream create remote_audio_rx failed, code"
                            << Qt::hex << code << "body:" << body;
+                logRemoteAudioRxSummary(QStringLiteral("create failed"));
             }
         });
 }
 
 void RadioModel::removeRxAudioStream()
 {
-    if (m_rxAudioStreamId.isEmpty()) return;
-    sendCmd(QString("stream remove 0x%1").arg(m_rxAudioStreamId));
-    qCDebug(lcProtocol) << "RadioModel: removed remote_audio_rx stream" << m_rxAudioStreamId;
-    m_rxAudioStreamId.clear();
+    if (m_rxAudio.streamId == 0) {
+        if (m_rxAudio.createPending) {
+            m_rxAudio.removeRequested = true;
+            logRemoteAudioRxSummary(QStringLiteral("remove deferred: create pending"));
+        } else {
+            logRemoteAudioRxSummary(QStringLiteral("remove skipped: no known stream"));
+        }
+        return;
+    }
+
+    const quint32 streamId = m_rxAudio.streamId;
+    sendCmd(QString("stream remove %1").arg(RadioStatusOwnership::hexId(streamId)));
+    qCDebug(lcProtocol) << "RadioModel: removed remote_audio_rx stream"
+                        << RadioStatusOwnership::hexId(streamId);
+    m_rxAudio.streamId = 0;
+    m_rxAudio.clientHandle = 0;
+    m_rxAudio.statusSeen = false;
+    m_rxAudio.removeRequested = false;
+    m_rxAudio.compression.clear();
+    logRemoteAudioRxSummary(QStringLiteral("remove requested"));
+}
+
+void RadioModel::scheduleRxAudioStreamEnsure(const QString& reason)
+{
+    const bool pcAudio = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
+    const bool autoStartTci = AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
+    if (!pcAudio && !autoStartTci) {
+        qCDebug(lcProtocol) << "RadioModel: PC audio disabled, no TCI — skipping remote_audio_rx";
+        if (m_rxAudio.streamId != 0) {
+            qCDebug(lcProtocol) << "RadioModel: removing unexpected owned remote_audio_rx while PC audio is disabled";
+            removeRxAudioStream();
+        }
+        logRemoteAudioRxSummary(QStringLiteral("ensure skipped: not needed"));
+        return;
+    }
+
+    logRemoteAudioRxSummary(QStringLiteral("ensure scheduled: ") + reason);
+    QTimer::singleShot(350, this, [this, reason]() {
+        const bool pcAudioNow = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
+        const bool autoStartTciNow = AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
+        if (!isConnected()) {
+            logRemoteAudioRxSummary(QStringLiteral("ensure canceled: disconnected"));
+            return;
+        }
+        if (!pcAudioNow && !autoStartTciNow) {
+            logRemoteAudioRxSummary(QStringLiteral("ensure canceled: no longer needed"));
+            return;
+        }
+
+        qCDebug(lcProtocol) << "RadioModel: ensuring remote_audio_rx stream after status settle for"
+                            << reason;
+        createRxAudioStream();
+    });
+}
+
+bool RadioModel::handleRemoteAudioRxStreamStatus(const QString& object,
+                                                 const QMap<QString, QString>& kvs)
+{
+    const bool allowUnknownOwner = m_clientInfoMap.size() <= 1;
+    const auto action = RadioStatusOwnership::applyRemoteAudioRxStatus(
+        m_rxAudio, object, kvs, clientHandle(), allowUnknownOwner);
+
+    if (action == RadioStatusOwnership::RemoteAudioRxAction::NotRemoteAudio)
+        return false;
+
+    const auto stream = RadioStatusOwnership::parseStreamObject(object);
+    const QString streamText = stream.valid
+        ? RadioStatusOwnership::hexId(stream.streamId)
+        : QStringLiteral("(unknown)");
+
+    switch (action) {
+    case RadioStatusOwnership::RemoteAudioRxAction::DeferredUnknownOwner:
+        qCDebug(lcProtocol) << "RadioModel: deferred remote_audio_rx status without client_handle"
+                            << streamText;
+        break;
+    case RadioStatusOwnership::RemoteAudioRxAction::IgnoredOtherClient:
+        qCDebug(lcProtocol) << "RadioModel: ignored remote_audio_rx for another client"
+                            << streamText;
+        break;
+    case RadioStatusOwnership::RemoteAudioRxAction::Adopted:
+        qCDebug(lcProtocol) << "RadioModel: adopted owned remote_audio_rx status"
+                            << streamText;
+        logRemoteAudioRxSummary(QStringLiteral("status adopted"));
+        break;
+    case RadioStatusOwnership::RemoteAudioRxAction::Updated:
+        qCDebug(lcProtocol) << "RadioModel: updated owned remote_audio_rx status"
+                            << streamText;
+        logRemoteAudioRxSummary(QStringLiteral("status updated"));
+        break;
+    case RadioStatusOwnership::RemoteAudioRxAction::Removed:
+        qCDebug(lcProtocol) << "RadioModel: owned remote_audio_rx removed"
+                            << streamText;
+        logRemoteAudioRxSummary(QStringLiteral("status removed"));
+        break;
+    case RadioStatusOwnership::RemoteAudioRxAction::NotRemoteAudio:
+        break;
+    }
+
+    const bool pcAudio = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
+    const bool autoStartTci = AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
+    const bool streamNeeded = pcAudio || autoStartTci;
+    if (!streamNeeded && m_rxAudio.streamId != 0
+        && (action == RadioStatusOwnership::RemoteAudioRxAction::Adopted
+            || action == RadioStatusOwnership::RemoteAudioRxAction::Updated)) {
+        qCDebug(lcProtocol) << "RadioModel: removing restored remote_audio_rx because PC audio is disabled";
+        removeRxAudioStream();
+        return true;
+    }
+
+    if (m_rxAudio.removeRequested && m_rxAudio.streamId != 0)
+        removeRxAudioStream();
+
+    return true;
+}
+
+void RadioModel::logRemoteAudioRxSummary(const QString& reason) const
+{
+    const bool pcAudio = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
+    const bool autoStartTci = AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
+    const bool ownerKnown = m_rxAudio.clientHandle != 0;
+    const bool ownedByUs = ownerKnown && m_rxAudio.clientHandle == clientHandle();
+
+    QStringList fields;
+    fields << QStringLiteral("reason=\"%1\"").arg(reason);
+    fields << QStringLiteral("stream=%1").arg(
+        m_rxAudio.streamId == 0 ? QStringLiteral("(none)")
+                                : RadioStatusOwnership::hexId(m_rxAudio.streamId));
+    fields << QStringLiteral("owner=%1").arg(
+        ownerKnown ? RadioStatusOwnership::hexId(m_rxAudio.clientHandle)
+                   : QStringLiteral("(unknown)"));
+    fields << QStringLiteral("ours=%1").arg(ownerKnown ? (ownedByUs ? QStringLiteral("1") : QStringLiteral("0"))
+                                                       : QStringLiteral("?"));
+    fields << QStringLiteral("pc_audio=%1").arg(pcAudio ? 1 : 0);
+    fields << QStringLiteral("auto_tci=%1").arg(autoStartTci ? 1 : 0);
+    fields << QStringLiteral("pending=%1").arg(m_rxAudio.createPending ? 1 : 0);
+    fields << QStringLiteral("remove_requested=%1").arg(m_rxAudio.removeRequested ? 1 : 0);
+    fields << QStringLiteral("status_seen=%1").arg(m_rxAudio.statusSeen ? 1 : 0);
+    if (!m_rxAudio.compression.isEmpty())
+        fields << QStringLiteral("compression=%1").arg(m_rxAudio.compression);
+
+    qCInfo(lcProtocol).noquote()
+        << "RadioModel: remote_audio_rx summary" << fields.join(QLatin1Char(' '));
 }
 
 quint32 RadioModel::sendCmd(const QString& command, ResponseCallback cb)
@@ -2395,6 +2554,7 @@ void RadioModel::onStatusReceived(const QString& object,
     // Relay to listeners (e.g., MemoryDialog)
     emit statusReceived(object, kvs);
 
+    handleRemoteAudioRxStreamStatus(object, kvs);
     traceDaxStreamStatus(object, kvs);
 
     if (object == "radio") {
@@ -2665,23 +2825,19 @@ void RadioModel::onStatusReceived(const QString& object,
                     pan->setPreamp(pre);
             }
 
-            if (!m_panadapters.contains(panId)) {
-                // Only create PanadapterModel when client_handle is present
-                // AND matches our handle. Early status messages may arrive
-                // without client_handle — defer until ownership is confirmed.
-                // This prevents briefly adopting another Multi-Flex client's pan.
-                if (!kvs.contains("client_handle")) {
-                    m_pendingPanStatuses[panId] = kvs;
-                    return;  // defer — can't confirm ownership yet
-                }
-                quint32 owner = parseClientHandle(kvs["client_handle"]);
-                if (owner != clientHandle()) {
-                    m_pendingPanStatuses.remove(panId);
-                    return;  // not our panadapter, ignore
-                }
-
-                ensureOwnedPanadapter(panId);
+            const bool knownPan = m_panadapters.contains(panId);
+            const auto ownershipAction = RadioStatusOwnership::classifyOwnedStatus(
+                knownPan, kvs, false, clientHandle());
+            if (ownershipAction == RadioStatusOwnership::OwnedStatusAction::Defer) {
+                m_pendingPanStatuses[panId] = kvs;
+                return;  // defer — can't confirm ownership yet
             }
+            if (ownershipAction == RadioStatusOwnership::OwnedStatusAction::Ignore) {
+                m_pendingPanStatuses.remove(panId);
+                return;  // not our panadapter, ignore
+            }
+            if (ownershipAction == RadioStatusOwnership::OwnedStatusAction::Claim)
+                ensureOwnedPanadapter(panId);
             handlePanadapterStatus(panId, kvs);
         }
         return;
@@ -3609,35 +3765,17 @@ void RadioModel::resetPanState()
 void RadioModel::createAudioStream()
 {
     // Remove old audio stream first, then create new one in the callback
-    if (!m_rxAudioStreamId.isEmpty()) {
-        const QString oldId = m_rxAudioStreamId;
-        m_rxAudioStreamId.clear();
+    if (m_rxAudio.streamId != 0) {
+        const quint32 oldId = m_rxAudio.streamId;
+        m_rxAudio = {};
         sendCmd(
-            QString("stream remove 0x%1").arg(oldId),
+            QString("stream remove %1").arg(RadioStatusOwnership::hexId(oldId)),
             [this](int, const QString&) {
                 // Old stream removed — now create the new one
-                sendCmd(
-                    QString("stream create type=remote_audio_rx compression=%1").arg(audioCompressionParam()),
-                    [this](int code, const QString& body) {
-                        if (code == 0) {
-                            m_rxAudioStreamId = body.trimmed();
-                            qCDebug(lcProtocol) << "RadioModel: remote_audio_rx stream re-created, id:" << m_rxAudioStreamId;
-                        } else
-                            qCWarning(lcProtocol) << "RadioModel: stream create remote_audio_rx failed, code"
-                                       << Qt::hex << code << "body:" << body;
-                    });
+                createRxAudioStream();
             });
     } else {
-        sendCmd(
-            QString("stream create type=remote_audio_rx compression=%1").arg(audioCompressionParam()),
-            [this](int code, const QString& body) {
-                if (code == 0) {
-                    m_rxAudioStreamId = body.trimmed();
-                    qCDebug(lcProtocol) << "RadioModel: remote_audio_rx stream re-created, id:" << m_rxAudioStreamId;
-                } else
-                    qCWarning(lcProtocol) << "RadioModel: stream create remote_audio_rx failed, code"
-                               << Qt::hex << code << "body:" << body;
-            });
+        createRxAudioStream();
     }
 
     sendCmd(
@@ -3715,6 +3853,29 @@ QJsonObject RadioModel::troubleshootingSnapshot() const
     audioOutputs["headphone_mute"] = m_headphoneMute;
     audioOutputs["front_speaker_mute"] = m_frontSpeakerMute;
     radio["audio_outputs"] = audioOutputs;
+
+    const bool pcAudioSetting = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
+    const bool autoStartTci = AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
+    QJsonObject remoteAudioRx;
+    remoteAudioRx["stream_id"] = m_rxAudio.streamId == 0
+        ? QJsonValue()
+        : QJsonValue(RadioStatusOwnership::hexId(m_rxAudio.streamId));
+    remoteAudioRx["stream_id_known"] = m_rxAudio.streamId != 0;
+    remoteAudioRx["create_pending"] = m_rxAudio.createPending;
+    remoteAudioRx["remove_requested"] = m_rxAudio.removeRequested;
+    remoteAudioRx["status_seen"] = m_rxAudio.statusSeen;
+    remoteAudioRx["owner_known"] = m_rxAudio.clientHandle != 0;
+    remoteAudioRx["owned_by_us"] = m_rxAudio.clientHandle != 0 && m_rxAudio.clientHandle == ourClientHandle();
+    remoteAudioRx["compression"] = m_rxAudio.compression;
+    remoteAudioRx["pc_audio_setting"] = pcAudioSetting;
+    remoteAudioRx["auto_start_tci"] = autoStartTci;
+    remoteAudioRx["stream_expected"] = pcAudioSetting || autoStartTci;
+    remoteAudioRx["routing_note"] = pcAudioSetting
+        ? QStringLiteral("PC Audio is enabled; an owned remote_audio_rx stream should exist and the local RX sink should be running.")
+        : (autoStartTci
+               ? QStringLiteral("PC Audio is disabled, but AutoStartTCI requires remote_audio_rx for TCI audio while the local RX sink stays off.")
+               : QStringLiteral("PC Audio and AutoStartTCI are disabled; no remote_audio_rx stream is expected."));
+    radio["remote_audio_rx"] = remoteAudioRx;
 
     QJsonObject filterSharpness;
     filterSharpness["voice_level"] = m_filterVoice;

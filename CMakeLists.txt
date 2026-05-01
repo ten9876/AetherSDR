@@ -1171,6 +1171,15 @@ add_executable(xvtr_policy_test
 target_include_directories(xvtr_policy_test PRIVATE src)
 target_link_libraries(xvtr_policy_test PRIVATE Qt6::Core)
 
+add_executable(radio_status_ownership_test
+    tests/radio_status_ownership_test.cpp
+    src/core/CommandParser.cpp
+)
+target_include_directories(radio_status_ownership_test PRIVATE src)
+target_link_libraries(radio_status_ownership_test PRIVATE Qt6::Core)
+enable_testing()
+add_test(NAME radio_status_ownership_test COMMAND radio_status_ownership_test)
+
 add_executable(cw_sidetone_test
     tests/cw_sidetone_test.cpp
     src/core/CwSidetoneGenerator.cpp
