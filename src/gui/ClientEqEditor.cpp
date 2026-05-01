@@ -95,7 +95,8 @@ ClientEqEditor::ClientEqEditor(AudioEngine* engine, QWidget* parent)
         // Persisted globally (single user preference, shared between RX
         // and TX editors).
         auto* smoothingLbl = new QLabel("Smoothing:");
-        smoothingLbl->setStyleSheet("QLabel { color: #506070; font-size: 10px; }");
+        smoothingLbl->setStyleSheet(
+            "QLabel { color: #c8d8e8; font-size: 11px; font-weight: bold; }");
         row->addWidget(smoothingLbl);
 
         auto* smoothingCombo = new QComboBox;
