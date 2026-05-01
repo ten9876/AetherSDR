@@ -52,8 +52,10 @@ public slots:
                        const QHostAddress& explicitBindAddr = {},
                        const QHostAddress& sessionBindAddr = {});
     void disconnectFromRadio();
-    // Send client disconnect + stream remove, flush TCP, then close. (#1359)
-    void gracefulDisconnect(quint32 handle, const QString& rxStreamId);
+    // Send sequenced teardown commands, wait for radio responses, then close.
+    void gracefulDisconnect(quint32 handle,
+                            const QString& rxStreamId,
+                            quint32 streamRemoveSeq);
     // Write a pre-sequenced command to the socket. Called from RadioModel
     // via QMetaObject::invokeMethod (auto-queued to worker thread). (#502)
     void writeCommand(quint32 seq, const QString& command);
@@ -81,6 +83,8 @@ private slots:
 private:
     void processLine(const QString& line);
     void setState(ConnectionState s);
+    bool sendCommandAndWait(quint32 seq, const QString& command, int timeoutMs);
+    void writeDisconnectMarker();
     int  kernelRttMs() const;   // read smoothed RTT from kernel TCP_INFO
 
     QTcpSocket*  m_socket{nullptr};

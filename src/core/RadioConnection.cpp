@@ -1,6 +1,8 @@
 #include "RadioConnection.h"
 #include "LogManager.h"
 
+#include <QEventLoop>
+
 #ifdef Q_OS_LINUX
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -43,6 +45,11 @@ typedef struct _TCP_INFO_v0 {
 namespace AetherSDR {
 
 static constexpr int HEARTBEAT_INTERVAL_MS = 30000;
+
+static QString formatHexId(quint32 value)
+{
+    return QStringLiteral("0x%1").arg(value, 0, 16);
+}
 
 RadioConnection::RadioConnection(QObject* parent)
     : QObject(parent)
@@ -144,6 +151,7 @@ void RadioConnection::disconnectFromRadio()
 {
     if (m_heartbeat) m_heartbeat->stop();
     if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
+        writeDisconnectMarker();
         m_socket->disconnectFromHost();
         if (m_socket->state() != QAbstractSocket::UnconnectedState)
             m_socket->waitForDisconnected(2000);
@@ -151,26 +159,48 @@ void RadioConnection::disconnectFromRadio()
     m_handle = 0;
 }
 
-void RadioConnection::gracefulDisconnect(quint32 handle, const QString& rxStreamId)
+void RadioConnection::gracefulDisconnect(quint32 handle,
+                                         const QString& rxStreamId,
+                                         quint32 streamRemoveSeq)
 {
     if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState) {
         disconnectFromRadio();
         return;
     }
 
-    // Send stream remove + client disconnect before closing TCP so the radio
-    // tears down our session cleanly. Without this the Maestro can lock up
-    // when reconnecting with the same GUIClientID. (#1359)
-    if (!rxStreamId.isEmpty()) {
-        QString cmd = QString("C0|stream remove 0x%1\n").arg(rxStreamId);
-        m_socket->write(cmd.toUtf8());
-    }
-    QString cmd = QString("C0|client disconnect handle=0x%1\n").arg(handle, 0, 16);
-    m_socket->write(cmd.toUtf8());
-    m_socket->flush();
-    m_socket->waitForBytesWritten(500);
+    if (m_heartbeat) m_heartbeat->stop();
 
+    QElapsedTimer totalTimer;
+    totalTimer.start();
+    bool streamRemoveAcked = rxStreamId.isEmpty();
+    qint64 streamRemoveMs = -1;
+
+    // The radio needs to process teardown commands before TCP close begins.
+    // Fire-and-forget C0 writes can leave the Flex session table stale (#2218).
+    if (!rxStreamId.isEmpty() && streamRemoveSeq != 0) {
+        QElapsedTimer stepTimer;
+        stepTimer.start();
+        streamRemoveAcked =
+            sendCommandAndWait(streamRemoveSeq,
+                               QString("stream remove 0x%1").arg(rxStreamId),
+                               2000);
+        streamRemoveMs = stepTimer.elapsed();
+    }
+
+    QElapsedTimer closeTimer;
+    closeTimer.start();
     disconnectFromRadio();
+    const qint64 closeMs = closeTimer.elapsed();
+
+    qCInfo(lcConnection).nospace()
+        << "RadioConnection: disconnect summary "
+        << "handle=" << formatHexId(handle)
+        << " streamId=" << (rxStreamId.isEmpty() ? QStringLiteral("<none>") : rxStreamId)
+        << " streamSeq=" << streamRemoveSeq
+        << " streamAck=" << (streamRemoveAcked ? "yes" : "no")
+        << " streamMs=" << streamRemoveMs
+        << " closeMs=" << closeMs
+        << " totalMs=" << totalTimer.elapsed();
 }
 
 void RadioConnection::writeCommand(quint32 seq, const QString& command)
@@ -217,6 +247,8 @@ void RadioConnection::onSocketError(QAbstractSocket::SocketError)
     qCWarning(lcConnection) << "RadioConnection: socket error:" << msg;
     setState(ConnectionState::Error);
     emit errorOccurred(msg);
+    if (m_socket->state() == QAbstractSocket::UnconnectedState)
+        setState(ConnectionState::Disconnected);
 }
 
 void RadioConnection::onReadyRead()
@@ -315,6 +347,65 @@ void RadioConnection::setState(ConnectionState s)
 {
     m_state.store(s);
     emit stateChanged(s);
+}
+
+bool RadioConnection::sendCommandAndWait(quint32 seq, const QString& command, int timeoutMs)
+{
+    if (seq == 0 || !m_socket || m_socket->state() == QAbstractSocket::UnconnectedState)
+        return false;
+
+    bool received = false;
+    int responseCode = 0;
+    QString responseBody;
+
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+
+    const QMetaObject::Connection responseConn =
+        connect(this, &RadioConnection::commandResponse, &loop,
+                [&](quint32 responseSeq, int code, const QString& body) {
+            if (responseSeq != seq)
+                return;
+            received = true;
+            responseCode = code;
+            responseBody = body;
+            loop.quit();
+        });
+
+    const QMetaObject::Connection disconnectedConn =
+        connect(m_socket, &QTcpSocket::disconnected, &loop, &QEventLoop::quit);
+
+    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+
+    writeCommand(seq, command);
+    timer.start(timeoutMs);
+    loop.exec();
+
+    disconnect(responseConn);
+    disconnect(disconnectedConn);
+
+    if (!received) {
+        qCWarning(lcConnection) << "RadioConnection: timed out waiting for teardown response"
+                                << "seq" << seq << "command" << command;
+        return false;
+    }
+
+    qCDebug(lcConnection) << "RadioConnection: teardown response"
+                          << "seq" << seq
+                          << "code" << Qt::hex << responseCode
+                          << "body" << responseBody;
+    return true;
+}
+
+void RadioConnection::writeDisconnectMarker()
+{
+    if (!m_socket || m_socket->state() == QAbstractSocket::UnconnectedState)
+        return;
+
+    m_socket->write(QByteArray(1, '\x04'));
+    m_socket->flush();
+    m_socket->waitForBytesWritten(250);
 }
 
 } // namespace AetherSDR

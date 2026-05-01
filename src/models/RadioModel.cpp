@@ -615,12 +615,14 @@ void RadioModel::disconnectFromRadio()
         m_wanConn->disconnectFromRadio();
         m_wanConn = nullptr;
     } else if (m_connection->isConnected()) {
-        // Graceful disconnect: send stream remove + client disconnect and
-        // wait for TCP flush before closing. Prevents Maestro lockup. (#1359)
+        // Graceful disconnect: remove our stream and wait for the radio reply
+        // before closing. Self "client disconnect" is rejected by the radio.
         quint32 handle = clientHandle();
         QString streamId = m_rxAudioStreamId;
-        QMetaObject::invokeMethod(m_connection, [this, handle, streamId]() {
-            m_connection->gracefulDisconnect(handle, streamId);
+        const quint32 streamRemoveSeq = streamId.isEmpty() ? 0 : m_seqCounter.fetch_add(1);
+        QMetaObject::invokeMethod(m_connection, [this, handle, streamId,
+                                                 streamRemoveSeq]() {
+            m_connection->gracefulDisconnect(handle, streamId, streamRemoveSeq);
         }, Qt::BlockingQueuedConnection);
     } else {
         QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio,
@@ -634,8 +636,8 @@ void RadioModel::forceDisconnect()
     // when the radio reappears in discovery or via the repeating reconnect timer.
     if (m_connection->isConnected()) {
         quint32 handle = clientHandle();
-        QMetaObject::invokeMethod(m_connection, [this, handle]() {
-            m_connection->gracefulDisconnect(handle, QString());
+        QMetaObject::invokeMethod(m_connection, [conn = m_connection, handle]() {
+            conn->gracefulDisconnect(handle, QString(), 0);
         });
     } else {
         QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
@@ -1086,6 +1088,7 @@ void RadioModel::setPanNoiseFloorEnable(bool on)
 void RadioModel::onConnected()
 {
     qCDebug(lcProtocol) << "RadioModel: connected";
+    m_reconnectTimer.stop();
     m_clientConnectionNoticeTimer.restart();
     setActivePanResized(false);
 
@@ -1181,8 +1184,10 @@ void RadioModel::handleForcedClientDisconnect()
     const quint32 handle = clientHandle();
     const QString streamId = m_rxAudioStreamId;
     if (m_connection->isConnected()) {
-        QMetaObject::invokeMethod(m_connection, [conn = m_connection, handle, streamId]() {
-            conn->gracefulDisconnect(handle, streamId);
+        const quint32 streamRemoveSeq = streamId.isEmpty() ? 0 : m_seqCounter.fetch_add(1);
+        QMetaObject::invokeMethod(m_connection, [conn = m_connection, handle, streamId,
+                                                 streamRemoveSeq]() {
+            conn->gracefulDisconnect(handle, streamId, streamRemoveSeq);
         });
     } else {
         QMetaObject::invokeMethod(m_connection, &RadioConnection::disconnectFromRadio);
@@ -1677,8 +1682,13 @@ void RadioModel::onConnectionError(const QString& msg)
 {
     qCWarning(lcProtocol) << "RadioModel: connection error:" << msg;
     emit connectionError(msg);
-    // Don't emit connectionStateChanged here — onDisconnected already handles it.
-    // Emitting from both causes duplicate disconnect UI triggers on failed reconnects.
+    // A refused connect may never emit disconnected, but the radio can recover
+    // after expiring a stale session. Keep retrying the same discovered radio.
+    if (!m_wanConn && !m_intentionalDisconnect && !m_lastInfo.address.isNull()
+            && !m_reconnectTimer.isActive()) {
+        qCDebug(lcProtocol) << "RadioModel: connection error — reconnecting in 5s";
+        m_reconnectTimer.start();
+    }
 }
 
 void RadioModel::onVersionReceived(const QString& v)
