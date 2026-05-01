@@ -561,9 +561,16 @@ void ClientEqCurveWidget::paintEvent(QPaintEvent* /*ev*/)
             p.fillRect(x1, stripY, x2 - x1, kAudioBandStripH, fill);
             p.setPen(QColor(0x0f, 0x0f, 0x1a, 200));
             p.drawLine(x1, stripY, x1, stripY + kAudioBandStripH);
-            if (x2 - x1 > 24) {
+            // Center the label inside the *visible* portion of the segment —
+            // a segment that starts below 20 Hz (e.g. 0–99 Hz E-SSB) has its
+            // left edge mapped to a negative x by freqToX's log scale, so
+            // a naive (x1, x2) midpoint lands off-screen.
+            const int visLeft  = std::max(x1, 0);
+            const int visRight = std::min(x2, r.width());
+            const int visW = visRight - visLeft;
+            if (visW > 24) {
                 p.setPen(Qt::white);
-                p.drawText(QRect(x1, stripY, x2 - x1, kAudioBandStripH),
+                p.drawText(QRect(visLeft, stripY, visW, kAudioBandStripH),
                            Qt::AlignCenter, QString::fromLatin1(seg.label));
             }
         }
