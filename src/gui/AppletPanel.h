@@ -10,6 +10,7 @@
 class QComboBox;
 class QPushButton;
 class QScrollArea;
+class QTimer;
 class QVBoxLayout;
 
 namespace AetherSDR {
@@ -175,10 +176,14 @@ public:
 
     friend class AppletDropArea;
 
+protected:
+    bool eventFilter(QObject* obj, QEvent* ev) override;
+
 private:
     void rebuildStackOrder();
     void saveOrder();
     int dropIndexFromY(int localY) const;
+    void setScrollHandleActive(bool active);
 
     ContainerManager* m_containerMgr{nullptr};
     ContainerWidget*  m_rootSidebar{nullptr};
@@ -228,6 +233,7 @@ private:
     QPushButton* m_ssBtn{nullptr};
     QVBoxLayout* m_stack{nullptr};
     QScrollArea* m_scrollArea{nullptr};
+    QTimer*      m_scrollDimTimer{nullptr};
     QWidget*     m_dropIndicator{nullptr};
     QPushButton* m_lockBtn{nullptr};   // controls-lock toggle (#745)
 

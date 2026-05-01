@@ -39,6 +39,9 @@
 #include "core/AppSettings.h"
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
+#include <QStyle>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -368,12 +371,23 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_scrollArea->setFrameShape(QFrame::NoFrame);
     m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_scrollArea->setWidgetResizable(true);
+    // Handle dims to #2a3a4a at rest, brightens to #4a6880 on hover/drag.
+    // 500 ms delay before dimming back so quick drags don't flicker.
     m_scrollArea->setStyleSheet(
-        "QScrollBar:vertical { background: transparent; width: 12px; }"
-        "QScrollBar:vertical:hover { background: #0a0a14; }"
-        "QScrollBar::handle:vertical { background: transparent; border-radius: 4px; min-height: 20px; }"
-        "QScrollBar::handle:vertical:hover, QScrollBar::handle:vertical:pressed { background: #4a6880; }"
+        "QScrollBar:vertical { background: #0a0a14; width: 12px; }"
+        "QScrollBar::handle:vertical { background: #2a3a4a; border-radius: 4px; min-height: 20px; }"
+        "QScrollBar::handle:vertical[active=\"true\"] { background: #4a6880; }"
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }");
+
+    if (auto* sb = m_scrollArea->verticalScrollBar()) {
+        sb->setProperty("active", false);
+        sb->installEventFilter(this);
+    }
+    m_scrollDimTimer = new QTimer(this);
+    m_scrollDimTimer->setSingleShot(true);
+    m_scrollDimTimer->setInterval(500);
+    connect(m_scrollDimTimer, &QTimer::timeout, this,
+            [this]() { setScrollHandleActive(false); });
 
     auto* container = new QWidget;
     m_stack = new QVBoxLayout(container);
@@ -1104,5 +1118,35 @@ void AppletPanel::setTxDspChainOrder(
     }
 }
 
+bool AppletPanel::eventFilter(QObject* obj, QEvent* ev)
+{
+    if (m_scrollArea && obj == m_scrollArea->verticalScrollBar()) {
+        switch (ev->type()) {
+        case QEvent::Enter:
+        case QEvent::MouseButtonPress:
+            if (m_scrollDimTimer) m_scrollDimTimer->stop();
+            setScrollHandleActive(true);
+            break;
+        case QEvent::Leave:
+        case QEvent::MouseButtonRelease:
+            if (m_scrollDimTimer) m_scrollDimTimer->start();
+            break;
+        default:
+            break;
+        }
+    }
+    return QWidget::eventFilter(obj, ev);
+}
+
+void AppletPanel::setScrollHandleActive(bool active)
+{
+    if (!m_scrollArea) return;
+    auto* sb = m_scrollArea->verticalScrollBar();
+    if (!sb) return;
+    if (sb->property("active").toBool() == active) return;
+    sb->setProperty("active", active);
+    sb->style()->unpolish(sb);
+    sb->style()->polish(sb);
+}
 
 } // namespace AetherSDR
