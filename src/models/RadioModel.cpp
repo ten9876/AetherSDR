@@ -1681,6 +1681,7 @@ void RadioModel::onDisconnected()
     // Clean up panadapter models
     qDeleteAll(m_panadapters);
     m_panadapters.clear();
+    m_pendingPanStatuses.clear();
     m_activePanId.clear();
     m_ownedSliceIds.clear();
     m_tnfModel.clear();
