@@ -36,6 +36,13 @@ radios.
   refusal.  Refuses to start when split is active, when transmitting,
   when the band is wider than the radio's max pan width, or when a PGXL
   amplifier is in OPERATE mode (forces user to STANDBY first).
+- ⚠️  **Third-party amplifiers are not auto-detected.** AetherSweep
+  only knows how to put a Power Genius XL into standby — it has no way
+  to talk to ACOM, SPE, Elecraft KPA, OM Power, or other linear amps.
+  **If you have a non-PGXL amplifier, manually place it in BYPASS or
+  STANDBY before starting an SWR sweep.**  The sweep will run a tune
+  carrier through whatever path the radio sees, and a non-bypassed
+  external linear will amplify that carrier into your antenna.
 - Full TGXL handling: snapshots OPERATE/BYPASS state, places TGXL into
   BYPASS to read raw antenna SWR, restores original state on completion
   or abort.  Reads radio-side SWR while TGXL is bypassed (TGXL stops
