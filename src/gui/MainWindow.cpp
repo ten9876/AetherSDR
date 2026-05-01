@@ -10852,8 +10852,13 @@ void MainWindow::startSwrSweep(int requestedSliceId, int sweepPowerWatts)
     m_swrSweep.tgxlOriginalOperate = tuner.isOperate();
     m_swrSweep.tgxlOriginalBypass = tuner.isBypass();
     if (tuner.isPresent() && tuner.isOperate()) {
-        m_swrSweep.meterSource = SwrSweepMeterSource::Tgxl;
         m_swrSweep.sourceLabel = QStringLiteral("TGXL BYPASS");
+        // Read radio-side SWR even when TGXL is bypassed: in bypass the TGXL
+        // is a passive wire-through and stops emitting RL meter packets, so
+        // tgxlSwrUpdatedAtMs never advances.  The radio's SWR coupler sees
+        // the antenna directly through the bypassed relays — equivalent
+        // reading, reliably emitted during the tune carrier.  (#2229)
+        m_swrSweep.meterSource = SwrSweepMeterSource::Radio;
         if (!tuner.isBypass()) {
             m_swrSweep.tgxlBypassRequested = true;
             m_swrSweep.tgxlRestoreNeeded = true;
