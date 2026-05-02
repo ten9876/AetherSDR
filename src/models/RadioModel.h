@@ -4,6 +4,7 @@
 #include "core/WanConnection.h"
 #include "core/PanadapterStream.h"
 #include "core/SleepInhibitor.h"
+#include "core/DaxTxPolicy.h"
 #include <QThread>
 #include "SliceModel.h"
 #include "MeterModel.h"
@@ -208,6 +209,7 @@ public:
     void loadGlobalProfile(const QString& name);
     void resetPanState();
     void createAudioStream();
+    bool ensureDaxTxStream(DaxTxRequestReason reason);
     QJsonObject troubleshootingSnapshot() const;
 
     // Memory channel cache
@@ -634,6 +636,7 @@ private:
         int sliceId{-1};
         int daxIqRate{0};
         QString panId;
+        QString ip;
         bool active{false};
         bool tx{false};
         bool activeKnown{false};
@@ -643,6 +646,10 @@ private:
     quint32     m_daxTxStreamId{0};
     bool        m_daxTxActive{false};
     quint32     m_daxTxClientHandle{0};  // Tracked for diagnostics only — not consulted in routing.
+    bool        m_daxTxCreatePending{false};
+    QSet<quint32> m_deadDaxRxSeen;
+    QSet<quint32> m_externalDaxTxSeen;
+    QSet<quint32> m_externalDaxRxSeen;
     WanConnection* m_wanConn{nullptr};  // non-null when connected via SmartLink
     QString  m_wanPublicIp;
     quint16  m_wanUdpPort{4991};

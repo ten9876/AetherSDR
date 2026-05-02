@@ -7467,9 +7467,9 @@ void MainWindow::onSliceAdded(SliceModel* s)
     if (s->isTxSlice())
         m_radioModel.sendCommand(QString("slice set %1 tx=1").arg(s->sliceId()));
 
-#if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
-    // Update m_daxTxMode when TX slice or its mode changes.
-    // Digital modes (DIGU/DIGL/RTTY) use DAX bridge; voice modes use mic.
+    // Keep the radio-side TX DAX flag aligned when the TX slice or mode changes.
+    // SmartSDR DAX on Windows owns the dax_tx stream itself, so only hosted
+    // DAX platforms create/route the local stream here.
     auto updateDaxTxMode = [this]() {
         bool isDigital = false;
         int txSliceId = -1;
@@ -7482,11 +7482,17 @@ void MainWindow::onSliceAdded(SliceModel* s)
                 break;
             }
         }
-        m_audio->setDaxTxMode(isDigital);
-
-        // Auto-toggle radio-side DAX flag on mode change (#534).
         // Digital modes need dax=1 for TX audio routing through DAX.
         m_radioModel.transmitModel().setDax(isDigital);
+
+#if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
+        m_audio->setDaxTxMode(isDigital);
+        if (isDigital)
+            m_radioModel.ensureDaxTxStream(DaxTxRequestReason::HostedDaxBridge);
+#else
+        if (isDigital)
+            m_radioModel.ensureDaxTxStream(DaxTxRequestReason::ExternalDaxRouteOnly);
+#endif
 
 #ifdef HAVE_RADE
         // RADE mode should only route mic→RADEEngine when the TX slice IS
@@ -7499,7 +7505,6 @@ void MainWindow::onSliceAdded(SliceModel* s)
     connect(s, &SliceModel::modeChanged, this, updateDaxTxMode);
     connect(s, &SliceModel::txSliceChanged, this, updateDaxTxMode);
     updateDaxTxMode();  // set initial state from current TX slice mode
-#endif
 
     // Push overlay for this slice to the spectrum widget
     pushSliceOverlay(s);
@@ -11821,6 +11826,7 @@ bool MainWindow::startDax()
     // mode overrides this to the low-latency route via setRadeMode()
     // when the user enters RADE — see AudioEngine::setRadeMode().
     m_audio->setDaxTxUseRadioRoute(true);
+    m_radioModel.ensureDaxTxStream(DaxTxRequestReason::HostedDaxBridge);
     m_radioModel.sendCommand("transmit set mic_selection=PC");
     // Don't force dax=1 here — radio-side DAX flag follows mode changes
     // via updateDaxTxMode(). Bridge up ≠ DAX TX active. (#534)
