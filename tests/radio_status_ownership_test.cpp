@@ -199,8 +199,20 @@ void testDaxTxPolicy()
 
     DaxTxPolicyContext windowsTci = windowsExternalRoute;
     windowsTci.reason = DaxTxRequestReason::TciTxAudio;
-    check(!evaluateDaxTxPolicy(windowsTci).allowed,
-          "Windows external-DAX2 TCI policy does not create dax_tx when unsupported");
+    check(evaluateDaxTxPolicy(windowsTci).allowed,
+          "Windows external-DAX2 TCI policy creates its own dax_tx stream (#2276)");
+
+    // Linux non-PipeWire — same regression class as Windows. The TciTxAudio
+    // policy must allow regardless of hosted-DAX availability.
+    DaxTxPolicyContext linuxNoBridgeTci{
+        DaxTxRequestReason::TciTxAudio,
+        DaxTxPlatform::Linux,
+        DaxTxMode::None,
+        false,
+        false
+    };
+    check(evaluateDaxTxPolicy(linuxNoBridgeTci).allowed,
+          "Linux without hosted DAX still creates its own dax_tx stream for TCI (#2276)");
 }
 
 void testUdpRegistrationPolicy()

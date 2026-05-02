@@ -6,6 +6,9 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("0.9.5.1"), QStringLiteral("2026-05-02"), QStringLiteral(""), {
+            {ChangeCategory::BugFix, QStringLiteral("TCI TX silent on Windows / Linux non-PipeWire"), QStringLiteral("`evaluateDaxTxPolicy()` now always allows `DaxTxRequestReason::TciTxAudio` regardless of platform / hosted-DAX availability.  TCI receives audio over WebSocket and feeds it into a dedicated `dax_tx...")},
+        }},
         {QStringLiteral("0.9.5"), QStringLiteral("2026-05-02"), QStringLiteral("Reliability sweep + DAX2 coexistence overhaul"), {
             {ChangeCategory::Feature, QStringLiteral("Aetherial Parametric EQ Smoothing combo"), QStringLiteral("New Smoothing combo on the EQ analyzer with 1/24, 1/12, 1/6, 1/3, 1/1 octave fractional smoothing options (linear-power averaging). Persists via `EqAnalyzerSmoothing`; defaults to 1/12 octave. Audi...")},
             {ChangeCategory::Feature, QStringLiteral("Custom filter edges with persistence"), QStringLiteral("Right-click a filter button → **Set Custom Edges...** opens a 2-spinbox dialog.  Asymmetric `lo:hi` pairs persist in `FilterPresets_<mode>` via a new mixed `width` / `lo:hi` storage format (backwar...")},

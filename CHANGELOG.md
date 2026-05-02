@@ -3,6 +3,34 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.9.5.1] — 2026-05-02
+
+### TCI TX hotfix
+
+Hotfix for a regression introduced by the v0.9.5 DAX2 coexistence policy
+(#2271): TCI digital TX (WSJT-X / JTDX / MSHV) was silent on Windows and
+Linux non-PipeWire because `evaluateDaxTxPolicy()` denied `dax_tx`
+stream creation for `TciTxAudio` on those platforms.  The radio was
+told `dax=1` but no audio packets ever flowed, so the modulator stayed
+silent during TX.
+
+The conceptual mistake: SmartSDR DAX2 owns the Windows DAX *audio
+devices*, not the radio's `dax_tx` stream slot.  Multiple GUI clients
+can each register their own `dax_tx` stream, and TCI's audio source is
+a WebSocket — it doesn't touch the local DAX devices at all, so there's
+no conflict.
+
+### Bug fix
+
+**TCI TX silent on Windows / Linux non-PipeWire (#2276)**
+- `evaluateDaxTxPolicy()` now always allows `DaxTxRequestReason::TciTxAudio`
+  regardless of platform / hosted-DAX availability.  TCI receives audio
+  over WebSocket and feeds it into a dedicated `dax_tx` stream that's
+  independent of SmartSDR DAX2.
+- Test assertions in `tests/radio_status_ownership_test.cpp` flipped to
+  match the corrected policy and a new Linux-non-PipeWire test case
+  added.
+
 ## [v0.9.5] — 2026-05-02
 
 ### Reliability sweep + DAX2 coexistence overhaul

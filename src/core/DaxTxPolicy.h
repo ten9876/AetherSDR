@@ -126,11 +126,13 @@ inline DaxTxPolicyDecision evaluateDaxTxPolicy(const DaxTxPolicyContext& context
         return {false, QStringLiteral("hosted_dax_unavailable")};
 
     case DaxTxRequestReason::TciTxAudio:
-        if (context.tciDaxTxSupported)
-            return {true, QStringLiteral("tci_dax_tx_supported")};
-        if (context.mode == DaxTxMode::ExternalDax2)
-            return {false, QStringLiteral("SmartSDR_DAX2_owns_windows_dax")};
-        return {false, QStringLiteral("tci_dax_tx_not_supported")};
+        // TCI's audio source is the WebSocket from WSJT-X / JTDX / MSHV, not
+        // a local audio device.  AetherSDR feeds those packets into a
+        // dedicated dax_tx stream that's independent of SmartSDR DAX2 (which
+        // owns the Windows DAX *audio devices*, not the radio's dax_tx
+        // stream slot — multiple GUI clients can each register their own).
+        // Always allow regardless of platform / hosted-DAX availability. (#2276)
+        return {true, QStringLiteral("tci_creates_own_dax_tx_stream")};
 
     case DaxTxRequestReason::ExternalDaxRouteOnly:
         if (context.mode == DaxTxMode::ExternalDax2)
