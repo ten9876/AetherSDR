@@ -7482,14 +7482,21 @@ void MainWindow::onSliceAdded(SliceModel* s)
                 break;
             }
         }
-        // Digital modes need dax=1 for TX audio routing through DAX.
+        // Digital modes need dax=1 for TX audio routing through DAX, but only
+        // on platforms where some component actually feeds the radio audio
+        // for that route — hosted DAX (macOS / PipeWire) or SmartSDR DAX2
+        // on Windows.  Linux non-PipeWire builds have no DAX feed available,
+        // so leave the radio's dax flag alone to keep digital TX on the
+        // physical mic input. (#2273)
+#if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE) || defined(Q_OS_WIN)
         m_radioModel.transmitModel().setDax(isDigital);
+#endif
 
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
         m_audio->setDaxTxMode(isDigital);
         if (isDigital)
             m_radioModel.ensureDaxTxStream(DaxTxRequestReason::HostedDaxBridge);
-#else
+#elif defined(Q_OS_WIN)
         if (isDigital)
             m_radioModel.ensureDaxTxStream(DaxTxRequestReason::ExternalDaxRouteOnly);
 #endif

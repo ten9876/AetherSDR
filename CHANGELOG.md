@@ -3,6 +3,183 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.9.5] — 2026-05-02
+
+### Reliability sweep + DAX2 coexistence overhaul
+
+A focused stability release.  Headline is **DAX2 coexistence policy
+(jensenpat)** — a centralized decision table that makes AetherSDR's
+behaviour next to SmartSDR DAX, hosted DAX (macOS / PipeWire), and
+external Flex tooling explicit, testable, and consistently logged.
+Plus substantial improvements to **disconnect teardown** (sequenced
+`stream remove` with response wait — fixes the Flex-6300 unreachable-
+after-reconnect bug), **worker-thread shutdown** (no more `killTimer`
+warnings on app exit), **panadapter zoom** (no spectrum flash), and
+**multi-flex spot/ATU handling** (DXCluster spot trigger_action removal,
+ATU per-frequency toggle).
+
+A two-PR **issue triage cleanup** closed 12 long-standing issues across
+small UI bugs, contrast, indicator routing, click-to-tune behaviour,
+and visible regressions from recent feature work.
+
+### Features
+
+**Aetherial Parametric EQ Smoothing combo (#2236)**
+- New Smoothing combo on the EQ analyzer with 1/24, 1/12, 1/6, 1/3,
+  1/1 octave fractional smoothing options (linear-power averaging).
+  Persists via `EqAnalyzerSmoothing`; defaults to 1/12 octave.
+- Audio-domain band-plan strip on the EQ canvas + dashed yellow filter
+  cutoff guides for both TX and RX.  Cutoff guides are draggable to
+  retune filter edges with mode-aware USB/LSB/AM/FM offset conversion.
+- Phone applet Low/High Cut buttons snap to nearest 50 Hz.
+- ~30 % faster smoothing inner loop after replacing
+  `std::pow(10, x/10)` with `std::exp(x * ln(10)/10)` (#2239).
+
+**Custom filter edges with persistence (#2272)**
+- Right-click a filter button → **Set Custom Edges...** opens a
+  2-spinbox dialog.  Asymmetric `lo:hi` pairs persist in
+  `FilterPresets_<mode>` via a new mixed `width` / `lo:hi` storage
+  format (backward compat preserved for existing width-only entries).
+- **Reset to Default** is now per-slot.
+- FilterPassbandWidget shows signed lo/hi/center values so LSB/CW
+  filters reveal sideband.
+- Filter-edge grab zone in the spectrum bumped from 5px to 8px so
+  edges sitting near the VFO line are easier to grab.
+
+**Spot click client-side mode mapping (#2272)**
+- All client-ingested spots (DXCluster, RBN, POTA, SpotCollector,
+  FreeDV, WSJT-X, manual) now ship with `trigger_action=none`.  The
+  radio no longer auto-acts on stored mode strings (which mishandled
+  "SSB" and similar non-Flex tokens, falling back to CW).
+- AetherSDR's auto-mode mapping handles tune+mode client-side.
+  Default flipped to enabled.
+- FreeDV-source spots activate the RADE engine via `activateRADE()`
+  (sets DIGU/DIGL plus the OFDM modem) instead of just landing on a
+  plain digital mode.
+
+**ATU per-frequency toggle (#2272)**
+- ATU button now mirrors SmartSDR's behaviour: first click on a
+  frequency tunes; second click at the same frequency bypasses; freq
+  change resets the toggle so the next click tunes again.
+
+### Bug fixes
+
+**DAX2 coexistence policy (#2271, jensenpat)**
+- New `DaxTxPolicy.h` decision table: `(reason, platform, mode) →
+  (allowed, note)`.  Centralizes platform-aware DAX TX decisions with
+  explicit reasons (HostedDaxBridge, TciTxAudio, ExternalDaxRouteOnly,
+  GenericAudioRecreate) and consistent log notes at every branch.
+- Lazy `dax_tx` stream creation via `RadioModel::ensureDaxTxStream()`
+  — eager creation at GUI attach is removed so SmartSDR DAX can own
+  the Windows route.
+- `daxTxStatusCanUpdateLocalState()` anti-stomp: foreign DAX TX
+  status can no longer accidentally adopt our tracked stream slot.
+- LAN VITA UDP rebind path: on Flex's `0x500000A9` "Port/IP pair
+  already in use" error, AetherSDR rebinds to an OS-assigned ephemeral
+  port and retries `client udpport`.  WAN/SmartLink already used
+  ephemeral ports and is correctly excluded from the rebind path.
+- Dead-orphan DAX RX detection: `client_handle=0 ip=0.0.0.0` entries
+  are ignored as not-our-stream rather than treated as legacy-compat.
+- External DAX TX/RX visibility: separate seen-once log lines so the
+  radio's external streams are visible in diagnostic logs without
+  polluting our local state.
+- 24 + test assertions across `testStreamStatusOwnershipCompatibility`,
+  `testDaxTxStatusOwnership`, `testDaxTxPolicy`, and
+  `testUdpRegistrationPolicy`.
+- Linux non-PipeWire builds correctly skip both `setDax(1)` and DAX
+  stream creation, so digital TX falls back to the physical mic input
+  rather than going silent (#2273).
+
+**Sequenced radio disconnect teardown (#2247, jensenpat)**
+- Fixes Flex-6300 / 6400 unreachability after reconnect (#2113, #2218).
+- Disconnect now sends `stream remove 0x<id>` and waits up to 2 s for
+  the radio's response before closing TCP.  Without this, fire-and-
+  forget teardown left stale Flex sessions that refused subsequent
+  connects until reboot.
+- Drops the rejected `client disconnect <self_handle>` send — verified
+  against FlexLib's own self-disconnect path, which uses the `0x04`
+  "dying gasp" byte before TCP close.  AetherSDR now does the same.
+- Defensive auto-reconnect arms on refused-connect paths that don't
+  emit a `disconnected` signal.
+
+**Worker object shutdown thread affinity (#2248, rfoust)**
+- Eliminates `QObject::killTimer: Timers cannot be stopped from
+  another thread`, `QObject::moveToThread: Current thread is not the
+  object thread`, and `~QObject` warnings on app exit.
+- Worker-thread QObjects (audio engine, spot clients, ext controllers,
+  radio connection, panadapter stream) are now destroyed via
+  `deleteLater()` on their owning threads before each thread quits.
+
+**Panadapter zoom keeps spectrum visible (#2246, rfoust)**
+- New `reprojectSpectrum()` mirrors the existing waterfall reprojection.
+  Zoom changes that overlap with the previous range now interpolate
+  existing FFT bins forward instead of clearing them, eliminating the
+  spectrum flash/blank during pinch / wheel / drag zoom.
+
+**TGXL detected via direct TCP only (#2250, chrisb1964)**
+- TUN applet now appears for TGXLs that don't report through the
+  amplifier API (Flex-8600 fw 4.2.18).  New `m_directPresence` fallback
+  in `TunerModel`; `isPresent()` returns true via either path.
+- Handles bare `amplifier <handle> removed` form correctly via a new
+  `ampRemovedRe` regex (matches FlexLib's `s.Contains("removed")`
+  semantics for both bare-flag and kvs-form removals).
+
+**RX slice tab capacity initialization (#2243, chibondking)**
+- RX slice tab capacity is now seeded from the radio model on connect
+  rather than left at the default — fixes empty tabs when reconnecting
+  to a different radio model.
+
+**Radio model label refresh (#2244, jensenpat)**
+- Radio model label refreshes on `info` command response, so
+  reconnecting to a different model immediately reflects the new
+  identity in the UI.
+
+**FreeDV Reporter OS string (#2269, tmiw)**
+- OS field lowercased to match the official FreeDV client convention.
+  Previously AetherSDR users showed as "other" in monthly platform
+  reports.  Thanks Mooneer.
+
+**FreeDV Reporter checkbox visibility (#2268, NF0T)**
+- Three checkboxes in the FreeDV Reporter tab were rendering with no
+  visible borders against the dark background.  Applied the standard
+  `ConnectionPanel` checkbox style.
+
+**AppletPanel scrollbar (#2257, Chaosuk97)**
+- AppletPanel scrollbar widened from 6 px to 12 px with a dim handle
+  at rest that brightens to `#4a6880` on hover or drag.  500 ms
+  delay before dimming back so quick scroll gestures don't flicker.
+  Always-visible track to match the rest of the app.
+
+**Sweep 1 — 7 small UI / contrast fixes (#2270)**
+- `AetherSDR vX.Y.Z` shown again in the in-app title bar — restored
+  after the frameless-window mode regression (#2027).
+- FlexControl knob press tokens are bare `S` / `C` / `L`, not
+  `X4S` / `X4C` / `X4L`.  Captured against LB2EG's hardware (#2263).
+- Å Morse sequence corrected to `01101` (`·−−·−`) per ITU-R M.1677-1
+  (#2264, LB2EG).
+- Single-click-to-tune suppressed across the entire K / SFI / WNB /
+  RF Gain / WIDE indicator strip in the top-right of the spectrum,
+  not just the propagation text (#1564).
+- Slice record (⏺) and play (▶) indicator alpha values doubled for
+  legibility against the dark spectrum background (#1576).
+- Status indicators (TNF / CWX / DVK / FDX) unified to cyan
+  (`#00b4d8`) for active and dark grey (`#404858`) for off; TNF init
+  colour bug fixed (was semi-transparent white) (#1581).
+- Status bar time stack: removed grid-square label; date + UTC time
+  use the same 2-row layout as every other telemetry stack (#1583).
+
+**Sweep 2 — 5 small bug fixes (#2272)**
+- Double-clicking an off-screen slice indicator (`<A` / `A>`) recenters
+  cleanly without retuning to a wrong frequency (#2237).  Qt's
+  press → release → double-click → release sequence was leaving
+  `m_spotClickConsumed=false` on the trailing release, so the
+  single-click-to-tune path fired against the new center.
+- HAVE_RADE without HAVE_WEBSOCKETS compile error (#2204) —
+  `startFreeDvReporting` / `stopFreeDvReporting` now wrap their
+  bodies with `#ifndef HAVE_WEBSOCKETS` no-op fallback.
+- (See "Features" above for #1846 spot mode, #1993 ATU toggle, #2259
+  custom filter edges.)
+
 ## [v0.9.4] — 2026-05-01
 
 ### AetherSweep, ShackSwitch, and multi-client startup hardening
