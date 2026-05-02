@@ -4160,6 +4160,24 @@ void MainWindow::resizeEvent(QResizeEvent* event)
     }
 }
 
+void MainWindow::changeEvent(QEvent* event)
+{
+    QMainWindow::changeEvent(event);
+
+    if (event->type() != QEvent::WindowStateChange
+        || !m_minimalMode
+        || m_exitingMinimalModeFromWindowState) {
+        return;
+    }
+
+    const Qt::WindowStates state = windowState();
+    if (!(state & (Qt::WindowMaximized | Qt::WindowFullScreen)))
+        return;
+
+    m_exitingMinimalModeFromWindowState = true;
+    QTimer::singleShot(0, this, &MainWindow::exitMinimalModeFromWindowStateChange);
+}
+
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     m_shuttingDown = true;
@@ -6219,6 +6237,9 @@ void MainWindow::buildUI()
             QSignalBlocker b(m_minimalModeAction);
             m_minimalModeAction->setChecked(m_minimalMode);
         }
+    });
+    connect(m_titleBar, &TitleBar::minimalModeWindowedExitRequested, this, [this]() {
+        exitMinimalModeToWindowedMode(true);
     });
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
@@ -9834,6 +9855,33 @@ void MainWindow::setFramelessWindow(bool on)
         m_appletPanel->containerManager()->setFramelessMode(on);
 }
 
+void MainWindow::exitMinimalModeToWindowedMode(bool saveMinimalGeometry)
+{
+    if (!m_minimalMode)
+        return;
+
+    showNormal();
+
+    if (m_minimalModeAction) {
+        QSignalBlocker b(m_minimalModeAction);
+        m_minimalModeAction->setChecked(false);
+    }
+
+    m_skipMinimalModeGeometrySave = !saveMinimalGeometry;
+    toggleMinimalMode(false);
+    m_skipMinimalModeGeometrySave = false;
+
+    showNormal();
+}
+
+void MainWindow::exitMinimalModeFromWindowStateChange()
+{
+    if (m_minimalMode)
+        exitMinimalModeToWindowedMode(false);
+
+    m_exitingMinimalModeFromWindowState = false;
+}
+
 void MainWindow::toggleMinimalMode(bool on)
 {
     m_minimalMode = on;
@@ -9878,7 +9926,8 @@ void MainWindow::toggleMinimalMode(bool on)
 
     } else {
         // Save minimal geometry
-        s.setValue("MinimalModeGeometry", saveGeometry().toBase64());
+        if (!m_skipMinimalModeGeometrySave)
+            s.setValue("MinimalModeGeometry", saveGeometry().toBase64());
 
         // Reparent applet panel back into the splitter and restore layout
         m_splitter->addWidget(m_appletPanel);
