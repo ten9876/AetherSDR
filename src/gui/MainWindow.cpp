@@ -2143,6 +2143,7 @@ MainWindow::MainWindow(QWidget* parent)
             m_layoutRestoreTimer->setSingleShot(true);
             m_layoutRestoreTimer->setInterval(1000);
             connect(m_layoutRestoreTimer, &QTimer::timeout, this, [this]() {
+                m_layoutRestoreTimer->setProperty("fired", true);
                 // The radio restores pans from the GUIClientID session.
                 // Accept whatever the radio gives and arrange based on count.
                 const int panCount = m_panStack->count();
@@ -2197,7 +2198,9 @@ MainWindow::MainWindow(QWidget* parent)
                 m_panStack->restoreFloatingState();
             });
         }
-        m_layoutRestoreTimer->start();  // restart on each new pan
+        if (!m_layoutRestoreTimer->property("fired").toBool()) {
+            m_layoutRestoreTimer->start();
+        }
     });
     // Re-push xpixels/ypixels when the radio requests it (profile change, reconnect, etc.)
     connect(&m_radioModel, &RadioModel::panDimensionsNeeded,
@@ -2217,6 +2220,35 @@ MainWindow::MainWindow(QWidget* parent)
         if (pan->panStreamId())
             m_radioModel.panStream()->setYPixels(pan->panStreamId(), ypix);
     });
+
+#ifdef Q_OS_MAC
+    auto repushPanDimensions = [this]() {
+        QTimer::singleShot(200, this, [this]() {
+            for (auto* applet : m_panStack->allApplets()) {
+                auto* sw = applet->spectrumWidget();
+                auto* pan = m_radioModel.panadapter(applet->panId());
+                if (!sw || !pan) {
+                    continue;
+                }
+                const int xpix = sw->width();
+                const int ypix = sw->height();
+                if (xpix < 100 || ypix < 100) {
+                    continue;
+                }
+                m_radioModel.sendCommand(
+                    QString("display pan set %1 xpixels=%2 ypixels=%3")
+                        .arg(pan->panId()).arg(xpix).arg(ypix));
+                if (pan->panStreamId()) {
+                    m_radioModel.panStream()->setYPixels(pan->panStreamId(), ypix);
+                }
+            }
+        });
+    };
+    connect(m_panStack, &PanadapterStack::panFloated,
+            this, [repushPanDimensions](const QString&) { repushPanDimensions(); });
+    connect(m_panStack, &PanadapterStack::panDocked,
+            this, [repushPanDimensions](const QString&) { repushPanDimensions(); });
+#endif
 
     connect(&m_radioModel, &RadioModel::panadapterRemoved,
             this, [this](const QString& panId) {
@@ -2286,16 +2318,14 @@ MainWindow::MainWindow(QWidget* parent)
     // ── Slice tab toggle: click A/B/C/D → switch active slice (#1278) ──
     connect(m_appletPanel->rxApplet(), &RxApplet::sliceActivationRequested,
             this, &MainWindow::setActiveSlice);
-    // Initialize slice tab buttons once the radio reports its actual capacity
-    connect(&m_radioModel, &RadioModel::infoChanged, this,
-            [this, initialized = false]() mutable {
-        if (initialized || m_radioModel.model().isEmpty()) {
+    // Sync slice tab capacity after radio info/status reports actual capacity.
+    connect(&m_radioModel, &RadioModel::infoChanged, this, [this]() {
+        if (m_radioModel.model().isEmpty()) {
             return;
         }
 
         m_appletPanel->setMaxSlices(m_radioModel.maxSlices());
         m_appletPanel->updateSliceButtons(m_radioModel.slices(), m_activeSliceId);
-        initialized = true;
     });
 
     // Radio info can arrive after onConnectionStateChanged, so refresh the labels.
@@ -6933,6 +6963,9 @@ void MainWindow::onConnectionStateChanged(bool connected)
 {
     m_connPanel->setConnected(connected);
     if (connected) {
+        if (m_layoutRestoreTimer) {
+            m_layoutRestoreTimer->setProperty("fired", false);
+        }
         m_radioInfoLabel->setText(m_radioModel.model());
         m_radioVersionLabel->setText(m_radioModel.version());
         m_stationLabel->setText(m_radioModel.nickname());
@@ -7184,6 +7217,10 @@ void MainWindow::onConnectionStateChanged(bool connected)
             }
         }
     } else {
+        if (m_appletPanel) {
+            m_appletPanel->clearSliceButtons();
+        }
+
         const bool reconnectWan = !m_userDisconnected && m_radioModel.isWan()
             && !m_pendingWanRadio.serial.isEmpty();
         if (reconnectWan && !m_wanReconnectTimer.isActive()) {

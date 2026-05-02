@@ -18,7 +18,21 @@
 static void refreshAfterReparent(AetherSDR::SpectrumWidget* sw)
 {
     if (!sw) return;
+#if defined(Q_OS_MAC) && defined(AETHER_GPU_SPECTRUM)
+    const bool wasVisible = sw->isVisible();
+    sw->hide();
     sw->resetGpuResources();
+    if (QWindow* windowHandle = sw->windowHandle()) {
+        windowHandle->destroy();
+    }
+    sw->setAttribute(Qt::WA_NativeWindow);
+    if (wasVisible) {
+        sw->show();
+    }
+    QTimer::singleShot(50, sw, [sw]() { sw->update(); });
+#else
+    sw->resetGpuResources();
+#endif
 }
 
 namespace AetherSDR {
@@ -336,6 +350,126 @@ void PanadapterStack::removeAll()
     layout()->addWidget(m_splitter);
 }
 
+void PanadapterStack::rebuildDockedSplitter()
+{
+    QList<PanadapterApplet*> docked;
+    for (auto it = m_pans.cbegin(); it != m_pans.cend(); ++it) {
+        if (!m_floatingWindows.contains(it.key())) {
+            docked.append(it.value());
+        }
+    }
+
+    QSplitter* oldSplitter = m_splitter;
+    auto* newSplitter = new QSplitter(Qt::Vertical, this);
+    newSplitter->setHandleWidth(3);
+    newSplitter->setChildrenCollapsible(false);
+    layout()->addWidget(newSplitter);
+
+    static const QMap<QString, int> layoutPanCount = {
+        {"1", 1}, {"2v", 2}, {"2h", 2}, {"2h1", 3}, {"12h", 3}, {"3v", 3},
+        {"2x2", 4}, {"4v", 4}, {"3h2", 5}, {"2x3", 6}, {"4h3", 7}, {"2x4", 8}
+    };
+    QString layoutId = AppSettings::instance().value("PanadapterLayout", "1").toString();
+    if (layoutPanCount.value(layoutId, -1) != docked.size()) {
+        if (docked.size() == 2) {
+            layoutId = QStringLiteral("2v");
+        } else if (docked.size() == 3) {
+            layoutId = QStringLiteral("2h1");
+        } else if (docked.size() == 4) {
+            layoutId = QStringLiteral("2x2");
+        } else {
+            layoutId = QStringLiteral("1");
+        }
+    }
+
+    auto makeSplitter = [](Qt::Orientation orientation) {
+        auto* splitter = new QSplitter(orientation);
+        splitter->setHandleWidth(3);
+        splitter->setChildrenCollapsible(false);
+        return splitter;
+    };
+
+    auto addVertical = [&]() {
+        newSplitter->setOrientation(Qt::Vertical);
+        for (PanadapterApplet* applet : docked) {
+            newSplitter->addWidget(applet);
+            applet->show();
+        }
+    };
+
+    if (layoutId == "2h" && docked.size() >= 2) {
+        newSplitter->setOrientation(Qt::Horizontal);
+        newSplitter->addWidget(docked[0]);
+        newSplitter->addWidget(docked[1]);
+    } else if (layoutId == "2h1" && docked.size() >= 3) {
+        auto* topSplit = makeSplitter(Qt::Horizontal);
+        topSplit->addWidget(docked[0]);
+        topSplit->addWidget(docked[1]);
+        newSplitter->addWidget(topSplit);
+        newSplitter->addWidget(docked[2]);
+    } else if (layoutId == "12h" && docked.size() >= 3) {
+        auto* botSplit = makeSplitter(Qt::Horizontal);
+        botSplit->addWidget(docked[1]);
+        botSplit->addWidget(docked[2]);
+        newSplitter->addWidget(docked[0]);
+        newSplitter->addWidget(botSplit);
+    } else if (layoutId == "2x2" && docked.size() >= 4) {
+        auto* topSplit = makeSplitter(Qt::Horizontal);
+        topSplit->addWidget(docked[0]);
+        topSplit->addWidget(docked[1]);
+        auto* botSplit = makeSplitter(Qt::Horizontal);
+        botSplit->addWidget(docked[2]);
+        botSplit->addWidget(docked[3]);
+        newSplitter->addWidget(topSplit);
+        newSplitter->addWidget(botSplit);
+    } else if (layoutId == "3h2" && docked.size() >= 5) {
+        auto* topSplit = makeSplitter(Qt::Horizontal);
+        topSplit->addWidget(docked[0]);
+        topSplit->addWidget(docked[1]);
+        topSplit->addWidget(docked[2]);
+        auto* botSplit = makeSplitter(Qt::Horizontal);
+        botSplit->addWidget(docked[3]);
+        botSplit->addWidget(docked[4]);
+        newSplitter->addWidget(topSplit);
+        newSplitter->addWidget(botSplit);
+    } else if (layoutId == "2x3" && docked.size() >= 6) {
+        for (int r = 0; r < 3; ++r) {
+            auto* rowSplit = makeSplitter(Qt::Horizontal);
+            rowSplit->addWidget(docked[r * 2]);
+            rowSplit->addWidget(docked[r * 2 + 1]);
+            newSplitter->addWidget(rowSplit);
+        }
+    } else if (layoutId == "4h3" && docked.size() >= 7) {
+        auto* topSplit = makeSplitter(Qt::Horizontal);
+        topSplit->addWidget(docked[0]);
+        topSplit->addWidget(docked[1]);
+        topSplit->addWidget(docked[2]);
+        topSplit->addWidget(docked[3]);
+        auto* botSplit = makeSplitter(Qt::Horizontal);
+        botSplit->addWidget(docked[4]);
+        botSplit->addWidget(docked[5]);
+        botSplit->addWidget(docked[6]);
+        newSplitter->addWidget(topSplit);
+        newSplitter->addWidget(botSplit);
+    } else if (layoutId == "2x4" && docked.size() >= 8) {
+        for (int r = 0; r < 4; ++r) {
+            auto* rowSplit = makeSplitter(Qt::Horizontal);
+            rowSplit->addWidget(docked[r * 2]);
+            rowSplit->addWidget(docked[r * 2 + 1]);
+            newSplitter->addWidget(rowSplit);
+        }
+    } else {
+        addVertical();
+    }
+
+    layout()->removeWidget(m_splitter);
+    oldSplitter->hide();
+    oldSplitter->deleteLater();
+    m_splitter = newSplitter;
+
+    QTimer::singleShot(0, this, [this]() { equalizeSizes(); });
+}
+
 void PanadapterStack::applyLayout(const QString& layoutId, const QStringList& panIds)
 {
     // Build structure based on layout ID.
@@ -506,10 +640,12 @@ void PanadapterStack::floatPanadapter(const QString& panId)
     applet->spectrumWidget()->setFloating(true);
 
     m_floatingWindows[panId] = fw;
+    rebuildDockedSplitter();
     fw->restoreWindowGeometry();
     fw->show();
     fw->raise();
     saveFloatingState();
+    emit panFloated(panId);
 
     connect(fw, &PanFloatingWindow::dockRequested,
             this, &PanadapterStack::dockPanadapter);
@@ -563,6 +699,7 @@ void PanadapterStack::dockPanadapter(const QString& panId)
     // the splitter without an intermediate top-level state.
     m_splitter->addWidget(applet);
     applet->show();
+    rebuildDockedSplitter();
 
     const int count = m_splitter->count();
     if (count > 1) {
@@ -590,6 +727,7 @@ void PanadapterStack::dockPanadapter(const QString& panId)
             refreshAfterReparent(sw);
         });
     }
+    emit panDocked(panId);
 }
 
 bool PanadapterStack::isFloating(const QString& panId) const
@@ -627,6 +765,7 @@ void PanadapterStack::saveFloatingState() const
         ids << id;
     }
     AppSettings::instance().setValue("FloatingPanIds", ids.join(','));
+    AppSettings::instance().save();
 }
 
 void PanadapterStack::restoreFloatingState()

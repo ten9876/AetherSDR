@@ -660,14 +660,16 @@ void RadioModel::disconnectFromRadio()
     m_pingTimer.stop();
     if (m_wanConn) {
         WanConnection* wan = m_wanConn;
-        wan->disconnect(this);  // remove stale connections before adding one-shot teardown (#224)
+        wan->disconnect(this);  // remove stale signal connections before adding the one-shot teardown (#224)
         connect(wan, &WanConnection::disconnected, this, [this, wan]() {
-            if (m_wanConn == wan)
+            if (m_wanConn == wan) {
                 onDisconnected();
+            }
         }, Qt::SingleShotConnection);
         wan->disconnectFromRadio();
-        if (wan->isSocketIdle() && m_wanConn == wan)
+        if (wan->isSocketIdle() && m_wanConn == wan) {
             onDisconnected();
+        }
     } else if (m_connection->isConnected()) {
         // Graceful disconnect: remove our stream and wait for the radio reply
         // before closing. Self "client disconnect" is rejected by the radio.

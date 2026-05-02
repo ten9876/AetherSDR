@@ -40,6 +40,19 @@ namespace AetherSDR {
 
 std::mutex SpectralNR::s_fftwMutex;
 
+namespace {
+
+std::string wisdomPathForDirectory(const std::string& directory)
+{
+    std::string wisdomFile = directory;
+    if (!wisdomFile.empty() && wisdomFile.back() != '/' && wisdomFile.back() != '\\')
+        wisdomFile += '/';
+    wisdomFile += "aethersdr_fftw_wisdom";
+    return wisdomFile;
+}
+
+} // namespace
+
 // ─── Construction / Reset ──────────────────────────────────────────────────────
 
 SpectralNR::SpectralNR(int fftSize, int sampleRate)
@@ -198,22 +211,26 @@ void SpectralNR::initWindow()
 
 // ─── FFTW Wisdom ───────────────────────────────────────────────────────────────
 
+bool SpectralNR::loadWisdom(const std::string& directory)
+{
+#ifdef HAVE_FFTW3
+    const std::string wisdomFile = wisdomPathForDirectory(directory);
+    std::lock_guard<std::mutex> lock(s_fftwMutex);
+    return fftw_import_wisdom_from_filename(wisdomFile.c_str()) != 0;
+#else
+    (void)directory;
+    return false;
+#endif
+}
+
 bool SpectralNR::generateWisdom(const std::string& directory,
                                 WisdomProgressCb progress)
 {
 #ifdef HAVE_FFTW3
-    std::string wisdomFile = directory;
-    if (!wisdomFile.empty() && wisdomFile.back() != '/' && wisdomFile.back() != '\\')
-        wisdomFile += '/';
-    wisdomFile += "aethersdr_fftw_wisdom";
+    const std::string wisdomFile = wisdomPathForDirectory(directory);
 
-    // Lock: FFTW wisdom import is NOT thread-safe (#467)
-    // Try to load our own wisdom file first
-    {
-        std::lock_guard<std::mutex> lock(s_fftwMutex);
-        if (fftw_import_wisdom_from_filename(wisdomFile.c_str())) {
-            return false;  // wisdom loaded from file — no generation needed
-        }
+    if (loadWisdom(directory)) {
+        return false;  // wisdom loaded from file — no generation needed
     }
 
     // Try to import Thetis/WDSP wisdom (compatible FFTW3 format)
@@ -292,7 +309,9 @@ bool SpectralNR::generateWisdom(const std::string& directory,
 
     {
         std::lock_guard<std::mutex> lock(s_fftwMutex);
-        fftw_export_wisdom_to_filename(wisdomFile.c_str());
+        if (!fftw_export_wisdom_to_filename(wisdomFile.c_str()))
+            qCWarning(lcDsp) << "SpectralNR: failed to export FFTW wisdom to"
+                             << QString::fromStdString(wisdomFile);
     }
     fftw_free(rbuf);
     fftw_free(cbuf);

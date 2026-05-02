@@ -1000,9 +1000,11 @@ void RxApplet::setAfGain(int pct)
 
 void RxApplet::setMaxSlices(int maxSlices)
 {
-    // Only create buttons once
     if (!m_sliceBtns.isEmpty()) {
-        return;
+        if (m_sliceBtns.size() == maxSlices) {
+            return;
+        }
+        clearSliceButtons();
     }
 
     if (maxSlices <= 1) {
@@ -1047,20 +1049,39 @@ void RxApplet::setMaxSlices(int maxSlices)
         m_sliceBtns.append(btn);
     }
 
-    // Wire button clicks to emit sliceActivationRequested
-    connect(m_sliceGroup, QOverload<int>::of(&QButtonGroup::idClicked),
-            this, [this](int /*buttonId*/) {
-        auto* btn = qobject_cast<QToolButton*>(m_sliceGroup->checkedButton());
-        if (btn) {
-            bool ok = false;
-            int sliceId = btn->property("sliceId").toInt(&ok);
-            if (ok) emit sliceActivationRequested(sliceId);
-        }
-    });
+    if (!m_sliceButtonClicksConnected) {
+        connect(m_sliceGroup, QOverload<int>::of(&QButtonGroup::idClicked),
+                this, [this](int /*buttonId*/) {
+            auto* btn = qobject_cast<QToolButton*>(m_sliceGroup->checkedButton());
+            if (btn) {
+                bool ok = false;
+                int sliceId = btn->property("sliceId").toInt(&ok);
+                if (ok) emit sliceActivationRequested(sliceId);
+            }
+        });
+        m_sliceButtonClicksConnected = true;
+    }
 
     if (!useInline) {
         m_sliceTabRow->setVisible(true);
     }
+}
+
+void RxApplet::clearSliceButtons()
+{
+    if (m_sliceBtns.isEmpty()) {
+        return;
+    }
+
+    QSignalBlocker blocker(m_sliceGroup);
+    while (!m_sliceBtns.isEmpty()) {
+        QToolButton* btn = m_sliceBtns.takeLast();
+        m_sliceGroup->removeButton(btn);
+        delete btn;
+    }
+
+    m_sliceTabRow->setVisible(false);
+    m_sliceBadge->setVisible(true);
 }
 
 void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSliceId)

@@ -56,6 +56,7 @@ public:
     // Slice tab toggle — create N buttons (A..H) capped at hardware max.
     // If maxSlices <= 1, the row is hidden.
     void setMaxSlices(int maxSlices);
+    void clearSliceButtons();
 
     // Enable/disable buttons based on which slices are open, and check the
     // button for the currently active slice.
@@ -113,6 +114,7 @@ private:
     QWidget*                m_sliceTabRow{nullptr};
     QButtonGroup*           m_sliceGroup{nullptr};
     QVector<QToolButton*>   m_sliceBtns;
+    bool                    m_sliceButtonClicksConnected{false};
 
     // ── Header row ────────────────────────────────────────────────────────
     QLabel*      m_sliceBadge{nullptr};   // "A" / "B" / "C" / "D"

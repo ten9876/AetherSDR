@@ -30,8 +30,8 @@ WanConnection::~WanConnection()
 void WanConnection::connectToRadio(const QString& host, quint16 tlsPort,
                                     const QString& wanHandle)
 {
-    if (m_connected) {
-        qCWarning(lcSmartLink) << "WanConnection: already connected";
+    if (m_connected || m_socket.state() != QAbstractSocket::UnconnectedState) {
+        qCWarning(lcSmartLink) << "WanConnection: already connected or still closing";
         return;
     }
 

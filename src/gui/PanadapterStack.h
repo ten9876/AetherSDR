@@ -67,8 +67,12 @@ public:
 
 signals:
     void activePanChanged(const QString& panId);
+    void panFloated(const QString& panId);
+    void panDocked(const QString& panId);
 
 private:
+    void rebuildDockedSplitter();
+
     BandStackPanel* m_bandStackPanel{nullptr};
     QSplitter* m_splitter{nullptr};
     QMap<QString, PanadapterApplet*> m_pans;
