@@ -7482,6 +7482,13 @@ void MainWindow::onSliceAdded(SliceModel* s)
                 break;
             }
         }
+        // TX slice ownership moves as separate radio status events. During a
+        // handoff the old slice can report tx=0 before the new one reports
+        // tx=1; do not drop the DAX route in that transient gap.
+        if (txSliceId < 0) {
+            qDebug() << "MainWindow: DAX TX mode update deferred: no TX slice";
+            return;
+        }
         // Digital modes need dax=1 for TX audio routing through DAX.
         m_radioModel.transmitModel().setDax(isDigital);
 
