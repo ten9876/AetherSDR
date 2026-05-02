@@ -176,11 +176,11 @@ void FreeDvClient::handleEngineIO(const QString& raw)
             auth["version"]          = m_mySoftwareVersion;
             auth["rx_only"]          = false;
 #if defined(Q_OS_WIN)
-            auth["os"]               = QString("Windows");
+            auth["os"]               = QString("windows");
 #elif defined(Q_OS_MAC)
-            auth["os"]               = QString("macOS");
+            auth["os"]               = QString("macos");
 #else
-            auth["os"]               = QString("Linux");
+            auth["os"]               = QString("linux");
 #endif
             auth["protocol_version"] = 2;
         } else {
