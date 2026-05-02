@@ -331,6 +331,7 @@ private:
     // Pending WAN radio (between requestConnect and connectReady)
     WanRadioInfo     m_pendingWanRadio;
     QTimer           m_wanReconnectTimer;
+    bool             m_wanReconnectAttemptInProgress{false};
 
     // Status bar labels (SmartSDR-style)
     QLabel* m_connStatusLabel{nullptr};   // hidden, used for connection state logic

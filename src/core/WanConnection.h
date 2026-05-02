@@ -27,6 +27,7 @@ public:
     ~WanConnection() override;
 
     bool isConnected() const    { return m_connected; }
+    bool isSocketIdle() const   { return m_socket.state() == QAbstractSocket::UnconnectedState; }
     quint32 clientHandle() const { return m_handle; }
     QHostAddress radioAddress() const { return m_socket.peerAddress(); }
     quint16 localTcpPort() const { return m_socket.localPort(); }

@@ -119,6 +119,7 @@ private:
     QString m_idToken;
     QString m_refreshToken;
     bool    m_authenticated{false};
+    bool    m_authRequestInProgress{false};
 
     // SmartLink server TLS connection
     // NOTE: m_pingTimer and m_serverConnected must be declared before m_socket

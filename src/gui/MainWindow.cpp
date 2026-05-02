@@ -708,11 +708,18 @@ void MainWindow::requestWanReconnect()
     if (m_userDisconnected || m_radioModel.isConnected()
             || m_pendingWanRadio.serial.isEmpty()) {
         m_wanReconnectTimer.stop();
+        m_wanReconnectAttemptInProgress = false;
         return;
     }
 
-    m_connPanel->setStatusText("Reconnecting via SmartLink...");
-    setPanadapterConnectionAnimation(true, "Reconnecting to remote radio...");
+    if (m_wanReconnectAttemptInProgress) {
+        m_wanReconnectTimer.start();
+        return;
+    }
+
+    m_connPanel->setStatusText("Reconnecting via SmartLink…");
+    setPanadapterConnectionAnimation(true, "Reconnecting to remote radio…");
+    m_wanReconnectAttemptInProgress = true;
 
     if (!m_smartLink.isConnected()) {
         m_smartLink.reconnect();
@@ -1129,6 +1136,7 @@ MainWindow::MainWindow(QWidget* parent)
             this, [this]{
         m_userDisconnected = true;
         m_wanReconnectTimer.stop();
+        m_wanReconnectAttemptInProgress = false;
         setPanadapterConnectionAnimation(false);
         auto& s = AppSettings::instance();
         s.remove("LastConnectedRadioSerial");
@@ -1151,6 +1159,7 @@ MainWindow::MainWindow(QWidget* parent)
         }
 
         m_wanReconnectTimer.stop();
+        m_wanReconnectAttemptInProgress = false;
         m_connPanel->setStatusText("SmartLink sign-in required");
         statusBar()->showMessage("SmartLink reconnect stopped: " + err, 5000);
         setPanadapterConnectionAnimation(false);
@@ -1160,6 +1169,14 @@ MainWindow::MainWindow(QWidget* parent)
             m_reconnectDlg = nullptr;
         }
         m_connPanel->show();
+    });
+    connect(&m_smartLink, &SmartLinkClient::serverConnected,
+            this, [this] {
+        m_wanReconnectAttemptInProgress = false;
+    });
+    connect(&m_smartLink, &SmartLinkClient::serverDisconnected,
+            this, [this] {
+        m_wanReconnectAttemptInProgress = false;
     });
 
     connect(m_connPanel, &ConnectionPanel::smartLinkLoginRequested,
@@ -1198,6 +1215,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_smartLink, &SmartLinkClient::connectReady,
             this, [this](const QString& handle, const QString& serial) {
         if (serial != m_pendingWanRadio.serial) return;
+        m_wanReconnectAttemptInProgress = false;
         m_connPanel->setStatusText("TLS connecting to radio…");
         setPanadapterConnectionAnimation(true, "Connecting to remote radio…");
         m_wanConnection.connectToRadio(
@@ -1212,6 +1230,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_wanConnection, &WanConnection::connected, this, [this] {
         qDebug() << "MainWindow: WAN connection established!";
         m_wanReconnectTimer.stop();
+        m_wanReconnectAttemptInProgress = false;
         m_connPanel->setStatusText("Connected via SmartLink");
         m_connPanel->setConnected(true);
 
@@ -1223,6 +1242,7 @@ MainWindow::MainWindow(QWidget* parent)
     });
     connect(&m_wanConnection, &WanConnection::disconnected, this, [this] {
         qDebug() << "MainWindow: WAN connection lost";
+        m_wanReconnectAttemptInProgress = false;
         m_connPanel->setStatusText("SmartLink disconnected");
         m_connPanel->setConnected(false);
         if (m_userDisconnected) {
@@ -4178,6 +4198,7 @@ void MainWindow::closeEvent(QCloseEvent* event)
     // Suppress reconnect dialog during shutdown (#527)
     m_userDisconnected = true;
     m_wanReconnectTimer.stop();
+    m_wanReconnectAttemptInProgress = false;
     if (m_reconnectDlg) {
         m_reconnectDlg->close();
         delete m_reconnectDlg;
@@ -7166,6 +7187,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
         const bool reconnectWan = !m_userDisconnected && m_radioModel.isWan()
             && !m_pendingWanRadio.serial.isEmpty();
         if (reconnectWan && !m_wanReconnectTimer.isActive()) {
+            m_wanReconnectAttemptInProgress = false;
             m_wanReconnectTimer.start();
         }
 
@@ -7240,6 +7262,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
             connect(dismissBtn, &QPushButton::clicked, this, [this]() {
                 m_userDisconnected = true;
                 m_wanReconnectTimer.stop();
+                m_wanReconnectAttemptInProgress = false;
                 setPanadapterConnectionAnimation(false);
                 m_reconnectDlg->close();
                 m_reconnectDlg->deleteLater();
