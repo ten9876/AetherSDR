@@ -91,6 +91,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    void changeEvent(QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
@@ -170,6 +171,8 @@ private:
     void applyUiScale(int pct);
     void stepUiScale(int direction);  // +1 = zoom in, -1 = zoom out
     void toggleMinimalMode(bool on);
+    void exitMinimalModeToWindowedMode(bool saveMinimalGeometry);
+    void exitMinimalModeFromWindowStateChange();
     // Toggle OS window-chrome on/off (Qt::FramelessWindowHint).  Persists
     // to AppSettings("FramelessWindow"). When on, users move/close the
     // window via keyboard shortcuts or taskbar.
@@ -471,6 +474,8 @@ private:
     SwrSweepState m_swrSweep;
     QTimer m_swrSweepTimer;
     bool m_minimalMode{false};             // true when spectrum is hidden (#208)
+    bool m_exitingMinimalModeFromWindowState{false};
+    bool m_skipMinimalModeGeometrySave{false};
     QAction* m_minimalModeAction{nullptr};
     bool m_panadapterConnectionAnimationVisible{false};
     bool m_waitingForFirstPanadapterFrame{false};

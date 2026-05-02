@@ -9,6 +9,7 @@
 #include <QMouseEvent>
 #include <QPointer>
 #include <QPushButton>
+#include <QSizePolicy>
 #include <QSlider>
 #include <QLabel>
 #include <QMenuBar>
@@ -27,6 +28,10 @@
 
 namespace AetherSDR {
 
+namespace {
+constexpr const char* kTitleDragHandleProperty = "aetherTitleDragHandle";
+}
+
 TitleBar::TitleBar(QWidget* parent)
     : QWidget(parent)
 {
@@ -36,6 +41,14 @@ TitleBar::TitleBar(QWidget* parent)
     m_hbox = new QHBoxLayout(this);
     m_hbox->setContentsMargins(4, 2, 8, 2);
     m_hbox->setSpacing(6);
+
+    auto makeDragGutter = [this]() {
+        auto* gutter = new QWidget(this);
+        gutter->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        gutter->setMinimumWidth(0);
+        markDragHandle(gutter);
+        return gutter;
+    };
 
     // Keep the identity/status cluster anchored on the left, immediately after
     // the menu bar once it is inserted via setMenuBar().
@@ -48,6 +61,7 @@ TitleBar::TitleBar(QWidget* parent)
     m_heartbeat->setToolTip("Radio discovery heartbeat");
     m_heartbeat->setAccessibleName("Radio heartbeat");
     m_heartbeat->setAccessibleDescription("Flashes green when radio discovery packets are received");
+    markDragHandle(m_heartbeat);
 
     // 100ms timer to return green flash back to grey
     m_heartbeatOffTimer = new QTimer(this);
@@ -96,16 +110,17 @@ TitleBar::TitleBar(QWidget* parent)
     // app name stays flush left.
 #ifndef Q_OS_MAC
     // Linux/Windows: center the identity cluster (menu bar is on the left)
-    m_hbox->addStretch(1);
+    m_hbox->addWidget(makeDragGutter(), 1);
     m_hbox->addWidget(m_heartbeat);
     m_hbox->addSpacing(4);
 #endif
 
-    auto* appName = new QLabel(
+    m_appNameLabel = new QLabel(
         QString("AetherSDR v%1").arg(QCoreApplication::applicationVersion()));
-    appName->setStyleSheet("QLabel { color: #00b4d8; font-size: 14px; font-weight: bold; }");
-    appName->setAlignment(Qt::AlignCenter);
-    m_hbox->addWidget(appName);
+    m_appNameLabel->setStyleSheet("QLabel { color: #00b4d8; font-size: 14px; font-weight: bold; }");
+    m_appNameLabel->setAlignment(Qt::AlignCenter);
+    markDragHandle(m_appNameLabel);
+    m_hbox->addWidget(m_appNameLabel);
 
     m_mfBtn = new QPushButton("multiFLEX");
     m_mfBtn->setFlat(true);
@@ -126,7 +141,7 @@ TitleBar::TitleBar(QWidget* parent)
     m_hbox->addWidget(m_heartbeat);
 #endif
 
-    m_hbox->addStretch(1);
+    m_hbox->addWidget(makeDragGutter(), 1);
 
     // ── Right: Other client TX indicator + PC Audio + Master Vol + HP Vol ──
     m_otherTxLabel = new QLabel();
@@ -134,6 +149,7 @@ TitleBar::TitleBar(QWidget* parent)
         "QLabel { background: white; color: #cc0000; font-size: 12px; "
         "font-weight: bold; border-radius: 3px; padding: 2px 8px; }");
     m_otherTxLabel->setVisible(false);
+    markDragHandle(m_otherTxLabel);
     m_hbox->addWidget(m_otherTxLabel);
 
     // ── PC Audio + Master Vol + HP Vol ──────────────────────────────────────
@@ -206,6 +222,7 @@ TitleBar::TitleBar(QWidget* parent)
     m_masterLabel->setFixedWidth(22);
     m_masterLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 10px; }");
     m_masterLabel->setAlignment(Qt::AlignCenter);
+    markDragHandle(m_masterLabel);
     m_hbox->addWidget(m_masterLabel);
 
     connect(m_masterSlider, &QSlider::valueChanged, this, [this](int v) {
@@ -248,6 +265,7 @@ TitleBar::TitleBar(QWidget* parent)
     m_hpLabel->setFixedWidth(22);
     m_hpLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 10px; }");
     m_hpLabel->setAlignment(Qt::AlignCenter);
+    markDragHandle(m_hpLabel);
     m_hbox->addWidget(m_hpLabel);
 
     connect(m_hpSlider, &QSlider::valueChanged, this, [this](int v) {
@@ -264,6 +282,7 @@ TitleBar::TitleBar(QWidget* parent)
     auto* sep = new QFrame;
     sep->setFixedSize(1, 20);
     sep->setStyleSheet("QFrame { background: #304050; border: none; }");
+    markDragHandle(sep);
     m_hbox->addWidget(sep);
 
     m_hbox->addSpacing(4);
@@ -319,11 +338,123 @@ void TitleBar::showEvent(QShowEvent* ev)
     }
 }
 
+void TitleBar::markDragHandle(QWidget* widget)
+{
+    if (!widget) return;
+    widget->setProperty(kTitleDragHandleProperty, true);
+    widget->setCursor(Qt::OpenHandCursor);
+    widget->installEventFilter(this);
+}
+
+bool TitleBar::isDragHandle(QObject* obj) const
+{
+    return obj && obj->property(kTitleDragHandleProperty).toBool();
+}
+
+bool TitleBar::startWindowMove(QMouseEvent* ev, bool useSystemMove)
+{
+    if (!ev || ev->button() != Qt::LeftButton)
+        return false;
+
+    auto* w = window();
+    if (!w)
+        return false;
+
+    m_windowMoveActive = true;
+    m_windowMoveUsesSystem = false;
+    m_windowMovePressGlobal = ev->globalPosition().toPoint();
+    m_windowMoveStartPos = w->pos();
+
+    if (useSystemMove) {
+        if (auto* h = w->windowHandle())
+            m_windowMoveUsesSystem = h->startSystemMove();
+    }
+
+    ev->accept();
+    return true;
+}
+
+bool TitleBar::continueWindowMove(QMouseEvent* ev)
+{
+    if (!m_windowMoveActive || !ev)
+        return false;
+
+    if (!(ev->buttons() & Qt::LeftButton))
+        return finishWindowMove(ev);
+
+    if (!m_windowMoveUsesSystem) {
+        if (auto* w = window()) {
+            const QPoint delta = ev->globalPosition().toPoint() - m_windowMovePressGlobal;
+            w->move(m_windowMoveStartPos + delta);
+        }
+    }
+
+    ev->accept();
+    return true;
+}
+
+bool TitleBar::finishWindowMove(QMouseEvent* ev)
+{
+    if (!m_windowMoveActive)
+        return false;
+
+    m_windowMoveActive = false;
+    m_windowMoveUsesSystem = false;
+    if (ev)
+        ev->accept();
+    return true;
+}
+
+void TitleBar::handleTitleDoubleClick(QMouseEvent* ev)
+{
+    if (!ev || ev->button() != Qt::LeftButton)
+        return;
+
+    if (m_minimalMode) {
+        emit minimalModeWindowedExitRequested();
+        ev->accept();
+        return;
+    }
+
+    if (auto* w = window()) {
+        if (w->isMaximized()) w->showNormal();
+        else                  w->showMaximized();
+        ev->accept();
+    }
+}
+
 bool TitleBar::eventFilter(QObject* obj, QEvent* ev)
 {
     if (obj == window() && ev->type() == QEvent::WindowStateChange) {
         updateMaximizeIcon();
         return QWidget::eventFilter(obj, ev);
+    }
+
+    if (m_windowMoveActive) {
+        if (ev->type() == QEvent::MouseMove)
+            return continueWindowMove(static_cast<QMouseEvent*>(ev));
+        if (ev->type() == QEvent::MouseButtonRelease)
+            return finishWindowMove(static_cast<QMouseEvent*>(ev));
+    }
+
+    if (obj == m_menuBar) {
+        if (ev->type() == QEvent::MouseButtonDblClick) {
+            auto* me = static_cast<QMouseEvent*>(ev);
+            if (me->button() == Qt::LeftButton && !m_menuBar->actionAt(me->pos())) {
+                handleTitleDoubleClick(me);
+                return me->isAccepted();
+            }
+        } else if (ev->type() == QEvent::MouseButtonPress) {
+            auto* me = static_cast<QMouseEvent*>(ev);
+            if (me->button() == Qt::LeftButton && !m_menuBar->actionAt(me->pos()))
+                return startWindowMove(me, false);
+        }
+    }
+
+    if (isDragHandle(obj) && ev->type() == QEvent::MouseButtonDblClick) {
+        auto* me = static_cast<QMouseEvent*>(ev);
+        handleTitleDoubleClick(me);
+        return me->isAccepted();
     }
 
     if (ev->type() == QEvent::MouseButtonPress) {
@@ -334,6 +465,10 @@ bool TitleBar::eventFilter(QObject* obj, QEvent* ev)
                 return true;
             }
             if (obj == m_maximizeLbl) {
+                if (m_minimalMode) {
+                    emit minimalModeWindowedExitRequested();
+                    return true;
+                }
                 if (auto* w = window()) {
                     if (w->isMaximized()) w->showNormal();
                     else                  w->showMaximized();
@@ -344,6 +479,8 @@ bool TitleBar::eventFilter(QObject* obj, QEvent* ev)
                 if (auto* w = window()) w->close();
                 return true;
             }
+            if (isDragHandle(obj))
+                return startWindowMove(me, false);
         }
     }
     return QWidget::eventFilter(obj, ev);
@@ -354,6 +491,11 @@ void TitleBar::updateMaximizeIcon()
     if (!m_maximizeLbl) return;
     auto* w = window();
     const bool maxed = w && w->isMaximized();
+    if (m_minimalMode) {
+        m_maximizeLbl->setText(QString::fromUtf8("\xe2\x96\xa1"));
+        m_maximizeLbl->setToolTip("Exit Minimal Mode");
+        return;
+    }
     // ❐ U+2750 (overlapped squares) when maximized → "restore down"
     // □ U+25A1 (single square) when normal → "maximize"
     m_maximizeLbl->setText(maxed
@@ -364,34 +506,34 @@ void TitleBar::updateMaximizeIcon()
 
 void TitleBar::mousePressEvent(QMouseEvent* ev)
 {
-    // Children (menu bar items, buttons, sliders) intercept their own
-    // clicks before bubbling to TitleBar — so by the time we see the
-    // press it landed on bare background.  Hand the move to the
-    // compositor via Qt 6's cross-platform startSystemMove.
-    if (ev->button() == Qt::LeftButton) {
-        if (auto* w = window()) {
-            if (auto* h = w->windowHandle()) {
-                h->startSystemMove();
-                ev->accept();
-                return;
-            }
-        }
-    }
+    // Bare title-bar gaps arrive here; non-interactive child widgets are
+    // tagged in markDragHandle() and routed through eventFilter().
+    if (startWindowMove(ev))
+        return;
     QWidget::mousePressEvent(ev);
+}
+
+void TitleBar::mouseMoveEvent(QMouseEvent* ev)
+{
+    if (continueWindowMove(ev))
+        return;
+    QWidget::mouseMoveEvent(ev);
+}
+
+void TitleBar::mouseReleaseEvent(QMouseEvent* ev)
+{
+    if (finishWindowMove(ev))
+        return;
+    QWidget::mouseReleaseEvent(ev);
 }
 
 void TitleBar::mouseDoubleClickEvent(QMouseEvent* ev)
 {
     // Standard Linux/Windows convention: double-click the title bar to
     // toggle maximize.  Same child-passthrough rule as mousePressEvent.
-    if (ev->button() == Qt::LeftButton) {
-        if (auto* w = window()) {
-            if (w->isMaximized()) w->showNormal();
-            else                  w->showMaximized();
-            ev->accept();
-            return;
-        }
-    }
+    handleTitleDoubleClick(ev);
+    if (ev->isAccepted())
+        return;
     QWidget::mouseDoubleClickEvent(ev);
 }
 
@@ -406,6 +548,7 @@ void TitleBar::setMenuBar(QMenuBar* mb)
         "QMenu::item:selected { background: #0070c0; }");
     mb->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
     m_menuBar = mb;
+    m_menuBar->installEventFilter(this);
     // Insert at position 0 (before the first stretch)
     m_hbox->insertWidget(0, mb);
 }
@@ -740,8 +883,11 @@ void TitleBar::setBlinkEnabled(bool enabled)
 
 void TitleBar::setMinimalMode(bool on)
 {
-    // Hide everything except heartbeat, logo, ↗/↙ button, and 💡
+    m_minimalMode = on;
+
+    // Hide non-essential controls so status badges fit in the narrow strip.
     if (m_menuBar) m_menuBar->setVisible(!on);
+    if (m_appNameLabel) m_appNameLabel->setVisible(!on);
     m_pcBtn->setVisible(!on);
     m_speakerBtn->setVisible(!on);
     m_headphoneBtn->setVisible(!on);
@@ -751,6 +897,7 @@ void TitleBar::setMinimalMode(bool on)
     m_hpLabel->setVisible(!on);
     // Don't touch m_otherTxLabel or m_mfBtn — their visibility is
     // managed by setOtherClientTx() and setMultiFlexStatus() respectively
+    updateMaximizeIcon();
 }
 
 } // namespace AetherSDR

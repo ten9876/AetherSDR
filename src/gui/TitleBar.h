@@ -39,6 +39,7 @@ signals:
     void lineoutMuteChanged(bool muted);
     void headphoneMuteChanged(bool muted);
     void minimalModeRequested();
+    void minimalModeWindowedExitRequested();
     void multiFlexClicked();
     // Emitted when the blink setting changes (e.g. via right-click) so the
     // View menu checkbox can stay in sync.
@@ -49,9 +50,16 @@ public:
     void showFeatureRequestDialog();
 
 private:
+    void markDragHandle(QWidget* widget);
+    bool isDragHandle(QObject* obj) const;
+    bool startWindowMove(QMouseEvent* ev, bool useSystemMove = true);
+    bool continueWindowMove(QMouseEvent* ev);
+    bool finishWindowMove(QMouseEvent* ev);
+    void handleTitleDoubleClick(QMouseEvent* ev);
     void showFeatureRequestDialogImpl();
     QHBoxLayout* m_hbox{nullptr};
     QMenuBar*    m_menuBar{nullptr};
+    QLabel*      m_appNameLabel{nullptr};
     QLabel*      m_otherTxLabel{nullptr};
     QPushButton* m_mfBtn{nullptr};
     QPushButton* m_pcBtn{nullptr};
@@ -67,6 +75,11 @@ private:
     QLabel*      m_minimizeLbl{nullptr};
     QLabel*      m_maximizeLbl{nullptr};
     QLabel*      m_closeLbl{nullptr};
+    bool         m_minimalMode{false};
+    bool         m_windowMoveActive{false};
+    bool         m_windowMoveUsesSystem{false};
+    QPoint       m_windowMovePressGlobal;
+    QPoint       m_windowMoveStartPos;
 
     // Heartbeat indicator
     QLabel*      m_heartbeat{nullptr};
@@ -82,6 +95,8 @@ protected:
     // Click hits a child first (menu bar item, button, slider) and only
     // bubbles to TitleBar when the press lands on bare background.
     void mousePressEvent(QMouseEvent* ev) override;
+    void mouseMoveEvent(QMouseEvent* ev) override;
+    void mouseReleaseEvent(QMouseEvent* ev) override;
     void mouseDoubleClickEvent(QMouseEvent* ev) override;
     bool eventFilter(QObject* obj, QEvent* ev) override;
     void showEvent(QShowEvent* ev) override;
