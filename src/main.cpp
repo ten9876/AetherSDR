@@ -11,7 +11,8 @@
 #include <QDebug>
 #include <QFile>
 #include <QDateTime>
-#include <QTextStream>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QStandardPaths>
 #include <QRegularExpression>
 
@@ -50,6 +51,14 @@ static int aetherTolerantX11ErrorHandler(AetherX11Display*, AetherX11ErrorEvent*
 #endif  // __linux__
 
 static QFile* s_logFile = nullptr;
+
+static QMutex* logMutex()
+{
+    // qInstallMessageHandler callbacks can arrive concurrently from any Qt
+    // thread; leak this intentionally so shutdown logging cannot outlive it.
+    static QMutex* mutex = new QMutex;
+    return mutex;
+}
 
 // Redact PII from log messages before writing to file.
 // Patterns: IP addresses, radio serial numbers, Auth0 tokens, MAC addresses.
@@ -96,21 +105,23 @@ static QString redactPii(const QString& msg)
 static void messageHandler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg)
 {
     Q_UNUSED(ctx);
+    QMutexLocker locker(logMutex());
+
     static const char* labels[] = {"DBG", "WRN", "CRT", "FTL", "INF"};
     const char* label = (type <= QtInfoMsg) ? labels[type] : "???";
 
     const QString safeMsg = redactPii(msg);
     const QString line = QString("[%1] %2: %3\n")
         .arg(QDateTime::currentDateTime().toString("HH:mm:ss.zzz"), label, safeMsg);
+    const QByteArray lineBytes = line.toUtf8();
 
     // Write to log file (PII-redacted)
     if (s_logFile && s_logFile->isOpen()) {
-        QTextStream ts(s_logFile);
-        ts << line;
-        ts.flush();
+        s_logFile->write(lineBytes);
+        s_logFile->flush();
     }
     // Also print to stderr (PII-redacted)
-    fprintf(stderr, "%s", line.toLocal8Bit().constData());
+    fprintf(stderr, "%s", lineBytes.constData());
 }
 
 int main(int argc, char* argv[])
