@@ -2512,7 +2512,8 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
         // "pan drag", treat it as a click-to-tune instead
         if (m_singleClickTune && ev->button() == Qt::LeftButton && !m_spotClickConsumed) {
             QPoint delta = ev->position().toPoint() - m_clickPressPos;
-            if (delta.manhattanLength() <= 4) {
+            if (delta.manhattanLength() <= 4
+                && !m_indicatorStripRect.contains(ev->position().toPoint())) {
                 const int mx = static_cast<int>(ev->position().x());
                 if (mx < width() - DBM_STRIP_W) {
                     double rawMhz = xToMhz(mx);
@@ -2528,7 +2529,8 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
     // Single-click-to-tune in FFT area (not consumed by pan drag)
     if (m_singleClickTune && ev->button() == Qt::LeftButton && !m_spotClickConsumed) {
         QPoint delta = ev->position().toPoint() - m_clickPressPos;
-        if (delta.manhattanLength() <= 4) {
+        if (delta.manhattanLength() <= 4
+            && !m_indicatorStripRect.contains(ev->position().toPoint())) {
             const int mx = static_cast<int>(ev->position().x());
             if (mx < width() - DBM_STRIP_W) {
                 double rawMhz = xToMhz(mx);
@@ -3402,6 +3404,12 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                     int x = specRect.right() - DBM_STRIP_W - 8 - fm.horizontalAdvance(label);
                     p.drawText(x, y, label);
 
+                    // Bounding rect of the full strip — used to suppress
+                    // single-click-to-tune when clicking on these indicators (#1564).
+                    m_indicatorStripRect = QRect(x, y - fm.ascent(),
+                                                 fm.horizontalAdvance(label),
+                                                 fm.height());
+
                     // Store click rect for the prop portion only
                     if (showProp) {
                         QString propText = QString("K%1  A%2  SFI %3")
@@ -3413,6 +3421,8 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                     } else {
                         m_propClickRect = QRect();
                     }
+                } else {
+                    m_indicatorStripRect = QRect();
                 }
 
                 // MQTT device status overlay (#699)
@@ -4057,6 +4067,13 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
             } else {
                 m_propClickRect = QRect();
             }
+
+            // Bounding rect of the full strip (prop + WNB + RF Gain + WIDE) —
+            // used to suppress single-click-to-tune within (#1564).
+            m_indicatorStripRect = QRect(x, topY - fm.ascent(),
+                                         rightEdge - x, fm.height());
+        } else {
+            m_indicatorStripRect = QRect();
         }
     }
 

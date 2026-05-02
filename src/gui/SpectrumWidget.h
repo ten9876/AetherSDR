@@ -580,6 +580,9 @@ private:
     bool m_propForecastVisible{false};
     double m_propKIndex{-1.0};
     QRect  m_propClickRect;  // bounding rect of rendered prop text for click detection
+    QRect  m_indicatorStripRect;  // bounding rect of full top-right indicator strip
+                                  // (prop + WNB + RF Gain + WIDE) — single-click tune
+                                  // is suppressed inside this rect (#1564)
     int  m_propAIndex{-1};
     int  m_propSfi{-1};
 

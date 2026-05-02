@@ -347,7 +347,6 @@ private:
     QLabel* m_stationNickLabel{nullptr};
     QLabel* m_gpsLabel{nullptr};
     QLabel* m_gpsStatusLabel{nullptr};
-    QLabel* m_gridLabel{nullptr};
     QLabel* m_bandStackIndicator{nullptr};
     QLabel* m_cpuLabel{nullptr};
     QLabel* m_memLabel{nullptr};
