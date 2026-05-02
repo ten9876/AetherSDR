@@ -53,12 +53,9 @@ public:
     // Reposition relative to VFO marker x coordinate.
     void updatePosition(int vfoX, int specTop, FlagDir dir = Auto);
 
-    QPushButton* nr2Button() const { return m_nr2Btn; }
-    QPushButton* rn2Button() const { return m_rn2Btn; }
-    QPushButton* bnrButton() const { return m_bnrBtn; }
-    QPushButton* nr4Button() const { return m_nr4Btn; }
-    QPushButton* mnrButton() const { return m_mnrBtn; }
-    QPushButton* dfnrButton() const { return m_dfnrBtn; }
+    // Client-side DSP buttons (NR2 / NR4 / MNR / BNR / DFNR / RN2) were
+    // removed from the VFO DSP grid; that family lives in the spectrum
+    // overlay menu and the AetherDSP applet only.
     void setAfGain(int pct);
     void setEscLevel(float dbm);
     void syncFromSlice();
@@ -84,16 +81,8 @@ Q_SIGNALS:
     void rxPanChanged(int value);     // pan slider moved; AudioEngine re-applies after NR (#1460)
     void closeSliceRequested();
     void lockToggled(bool locked);
-    void nr2Toggled(bool on);
-    void nr2RightClicked(const QPoint& globalPos);
-    void nr4RightClicked(const QPoint& globalPos);
-    void rn2Toggled(bool on);
-    void bnrToggled(bool on);
-    void nr4Toggled(bool on);
-    void mnrToggled(bool on);
-    void mnrRightClicked(const QPoint& globalPos);
-    void dfnrToggled(bool on);
-    void dfnrRightClicked(const QPoint& globalPos);
+    // Client-side DSP signals deleted with the buttons — overlay menu
+    // and AetherDSP applet handle those toggles directly now.
 #ifdef HAVE_RADE
     void radeActivated(bool on, int sliceId);
 #endif
@@ -241,20 +230,35 @@ private:
     // DSP tab
     QPushButton* m_nbBtn{nullptr};
     QPushButton* m_nrBtn{nullptr};
-    QPushButton* m_nr2Btn{nullptr};
     QPushButton* m_anfBtn{nullptr};
     QPushButton* m_nrlBtn{nullptr};
     QPushButton* m_nrsBtn{nullptr};
     QPushButton* m_rnnBtn{nullptr};
-    QPushButton* m_rn2Btn{nullptr};
-    QPushButton* m_bnrBtn{nullptr};
-    QPushButton* m_nr4Btn{nullptr};
-    QPushButton* m_mnrBtn{nullptr};
-    QPushButton* m_dfnrBtn{nullptr};
     QPushButton* m_nrfBtn{nullptr};
     QPushButton* m_anflBtn{nullptr};
     QPushButton* m_anftBtn{nullptr};
     QPushButton* m_apfBtn{nullptr};
+
+    // Shared DSP-level row at the bottom of the DSP grid: one slider whose
+    // target switches based on which leveled DSP the user most recently
+    // turned on.  RNN / ANFT / APF are toggle-only on this slider — they
+    // either have no level (RNN, ANFT) or own a dedicated container (APF).
+    enum DspLevelTarget { LvlNone = 0, LvlNR, LvlNB, LvlAnf, LvlNrl, LvlNrs, LvlNrf, LvlAnfl };
+    QWidget* m_dspLevelRow{nullptr};
+    QLabel*  m_dspLevelLabel{nullptr};
+    QSlider* m_dspLevelSlider{nullptr};
+    QLabel*  m_dspLevelValue{nullptr};
+    DspLevelTarget m_dspLevelTarget{LvlNone};
+    // Activation stack — most recent at the back.  Lets the slider fall
+    // back to the previous still-on DSP when the active one is turned
+    // off, instead of hiding the row entirely.
+    QList<DspLevelTarget> m_dspLevelStack;
+    void pushDspLevelTarget(DspLevelTarget t);
+    void popDspLevelTarget(DspLevelTarget t);
+    void setDspLevelTarget(DspLevelTarget t);
+    // Pick a sensible initial target from the current slice's enable
+    // flags; called when m_slice is set and on mode-driven re-visibility.
+    void refreshDspLevelTarget();
     QWidget* m_apfContainer{nullptr};
     QSlider* m_apfSlider{nullptr};
     QLabel*  m_apfValueLbl{nullptr};

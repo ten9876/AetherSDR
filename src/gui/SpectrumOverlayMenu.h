@@ -65,13 +65,9 @@ public:
     struct XvtrBand { QString name; double rfFreqMhz; };
     void setXvtrBands(const QVector<XvtrBand>& bands);
     void syncDaxIqChannel(int channel);
-    void setHasExtendedDsp(bool has);
-    QPushButton* dspNr2Button() const;
-    QPushButton* dspRn2Button() const;
-    QPushButton* dspBnrButton() const;
-    QPushButton* dspNr4Button() const;
-    QPushButton* dspMnrButton() const;
-    QPushButton* dspDfnrButton() const;
+    // DSP button accessors and the DSP sub-panel were removed — radio-
+    // side DSP lives on VfoWidget only, client-side DSP lives on the
+    // AetherDSP applet only.
 
     // Show the target slice letter ('A'-'D') on the MEM buttons so users
     // know which slice will be saved/recalled.  Pass a null QChar to clear
@@ -92,17 +88,9 @@ signals:
     void daxIqChannelChanged(int channel);  // 0=Off, 1-4
     void addPanClicked();
     void daxClicked();
-    void nr2Toggled(bool on);
-    void rn2Toggled(bool on);
-    void bnrToggled(bool on);
-    void nr4Toggled(bool on);
-    void mnrToggled(bool on);
-    void dfnrToggled(bool on);
-    void bnrIntensityChanged(float ratio);
-    void nr2RightClicked(const QPoint& globalPos);
-    void nr4RightClicked(const QPoint& globalPos);
-    void mnrRightClicked(const QPoint& globalPos);
-    void dfnrRightClicked(const QPoint& globalPos);
+    // DSP-related signals (nr2Toggled / rn2Toggled / bnrToggled /
+    // nr4Toggled / mnrToggled / dfnrToggled / bnrIntensityChanged /
+    // *RightClicked) were removed with the overlay's DSP panel.
     // Display sub-panel signals
     void fftAverageChanged(int frames);
     void fftFpsChanged(int fps);
@@ -149,9 +137,6 @@ private:
     void buildBandPanel();
     void toggleAntPanel();
     void buildAntPanel();
-    void toggleDspPanel();
-    void buildDspPanel();
-    void syncDspPanel();
     void toggleDaxPanel();
     void buildDaxPanel();
     void syncDaxPanel();
@@ -167,11 +152,10 @@ private:
     static constexpr int kBtnAddTnf = 1;
     static constexpr int kBtnBand = 2;
     static constexpr int kBtnAnt = 3;
-    static constexpr int kBtnDsp = 4;
-    static constexpr int kBtnDisplay = 5;
-    static constexpr int kBtnMemoryBrowse = 6;
-    static constexpr int kBtnMemoryAdd = 7;
-    static constexpr int kBtnDax = 8;
+    static constexpr int kBtnDisplay = 4;
+    static constexpr int kBtnMemoryBrowse = 5;
+    static constexpr int kBtnMemoryAdd = 6;
+    static constexpr int kBtnDax = 7;
 
     QPushButton* m_toggleBtn{nullptr};
     QVector<QPushButton*> m_menuBtns;
@@ -197,16 +181,6 @@ private:
     QPushButton* m_swrClearBtn{nullptr};
     QSlider*     m_swrPowerSlider{nullptr};
     QLabel*      m_swrPowerLabel{nullptr};
-
-    // DSP sub-panel
-    QWidget* m_dspPanel{nullptr};
-    bool     m_dspPanelVisible{false};
-    struct DspRow {
-        QPushButton* btn{nullptr};
-        QSlider*     slider{nullptr};
-        QLabel*      valueLbl{nullptr};
-    };
-    QVector<DspRow> m_dspRows;
 
     // DAX sub-panel
     QWidget*   m_daxPanel{nullptr};
@@ -253,7 +227,6 @@ private:
     QSlider*     m_bgOpacitySlider{nullptr};
     QLabel*      m_bgOpacityLabel{nullptr};
 
-    bool         m_hasExtendedDsp{false};
     QStringList  m_antList;
     QPointer<SliceModel> m_slice;
     bool         m_updatingFromModel{false};

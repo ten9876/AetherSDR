@@ -392,6 +392,11 @@ private:
     class ClientCompEditor* ensureClientCompEditor();
     class ClientTubeEditor* ensureClientTubeEditor();
     class ClientPuduEditor* ensureClientPuduEditor();
+
+    // Wire AetherDspWidget parameter signals to AudioEngine setters.  Used
+    // by both the modeless AetherDspDialog and the docked ClientRxDspApplet
+    // so they push every change into the engine identically.
+    void wireAetherDspWidget(class AetherDspWidget* widget);
     class ClientCompEditor* m_clientCompEditor{nullptr}; // lazy — created on first Edit… click
     class ClientGateEditor* m_clientGateEditor{nullptr}; // lazy — created on first Edit… click
     class ClientDeEssEditor* m_clientDeEssEditor{nullptr}; // lazy — created on first Edit… click

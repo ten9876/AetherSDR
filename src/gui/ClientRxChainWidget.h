@@ -43,6 +43,13 @@ signals:
     // Emitted when the user double-clicks an implemented stage tile —
     // MainWindow maps this to opening the right editor in RX mode.
     void editRequested(AudioEngine::RxChainStage stage);
+    // Emitted when the user double-clicks the DSP status tile —
+    // MainWindow opens the full AetherDSP Settings dialog.
+    void dspEditRequested();
+    // Emitted when single-click re-enables NR2 from the AppSettings-
+    // persisted LastClientNr — MainWindow runs FFTW wisdom prep before
+    // flipping the engine on (#2275).
+    void nr2EnableWithWisdomRequested();
     // Emitted when the user single-clicks an implemented stage tile —
     // toggles the stage's enabled state.  ClientChainApplet listens so
     // it can refresh BYPASS button visuals.

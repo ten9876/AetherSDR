@@ -13,6 +13,7 @@
 #include <QTimer>
 #include <QLabel>
 #include <QSlider>
+#include <QGraphicsOpacityEffect>
 #include <QLineEdit>
 #include <QComboBox>
 #include <QStackedWidget>
@@ -982,8 +983,6 @@ void VfoWidget::buildTabContent()
 
         m_nrBtn   = makeDsp("NR");
         m_nrBtn->setAccessibleName("Noise reduction");
-        m_nr2Btn  = makeDsp("NR2");
-        m_nr2Btn->setAccessibleName("NR2 spectral noise reduction");
         m_nbBtn   = makeDsp("NB");
         m_nbBtn->setAccessibleName("Noise blanker");
         m_anfBtn  = makeDsp("ANF");
@@ -996,71 +995,96 @@ void VfoWidget::buildTabContent()
         m_nrsBtn->setAccessibleName("Spectral subtraction");
         m_rnnBtn  = makeDsp("RNN");
         m_rnnBtn->setAccessibleName("RNN noise reduction");
-        m_rn2Btn  = makeDsp("RN2");
-        m_rn2Btn->setAccessibleName("RNNoise noise suppression");
         m_nrfBtn  = makeDsp("NRF");
         m_nrfBtn->setAccessibleName("Spectral noise filter");
         m_anflBtn = makeDsp("ANFL");
         m_anflBtn->setAccessibleName("LMS notch filter");
         m_anftBtn = makeDsp("ANFT");
         m_anftBtn->setAccessibleName("FFT notch filter");
-        m_bnrBtn  = makeDsp("BNR");
-        m_bnrBtn->setAccessibleName("GPU neural denoising");
-        m_nr4Btn  = makeDsp("NR4");
-        m_nr4Btn->setAccessibleName("Spectral bleach noise reduction");
-        m_mnrBtn  = makeDsp("MNR");
-        m_mnrBtn->setAccessibleName("macOS MMSE-Wiener noise reduction");
-        m_dfnrBtn = makeDsp("DFNR");
-        m_dfnrBtn->setAccessibleName("DeepFilterNet3 neural noise reduction");
         m_apfBtn->hide();  // only visible in CW mode
-#ifndef HAVE_BNR
-        m_bnrBtn->hide();
-#endif
-#ifndef HAVE_SPECBLEACH
-        m_nr4Btn->hide();
-#endif
-#ifndef __APPLE__
-        m_mnrBtn->hide();  // MNR is macOS only
-#endif
-#ifndef HAVE_DFNR
-        m_dfnrBtn->hide();
-#endif
 
-        // Initial layout: 4-column grid (APF hidden, BNR only with HAVE_BNR)
+        // Radio-side DSP buttons only \u2014 client-side modules (NR2 / NR4 /
+        // MNR / BNR / DFNR / RN2) live in the spectrum overlay menu and
+        // the AetherDSP applet; users toggle them there to keep the VFO
+        // grid focused on what the radio supplies.  4-column layout:
         m_dspGrid->addWidget(m_nrBtn,   0, 0);
-        m_dspGrid->addWidget(m_nr2Btn,  0, 1);
-        m_dspGrid->addWidget(m_nbBtn,   0, 2);
-        m_dspGrid->addWidget(m_anfBtn,  0, 3);
+        m_dspGrid->addWidget(m_nbBtn,   0, 1);
+        m_dspGrid->addWidget(m_anfBtn,  0, 2);
+        m_dspGrid->addWidget(m_apfBtn,  0, 3);
         m_dspGrid->addWidget(m_nrlBtn,  1, 0);
         m_dspGrid->addWidget(m_nrsBtn,  1, 1);
         m_dspGrid->addWidget(m_rnnBtn,  1, 2);
-        m_dspGrid->addWidget(m_rn2Btn,  1, 3);
-        m_dspGrid->addWidget(m_nrfBtn,  2, 0);
-        m_dspGrid->addWidget(m_anflBtn, 2, 1);
-        m_dspGrid->addWidget(m_anftBtn, 2, 2);
-        m_dspGrid->addWidget(m_bnrBtn,  2, 3);
-        m_dspGrid->addWidget(m_nr4Btn,  3, 0);
-        m_dspGrid->addWidget(m_mnrBtn,  3, 1);
-        m_dspGrid->addWidget(m_dfnrBtn, 3, 2);
+        m_dspGrid->addWidget(m_nrfBtn,  1, 3);
+        m_dspGrid->addWidget(m_anflBtn, 2, 0);
+        m_dspGrid->addWidget(m_anftBtn, 2, 1);
         dspVb->addLayout(m_dspGrid);
+
+        // Shared DSP-level row — one slider that re-targets based on which
+        // leveled DSP is most recently turned on.  Hidden when the active
+        // target is None (no leveled DSP on, or only RNN / ANFT / APF on).
+        {
+            m_dspLevelRow = new QWidget;
+            auto* lvlHb = new QHBoxLayout(m_dspLevelRow);
+            lvlHb->setContentsMargins(0, 4, 0, 0);
+            lvlHb->setSpacing(4);
+
+            m_dspLevelLabel = new QLabel("NR");
+            m_dspLevelLabel->setStyleSheet(
+                "QLabel { color: #c8d8e8; font-size: 13px; font-weight: bold;"
+                "  min-width: 40px; }");
+            m_dspLevelLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            lvlHb->addWidget(m_dspLevelLabel);
+
+            m_dspLevelSlider = new GuardedSlider(Qt::Horizontal);
+            m_dspLevelSlider->setRange(0, 100);
+            m_dspLevelSlider->setStyleSheet(kSliderStyle);
+            lvlHb->addWidget(m_dspLevelSlider, 1);
+
+            m_dspLevelValue = new QLabel("0");
+            m_dspLevelValue->setStyleSheet(
+                "QLabel { color: #c8d8e8; font-size: 10px; min-width: 24px;"
+                "  padding-right: 4px; }");
+            m_dspLevelValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            lvlHb->addWidget(m_dspLevelValue);
+
+            connect(m_dspLevelSlider, &QSlider::valueChanged, this, [this](int v) {
+                m_dspLevelValue->setText(QString::number(v));
+                if (m_updatingFromModel || !m_slice) return;
+                switch (m_dspLevelTarget) {
+                    case LvlNR:   m_slice->setNrLevel(v);   break;
+                    case LvlNB:   m_slice->setNbLevel(v);   break;
+                    case LvlAnf:  m_slice->setAnfLevel(v);  break;
+                    case LvlNrl:  m_slice->setNrlLevel(v);  break;
+                    case LvlNrs:  m_slice->setNrsLevel(v);  break;
+                    case LvlNrf:  m_slice->setNrfLevel(v);  break;
+                    case LvlAnfl: m_slice->setAnflLevel(v); break;
+                    case LvlNone: break;
+                }
+            });
+
+            // Stay laid out always — toggling visibility would shift the
+            // button grid up/down each time the slider's target changes.
+            // Instead, keep the row in the layout and fade contents with
+            // an opacity effect (0 when no DSP is targeted, 1 when one
+            // is).  Stray clicks while transparent are no-ops because
+            // the slider's valueChanged handler ignores LvlNone.
+            auto* eff = new QGraphicsOpacityEffect(m_dspLevelRow);
+            eff->setOpacity(0.0);
+            m_dspLevelRow->setGraphicsEffect(eff);
+            dspVb->addWidget(m_dspLevelRow);
+        }
 
         // DSP button tooltips
         m_nrBtn->setToolTip("Radio-side noise reduction \u2014 attenuates uncorrelated background noise.");
-        m_nr2Btn->setToolTip("Client-side spectral noise reduction (Ephraim-Malah MMSE). Right-click for NR2 settings.");
         m_nbBtn->setToolTip("Noise blanker \u2014 detects and removes fast impulse noise from sparks and switching sources.");
         m_anfBtn->setToolTip("Auto notch filter \u2014 detects and cancels persistent unwanted tones.");
         m_apfBtn->setToolTip("CW audio peaking filter \u2014 narrows the audio passband around the CW pitch frequency to improve S/N.");
         m_nrlBtn->setToolTip("Leaky LMS adaptive filter \u2014 preserves correlated signals while removing uncorrelated noise. Best for daily SSB/CW.");
         m_nrsBtn->setToolTip("Spectral subtraction with voice activity detection \u2014 cuts noise most aggressively between words.");
         m_rnnBtn->setToolTip("Deep-learning recurrent neural network \u2014 separates speech from complex noise. Best at low SNR.");
-        m_rn2Btn->setToolTip("Client-side RNNoise neural noise suppression. Effective for broadband noise on voice modes.");
         m_nrfBtn->setToolTip("Spectral subtraction filter \u2014 computes speech/noise probability per frequency bin to remove steady noise.");
         m_anflBtn->setToolTip("Leaky LMS notch filter \u2014 removes steady tones such as power-line hum or carriers.");
         m_anftBtn->setToolTip("FFT-based notch filter \u2014 removes up to five persistent tones from transformers or power supplies.");
-        m_bnrBtn->setToolTip("NVIDIA GPU-accelerated neural audio denoising. Requires NVIDIA RTX 4000+ with Docker.");
-        m_nr4Btn->setToolTip("Client-side spectral bleach noise reduction (libspecbleach). Right-click for NR4 settings.");
-        m_mnrBtn->setToolTip("macOS only \u2014 MMSE-Wiener spectral noise reduction.\nRemoves consistent background noise while preserving speech clarity.");
-        m_dfnrBtn->setToolTip("DeepFilterNet3 neural noise reduction \u2014 AI speech enhancement\nwith higher fidelity than RNNoise in high-noise environments.\nCPU-only, 10 ms latency. Right-click for DFNR settings.");
 
         // DSP button accessible names (#870)
         // Accessible names set inline after each widget creation below (#870)
@@ -1441,36 +1465,28 @@ void VfoWidget::buildTabContent()
             dspVb->addWidget(m_fmContainer);
         }
 
-        connect(m_nrBtn,   &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setNr(on); });
-        connect(m_nr2Btn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit nr2Toggled(on); });
-        m_nr2Btn->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(m_nr2Btn, &QPushButton::customContextMenuRequested, this, [this](const QPoint& pos) {
-            emit nr2RightClicked(m_nr2Btn->mapToGlobal(pos));
-        });
-        connect(m_nbBtn,   &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setNb(on); });
-        connect(m_anfBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setAnf(on); });
-        connect(m_nrlBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setNrl(on); });
-        connect(m_nrsBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setNrs(on); });
+        // Leveled DSP buttons retarget the shared slider on each toggle.
+        // ON pushes onto the activation stack (most recent at top); OFF
+        // pops it and falls back to whichever earlier-activated DSP is
+        // still on.  Slider hides when the stack is empty.
+        auto wireLeveledDsp = [this](QPushButton* btn,
+                                     void (SliceModel::* setter)(bool),
+                                     DspLevelTarget tag) {
+            connect(btn, &QPushButton::toggled, this, [this, setter, tag](bool on) {
+                if (!m_updatingFromModel && m_slice) (m_slice->*setter)(on);
+                if (on) pushDspLevelTarget(tag);
+                else    popDspLevelTarget(tag);
+            });
+        };
+        wireLeveledDsp(m_nrBtn,   &SliceModel::setNr,   LvlNR);
+        wireLeveledDsp(m_nbBtn,   &SliceModel::setNb,   LvlNB);
+        wireLeveledDsp(m_anfBtn,  &SliceModel::setAnf,  LvlAnf);
+        wireLeveledDsp(m_nrlBtn,  &SliceModel::setNrl,  LvlNrl);
+        wireLeveledDsp(m_nrsBtn,  &SliceModel::setNrs,  LvlNrs);
+        wireLeveledDsp(m_nrfBtn,  &SliceModel::setNrf,  LvlNrf);
+        wireLeveledDsp(m_anflBtn, &SliceModel::setAnfl, LvlAnfl);
+        // Toggle-only DSPs — do not interact with the shared slider.
         connect(m_rnnBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setRnn(on); });
-        connect(m_rn2Btn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit rn2Toggled(on); });
-        connect(m_bnrBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit bnrToggled(on); });
-        connect(m_nr4Btn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit nr4Toggled(on); });
-        m_nr4Btn->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(m_nr4Btn, &QPushButton::customContextMenuRequested, this, [this](const QPoint& pos) {
-            emit nr4RightClicked(m_nr4Btn->mapToGlobal(pos));
-        });
-        connect(m_mnrBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit mnrToggled(on); });
-        m_mnrBtn->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(m_mnrBtn, &QPushButton::customContextMenuRequested, this, [this](const QPoint& pos) {
-            emit mnrRightClicked(m_mnrBtn->mapToGlobal(pos));
-        });
-        connect(m_dfnrBtn, &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel) emit dfnrToggled(on); });
-        m_dfnrBtn->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(m_dfnrBtn, &QPushButton::customContextMenuRequested, this, [this](const QPoint& pos) {
-            emit dfnrRightClicked(m_dfnrBtn->mapToGlobal(pos));
-        });
-        connect(m_nrfBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setNrf(on); });
-        connect(m_anflBtn, &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setAnfl(on); });
         connect(m_anftBtn, &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setAnft(on); });
         connect(m_apfBtn,  &QPushButton::toggled, this, [this](bool on) { if (!m_updatingFromModel && m_slice) m_slice->setApf(on); });
 
@@ -2366,6 +2382,25 @@ void VfoWidget::setSlice(SliceModel* slice)
 
     // Frequency
     connect(m_slice, &SliceModel::frequencyChanged, this, [this](double) { updateFreqLabel(); });
+
+    // Slice-level → shared DSP slider: when the active target's level
+    // changes externally (radio echo, profile load, MIDI), update the
+    // slider in-place without firing back into the slice.
+    auto wireLevelEcho = [this](auto signal, DspLevelTarget tag) {
+        connect(m_slice, signal, this, [this, tag](int v) {
+            if (m_dspLevelTarget != tag || !m_dspLevelSlider) return;
+            QSignalBlocker b(m_dspLevelSlider);
+            m_dspLevelSlider->setValue(v);
+            m_dspLevelValue->setText(QString::number(v));
+        });
+    };
+    wireLevelEcho(&SliceModel::nrLevelChanged,   LvlNR);
+    wireLevelEcho(&SliceModel::nbLevelChanged,   LvlNB);
+    wireLevelEcho(&SliceModel::anfLevelChanged,  LvlAnf);
+    wireLevelEcho(&SliceModel::nrlLevelChanged,  LvlNrl);
+    wireLevelEcho(&SliceModel::nrsLevelChanged,  LvlNrs);
+    wireLevelEcho(&SliceModel::nrfLevelChanged,  LvlNrf);
+    wireLevelEcho(&SliceModel::anflLevelChanged, LvlAnfl);
     // Mode list (dynamic from radio)
     connect(m_slice, &SliceModel::modeListChanged, this, [this](const QStringList& modes) {
         if (modes.isEmpty()) return;          // keep static fallback list (#891)
@@ -2440,12 +2475,10 @@ void VfoWidget::setSlice(SliceModel* slice)
         }
         m_apfBtn->setVisible(isCw);
         m_anfBtn->setVisible(isVoice);
-        m_rn2Btn->setVisible(!isCw && !isFm);
         m_anflBtn->setVisible(isVoice);
         m_anftBtn->setVisible(isVoice);
         // Hide all DSP buttons in FM mode
         m_nrBtn->setVisible(!isFm);
-        m_nr2Btn->setVisible(!isFm);
         m_nbBtn->setVisible(!isFm);
         // NRL is available on 6000-series too (#2177)
         m_nrlBtn->setVisible(!isFm);
@@ -2453,15 +2486,6 @@ void VfoWidget::setSlice(SliceModel* slice)
         m_nrsBtn->setVisible(!isFm && m_hasExtendedDsp);
         m_rnnBtn->setVisible(!isCw && !isFm && m_hasExtendedDsp);
         m_nrfBtn->setVisible(!isFm && m_hasExtendedDsp);
-#ifdef HAVE_BNR
-        m_bnrBtn->setVisible(!isFm);
-#endif
-#ifdef HAVE_SPECBLEACH
-        m_nr4Btn->setVisible(!isFm);
-#endif
-#ifdef HAVE_DFNR
-        m_dfnrBtn->setVisible(!isFm);
-#endif
         relayoutDspGrid();
         updateFilterLabel();
         if (m_tabStack->isVisible()) adjustSize();
@@ -2897,6 +2921,9 @@ void VfoWidget::syncFromSlice()
     syncDsp(m_anftBtn, m_slice->anftOn());
     syncDsp(m_apfBtn, m_slice->apfOn());
 
+    // Shared DSP-level slider — pick the highest-priority enabled DSP.
+    refreshDspLevelTarget();
+
     // RIT/XIT
     {
         QSignalBlocker sb1(m_ritBtn), sb2(m_xitBtn);
@@ -2917,21 +2944,10 @@ void VfoWidget::syncFromSlice()
     m_tabBtns[1]->setText(isFm ? "OPT" : "DSP");
     m_apfBtn->setVisible(isCw);
     m_anfBtn->setVisible(!isRtty && !isCw && !isDig && !isFm);
-    m_rn2Btn->setVisible(!isCw && !isFm);
     m_anflBtn->setVisible(!isRtty && !isCw && !isDig && !isFm);
     m_anftBtn->setVisible(!isRtty && !isCw && !isDig && !isFm);
     m_nrBtn->setVisible(!isFm);
-    m_nr2Btn->setVisible(!isFm);
     m_nbBtn->setVisible(!isFm);
-#ifdef HAVE_BNR
-    m_bnrBtn->setVisible(!isFm);
-#endif
-#ifdef HAVE_SPECBLEACH
-    m_nr4Btn->setVisible(!isFm);
-#endif
-#ifdef HAVE_DFNR
-    m_dfnrBtn->setVisible(!isFm);
-#endif
     // NRL is available on 6000-series too (#2177)
     m_nrlBtn->setVisible(!isFm);
     // 8000-series-only firmware DSP filters (#2177)
@@ -3016,8 +3032,8 @@ void VfoWidget::updateFilterLabel()
 void VfoWidget::relayoutDspGrid()
 {
     // Remove all widgets from the grid (without deleting them)
-    QPushButton* all[] = {m_nrBtn, m_nr2Btn, m_nbBtn, m_anfBtn, m_apfBtn, m_nrlBtn,
-                          m_nrsBtn, m_rnnBtn, m_rn2Btn, m_nrfBtn, m_anflBtn, m_anftBtn, m_bnrBtn, m_nr4Btn, m_dfnrBtn};
+    QPushButton* all[] = {m_nrBtn, m_nbBtn, m_anfBtn, m_apfBtn, m_nrlBtn,
+                          m_nrsBtn, m_rnnBtn, m_nrfBtn, m_anflBtn, m_anftBtn};
     for (auto* btn : all)
         m_dspGrid->removeWidget(btn);
 
@@ -3029,6 +3045,92 @@ void VfoWidget::relayoutDspGrid()
             if (++col >= 4) { col = 0; ++row; }
         }
     }
+}
+
+// ── Shared DSP level slider ───────────────────────────────────────────────────
+
+void VfoWidget::pushDspLevelTarget(DspLevelTarget t)
+{
+    if (t == LvlNone) return;
+    m_dspLevelStack.removeAll(t);
+    m_dspLevelStack.append(t);
+    setDspLevelTarget(t);
+}
+
+void VfoWidget::popDspLevelTarget(DspLevelTarget t)
+{
+    m_dspLevelStack.removeAll(t);
+    if (m_dspLevelTarget == t) {
+        if (!m_dspLevelStack.isEmpty())
+            setDspLevelTarget(m_dspLevelStack.last());
+        else
+            setDspLevelTarget(LvlNone);
+    }
+}
+
+void VfoWidget::setDspLevelTarget(DspLevelTarget t)
+{
+    m_dspLevelTarget = t;
+    if (!m_dspLevelRow) return;
+    auto* eff = qobject_cast<QGraphicsOpacityEffect*>(m_dspLevelRow->graphicsEffect());
+    if (t == LvlNone || !m_slice) {
+        if (eff) eff->setOpacity(0.0);
+        return;
+    }
+    int level = 0;
+    QString name;
+    switch (t) {
+        case LvlNR:   level = m_slice->nrLevel();   name = "NR";   break;
+        case LvlNB:   level = m_slice->nbLevel();   name = "NB";   break;
+        case LvlAnf:  level = m_slice->anfLevel();  name = "ANF";  break;
+        case LvlNrl:  level = m_slice->nrlLevel();  name = "NRL";  break;
+        case LvlNrs:  level = m_slice->nrsLevel();  name = "NRS";  break;
+        case LvlNrf:  level = m_slice->nrfLevel();  name = "NRF";  break;
+        case LvlAnfl: level = m_slice->anflLevel(); name = "ANFL"; break;
+        case LvlNone: return;
+    }
+    m_dspLevelLabel->setText(name);
+    {
+        QSignalBlocker b(m_dspLevelSlider);
+        m_dspLevelSlider->setValue(level);
+    }
+    m_dspLevelValue->setText(QString::number(level));
+    if (eff) eff->setOpacity(1.0);
+}
+
+void VfoWidget::refreshDspLevelTarget()
+{
+    m_dspLevelStack.clear();
+    if (!m_slice) {
+        setDspLevelTarget(LvlNone);
+        return;
+    }
+    // Seed the activation stack from current slice state in priority
+    // order (NR, NB, ANF, NRL, NRS, NRF, ANFL) — we have no record of
+    // the radio's actual click order, so use the priority sequence as
+    // a deterministic fallback.  Most recent (last in stack) becomes
+    // the active target.
+    auto isOn = [this](DspLevelTarget t) {
+        if (!m_slice) return false;
+        switch (t) {
+            case LvlNR:   return m_slice->nrOn();
+            case LvlNB:   return m_slice->nbOn();
+            case LvlAnf:  return m_slice->anfOn();
+            case LvlNrl:  return m_slice->nrlOn();
+            case LvlNrs:  return m_slice->nrsOn();
+            case LvlNrf:  return m_slice->nrfOn();
+            case LvlAnfl: return m_slice->anflOn();
+            case LvlNone: return false;
+        }
+        return false;
+    };
+    for (auto t : { LvlNR, LvlNB, LvlAnf, LvlNrl, LvlNrs, LvlNrf, LvlAnfl }) {
+        if (isOn(t)) m_dspLevelStack.append(t);
+    }
+    if (m_dspLevelStack.isEmpty())
+        setDspLevelTarget(LvlNone);
+    else
+        setDspLevelTarget(m_dspLevelStack.last());
 }
 
 // ── Mode tab helpers ──────────────────────────────────────────────────────────
