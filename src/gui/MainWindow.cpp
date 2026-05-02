@@ -1362,10 +1362,16 @@ MainWindow::MainWindow(QWidget* parent)
 
         QString call = QString(spot.dxCall).replace(' ', QChar(0x7f));
         QString freq = QString::number(spot.freqMhz, 'f', 6);
+        // trigger_action=none disables the radio's internal tune/mode-set on
+        // spot click. AetherSDR handles freq via frequencyClicked and mode
+        // via SpotAutoSwitchMode client-side, so the radio's stored-mode
+        // path (which mishandles non-Flex tokens like "SSB") never fires.
+        // Clicks still emit SpotTriggered for external loggers (#341, #1846).
         QString cmd = "spot add callsign=" + call + " rx_freq=" + freq
                      + " tx_freq=" + freq
                      + " source=" + source
                      + " spotter_callsign=" + spot.spotterCall
+                     + " trigger_action=none"
                      + " lifetime_seconds=" + QString::number(lifetimeSec);
         if (!spot.comment.isEmpty())
             cmd += " comment=" + QString(spot.comment).replace(' ', QChar(0x7f));
@@ -1486,6 +1492,7 @@ MainWindow::MainWindow(QWidget* parent)
                      + " tx_freq=" + freq
                      + " source=WSJT-X"
                      + " spotter_callsign=" + colored.spotterCall
+                     + " trigger_action=none"  // see comment at queueSpotCmd (#1846)
                      + " lifetime_seconds=" + QString::number(
                            spotLifetimeSeconds(colored, "WSJT-X"));
         if (!colored.comment.isEmpty())
@@ -8794,8 +8801,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         if (!isPassiveLocalSpotId(spotIndex))
             m_radioModel.sendCommand(QString("spot trigger %1").arg(spotIndex));
 
-        // Auto-switch mode from spot metadata (#424)
-        if (AppSettings::instance().value("SpotAutoSwitchMode", "False").toString() != "True")
+        // Auto-switch mode from spot metadata (#424). Default flipped to True
+        // in #1846 since spots now ship with trigger_action=none — the radio
+        // no longer changes mode on click, so auto-mode is the only path.
+        if (AppSettings::instance().value("SpotAutoSwitchMode", "True").toString() != "True")
             return;
         auto* s = activeSlice();
         if (!s) return;
@@ -8861,6 +8870,16 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             // SSB without sideband: ≥10 MHz → USB, <10 MHz → LSB
             radioMode = (it->rxFreqMhz >= 10.0) ? "USB" : "LSB";
         }
+        // FreeDV spots imply RADE — activate the RADE engine on this slice
+        // (sets DIGU/DIGL by band convention + starts the OFDM modem) rather
+        // than landing on a plain digital mode. Without HAVE_RADE the build
+        // can't run the modem, so fall through to the regular mode-set. (#1846)
+#ifdef HAVE_RADE
+        if (it->source == "FreeDV") {
+            activateRADE(s->sliceId());
+            return;
+        }
+#endif
         if (!radioMode.isEmpty() && radioMode != s->mode())
             s->setMode(radioMode);
     });
@@ -8878,6 +8897,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                      + " tx_freq=" + freq
                      + " source=Manual"
                      + " spotter_callsign=" + myCall
+                     + " trigger_action=none"  // (#1846)
                      + " lifetime_seconds=" + QString::number(lifetimeSec);
         if (!comment.isEmpty())
             cmd += " comment=" + QString(comment).replace(' ', QChar(0x7f));
@@ -11559,6 +11579,10 @@ void MainWindow::deactivateRADE()
 
 void MainWindow::startFreeDvReporting(int sliceId)
 {
+#ifndef HAVE_WEBSOCKETS
+    // RADE without WebSockets: reporter client doesn't exist, no-op. (#2204)
+    Q_UNUSED(sliceId);
+#else
     if (!m_freedvClient) return;
 
     auto& cs = AppSettings::instance();
@@ -11630,10 +11654,14 @@ void MainWindow::startFreeDvReporting(int sliceId)
         connect(radeSlice, &SliceModel::frequencyChanged,
                 m_freedvClient, &FreeDvClient::reportFreqChange, Qt::QueuedConnection);
     }
+#endif  // HAVE_WEBSOCKETS
 }
 
 void MainWindow::stopFreeDvReporting(int sliceId)
 {
+#ifndef HAVE_WEBSOCKETS
+    Q_UNUSED(sliceId);
+#else
     if (!m_freedvClient) return;
 
     disconnect(m_freedvMoxConn);
@@ -11645,6 +11673,7 @@ void MainWindow::stopFreeDvReporting(int sliceId)
         disconnect(radeSlice, &SliceModel::frequencyChanged, m_freedvClient, nullptr);
 
     QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->disableReporting(); });
+#endif
 }
 
 #endif

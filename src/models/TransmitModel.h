@@ -41,6 +41,7 @@ public:
     bool    isTuning()      const { return m_tune; }
     bool    isMox()         const { return m_mox; }
     bool    isTransmitting() const { return m_transmitting; }
+    double  transmitFreq()  const { return m_transmitFreq; }  // MHz, from "transmit freq=..."
     void    setTransmitting(bool tx);
 
     // ── Mic / monitor / processor getters ─────────────────────────────────
@@ -219,10 +220,11 @@ private:
     QHash<QString, ApdSampler> m_apdSamplers;  // keyed by ANT1/ANT2/XVTA/XVTB
 
     // Transmit state
-    int  m_rfPower{100};
-    int  m_tunePower{10};
-    bool m_tune{false};
-    bool m_mox{false};
+    int    m_rfPower{100};
+    int    m_tunePower{10};
+    bool   m_tune{false};
+    bool   m_mox{false};
+    double m_transmitFreq{0.0};   // MHz — last reported "transmit freq=..."
     bool m_transmitting{false};
 
     // Mic / monitor / processor state

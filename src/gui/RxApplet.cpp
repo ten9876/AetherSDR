@@ -18,7 +18,10 @@
 #include <QMenu>
 #include <QToolButton>
 #include <QButtonGroup>
-#include <QInputDialog>
+#include <QSpinBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include "core/AppSettings.h"
 #include <QAction>
 #include <QPainter>
@@ -1527,15 +1530,36 @@ void RxApplet::updateFilterButtons()
     const QString key = QStringLiteral("FilterPresets_%1").arg(m_slice->mode());
     const QString saved = AppSettings::instance().value(key, "").toString();
     if (!saved.isEmpty()) {
-        QVector<int> loaded;
+        QVector<int> loadedWidths;
+        QVector<int> loadedLo;
+        QVector<int> loadedHi;
         for (const auto& s : saved.split(',', Qt::SkipEmptyParts)) {
-            bool ok;
-            int w = s.toInt(&ok);
-            if (ok && w > 0) loaded.append(w);
-            if (loaded.size() >= kMaxRxFilters) break;
+            if (s.contains(':')) {
+                const auto parts = s.split(':');
+                if (parts.size() != 2) continue;
+                bool okLo, okHi;
+                int lo = parts[0].toInt(&okLo);
+                int hi = parts[1].toInt(&okHi);
+                if (!okLo || !okHi || hi <= lo) continue;
+                loadedWidths.append(hi - lo);
+                loadedLo.append(lo);
+                loadedHi.append(hi);
+            } else {
+                bool ok;
+                int w = s.toInt(&ok);
+                if (!ok || w <= 0) continue;
+                loadedWidths.append(w);
+                loadedLo.append(INT_MIN);
+                loadedHi.append(INT_MIN);
+            }
+            if (loadedWidths.size() >= kMaxRxFilters) break;
         }
-        if (loaded != m_filterWidths) {
-            m_filterWidths = loaded;
+        if (loadedWidths != m_filterWidths
+                || loadedLo != m_filterCustomLo
+                || loadedHi != m_filterCustomHi) {
+            m_filterWidths = loadedWidths;
+            m_filterCustomLo = loadedLo;
+            m_filterCustomHi = loadedHi;
             rebuildFilterButtons();
         }
     }
@@ -1578,19 +1602,40 @@ void RxApplet::updateModeSettings(const QString& mode)
 
     // Load custom filter presets from AppSettings, fall back to defaults.
     // RxApplet shows at most 6 (first 6 of VfoWidget's 8).
+    // Storage format mirrors VfoWidget — "width" or "lo:hi" entries (#2259).
     static constexpr int kMaxRxFilters = 6;
     QString key = QStringLiteral("FilterPresets_%1").arg(mode);
     QString saved = AppSettings::instance().value(key, "").toString();
+    m_filterWidths.clear();
+    m_filterCustomLo.clear();
+    m_filterCustomHi.clear();
     if (!saved.isEmpty()) {
-        m_filterWidths.clear();
         for (const auto& s : saved.split(',', Qt::SkipEmptyParts)) {
-            bool ok;
-            int w = s.toInt(&ok);
-            if (ok && w > 0) m_filterWidths.append(w);
+            if (s.contains(':')) {
+                const auto parts = s.split(':');
+                if (parts.size() != 2) continue;
+                bool okLo, okHi;
+                int lo = parts[0].toInt(&okLo);
+                int hi = parts[1].toInt(&okHi);
+                if (!okLo || !okHi || hi <= lo) continue;
+                m_filterWidths.append(hi - lo);
+                m_filterCustomLo.append(lo);
+                m_filterCustomHi.append(hi);
+            } else {
+                bool ok;
+                int w = s.toInt(&ok);
+                if (!ok || w <= 0) continue;
+                m_filterWidths.append(w);
+                m_filterCustomLo.append(INT_MIN);
+                m_filterCustomHi.append(INT_MIN);
+            }
             if (m_filterWidths.size() >= kMaxRxFilters) break;
         }
-    } else {
+    }
+    if (m_filterWidths.isEmpty()) {
         m_filterWidths = settings.filterWidths;
+        m_filterCustomLo.fill(INT_MIN, m_filterWidths.size());
+        m_filterCustomHi.fill(INT_MIN, m_filterWidths.size());
     }
     rebuildFilterButtons();
     m_filterContainer->setVisible(!m_filterWidths.isEmpty() && !isFM);
@@ -1646,33 +1691,66 @@ void RxApplet::rebuildFilterButtons()
         const int w = m_filterWidths[i];
         auto* btn = mkToggle(formatStepLabel(w));
         btn->setStyleSheet(QString(kButtonBase) + kBlueActive);
-        connect(btn, &QPushButton::clicked, this, [this, w](bool) {
-            applyFilterPreset(w);
+        connect(btn, &QPushButton::clicked, this, [this, i](bool) {
+            if (!m_slice) return;
+            if (m_filterCustomLo[i] != INT_MIN) {
+                m_slice->setFilterWidth(m_filterCustomLo[i], m_filterCustomHi[i]);
+            } else {
+                applyFilterPreset(m_filterWidths[i]);
+            }
         });
 
         // Right-click to customize this preset
         btn->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(btn, &QPushButton::customContextMenuRequested, this, [this, i, btn](const QPoint& pos) {
             QMenu menu;
-            menu.addAction("Set Custom Width...", [this, i] {
+            menu.addAction("Set Custom Edges...", [this, i] {
                 if (!m_slice) return;
-                bool ok;
-                int hz = QInputDialog::getInt(this, "Custom Filter Width",
-                    "Enter filter width in Hz:", m_filterWidths[i],
-                    10, 20000, 10, &ok);
-                if (!ok) return;
-                m_filterWidths[i] = hz;
+                QDialog dlg(this);
+                dlg.setWindowTitle("Set Custom Filter Edges");
+                auto* form = new QFormLayout(&dlg);
+                auto* loSpin = new QSpinBox(&dlg);
+                auto* hiSpin = new QSpinBox(&dlg);
+                loSpin->setRange(-20000, 20000);
+                hiSpin->setRange(-20000, 20000);
+                loSpin->setSingleStep(50);
+                hiSpin->setSingleStep(50);
+                loSpin->setSuffix(" Hz");
+                hiSpin->setSuffix(" Hz");
+                int curLo = m_filterCustomLo[i] != INT_MIN
+                                ? m_filterCustomLo[i] : m_slice->filterLow();
+                int curHi = m_filterCustomHi[i] != INT_MIN
+                                ? m_filterCustomHi[i] : m_slice->filterHigh();
+                loSpin->setValue(curLo);
+                hiSpin->setValue(curHi);
+                form->addRow("Low edge:", loSpin);
+                form->addRow("High edge:", hiSpin);
+                auto* btns = new QDialogButtonBox(
+                    QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+                QObject::connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+                QObject::connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+                form->addRow(btns);
+                if (dlg.exec() != QDialog::Accepted) return;
+                int lo = loSpin->value();
+                int hi = hiSpin->value();
+                if (hi <= lo) return;
+                m_filterCustomLo[i] = lo;
+                m_filterCustomHi[i] = hi;
+                m_filterWidths[i] = hi - lo;
                 saveFilterPresets();
                 rebuildFilterButtons();
-                applyFilterPreset(hz);
+                m_slice->setFilterWidth(lo, hi);
             });
-            menu.addAction("Reset to Defaults", [this] {
+            menu.addAction("Reset to Default", [this, i] {
                 if (!m_slice) return;
-                const QString mode = m_slice->mode();
-                AppSettings::instance().remove(
-                    QStringLiteral("FilterPresets_%1").arg(mode));
-                AppSettings::instance().save();
-                updateModeSettings(mode);
+                const auto& factory = modeSettingsFor(m_slice->mode()).filterWidths;
+                if (i >= factory.size()) return;
+                m_filterWidths[i] = factory[i];
+                m_filterCustomLo[i] = INT_MIN;
+                m_filterCustomHi[i] = INT_MIN;
+                saveFilterPresets();
+                rebuildFilterButtons();
+                applyFilterPreset(m_filterWidths[i]);
             });
             menu.exec(btn->mapToGlobal(pos));
         });
@@ -1688,29 +1766,29 @@ void RxApplet::saveFilterPresets()
     const QString key = QStringLiteral("FilterPresets_%1").arg(m_slice->mode());
     auto& s = AppSettings::instance();
 
-    // Preserve VfoWidget's extra entries (7th, 8th) if they exist
-    QVector<int> full;
+    // Read existing entries verbatim so VfoWidget's 7th/8th slots survive
+    // (they may include "lo:hi" custom-edge entries we don't want to lose).
+    QStringList full;
     QString existing = s.value(key, "").toString();
-    if (!existing.isEmpty()) {
-        for (const auto& p : existing.split(',', Qt::SkipEmptyParts)) {
-            bool ok;
-            int w = p.toInt(&ok);
-            if (ok && w > 0) full.append(w);
-        }
-    }
+    if (!existing.isEmpty())
+        full = existing.split(',', Qt::SkipEmptyParts);
 
-    // Replace the first N entries with our (up to 6) values
+    // Encode our slots (up to 6) — emit "lo:hi" when custom edges set,
+    // bare width otherwise. (#2259)
+    auto encode = [this](int i) {
+        if (m_filterCustomLo[i] != INT_MIN)
+            return QString("%1:%2").arg(m_filterCustomLo[i]).arg(m_filterCustomHi[i]);
+        return QString::number(m_filterWidths[i]);
+    };
+
     for (int i = 0; i < m_filterWidths.size(); ++i) {
         if (i < full.size())
-            full[i] = m_filterWidths[i];
+            full[i] = encode(i);
         else
-            full.append(m_filterWidths[i]);
+            full.append(encode(i));
     }
 
-    QStringList parts;
-    for (int w : full)
-        parts.append(QString::number(w));
-    s.setValue(key, parts.join(','));
+    s.setValue(key, full.join(','));
     s.save();
 }
 
