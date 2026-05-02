@@ -15,6 +15,10 @@ updates and dock-splitter layout, NR2 wisdom-generation safety on the
 audio thread, and a Qt log-handler serialization fix that resolves a
 macOS tune-time crash.
 
+Big thanks to **@rfoust** (four SmartLink / disconnect / macOS polish
+fixes) and **@jensenpat** (NR2 audio-thread safety + Qt log
+serialization) for landing the bulk of this release.
+
 ### Bug fixes
 
 **TCI TX silent on Windows / Linux non-PipeWire (#2276)**
@@ -28,7 +32,7 @@ macOS tune-time crash.
   match the corrected policy and a new Linux-non-PipeWire test case
   added.
 
-**SmartLink reconnect after WAN drop (#2282)**
+**SmartLink reconnect after WAN drop (#2282, rfoust)**
 - `MainWindow` now owns a WAN reconnect timer that re-requests a
   SmartLink radio connection using the last selected WAN radio when
   `RadioModel` reports an unexpected WAN disconnect, instead of
@@ -46,7 +50,7 @@ macOS tune-time crash.
   before main-window teardown to avoid the macOS Metal teardown crash
   that could fire after a stale-state Disconnect.
 
-**SmartLink disconnect teardown (#2278)**
+**SmartLink disconnect teardown (#2278, rfoust)**
 - WAN disconnect previously closed the WAN socket *after* disconnecting
   RadioModel's signals and nulled `m_wanConn` directly, skipping
   `RadioModel::onDisconnected()` cleanup entirely.  Panadapters,
@@ -56,7 +60,7 @@ macOS tune-time crash.
   disconnect, so WAN sessions emit `connectionStateChanged(false)` and
   clear model state the same way LAN disconnects do.
 
-**Reset RX slice tabs on disconnect between radios with different slice counts (#2254)**
+**Reset RX slice tabs on disconnect between radios with different slice counts (#2254, rfoust)**
 - `RxApplet::clearSliceButtons()` tears down generated slice tab buttons
   and restores the static slice badge on disconnect.  Stale A–H buttons
   no longer linger after switching from a high-slice radio to a
@@ -66,7 +70,7 @@ macOS tune-time crash.
   `maxSlices`.  Slice button click connections are guarded against
   duplicate signal handlers across reconnects.
 
-**Qt log handler serialization fixes macOS tune-time crash (#2284)**
+**Qt log handler serialization fixes macOS tune-time crash (#2284, jensenpat)**
 - The global `qInstallMessageHandler` callback wrote through a single
   `QFile*` without synchronization, and concurrent `qCInfo`/`qDebug`
   output from main + worker threads corrupted Qt's internal file
@@ -79,7 +83,7 @@ macOS tune-time crash.
   direct UTF-8 `QFile::write()`/`flush()` path.  No change to radio
   command ordering or panadapter policy.
 
-**macOS panadapter pop-out refresh + multi-pan dock layout (#2280)**
+**macOS panadapter pop-out refresh + multi-pan dock layout (#2280, rfoust)**
 - Detached panadapter windows on macOS no longer show a static/stale
   spectrum image.  Cross-window reparenting now resets the native
   QRhi/Metal surface and re-requests pan dimensions from the radio
@@ -90,7 +94,7 @@ macOS tune-time crash.
 - `rebuildDockedSplitter()` keeps the main-window splitter compact
   when multiple pans float/dock — no more empty placeholder slots.
 
-**NR2 wisdom generation no longer freezes the audio thread (#2275)**
+**NR2 wisdom generation no longer freezes the audio thread (#2275, jensenpat)**
 - `AudioEngine::needsWisdomGeneration()` previously only checked
   whether `aethersdr_fftw_wisdom` existed.  If the file was stale or
   incompatible (e.g. `fftw-3.3.10` header on a build that uses FFTW
