@@ -1560,6 +1560,12 @@ void DxClusterDialog::buildFreeDvTab(QTabWidget* tabs)
     // not above it (avoids group-box title margin clipping on dark themes).
     m_fdvReportCheck = new QCheckBox("Enable FreeDV Reporter reporting when RADE is active");
     m_fdvReportCheck->setChecked(s.value("FreeDvAutoReport", "False").toString() == "True");
+    m_fdvReportCheck->setStyleSheet(
+        "QCheckBox { color: #d7e4f2; spacing: 8px; background: transparent; border: none; }"
+        "QCheckBox::indicator { width: 14px; height: 14px; border: 2px solid #5d748d; border-radius: 3px; background: #0b1520; }"
+        "QCheckBox::indicator:hover { border-color: #81abd9; background: #142130; }"
+        "QCheckBox::indicator:checked { border: 2px solid #8cc8ff; background: #2f71b6; }"
+        "QCheckBox::indicator:disabled { border-color: #405262; background: #10161d; }");
     connect(m_fdvReportCheck, &QCheckBox::toggled, this, [this](bool on) {
         if (on) {
             // Resolve the effective callsign and grid the same way
@@ -1629,6 +1635,12 @@ void DxClusterDialog::buildFreeDvTab(QTabWidget* tabs)
     m_fdvUseRadioCallsignCheck = new QCheckBox("Use radio");
     m_fdvUseRadioCallsignCheck->setChecked(
         s.value("FreeDvUseRadioCallsign", "True").toString() == "True");
+    m_fdvUseRadioCallsignCheck->setStyleSheet(
+        "QCheckBox { color: #d7e4f2; spacing: 8px; background: transparent; border: none; }"
+        "QCheckBox::indicator { width: 14px; height: 14px; border: 2px solid #5d748d; border-radius: 3px; background: #0b1520; }"
+        "QCheckBox::indicator:hover { border-color: #81abd9; background: #142130; }"
+        "QCheckBox::indicator:checked { border: 2px solid #8cc8ff; background: #2f71b6; }"
+        "QCheckBox::indicator:disabled { border-color: #405262; background: #10161d; }");
     connect(m_fdvUseRadioCallsignCheck, &QCheckBox::toggled, this, [this](bool on) {
         auto& as = AppSettings::instance();
         as.setValue("FreeDvUseRadioCallsign", on ? "True" : "False");
@@ -1664,6 +1676,12 @@ void DxClusterDialog::buildFreeDvTab(QTabWidget* tabs)
     // GPS checkbox — only on FLEX-8000 class and Aurora, which have GPS hardware
     if (m_radioModel->hasGpsHardware()) {
         m_fdvUseGpsCheck = new QCheckBox("Use GPS");
+        m_fdvUseGpsCheck->setStyleSheet(
+            "QCheckBox { color: #d7e4f2; spacing: 8px; background: transparent; border: none; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; border: 2px solid #5d748d; border-radius: 3px; background: #0b1520; }"
+            "QCheckBox::indicator:hover { border-color: #81abd9; background: #142130; }"
+            "QCheckBox::indicator:checked { border: 2px solid #8cc8ff; background: #2f71b6; }"
+            "QCheckBox::indicator:disabled { border-color: #405262; background: #10161d; }");
         bool useGps = s.value("FreeDvUseGpsGrid", "True").toString() == "True";
         m_fdvUseGpsCheck->setChecked(useGps);
         m_fdvGridEdit->setReadOnly(useGps);
