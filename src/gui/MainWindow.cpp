@@ -1741,10 +1741,11 @@ MainWindow::MainWindow(QWidget* parent)
         m_audio->setAllowBluetoothTelephonyOutput(allowBluetoothTelephonyOutput);
     }, Qt::QueuedConnection);
 #endif
-    // Sync PC mic gain directly from slider (radio ignores mic_level for PC input)
+    // Sync PC mic gain directly from slider. In RADE mode, the radio's mic input
+    // is unused — the slider controls client-side gain regardless of mic_selection.
     connect(m_appletPanel->phoneCwApplet(), &PhoneCwApplet::micLevelChanged,
             this, [this](int level) {
-        if (m_radioModel.transmitModel().micSelection() == "PC") {
+        if (m_radioModel.transmitModel().micSelection() == "PC" || m_audio->isRadeMode()) {
             m_audio->setPcMicGain(level);
             auto& s = AppSettings::instance();
             s.setValue("PcMicGain", level);
@@ -3146,7 +3147,7 @@ MainWindow::MainWindow(QWidget* parent)
         auto* heldPeak  = new float(-150.0f);
         connect(m_audio, &AudioEngine::pcMicLevelChanged,
                 this, [this, heldLevel, heldPeak](float peakDb, float avgDb) {
-            if (m_radioModel.transmitModel().micSelection() != "PC") return;
+            if (m_radioModel.transmitModel().micSelection() != "PC" && !m_audio->isRadeMode()) return;
             constexpr float kDecayPerUpdate = 1.0f;  // ~20 dB/sec at 20 updates/sec
             // Level: fast attack, slow decay
             if (avgDb > *heldLevel)
@@ -11608,6 +11609,14 @@ void MainWindow::activateRADE(int sliceId)
     }
 #endif
 
+    // Restore client-side mic gain for RADE. The radio's mic input is unused in
+    // RADE mode so PcMicGain applies regardless of the current mic_selection.
+    {
+        int gain = AppSettings::instance().value("PcMicGain", 100).toInt();
+        m_audio->setPcMicGain(gain);
+    }
+    m_appletPanel->phoneCwApplet()->setRadeActive(true);
+
     // Start mic capture if not already running
     if (!m_audio->isTxStreaming()) {
         audioStartTx(m_radioModel.radioAddress(), 4991);
@@ -11657,6 +11666,12 @@ void MainWindow::deactivateRADE()
 
     m_audio->setRadeMode(false);
     m_audio->clearTxAccumulators();  // flush stale RADE modem data
+    m_appletPanel->phoneCwApplet()->setRadeActive(false);
+    // For hardware mics, reset to full gain — the radio controls hardware levels.
+    // PC mic keeps its PcMicGain so SSB sessions are unaffected.
+    if (m_radioModel.transmitModel().micSelection() != "PC") {
+        m_audio->setPcMicGain(100);
+    }
 
     if (m_radeEngine) {
         disconnect(m_audio, &AudioEngine::txRawPcmReady,

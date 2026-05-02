@@ -42,6 +42,10 @@ public slots:
                       float micPeak, float compPeak);
     void updateCompression(float compPeak);
 
+    // Notify the applet when RADE mode activates/deactivates so the mic level
+    // slider and meter behave correctly (client-side gain + RX metering).
+    void setRadeActive(bool on);
+
     // CW meter (ALC 0–100)
     void updateAlc(float alc);
 
@@ -108,6 +112,7 @@ private:
     // ── Shared state ─────────────────────────────────────────────────────
 
     bool m_updatingFromModel{false};
+    bool m_radeActive{false};
 
     // Client-side peak hold with slow decay for compression gauge
     float m_compHeld{0.0f};

@@ -3071,8 +3071,38 @@ void AudioEngine::onTxAudioReady()
         data = stereo;
     }
 
-    // RADE mode: convert int16 → float32 and emit for RADEEngine
+    // RADE mode: apply client-side gain + meter, then convert int16 → float32
     if (m_radeMode) {
+        // Apply client-side mic gain (same int16 gain path as SSB below)
+        const float gain = m_pcMicGain.load();
+        if (gain < 0.999f) {
+            auto* pcm = reinterpret_cast<int16_t*>(data.data());
+            int sampleCount = data.size() / static_cast<int>(sizeof(int16_t));
+            for (int i = 0; i < sampleCount; ++i) {
+                pcm[i] = static_cast<int16_t>(std::clamp(
+                    static_cast<int>(pcm[i] * gain), -32768, 32767));
+            }
+        }
+        // Mic level metering — same window accumulator and signal as SSB path
+        {
+            const auto* pcm = reinterpret_cast<const int16_t*>(data.constData());
+            int sampleCount = data.size() / static_cast<int>(sizeof(int16_t));
+            for (int i = 0; i < sampleCount; i += 2) {
+                float s = std::abs(pcm[i]) / 32768.0f;
+                if (s > m_pcMicPeak) m_pcMicPeak = s;
+                m_pcMicSumSq += static_cast<double>(s) * s;
+                m_pcMicSampleCount++;
+            }
+            if (m_pcMicSampleCount >= kMicMeterWindowSamples) {
+                float rms = static_cast<float>(std::sqrt(m_pcMicSumSq / m_pcMicSampleCount));
+                float peakDb = (m_pcMicPeak > 1e-10f) ? 20.0f * std::log10(m_pcMicPeak) : -150.0f;
+                float rmsDb  = (rms > 1e-10f)         ? 20.0f * std::log10(rms)          : -150.0f;
+                emit pcMicLevelChanged(peakDb, rmsDb);
+                m_pcMicPeak = 0.0f;
+                m_pcMicSumSq = 0.0;
+                m_pcMicSampleCount = 0;
+            }
+        }
         const auto* i16 = reinterpret_cast<const int16_t*>(data.constData());
         const int ns = data.size() / static_cast<int>(sizeof(int16_t));
         QByteArray f32(ns * static_cast<int>(sizeof(float)), Qt::Uninitialized);

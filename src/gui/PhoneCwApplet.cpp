@@ -650,8 +650,9 @@ void PhoneCwApplet::syncPhoneFromModel()
         if (idx >= 0) m_micSourceCombo->setCurrentIndex(idx);
     }
 
-    // PC mic gain is client-authoritative (radio always returns mic_level=0 for PC)
-    if (m_model->micSelection() == "PC") {
+    // PC mic gain and RADE mic gain are both client-authoritative (radio returns 0 for PC,
+    // and is unused for RADE TX). Both share the PcMicGain setting.
+    if (m_model->micSelection() == "PC" || m_radeActive) {
         int pcGain = AppSettings::instance().value("PcMicGain", 100).toInt();
         m_micLevelSlider->setValue(pcGain);
         m_micLevelLabel->setText(QString::number(pcGain));
@@ -709,6 +710,21 @@ void PhoneCwApplet::syncCwFromModel()
     m_updatingFromModel = false;
 }
 
+// ── RADE state ───────────────────────────────────────────────────────────────
+
+void PhoneCwApplet::setRadeActive(bool on)
+{
+    if (m_radeActive == on) return;
+    m_radeActive = on;
+    // Refresh slider to show PcMicGain when RADE is active (client-authoritative)
+    // or the radio's mic_level when reverting to a hardware mic path.
+    syncPhoneFromModel();
+    if (!on) {
+        m_levelGauge->setValue(-150.0f);
+        m_levelGauge->setPeakValue(-150.0f);
+    }
+}
+
 // ── Meter updates ────────────────────────────────────────────────────────────
 
 void PhoneCwApplet::updateMeters(float micLevel, float compLevel,
@@ -718,9 +734,10 @@ void PhoneCwApplet::updateMeters(float micLevel, float compLevel,
     Q_UNUSED(compPeak);
 
     // Suppress mic meter when met_in_rx is off and not transmitting.
-    // Exception: PC mic uses client-side metering independent of met_in_rx.
+    // Exception: PC mic and RADE both use client-side metering independent of
+    // met_in_rx — RADE should show level during RX ("Level Meter During Receive").
     if (m_model && !m_model->metInRx() && !m_model->isTransmitting()
-        && m_model->micSelection() != QStringLiteral("PC")) {
+        && m_model->micSelection() != QStringLiteral("PC") && !m_radeActive) {
         m_levelGauge->setValue(-150.0f);
         m_levelGauge->setPeakValue(-150.0f);
         return;
