@@ -661,7 +661,7 @@ void RadioModel::disconnectFromRadio()
     if (m_wanConn) {
         m_wanConn->disconnect(this);  // remove signal connections to prevent duplicates on reconnect (#224)
         m_wanConn->disconnectFromRadio();
-        m_wanConn = nullptr;
+        onDisconnected();
     } else if (m_connection->isConnected()) {
         // Graceful disconnect: remove our stream and wait for the radio reply
         // before closing. Self "client disconnect" is rejected by the radio.
