@@ -1,4 +1,7 @@
 #include "models/RadioStatusOwnership.h"
+#include "core/DaxTxPolicy.h"
+#include "core/StreamStatus.h"
+#include "core/UdpRegistrationPolicy.h"
 
 #include <cstdio>
 
@@ -110,6 +113,112 @@ void testRemoteAudioRxTracking()
     check(state.streamId == 0, "removed remote_audio_rx clears stream id");
 }
 
+void testStreamStatusOwnershipCompatibility()
+{
+    constexpr quint32 ours = 0x12345678;
+    QMap<QString, QString> noOwner;
+    QMap<QString, QString> unknownOwner{{QStringLiteral("client_handle"), QStringLiteral("0x00000000")}};
+    QMap<QString, QString> orphanOwner{
+        {QStringLiteral("client_handle"), QStringLiteral("0x00000000")},
+        {QStringLiteral("ip"), QStringLiteral("0.0.0.0")}
+    };
+    QMap<QString, QString> ourOwner{{QStringLiteral("client_handle"), QStringLiteral("0x12345678")}};
+    QMap<QString, QString> otherOwner{{QStringLiteral("client_handle"), QStringLiteral("0x87654321")}};
+
+    check(streamStatusBelongsToUs(noOwner, ours),
+          "stream status without client_handle remains legacy-compatible");
+    check(streamStatusBelongsToUs(unknownOwner, ours),
+          "client_handle zero without dead endpoint remains legacy-compatible");
+    check(!streamStatusBelongsToUs(orphanOwner, ours),
+          "client_handle zero with 0.0.0.0 endpoint is ignored as a dead stream");
+    check(streamStatusBelongsToUs(ourOwner, ours),
+          "stream status with our client_handle belongs to us");
+    check(!streamStatusBelongsToUs(otherOwner, ours),
+          "stream status with another client_handle is ignored");
+    check(isDeadOrphanDaxRxStatus(orphanOwner),
+          "dead DAX RX helper identifies owner-zero 0.0.0.0 endpoint");
+    check(!isDeadOrphanDaxRxStatus(unknownOwner),
+          "owner-zero stream without dead endpoint is not classified dead");
+}
+
+void testDaxTxStatusOwnership()
+{
+    constexpr quint32 ours = 0x12345678;
+    constexpr quint32 current = 0x04000001;
+    constexpr quint32 incoming = 0x04000002;
+    QMap<QString, QString> noOwner;
+    QMap<QString, QString> ownerZero{{QStringLiteral("client_handle"), QStringLiteral("0x00000000")}};
+    QMap<QString, QString> ourOwner{{QStringLiteral("client_handle"), QStringLiteral("0x12345678")}};
+    QMap<QString, QString> otherOwner{{QStringLiteral("client_handle"), QStringLiteral("0x87654321")}};
+
+    check(!daxTxStatusCanUpdateLocalState(incoming, 0, noOwner, ours),
+          "missing DAX TX client_handle does not steal unknown stream during startup");
+    check(!daxTxStatusCanUpdateLocalState(incoming, 0, ownerZero, ours),
+          "owner-zero DAX TX status does not steal unknown stream");
+    check(daxTxStatusCanUpdateLocalState(incoming, 0, ourOwner, ours),
+          "our DAX TX client_handle is adopted");
+    check(!daxTxStatusCanUpdateLocalState(incoming, current, otherOwner, ours),
+          "foreign DAX TX status does not overwrite our stream id");
+    check(daxTxStatusCanUpdateLocalState(current, current, otherOwner, ours),
+          "already-created DAX TX stream id can update local state");
+    check(daxTxStatusCanUpdateLocalState(current, current, noOwner, ours),
+          "missing owner can update an already-created DAX TX stream");
+}
+
+void testDaxTxPolicy()
+{
+    DaxTxPolicyContext windowsExternalRoute{
+        DaxTxRequestReason::ExternalDaxRouteOnly,
+        DaxTxPlatform::Windows,
+        DaxTxMode::ExternalDax2,
+        false,
+        false
+    };
+    check(!evaluateDaxTxPolicy(windowsExternalRoute).allowed,
+          "Windows external-DAX2 route-only policy does not create dax_tx");
+
+    DaxTxPolicyContext windowsGenericAudio = windowsExternalRoute;
+    windowsGenericAudio.reason = DaxTxRequestReason::GenericAudioRecreate;
+    check(!evaluateDaxTxPolicy(windowsGenericAudio).allowed,
+          "Windows generic audio recreation policy does not create dax_tx");
+
+    DaxTxPolicyContext hostedBridge{
+        DaxTxRequestReason::HostedDaxBridge,
+        DaxTxPlatform::MacOS,
+        DaxTxMode::HostedDax,
+        true,
+        true
+    };
+    check(evaluateDaxTxPolicy(hostedBridge).allowed,
+          "hosted DAX bridge policy creates dax_tx when hosted DAX is available");
+
+    DaxTxPolicyContext hostedTci = hostedBridge;
+    hostedTci.reason = DaxTxRequestReason::TciTxAudio;
+    check(evaluateDaxTxPolicy(hostedTci).allowed,
+          "TCI DAX TX policy is explicit and allowed when supported");
+
+    DaxTxPolicyContext windowsTci = windowsExternalRoute;
+    windowsTci.reason = DaxTxRequestReason::TciTxAudio;
+    check(!evaluateDaxTxPolicy(windowsTci).allowed,
+          "Windows external-DAX2 TCI policy does not create dax_tx when unsupported");
+}
+
+void testUdpRegistrationPolicy()
+{
+    check(isUdpPortInUseError(kFlexUdpPortInUseCode, QString()),
+          "UDP port collision helper matches Flex error code");
+    check(isUdpPortInUseError(1, QStringLiteral("Port/IP pair already in use")),
+          "UDP port collision helper matches radio error body");
+    check(isUdpPortInUseError(1, QStringLiteral("port/ip PAIR already IN use")),
+          "UDP port collision helper is case-insensitive");
+    check(!isUdpPortInUseError(1, QStringLiteral("command syntax error")),
+          "UDP port collision helper ignores unrelated errors");
+    check(shouldRetryLanUdpPortRegistration(false, kFlexUdpPortInUseCode, QString()),
+          "LAN UDP registration retries on port collision");
+    check(!shouldRetryLanUdpPortRegistration(true, kFlexUdpPortInUseCode, QString()),
+          "WAN UDP registration does not trigger LAN rebind policy");
+}
+
 void testCreateResponseParsing()
 {
     check(parseCreateResponseStreamId(QStringLiteral("4000009")) == 0x04000009,
@@ -131,6 +240,10 @@ int main()
     std::printf("Radio status ownership tests\n\n");
     testPanadapterOwnershipDecisions();
     testRemoteAudioRxTracking();
+    testStreamStatusOwnershipCompatibility();
+    testDaxTxStatusOwnership();
+    testDaxTxPolicy();
+    testUdpRegistrationPolicy();
     testCreateResponseParsing();
 
     if (failures) {

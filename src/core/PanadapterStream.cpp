@@ -12,6 +12,49 @@
 
 namespace AetherSDR {
 
+namespace {
+
+constexpr QAbstractSocket::BindMode kLanVitaBindMode = QAbstractSocket::DontShareAddress;
+
+QHostAddress chooseLanBindAddress(RadioConnection* conn,
+                                  QString* chosenReason,
+                                  QHostAddress* chosenAddress,
+                                  RadioBindMode* bindMode)
+{
+    if (chosenReason)
+        chosenReason->clear();
+    if (chosenAddress)
+        *chosenAddress = QHostAddress();
+    if (bindMode)
+        *bindMode = conn ? conn->bindMode() : RadioBindMode::Auto;
+
+    const QHostAddress explicitAddr = conn ? conn->explicitLocalBindAddress() : QHostAddress();
+    const QHostAddress sessionAddr = conn ? conn->sessionLocalBindAddress() : QHostAddress();
+    const QHostAddress tcpAddr = conn ? conn->localAddress() : QHostAddress();
+
+    QHostAddress selectedAddress;
+    QString selectedReason;
+    if (!explicitAddr.isNull() && explicitAddr.protocol() == QAbstractSocket::IPv4Protocol) {
+        selectedAddress = explicitAddr;
+        selectedReason = QStringLiteral("explicit");
+    } else if (!sessionAddr.isNull() && sessionAddr.protocol() == QAbstractSocket::IPv4Protocol) {
+        selectedAddress = sessionAddr;
+        selectedReason = QStringLiteral("probe-session");
+    } else if (!tcpAddr.isNull() && tcpAddr.protocol() == QAbstractSocket::IPv4Protocol) {
+        selectedAddress = tcpAddr;
+        selectedReason = QStringLiteral("tcp-local");
+    }
+
+    if (chosenReason)
+        *chosenReason = selectedReason;
+    if (chosenAddress)
+        *chosenAddress = selectedAddress;
+
+    return selectedAddress.isNull() ? QHostAddress(QHostAddress::AnyIPv4) : selectedAddress;
+}
+
+} // namespace
+
 // ─── VITA-49 header layout (28 bytes, big-endian) ─────────────────────────────
 // Word 0 (bytes  0- 3): Packet header (type=3 ExtData, flags, count, size)
 // Word 1 (bytes  4- 7): Stream ID
@@ -52,7 +95,6 @@ void PanadapterStream::init()
     if (!m_routedPrimeTimer) {
         m_routedPrimeTimer = new QTimer(this);
     }
-
     connect(m_socket, &QUdpSocket::readyRead,
             this, &PanadapterStream::onDatagramReady);
 
@@ -109,50 +151,23 @@ bool PanadapterStream::start(RadioConnection* conn)
     m_previousAudioPacketGapMs = 0;
     m_audioPacketJitterEstimateMs = 0.0;
 
-    // Try 4991 first (VPN/firewall rules may allow this port specifically),
-    // then count down for Multi-Flex (multiple clients on the same host).
-    static constexpr quint16 LAN_VITA_PORT = 4991;
     m_isWanMode = false;
     m_hasReceivedPacket = false;
 
-    // Resolve source address for VPN/routed connections
-    const QHostAddress explicitAddr = conn ? conn->explicitLocalBindAddress() : QHostAddress();
-    const QHostAddress sessionAddr = conn ? conn->sessionLocalBindAddress() : QHostAddress();
-    const QHostAddress tcpAddr = conn ? conn->localAddress() : QHostAddress();
-    const RadioBindMode bindMode = conn ? conn->bindMode() : RadioBindMode::Auto;
-
     QHostAddress chosenAddress;
     QString chosenReason;
-    if (!explicitAddr.isNull() && explicitAddr.protocol() == QAbstractSocket::IPv4Protocol) {
-        chosenAddress = explicitAddr;
-        chosenReason = QStringLiteral("explicit");
-    } else if (!sessionAddr.isNull() && sessionAddr.protocol() == QAbstractSocket::IPv4Protocol) {
-        chosenAddress = sessionAddr;
-        chosenReason = QStringLiteral("probe-session");
-    } else if (!tcpAddr.isNull() && tcpAddr.protocol() == QAbstractSocket::IPv4Protocol) {
-        chosenAddress = tcpAddr;
-        chosenReason = QStringLiteral("tcp-local");
-    }
+    RadioBindMode bindMode = RadioBindMode::Auto;
+    const QHostAddress bindAddr = chooseLanBindAddress(conn, &chosenReason, &chosenAddress, &bindMode);
+    const QString bindReason = chosenReason.isEmpty() ? QStringLiteral("auto") : chosenReason;
 
-    // Try port 4991 first (VPN/firewall rules), countdown for Multi-Flex.
-    static constexpr int MAX_PORT_ATTEMPTS = 10;
-    const QHostAddress bindAddr = chosenAddress.isNull() ? QHostAddress(QHostAddress::AnyIPv4) : chosenAddress;
-    bool bound = false;
-
-    for (int attempt = 0; attempt < MAX_PORT_ATTEMPTS && !bound; ++attempt) {
-        quint16 port = LAN_VITA_PORT - attempt;
-        bound = m_socket->bind(bindAddr, port);
-        if (bound) {
-            qCDebug(lcVita49) << "PanadapterStream: bound UDP to"
-                              << bindAddr.toString() << ":" << port
-                              << (chosenReason.isEmpty() ? "auto" : chosenReason);
-        }
-    }
-    if (!bound) {
-        bound = m_socket->bind(bindAddr, 0);
-        if (bound)
-            qCDebug(lcVita49) << "PanadapterStream: using OS-assigned port" << m_socket->localPort();
-    }
+    const bool bound = m_socket->bind(bindAddr, 0, kLanVitaBindMode);
+    if (bound)
+        qCInfo(lcVita49).noquote()
+            << "PanadapterStream: LAN VITA UDP bind"
+            << QStringLiteral("addr=%1").arg(bindAddr.toString())
+            << QStringLiteral("port=%1").arg(m_socket->localPort())
+            << QStringLiteral("flags=DontShareAddress")
+            << QStringLiteral("reason=%1").arg(bindReason);
     if (!bound) {
         qCWarning(lcVita49) << "PanadapterStream: failed to bind UDP socket:"
                             << m_socket->errorString()
@@ -194,6 +209,77 @@ bool PanadapterStream::start(RadioConnection* conn)
     m_radioPort = 4991;
 
     m_conn = conn;
+    return true;
+}
+
+bool PanadapterStream::rebindToEphemeralPort(RadioConnection* conn)
+{
+    if (!m_socket) {
+        qCWarning(lcVita49) << "PanadapterStream: cannot rebind UDP socket before init";
+        return false;
+    }
+
+    if (m_routedPrimeTimer)
+        m_routedPrimeTimer->stop();
+
+    if (m_socket->state() != QAbstractSocket::UnconnectedState)
+        m_socket->close();
+
+    m_audioPacketGapMs.store(0);
+    m_audioPacketGapMaxMs.store(0);
+    m_audioPacketJitterMs.store(0);
+    m_audioPacketTimerStarted = false;
+    m_previousAudioPacketGapMs = 0;
+    m_audioPacketJitterEstimateMs = 0.0;
+    m_isWanMode = false;
+    m_hasReceivedPacket = false;
+
+    QHostAddress chosenAddress;
+    QString chosenReason;
+    RadioBindMode bindMode = RadioBindMode::Auto;
+    const QHostAddress bindAddr = chooseLanBindAddress(conn, &chosenReason, &chosenAddress, &bindMode);
+    const QString bindReason = chosenReason.isEmpty() ? QStringLiteral("auto") : chosenReason;
+
+    const bool bound = m_socket->bind(bindAddr, 0, kLanVitaBindMode);
+    if (!bound) {
+        qCWarning(lcVita49) << "PanadapterStream: failed to rebind UDP socket after port collision:"
+                            << m_socket->errorString()
+                            << "mode=" << (bindMode == RadioBindMode::Explicit ? "Explicit" : "Auto")
+                            << "chosen=" << (chosenAddress.isNull() ? QStringLiteral("<none>")
+                                                                    : chosenAddress.toString());
+        return false;
+    }
+
+    m_localAddress = m_socket->localAddress();
+    m_localPort = m_socket->localPort();
+    m_radioAddress = conn ? conn->radioAddress() : QHostAddress();
+    m_radioPort = 4991;
+    m_conn = conn;
+
+    qCWarning(lcVita49).noquote()
+        << "PanadapterStream: LAN VITA UDP bind"
+        << QStringLiteral("addr=%1").arg(bindAddr.toString())
+        << QStringLiteral("port=%1").arg(m_localPort)
+        << QStringLiteral("flags=DontShareAddress")
+        << QStringLiteral("reason=%1").arg(bindReason);
+
+    if (!m_radioAddress.isNull()) {
+        const QByteArray reg(1, '\x00');
+        const qint64 sent = m_socket->writeDatagram(reg, m_radioAddress, 4992);
+        if (sent == 1) {
+            m_totalTxBytes += sent;
+            qCDebug(lcVita49) << "PanadapterStream: sent UDP registration to"
+                              << m_radioAddress.toString() << ":4992";
+            m_routedPrimeElapsed.restart();
+            m_routedPrimeTimer->start(250);
+        } else {
+            qCWarning(lcVita49) << "PanadapterStream: UDP registration send failed after rebind:"
+                                << m_socket->errorString();
+        }
+    } else {
+        qCWarning(lcVita49) << "PanadapterStream: radio address unknown - skipping UDP registration after rebind";
+    }
+
     return true;
 }
 
@@ -351,8 +437,14 @@ void PanadapterStream::onDatagramReady()
                 if (m_routedPrimeTimer) {
                     m_routedPrimeTimer->stop();
                 }
-                qCDebug(lcVita49) << "PanadapterStream: first UDP packet received from"
-                                  << dg.senderAddress().toString() << ":" << dg.senderPort();
+                const qint64 afterMs = m_routedPrimeElapsed.isValid()
+                    ? m_routedPrimeElapsed.elapsed()
+                    : -1;
+                qCInfo(lcVita49).noquote()
+                    << "PanadapterStream: first UDP packet received"
+                    << QStringLiteral("after_ms=%1").arg(afterMs)
+                    << QStringLiteral("local_port=%1").arg(m_localPort)
+                    << QStringLiteral("from=%1:%2").arg(dg.senderAddress().toString()).arg(dg.senderPort());
             }
             // On first VITA-49 packet in WAN mode: registration confirmed.
             // Stop the rapid udp_register timer and switch to ping keepalive.
