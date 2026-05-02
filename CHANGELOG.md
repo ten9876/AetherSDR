@@ -5,31 +5,104 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [v0.9.5.1] — 2026-05-02
 
-### TCI TX hotfix
+### Stability & polish hotfix sweep
 
-Hotfix for a regression introduced by the v0.9.5 DAX2 coexistence policy
-(#2271): TCI digital TX (WSJT-X / JTDX / MSHV) was silent on Windows and
-Linux non-PipeWire because `evaluateDaxTxPolicy()` denied `dax_tx`
-stream creation for `TciTxAudio` on those platforms.  The radio was
-told `dax=1` but no audio packets ever flowed, so the modulator stayed
-silent during TX.
+A focused follow-up release that lands the TCI TX policy hotfix plus six
+post-v0.9.5 fixes already in main: SmartLink WAN reconnect after radio
+drops, sequenced WAN disconnect teardown, RX slice-tab reset between
+radios with different slice counts, macOS panadapter pop-out live
+updates and dock-splitter layout, NR2 wisdom-generation safety on the
+audio thread, and a Qt log-handler serialization fix that resolves a
+macOS tune-time crash.
 
-The conceptual mistake: SmartSDR DAX2 owns the Windows DAX *audio
-devices*, not the radio's `dax_tx` stream slot.  Multiple GUI clients
-can each register their own `dax_tx` stream, and TCI's audio source is
-a WebSocket — it doesn't touch the local DAX devices at all, so there's
-no conflict.
-
-### Bug fix
+### Bug fixes
 
 **TCI TX silent on Windows / Linux non-PipeWire (#2276)**
 - `evaluateDaxTxPolicy()` now always allows `DaxTxRequestReason::TciTxAudio`
   regardless of platform / hosted-DAX availability.  TCI receives audio
   over WebSocket and feeds it into a dedicated `dax_tx` stream that's
-  independent of SmartSDR DAX2.
+  independent of SmartSDR DAX2 (which owns the Windows DAX *audio
+  devices*, not the radio's `dax_tx` stream slot — multiple GUI clients
+  can each register their own).
 - Test assertions in `tests/radio_status_ownership_test.cpp` flipped to
   match the corrected policy and a new Linux-non-PipeWire test case
   added.
+
+**SmartLink reconnect after WAN drop (#2282)**
+- `MainWindow` now owns a WAN reconnect timer that re-requests a
+  SmartLink radio connection using the last selected WAN radio when
+  `RadioModel` reports an unexpected WAN disconnect, instead of
+  leaving the app stuck on the "Radio disconnected — waiting for
+  reconnect" popup.
+- `SmartLinkClient::reconnect()` refreshes Auth0 credentials via the
+  saved refresh token before reconnecting, avoiding reuse of an
+  expired `id_token`.  Auth-refresh failure stops the retry loop and
+  shows a sign-in-required status instead of retrying forever.
+- `RadioModel::forceDisconnect()` now handles WAN connections so
+  missed pings transition the app to disconnected/reconnecting
+  promptly.  Ping watchdog logs and forces disconnect once per outage
+  rather than every second.
+- `PanadapterStack::prepareShutdown()` releases QRhi GPU resources
+  before main-window teardown to avoid the macOS Metal teardown crash
+  that could fire after a stale-state Disconnect.
+
+**SmartLink disconnect teardown (#2278)**
+- WAN disconnect previously closed the WAN socket *after* disconnecting
+  RadioModel's signals and nulled `m_wanConn` directly, skipping
+  `RadioModel::onDisconnected()` cleanup entirely.  Panadapters,
+  slices, meters, and streams stayed alive in the model after the user
+  clicked Disconnect.
+- Now runs the normal model teardown path on intentional WAN
+  disconnect, so WAN sessions emit `connectionStateChanged(false)` and
+  clear model state the same way LAN disconnects do.
+
+**Reset RX slice tabs on disconnect between radios with different slice counts (#2254)**
+- `RxApplet::clearSliceButtons()` tears down generated slice tab buttons
+  and restores the static slice badge on disconnect.  Stale A–H buttons
+  no longer linger after switching from a high-slice radio to a
+  smaller one.
+- `MainWindow`'s `infoChanged` initializer is now per-connection rather
+  than one-shot, so each radio rebuilds its slice row from its own
+  `maxSlices`.  Slice button click connections are guarded against
+  duplicate signal handlers across reconnects.
+
+**Qt log handler serialization fixes macOS tune-time crash (#2284)**
+- The global `qInstallMessageHandler` callback wrote through a single
+  `QFile*` without synchronization, and concurrent `qCInfo`/`qDebug`
+  output from main + worker threads corrupted Qt's internal file
+  write-buffer state.  The tune-policy diagnostic line happened to be
+  the log call that exposed the corruption — the failing object was
+  the logging sink, not the Flex tune command path.
+- Now serializes the handler with an intentionally leaked mutex
+  (mirroring the existing shutdown-safe treatment of the redaction
+  regexes) and replaces per-message `QTextStream` wrapping with a
+  direct UTF-8 `QFile::write()`/`flush()` path.  No change to radio
+  command ordering or panadapter policy.
+
+**macOS panadapter pop-out refresh + multi-pan dock layout (#2280)**
+- Detached panadapter windows on macOS no longer show a static/stale
+  spectrum image.  Cross-window reparenting now resets the native
+  QRhi/Metal surface and re-requests pan dimensions from the radio
+  after every float/dock cycle.
+- Saved floating-window state is no longer restored after later
+  user-added pans, so adding a second panadapter does not spawn an
+  unwanted blank floating window.
+- `rebuildDockedSplitter()` keeps the main-window splitter compact
+  when multiple pans float/dock — no more empty placeholder slots.
+
+**NR2 wisdom generation no longer freezes the audio thread (#2275)**
+- `AudioEngine::needsWisdomGeneration()` previously only checked
+  whether `aethersdr_fftw_wisdom` existed.  If the file was stale or
+  incompatible (e.g. `fftw-3.3.10` header on a build that uses FFTW
+  3.3.11), `setNr2Enabled()` ran full FFTW wisdom generation on the
+  audio worker thread, blocking RX audio and the WAVE scope for
+  several minutes.
+- Adds `SpectralNR::loadWisdom()` for import-only validation, makes
+  `needsWisdomGeneration()` return true when the file exists but
+  cannot be imported, and routes generation through the existing
+  background progress dialog instead of the audio thread.  If wisdom
+  import fails at enable time, NR2 falls back to runtime
+  `FFTW_MEASURE` plans rather than hanging audio.
 
 ## [v0.9.5] — 2026-05-02
 
