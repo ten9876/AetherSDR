@@ -2081,14 +2081,16 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
         }
     }
 
-    // Check for click on filter edges in FFT area (5px grab zone)
+    // Check for click on filter edges in FFT area (8px grab zone — bumped
+    // from 5px, the 5px target was too easy to miss especially when the
+    // edge sits near the VFO line. #2259)
     if (y < specH) {
         const auto* ao = activeOverlay();
         if (!ao) { ev->accept(); return; }
         const int mx = static_cast<int>(ev->position().x());
         const int loX = mhzToX(ao->freqMhz + ao->filterLowHz / 1.0e6);
         const int hiX = mhzToX(ao->freqMhz + ao->filterHighHz / 1.0e6);
-        constexpr int GRAB = 5;
+        constexpr int GRAB = 8;
 
         const bool loHit = std::abs(mx - loX) <= GRAB;
         const bool hiHit = std::abs(mx - hiX) <= GRAB;
@@ -2512,7 +2514,8 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
         // "pan drag", treat it as a click-to-tune instead
         if (m_singleClickTune && ev->button() == Qt::LeftButton && !m_spotClickConsumed) {
             QPoint delta = ev->position().toPoint() - m_clickPressPos;
-            if (delta.manhattanLength() <= 4) {
+            if (delta.manhattanLength() <= 4
+                && !m_indicatorStripRect.contains(ev->position().toPoint())) {
                 const int mx = static_cast<int>(ev->position().x());
                 if (mx < width() - DBM_STRIP_W) {
                     double rawMhz = xToMhz(mx);
@@ -2528,7 +2531,8 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
     // Single-click-to-tune in FFT area (not consumed by pan drag)
     if (m_singleClickTune && ev->button() == Qt::LeftButton && !m_spotClickConsumed) {
         QPoint delta = ev->position().toPoint() - m_clickPressPos;
-        if (delta.manhattanLength() <= 4) {
+        if (delta.manhattanLength() <= 4
+            && !m_indicatorStripRect.contains(ev->position().toPoint())) {
             const int mx = static_cast<int>(ev->position().x());
             if (mx < width() - DBM_STRIP_W) {
                 double rawMhz = xToMhz(mx);
@@ -2633,6 +2637,11 @@ void SpectrumWidget::mouseDoubleClickEvent(QMouseEvent* ev)
             m_centerMhz = m_sliceOverlays[oi].freqMhz;
             markOverlayDirty();
             emit centerChangeRequested(m_centerMhz);
+            // Suppress the second mouseRelease's single-click-to-tune emit
+            // (Qt fires Press → Release → DoubleClick → Release; without this
+            // flag the trailing release would re-tune against the new
+            // center, landing roughly bandwidth/2 away from the slice). #2237
+            m_spotClickConsumed = true;
             ev->accept();
             return;
         }
@@ -3402,6 +3411,12 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                     int x = specRect.right() - DBM_STRIP_W - 8 - fm.horizontalAdvance(label);
                     p.drawText(x, y, label);
 
+                    // Bounding rect of the full strip — used to suppress
+                    // single-click-to-tune when clicking on these indicators (#1564).
+                    m_indicatorStripRect = QRect(x, y - fm.ascent(),
+                                                 fm.horizontalAdvance(label),
+                                                 fm.height());
+
                     // Store click rect for the prop portion only
                     if (showProp) {
                         QString propText = QString("K%1  A%2  SFI %3")
@@ -3413,6 +3428,8 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                     } else {
                         m_propClickRect = QRect();
                     }
+                } else {
+                    m_indicatorStripRect = QRect();
                 }
 
                 // MQTT device status overlay (#699)
@@ -4057,6 +4074,13 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
             } else {
                 m_propClickRect = QRect();
             }
+
+            // Bounding rect of the full strip (prop + WNB + RF Gain + WIDE) —
+            // used to suppress single-click-to-tune within (#1564).
+            m_indicatorStripRect = QRect(x, topY - fm.ascent(),
+                                         rightEdge - x, fm.height());
+        } else {
+            m_indicatorStripRect = QRect();
         }
     }
 

@@ -287,6 +287,13 @@ private:
     QGridLayout* m_filterGrid{nullptr};
     QVector<QPushButton*> m_filterBtns;
     QVector<int> m_filterWidths;
+    // Parallel to m_filterWidths.  When a slot has user-defined custom
+    // edges (right-click → "Set Custom Edges..."), the lo/hi are stored
+    // here and applied directly instead of going through applyFilterPreset's
+    // mode-rule recompute.  INT_MIN sentinel means "no custom edges, use
+    // mode rules" — preserves the legacy width-only behaviour. (#2259)
+    QVector<int> m_filterCustomLo;
+    QVector<int> m_filterCustomHi;
     // CW autotune row (only visible in CW mode). The container holds the
     // "Autotune:" label + buttons; deleting it on rebuild also removes the
     // label, which is not tracked as its own member.

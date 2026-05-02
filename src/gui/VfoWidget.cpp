@@ -20,8 +20,11 @@
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QMenu>
-#include <QInputDialog>
 #include <QDoubleSpinBox>
+#include <QSpinBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QSignalBlocker>
 #include <QDir>
 #include <QFile>
@@ -407,11 +410,19 @@ void VfoWidget::buildUI()
     // Close and lock buttons — children of our parent (SpectrumWidget) so they
     // can render outside our bounds. Lifecycle managed by VfoWidget destructor.
     auto* btnParent = parentWidget() ? parentWidget() : this;
+
+    // Shared base style for the four 20x20 slice-side buttons (close, lock,
+    // record, play). All use the same background circle so they line up
+    // visually when stacked vertically on the slice edge.
+    static const QString sliceBtnStyle =
+        "QPushButton { background: rgba(255,255,255,30); border: none; "
+        "border-radius: 10px; font-size: 11px; padding: 0; }"
+        "QPushButton:hover { background: rgba(255,255,255,60); }";
+
     m_closeSliceBtn = new QPushButton("\xE2\x9C\x95", btnParent);  // ✕
     m_closeSliceBtn->setFixedSize(20, 20);
-    m_closeSliceBtn->setStyleSheet(
-        "QPushButton { background: rgba(255,255,255,15); border: none; "
-        "border-radius: 10px; color: #c8d8e8; font-size: 11px; padding: 0; }"
+    m_closeSliceBtn->setStyleSheet(sliceBtnStyle +
+        "QPushButton { color: #c8d8e8; }"
         "QPushButton:hover { background: rgba(204,32,32,180); color: #ffffff; }");
     m_closeSliceBtn->show();
     connect(m_closeSliceBtn, &QPushButton::clicked, this, [this] {
@@ -421,11 +432,8 @@ void VfoWidget::buildUI()
     m_lockVfoBtn = new QPushButton("\xF0\x9F\x94\x93", btnParent);  // 🔓
     m_lockVfoBtn->setFixedSize(20, 20);
     m_lockVfoBtn->setCheckable(true);
-    m_lockVfoBtn->setStyleSheet(
-        "QPushButton { background: rgba(255,255,255,15); border: none; "
-        "border-radius: 10px; font-size: 12px; padding: 0; }"
-        "QPushButton:checked { background: rgba(255,100,100,80); }"
-        "QPushButton:hover { background: rgba(255,255,255,40); }");
+    m_lockVfoBtn->setStyleSheet(sliceBtnStyle +
+        "QPushButton:checked { background: rgba(255,100,100,80); }");
     m_lockVfoBtn->show();
     connect(m_lockVfoBtn, &QPushButton::toggled, this, [this](bool locked) {
         m_lockVfoBtn->setText(locked ? "\xF0\x9F\x94\x92" : "\xF0\x9F\x94\x93");
@@ -433,18 +441,14 @@ void VfoWidget::buildUI()
     });
 
     // Record button
-    static const QString sliceBtnStyle =
-        "QPushButton { background: rgba(255,255,255,15); border: none; "
-        "border-radius: 10px; font-size: 11px; padding: 0; }"
-        "QPushButton:hover { background: rgba(255,255,255,40); }";
 
     m_recordBtn = new QPushButton(QString::fromUtf8("\xe2\x8f\xba"), btnParent);  // ⏺
     m_recordBtn->setFixedSize(20, 20);
     m_recordBtn->setCheckable(true);
     m_recordBtn->setToolTip("Record slice audio");
     m_recordBtn->setStyleSheet(sliceBtnStyle +
-        "QPushButton { color: #d04040; }"
-        "QPushButton:checked { color: #ff2020; background: rgba(255,50,50,60); }");
+        "QPushButton { color: #c06060; }"
+        "QPushButton:checked { color: #ff2020; background: rgba(255,50,50,110); }");
     m_recordBtn->show();
     connect(m_recordBtn, &QPushButton::clicked, this, [this](bool checked) {
         emit recordToggled(checked);
@@ -458,11 +462,11 @@ void VfoWidget::buildUI()
         static bool dim = false;
         dim = !dim;
         m_recordBtn->setStyleSheet(
-            "QPushButton { background: rgba(255,255,255,15); border: none; "
+            "QPushButton { background: rgba(255,255,255,30); border: none; "
             "border-radius: 10px; font-size: 11px; padding: 0; "
-            "color: " + QString(dim ? "#601010" : "#ff2020") + "; "
-            "background: rgba(255,50,50," + QString(dim ? "20" : "60") + "); }"
-            "QPushButton:hover { background: rgba(255,255,255,40); }");
+            "color: " + QString(dim ? "#a03030" : "#ff3030") + "; "
+            "background: rgba(255,50,50," + QString(dim ? "50" : "120") + "); }"
+            "QPushButton:hover { background: rgba(255,255,255,60); }");
     });
 
     // Play button
@@ -472,9 +476,9 @@ void VfoWidget::buildUI()
     m_playBtn->setEnabled(false);
     m_playBtn->setToolTip("Play recorded audio");
     m_playBtn->setStyleSheet(sliceBtnStyle +
-        "QPushButton { color: #70b070; }"
-        "QPushButton:checked { color: #30d050; background: rgba(50,200,80,60); }"
-        "QPushButton:disabled { color: #505050; background: rgba(255,255,255,5); }");
+        "QPushButton { color: #60a070; }"
+        "QPushButton:checked { color: #30d050; background: rgba(50,200,80,110); }"
+        "QPushButton:disabled { color: #484848; background: rgba(255,255,255,15); }");
     m_playBtn->show();
     connect(m_playBtn, &QPushButton::clicked, this, [this](bool checked) {
         emit playToggled(checked);
@@ -2750,10 +2754,10 @@ void VfoWidget::setRecordOn(bool on)
         // Restore normal checked style
         if (m_recordBtn)
             m_recordBtn->setStyleSheet(
-                "QPushButton { background: rgba(255,255,255,15); border: none; "
-                "border-radius: 10px; font-size: 11px; padding: 0; color: #804040; }"
-                "QPushButton:checked { color: #ff2020; background: rgba(255,50,50,60); }"
-                "QPushButton:hover { background: rgba(255,255,255,40); }");
+                "QPushButton { background: rgba(255,255,255,30); border: none; "
+                "border-radius: 10px; font-size: 11px; padding: 0; color: #c06060; }"
+                "QPushButton:checked { color: #ff2020; background: rgba(255,50,50,110); }"
+                "QPushButton:hover { background: rgba(255,255,255,60); }");
     }
 }
 
@@ -3069,18 +3073,40 @@ void VfoWidget::updateModeTab()
     // Update quick-mode button labels and active state
     updateQuickModeButtons();
 
-    // Load custom filter presets from AppSettings, fall back to defaults
+    // Load custom filter presets from AppSettings, fall back to defaults.
+    // Storage: "width,width,lo:hi,width,..." — "lo:hi" entries override
+    // mode-rule recompute and apply explicit edges directly. (#2259)
     QString fkey = QStringLiteral("FilterPresets_%1").arg(cur);
     QString saved = AppSettings::instance().value(fkey, "").toString();
+    m_filterWidths.clear();
+    m_filterCustomLo.clear();
+    m_filterCustomHi.clear();
     if (!saved.isEmpty()) {
-        m_filterWidths.clear();
         for (const auto& s : saved.split(',', Qt::SkipEmptyParts)) {
-            bool ok;
-            int w = s.toInt(&ok);
-            if (ok && w > 0) m_filterWidths.append(w);
+            if (s.contains(':')) {
+                const auto parts = s.split(':');
+                if (parts.size() != 2) continue;
+                bool okLo, okHi;
+                int lo = parts[0].toInt(&okLo);
+                int hi = parts[1].toInt(&okHi);
+                if (!okLo || !okHi || hi <= lo) continue;
+                m_filterWidths.append(hi - lo);
+                m_filterCustomLo.append(lo);
+                m_filterCustomHi.append(hi);
+            } else {
+                bool ok;
+                int w = s.toInt(&ok);
+                if (!ok || w <= 0) continue;
+                m_filterWidths.append(w);
+                m_filterCustomLo.append(INT_MIN);
+                m_filterCustomHi.append(INT_MIN);
+            }
         }
-    } else {
+    }
+    if (m_filterWidths.isEmpty()) {
         m_filterWidths = filterPresetsFor(cur).filterWidths;
+        m_filterCustomLo.fill(INT_MIN, m_filterWidths.size());
+        m_filterCustomHi.fill(INT_MIN, m_filterWidths.size());
     }
     rebuildFilterButtons();
 }
@@ -3157,33 +3183,67 @@ void VfoWidget::rebuildFilterButtons()
         btn->setCheckable(true);
         btn->setFixedHeight(26);
         btn->setStyleSheet(kModeBtn);
-        connect(btn, &QPushButton::clicked, this, [this, w](bool) {
-            applyFilterPreset(w);
+        connect(btn, &QPushButton::clicked, this, [this, i](bool) {
+            if (!m_slice) return;
+            if (m_filterCustomLo[i] != INT_MIN) {
+                // Custom edges from right-click → "Set Custom Edges..."
+                m_slice->setFilterWidth(m_filterCustomLo[i], m_filterCustomHi[i]);
+            } else {
+                applyFilterPreset(m_filterWidths[i]);
+            }
         });
 
         // Right-click to customize this preset
         btn->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(btn, &QPushButton::customContextMenuRequested, this, [this, i, btn](const QPoint& pos) {
             QMenu menu;
-            menu.addAction("Set Custom Width...", [this, i] {
+            menu.addAction("Set Custom Edges...", [this, i] {
                 if (!m_slice) return;
-                bool ok;
-                int hz = QInputDialog::getInt(this, "Custom Filter Width",
-                    "Enter filter width in Hz:", m_filterWidths[i],
-                    10, 20000, 10, &ok);
-                if (!ok) return;
-                m_filterWidths[i] = hz;
+                QDialog dlg(this);
+                dlg.setWindowTitle("Set Custom Filter Edges");
+                auto* form = new QFormLayout(&dlg);
+                auto* loSpin = new QSpinBox(&dlg);
+                auto* hiSpin = new QSpinBox(&dlg);
+                loSpin->setRange(-20000, 20000);
+                hiSpin->setRange(-20000, 20000);
+                loSpin->setSingleStep(50);
+                hiSpin->setSingleStep(50);
+                loSpin->setSuffix(" Hz");
+                hiSpin->setSuffix(" Hz");
+                int curLo = m_filterCustomLo[i] != INT_MIN
+                                ? m_filterCustomLo[i] : m_slice->filterLow();
+                int curHi = m_filterCustomHi[i] != INT_MIN
+                                ? m_filterCustomHi[i] : m_slice->filterHigh();
+                loSpin->setValue(curLo);
+                hiSpin->setValue(curHi);
+                form->addRow("Low edge:", loSpin);
+                form->addRow("High edge:", hiSpin);
+                auto* btns = new QDialogButtonBox(
+                    QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+                QObject::connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+                QObject::connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+                form->addRow(btns);
+                if (dlg.exec() != QDialog::Accepted) return;
+                int lo = loSpin->value();
+                int hi = hiSpin->value();
+                if (hi <= lo) return;
+                m_filterCustomLo[i] = lo;
+                m_filterCustomHi[i] = hi;
+                m_filterWidths[i] = hi - lo;
                 saveFilterPresets();
                 rebuildFilterButtons();
-                applyFilterPreset(hz);
+                m_slice->setFilterWidth(lo, hi);
             });
-            menu.addAction("Reset to Defaults", [this] {
+            menu.addAction("Reset to Default", [this, i] {
                 if (!m_slice) return;
-                const QString mode = m_slice->mode();
-                AppSettings::instance().remove(
-                    QStringLiteral("FilterPresets_%1").arg(mode));
-                AppSettings::instance().save();
-                updateModeTab();
+                const auto& factory = filterPresetsFor(m_slice->mode()).filterWidths;
+                if (i >= factory.size()) return;
+                m_filterWidths[i] = factory[i];
+                m_filterCustomLo[i] = INT_MIN;
+                m_filterCustomHi[i] = INT_MIN;
+                saveFilterPresets();
+                rebuildFilterButtons();
+                applyFilterPreset(m_filterWidths[i]);
             });
             menu.exec(btn->mapToGlobal(pos));
         });
@@ -3288,18 +3348,40 @@ void VfoWidget::updateFilterHighlight()
 {
     if (!m_slice) return;
 
-    // Reload presets from AppSettings in case RxApplet changed them
+    // Reload presets from AppSettings in case RxApplet changed them.
+    // Format mirrors updateModeTab(): "width" or "lo:hi" entries (#2259).
     const QString key = QStringLiteral("FilterPresets_%1").arg(m_slice->mode());
     const QString saved = AppSettings::instance().value(key, "").toString();
     if (!saved.isEmpty()) {
-        QVector<int> loaded;
+        QVector<int> loadedWidths;
+        QVector<int> loadedLo;
+        QVector<int> loadedHi;
         for (const auto& s : saved.split(',', Qt::SkipEmptyParts)) {
-            bool ok;
-            int w = s.toInt(&ok);
-            if (ok && w > 0) loaded.append(w);
+            if (s.contains(':')) {
+                const auto parts = s.split(':');
+                if (parts.size() != 2) continue;
+                bool okLo, okHi;
+                int lo = parts[0].toInt(&okLo);
+                int hi = parts[1].toInt(&okHi);
+                if (!okLo || !okHi || hi <= lo) continue;
+                loadedWidths.append(hi - lo);
+                loadedLo.append(lo);
+                loadedHi.append(hi);
+            } else {
+                bool ok;
+                int w = s.toInt(&ok);
+                if (!ok || w <= 0) continue;
+                loadedWidths.append(w);
+                loadedLo.append(INT_MIN);
+                loadedHi.append(INT_MIN);
+            }
         }
-        if (loaded != m_filterWidths) {
-            m_filterWidths = loaded;
+        if (loadedWidths != m_filterWidths
+                || loadedLo != m_filterCustomLo
+                || loadedHi != m_filterCustomHi) {
+            m_filterWidths = loadedWidths;
+            m_filterCustomLo = loadedLo;
+            m_filterCustomHi = loadedHi;
             rebuildFilterButtons();
         }
     }
@@ -3387,8 +3469,14 @@ void VfoWidget::saveFilterPresets()
 {
     if (!m_slice) return;
     QStringList parts;
-    for (int w : m_filterWidths)
-        parts.append(QString::number(w));
+    for (int i = 0; i < m_filterWidths.size(); ++i) {
+        if (m_filterCustomLo[i] != INT_MIN) {
+            // Custom edges: emit "lo:hi" so asymmetric setups persist (#2259).
+            parts.append(QString("%1:%2").arg(m_filterCustomLo[i]).arg(m_filterCustomHi[i]));
+        } else {
+            parts.append(QString::number(m_filterWidths[i]));
+        }
+    }
     auto& s = AppSettings::instance();
     s.setValue(QStringLiteral("FilterPresets_%1").arg(m_slice->mode()),
               parts.join(','));

@@ -44,6 +44,13 @@ private:
 
     TransmitModel* m_model{nullptr};
 
+    // Frequency at which the ATU last reported a successful tune.
+    // Used to gate the second-click → bypass behaviour: a click on the ATU
+    // button only sends "atu bypass" when status is Successful/OK *and* the
+    // current TX frequency still matches the freq we tuned at.  Any freq
+    // change between clicks falls back to "atu start". (#1993)
+    double m_atuTunedFreqMhz{-1.0};
+
     // Gauges (HGauge*)
     QWidget* m_fwdGauge{nullptr};
     QWidget* m_swrGauge{nullptr};

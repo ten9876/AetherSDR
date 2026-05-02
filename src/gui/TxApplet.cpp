@@ -12,6 +12,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QSignalBlocker>
+#include <cmath>
 
 namespace AetherSDR {
 
@@ -294,9 +295,24 @@ void TxApplet::buildUI()
             m_model->setMox(on);
     });
 
-    // ATU button — start ATU tune
+    // ATU button — toggle between tune and bypass.
+    //   First click on a fresh slice → start tune cycle
+    //   Second click while tuner holds a Successful/OK match at the SAME
+    //     freq we tuned at → switch to bypass
+    //   Click after any freq change → start a fresh tune cycle even if the
+    //     prior status was Successful/OK
+    // Mirrors SmartSDR's per-frequency toggle. (#1993)
     connect(m_atuBtn, &QPushButton::clicked, this, [this]() {
-        if (m_model) m_model->atuStart();
+        if (!m_model) return;
+        const auto status = m_model->atuStatus();
+        const bool tuned = (status == ATUStatus::Successful || status == ATUStatus::OK);
+        const double curFreq = m_model->transmitFreq();
+        const bool sameFreq = (m_atuTunedFreqMhz > 0.0
+                               && std::abs(curFreq - m_atuTunedFreqMhz) < 1e-6);
+        if (tuned && sameFreq)
+            m_model->atuBypass();
+        else
+            m_model->atuStart();
     });
 
     // MEM button — toggle ATU memories
@@ -433,6 +449,15 @@ void TxApplet::syncAtuIndicators()
     if (!m_model) return;
 
     const auto status = m_model->atuStatus();
+
+    // Capture the freq the ATU just tuned at — gates the "second click ⇒ bypass"
+    // path so only same-frequency follow-up clicks bypass. (#1993)
+    if (status == ATUStatus::Successful || status == ATUStatus::OK)
+        m_atuTunedFreqMhz = m_model->transmitFreq();
+    else if (status == ATUStatus::Bypass || status == ATUStatus::ManualBypass) {
+        // Bypass clears the tuned-freq pin so the next click starts a fresh tune.
+        m_atuTunedFreqMhz = -1.0;
+    }
 
     // Success — green when tune was successful
     setIndicatorActive(m_successInd,

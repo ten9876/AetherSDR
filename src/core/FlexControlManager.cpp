@@ -100,14 +100,21 @@ void FlexControlManager::processCommand(const QByteArray& cmd)
         emit tuneSteps(m_invertDirection ? -accel : accel);
 
     } else if (cmd.startsWith('X') && cmd.size() >= 3) {
-        // Button press: X<button><action>
-        //   button: 1, 2, 3, 4 (4 = knob press)
+        // Side-button press: X<button><action>
+        //   button: 1, 2, 3 (side buttons)
         //   action: S=tap(0), C=double-tap(1), L=hold(2)
         int button = cmd.at(1) - '0';
         if (button < 1 || button > 4) return;
         char action = cmd.at(2);
         int actionId = (action == 'S') ? 0 : (action == 'C') ? 1 : 2;
         emit buttonPressed(button, actionId);
+
+    } else if (cmd.size() == 1 && (cmd == "S" || cmd == "C" || cmd == "L")) {
+        // Knob press: bare S/C/L token (no X-prefix). Confirmed via FlexControl
+        // hardware capture (#2263). The knob is button 4 in our action-dropdown
+        // layout, matching the pre-existing X4S/X4C/X4L slot.
+        int actionId = (cmd == "S") ? 0 : (cmd == "C") ? 1 : 2;
+        emit buttonPressed(4, actionId);
 
     } else if (cmd.startsWith('F')) {
         // Init/reset — log and ignore

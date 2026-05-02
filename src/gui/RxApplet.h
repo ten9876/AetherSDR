@@ -131,6 +131,9 @@ private:
 
     // Filter presets (Hz widths) — per-mode, swapped on mode change
     QVector<int>            m_filterWidths{1800, 2100, 2400, 2700, 3300, 6000};
+    // Parallel "custom edges" — INT_MIN sentinel = use mode rules. (#2259)
+    QVector<int>            m_filterCustomLo;
+    QVector<int>            m_filterCustomHi;
     QVector<QPushButton*>   m_filterBtns;
     QGridLayout*            m_filterGrid{nullptr};
     QWidget*                m_filterContainer{nullptr};

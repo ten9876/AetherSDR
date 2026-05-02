@@ -1362,10 +1362,16 @@ MainWindow::MainWindow(QWidget* parent)
 
         QString call = QString(spot.dxCall).replace(' ', QChar(0x7f));
         QString freq = QString::number(spot.freqMhz, 'f', 6);
+        // trigger_action=none disables the radio's internal tune/mode-set on
+        // spot click. AetherSDR handles freq via frequencyClicked and mode
+        // via SpotAutoSwitchMode client-side, so the radio's stored-mode
+        // path (which mishandles non-Flex tokens like "SSB") never fires.
+        // Clicks still emit SpotTriggered for external loggers (#341, #1846).
         QString cmd = "spot add callsign=" + call + " rx_freq=" + freq
                      + " tx_freq=" + freq
                      + " source=" + source
                      + " spotter_callsign=" + spot.spotterCall
+                     + " trigger_action=none"
                      + " lifetime_seconds=" + QString::number(lifetimeSec);
         if (!spot.comment.isEmpty())
             cmd += " comment=" + QString(spot.comment).replace(' ', QChar(0x7f));
@@ -1486,6 +1492,7 @@ MainWindow::MainWindow(QWidget* parent)
                      + " tx_freq=" + freq
                      + " source=WSJT-X"
                      + " spotter_callsign=" + colored.spotterCall
+                     + " trigger_action=none"  // see comment at queueSpotCmd (#1846)
                      + " lifetime_seconds=" + QString::number(
                            spotLifetimeSeconds(colored, "WSJT-X"));
         if (!colored.comment.isEmpty())
@@ -3685,9 +3692,6 @@ MainWindow::MainWindow(QWidget* parent)
             m_gpsStatusLabel->setText(QString("[%1]").arg(status));
         }
 
-        if (!grid.isEmpty())
-            m_gridLabel->setText(grid);
-
         // Use GPS UTC time only when GPSDO is installed and locked.
         // GPS with no antenna/lock sends stale "00:00:00Z" — fall back to system clock.
         if (!utcTime.isEmpty()
@@ -4632,7 +4636,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         m_cwxPanel->setVisible(show);
         m_cwxIndicator->setStyleSheet(show
             ? "QLabel { color: #00b4d8; font-weight: bold; font-size: 24px; }"
-            : "QLabel { color: rgba(255,255,255,40); font-weight: bold; font-size: 24px; }");
+            : "QLabel { color: #404858; font-weight: bold; font-size: 24px; }");
         if (show) {
             auto sizes = m_splitter->sizes();
             if (sizes.size() >= 4) {
@@ -4658,7 +4662,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         m_dvkPanel->setVisible(show);
         m_dvkIndicator->setStyleSheet(show
             ? "QLabel { color: #00b4d8; font-weight: bold; font-size: 24px; }"
-            : "QLabel { color: rgba(255,255,255,40); font-weight: bold; font-size: 24px; }");
+            : "QLabel { color: #404858; font-weight: bold; font-size: 24px; }");
         if (show) {
             auto sizes = m_splitter->sizes();
             if (sizes.size() >= 4) {
@@ -6572,7 +6576,7 @@ void MainWindow::buildUI()
     hbox->addSpacing(8);
 
     m_tnfIndicator = new QLabel("TNF");
-    m_tnfIndicator->setStyleSheet("QLabel { color: rgba(255,255,255,128); font-weight: bold; font-size: 24px; }");
+    m_tnfIndicator->setStyleSheet(greyIndLg);
     m_tnfIndicator->setCursor(Qt::PointingHandCursor);
     m_tnfIndicator->installEventFilter(this);
     hbox->addWidget(m_tnfIndicator);
@@ -6824,16 +6828,13 @@ void MainWindow::buildUI()
 
     addSep();
 
-    // Grid square (top) + UTC time (bottom) stacked, right-aligned
+    // UTC date (top) + UTC time (bottom) stacked, right-aligned. Two-row
+    // layout matches all other telemetry stacks in the status bar (#1583).
     auto* timeStack = new QWidget;
     timeStack->setMinimumWidth(kTelemetryStackMinWidth);
     auto* timeVbox = new QVBoxLayout(timeStack);
     timeVbox->setContentsMargins(0, 0, 0, 0);
     timeVbox->setSpacing(0);
-    m_gridLabel = new QLabel("");
-    m_gridLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 12px; }");
-    m_gridLabel->setAlignment(Qt::AlignCenter);
-    m_gridLabel->setMinimumWidth(kTelemetryStackMinWidth);
     m_gpsDateLabel = new QLabel("");
     m_gpsDateLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 12px; }");
     m_gpsDateLabel->setAlignment(Qt::AlignCenter);
@@ -6842,7 +6843,6 @@ void MainWindow::buildUI()
     m_gpsTimeLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 12px; }");
     m_gpsTimeLabel->setAlignment(Qt::AlignCenter);
     m_gpsTimeLabel->setMinimumWidth(kTelemetryStackMinWidth);
-    timeVbox->addWidget(m_gridLabel);
     timeVbox->addWidget(m_gpsDateLabel);
     timeVbox->addWidget(m_gpsTimeLabel);
     hbox->addWidget(timeStack);
@@ -8478,7 +8478,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     connect(tnf, &TnfModel::globalEnabledChanged,
             this, [this](bool on) {
         m_tnfIndicator->setStyleSheet(on
-            ? "QLabel { color: #00e060; font-weight: bold; font-size: 24px; }"
+            ? "QLabel { color: #00b4d8; font-weight: bold; font-size: 24px; }"
             : "QLabel { color: #404858; font-weight: bold; font-size: 24px; }");
     });
 
@@ -8486,7 +8486,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     connect(&m_radioModel, &RadioModel::infoChanged, this, [this]() {
         bool fdx = m_radioModel.fullDuplexEnabled();
         m_fdxIndicator->setStyleSheet(fdx
-            ? "QLabel { color: #00e060; font-weight: bold; font-size: 24px; }"
+            ? "QLabel { color: #00b4d8; font-weight: bold; font-size: 24px; }"
             : "QLabel { color: #404858; font-weight: bold; font-size: 24px; }");
     });
     connect(sw, &SpectrumWidget::tnfCreateRequested,   tnf, &TnfModel::createTnf);
@@ -8801,8 +8801,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         if (!isPassiveLocalSpotId(spotIndex))
             m_radioModel.sendCommand(QString("spot trigger %1").arg(spotIndex));
 
-        // Auto-switch mode from spot metadata (#424)
-        if (AppSettings::instance().value("SpotAutoSwitchMode", "False").toString() != "True")
+        // Auto-switch mode from spot metadata (#424). Default flipped to True
+        // in #1846 since spots now ship with trigger_action=none — the radio
+        // no longer changes mode on click, so auto-mode is the only path.
+        if (AppSettings::instance().value("SpotAutoSwitchMode", "True").toString() != "True")
             return;
         auto* s = activeSlice();
         if (!s) return;
@@ -8868,6 +8870,16 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             // SSB without sideband: ≥10 MHz → USB, <10 MHz → LSB
             radioMode = (it->rxFreqMhz >= 10.0) ? "USB" : "LSB";
         }
+        // FreeDV spots imply RADE — activate the RADE engine on this slice
+        // (sets DIGU/DIGL by band convention + starts the OFDM modem) rather
+        // than landing on a plain digital mode. Without HAVE_RADE the build
+        // can't run the modem, so fall through to the regular mode-set. (#1846)
+#ifdef HAVE_RADE
+        if (it->source == "FreeDV") {
+            activateRADE(s->sliceId());
+            return;
+        }
+#endif
         if (!radioMode.isEmpty() && radioMode != s->mode())
             s->setMode(radioMode);
     });
@@ -8885,6 +8897,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                      + " tx_freq=" + freq
                      + " source=Manual"
                      + " spotter_callsign=" + myCall
+                     + " trigger_action=none"  // (#1846)
                      + " lifetime_seconds=" + QString::number(lifetimeSec);
         if (!comment.isEmpty())
             cmd += " comment=" + QString(comment).replace(' ', QChar(0x7f));
@@ -9790,7 +9803,7 @@ SpectrumWidget* MainWindow::spectrumForSlice(SliceModel* s) const
 void MainWindow::updateKeyerAvailability(const QString& mode)
 {
     static const QString kActive   = "QLabel { color: #00b4d8; font-weight: bold; font-size: 24px; }";
-    static const QString kAvail    = "QLabel { color: rgba(255,255,255,40); font-weight: bold; font-size: 24px; }";
+    static const QString kAvail    = "QLabel { color: #404858; font-weight: bold; font-size: 24px; }";
     static const QString kDisabled = "QLabel { color: #252530; font-weight: bold; font-size: 24px; }";
 
     bool isCw  = (mode == "CW" || mode == "CWL");
@@ -11566,6 +11579,10 @@ void MainWindow::deactivateRADE()
 
 void MainWindow::startFreeDvReporting(int sliceId)
 {
+#ifndef HAVE_WEBSOCKETS
+    // RADE without WebSockets: reporter client doesn't exist, no-op. (#2204)
+    Q_UNUSED(sliceId);
+#else
     if (!m_freedvClient) return;
 
     auto& cs = AppSettings::instance();
@@ -11637,10 +11654,14 @@ void MainWindow::startFreeDvReporting(int sliceId)
         connect(radeSlice, &SliceModel::frequencyChanged,
                 m_freedvClient, &FreeDvClient::reportFreqChange, Qt::QueuedConnection);
     }
+#endif  // HAVE_WEBSOCKETS
 }
 
 void MainWindow::stopFreeDvReporting(int sliceId)
 {
+#ifndef HAVE_WEBSOCKETS
+    Q_UNUSED(sliceId);
+#else
     if (!m_freedvClient) return;
 
     disconnect(m_freedvMoxConn);
@@ -11652,6 +11673,7 @@ void MainWindow::stopFreeDvReporting(int sliceId)
         disconnect(radeSlice, &SliceModel::frequencyChanged, m_freedvClient, nullptr);
 
     QMetaObject::invokeMethod(m_freedvClient, [this] { m_freedvClient->disableReporting(); });
+#endif
 }
 
 #endif

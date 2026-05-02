@@ -82,20 +82,25 @@ void FilterPassbandWidget::paintEvent(QPaintEvent*)
     p.drawText((loX + hiX) / 2 - fm.horizontalAdvance(bwText) / 2, botY + 12, bwText);
 
     // Passband center offset (distance from carrier to filter center, below top line)
+    // Show the actual signed offsets — LSB / CW filters have negative
+    // lo/hi values relative to the carrier and the user needs to see
+    // the sign to know which side of the tuned frequency they are. (#2259)
     int center = (m_lo + m_hi) / 2;
     QString centerText = std::abs(center) >= 1000
-        ? QString("%1.%2K").arg(std::abs(center) / 1000).arg((std::abs(center) % 1000) / 100)
-        : QString::number(std::abs(center));
+        ? QString("%1%2.%3K").arg(center < 0 ? "-" : "")
+                              .arg(std::abs(center) / 1000)
+                              .arg((std::abs(center) % 1000) / 100)
+        : QString::number(center);
     p.setPen(QColor(0x90, 0xa0, 0xb0));
     p.drawText((loX + hiX) / 2 - fm.horizontalAdvance(centerText) / 2, topY + 12, centerText);
 
     // Lo label (centered on left slant bottom point)
-    QString loText = QString::number(std::abs(m_lo));
+    QString loText = QString::number(m_lo);
     p.setPen(QColor(0x80, 0x90, 0xa0));
     p.drawText(loX - fm.horizontalAdvance(loText) / 2, botY + 12, loText);
 
     // Hi label (centered on right slant bottom point)
-    QString hiText = QString::number(std::abs(m_hi));
+    QString hiText = QString::number(m_hi);
     p.drawText(hiX - fm.horizontalAdvance(hiText) / 2, botY + 12, hiText);
 }
 
