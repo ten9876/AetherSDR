@@ -2220,15 +2220,14 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_appletPanel->rxApplet(), &RxApplet::sliceActivationRequested,
             this, &MainWindow::setActiveSlice);
     // Initialize slice tab buttons once the radio reports its actual capacity
-    connect(&m_radioModel, &RadioModel::infoChanged, this,
-            [this, initialized = false]() mutable {
-        if (initialized || m_radioModel.model().isEmpty()) {
+    connect(&m_radioModel, &RadioModel::infoChanged, this, [this]() {
+        if (m_sliceTabsInitialized || m_radioModel.model().isEmpty()) {
             return;
         }
 
         m_appletPanel->setMaxSlices(m_radioModel.maxSlices());
         m_appletPanel->updateSliceButtons(m_radioModel.slices(), m_activeSliceId);
-        initialized = true;
+        m_sliceTabsInitialized = true;
     });
 
     // Radio info can arrive after onConnectionStateChanged, so refresh the labels.
@@ -7115,6 +7114,11 @@ void MainWindow::onConnectionStateChanged(bool connected)
             }
         }
     } else {
+        m_sliceTabsInitialized = false;
+        if (m_appletPanel) {
+            m_appletPanel->clearSliceButtons();
+        }
+
         if (m_agManualConnectTimer) {
             m_agManualConnectTimer->stop();
             m_agManualConnectTimer->deleteLater();

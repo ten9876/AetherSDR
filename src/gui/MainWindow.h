@@ -367,6 +367,7 @@ private:
     int  m_splitTxSliceId{-1};
     int  m_pendingMemoryRevealSliceId{-1};
     int  m_pendingSpectrumTargetSliceId{-1};
+    bool m_sliceTabsInitialized{false};
 
     // Guard: set true while updating controls from the model so shared tune
     // helpers do not echo model-driven changes back to the radio.

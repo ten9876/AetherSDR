@@ -1045,6 +1045,11 @@ void AppletPanel::setMaxSlices(int maxSlices)
     m_rxApplet->setMaxSlices(maxSlices);
 }
 
+void AppletPanel::clearSliceButtons()
+{
+    m_rxApplet->clearSliceButtons();
+}
+
 void AppletPanel::updateSliceButtons(const QList<SliceModel*>& slices, int activeSliceId)
 {
     m_rxApplet->updateSliceButtons(slices, activeSliceId);

@@ -60,6 +60,7 @@ public:
     void setSlice(SliceModel* slice);
     void setAntennaList(const QStringList& ants);
     void setMaxSlices(int maxSlices);
+    void clearSliceButtons();
     void updateSliceButtons(const QList<SliceModel*>& slices, int activeSliceId);
 
     RxApplet*     rxApplet()      { return m_rxApplet; }
