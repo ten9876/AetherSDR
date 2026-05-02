@@ -99,6 +99,7 @@ public:
     // Returns true if wisdom was generated (slow — several minutes), false if loaded.
     // The progress callback receives (currentStep, totalSteps, description).
     using WisdomProgressCb = std::function<void(int, int, const std::string&)>;
+    static bool loadWisdom(const std::string& directory);
     static bool generateWisdom(const std::string& directory,
                                WisdomProgressCb progress = nullptr);
 
