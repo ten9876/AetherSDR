@@ -77,6 +77,8 @@ private:
     void refreshManualSourceOptions(const RadioBindSettings* selected = nullptr);
     void applySavedSourceSelection(const QString& ip);
     RadioBindSettings currentManualBindSettings(bool* staleSelection = nullptr) const;
+    void loadRecentManualIps();
+    void rememberManualIp(const QString& ip);
     void saveManualProfile(const QString& targetIp,
                            const RadioBindSettings& settings,
                            const QHostAddress& lastSuccessfulLocalIp);
@@ -117,6 +119,7 @@ private:
     QList<WanRadioInfo> m_wanRadios;
 
     // Manual (VPN / routed) connection
+    QComboBox*   m_manualIpCombo{nullptr};
     QLineEdit*   m_manualIpEdit{nullptr};
     QLabel*      m_manualResultLabel{nullptr};
     QToolButton* m_manualAdvancedToggle{nullptr};

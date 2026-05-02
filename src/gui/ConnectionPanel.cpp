@@ -7,6 +7,7 @@
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPainter>
@@ -24,6 +25,8 @@ constexpr int kSourceInterfaceIdRole = Qt::UserRole + 11;
 constexpr int kSourceInterfaceNameRole = Qt::UserRole + 12;
 constexpr int kSourceAddressRole = Qt::UserRole + 13;
 constexpr int kSourceStaleRole = Qt::UserRole + 14;
+constexpr int kMaxRecentManualIps = 3;
+constexpr const char* kRecentManualIpsKey = "RecentConnectByIpAddresses";
 
 const char* kHintLabelStyle =
     "QLabel { color: #8aa8c0; font-size: 11px; background: transparent; border: none; }";
@@ -38,6 +41,64 @@ QJsonObject loadRoutedProfiles()
         AppSettings::instance().value("RoutedProfilesJson", "{}").toString().toUtf8();
     const QJsonDocument doc = QJsonDocument::fromJson(json);
     return doc.isObject() ? doc.object() : QJsonObject{};
+}
+
+QString normalizeManualIp(const QString& ip)
+{
+    const QHostAddress address(ip.trimmed());
+    if (address.isNull())
+        return QString();
+
+    return address.toString();
+}
+
+QStringList sanitizeRecentManualIps(const QStringList& ips)
+{
+    QStringList sanitized;
+    for (const auto& ip : ips) {
+        const QString normalized = normalizeManualIp(ip);
+        if (normalized.isEmpty() || sanitized.contains(normalized))
+            continue;
+
+        sanitized.append(normalized);
+        if (sanitized.size() >= kMaxRecentManualIps)
+            break;
+    }
+    return sanitized;
+}
+
+QStringList loadRecentManualIpSettings()
+{
+    QStringList ips;
+    const QByteArray json =
+        AppSettings::instance().value(kRecentManualIpsKey, "[]").toString().toUtf8();
+    const QJsonDocument doc = QJsonDocument::fromJson(json);
+    if (doc.isArray()) {
+        const QJsonArray array = doc.array();
+        for (const auto& item : array)
+            ips.append(item.toString());
+    }
+
+    if (ips.isEmpty()) {
+        const QString legacyLastIp =
+            AppSettings::instance().value("LastRoutedRadioIp").toString();
+        if (!legacyLastIp.isEmpty())
+            ips.append(legacyLastIp);
+    }
+
+    return sanitizeRecentManualIps(ips);
+}
+
+void saveRecentManualIpSettings(const QStringList& ips)
+{
+    QJsonArray array;
+    for (const auto& ip : sanitizeRecentManualIps(ips))
+        array.append(ip);
+
+    auto& settings = AppSettings::instance();
+    settings.setValue(kRecentManualIpsKey,
+                      QString::fromUtf8(QJsonDocument(array).toJson(QJsonDocument::Compact)));
+    settings.save();
 }
 
 void saveRoutedProfiles(const QJsonObject& profiles)
@@ -129,6 +190,17 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     const QString editStyle =
         "QLineEdit { border: 1px solid #304050; border-radius: 4px; padding: 4px 6px; "
         "background: #09111b; color: #d7e4f2; }";
+    const QString comboStyle =
+        "QComboBox { border: 1px solid #304050; border-radius: 4px; padding: 0; "
+        "background: #09111b; color: #d7e4f2; }"
+        "QComboBox::drop-down { width: 24px; border-left: 1px solid #304050; }"
+        "QComboBox::down-arrow { image: none; width: 0; height: 0; margin-right: 6px; "
+        "border-left: 4px solid transparent; border-right: 4px solid transparent; "
+        "border-top: 5px solid #8aa8c0; }"
+        "QComboBox QLineEdit { border: none; padding: 4px 6px; "
+        "background: #09111b; color: #d7e4f2; }"
+        "QComboBox QAbstractItemView { background: #09111b; color: #d7e4f2; "
+        "selection-background-color: #1a3046; border: 1px solid #304050; }";
     const QString modeCardStyle =
         "QCommandLinkButton { text-align: left; border: 1px solid #304050; border-radius: 8px; "
         "padding: 10px 12px; background: #121a25; color: #d7e4f2; }"
@@ -379,10 +451,15 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     auto* manualForm = new QFormLayout;
     manualForm->setHorizontalSpacing(8);
     manualForm->setVerticalSpacing(6);
-    m_manualIpEdit = new QLineEdit(manualGroup);
-    m_manualIpEdit->setStyleSheet(editStyle);
+    m_manualIpCombo = new QComboBox(manualGroup);
+    m_manualIpCombo->setEditable(true);
+    m_manualIpCombo->setInsertPolicy(QComboBox::NoInsert);
+    m_manualIpCombo->setMaxVisibleItems(kMaxRecentManualIps);
+    m_manualIpCombo->setStyleSheet(comboStyle);
+    m_manualIpEdit = m_manualIpCombo->lineEdit();
+    m_manualIpEdit->setClearButtonEnabled(true);
     m_manualIpEdit->setPlaceholderText("Example: 10.0.0.25");
-    manualForm->addRow("Radio IP:", m_manualIpEdit);
+    manualForm->addRow("Radio IP:", m_manualIpCombo);
     manualGroupLayout->addLayout(manualForm);
 
     auto* manualActionRow = new QHBoxLayout;
@@ -463,7 +540,8 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     footerRow->addWidget(m_disconnectBtn, 0, Qt::AlignRight);
     root->addLayout(footerRow);
 
-    refreshManualSourceOptions();
+    loadRecentManualIps();
+    applySavedSourceSelection(m_manualIpEdit->text().trimmed());
 
     connect(m_modeButtons, QOverload<int>::of(&QButtonGroup::idClicked),
             this, &ConnectionPanel::onConnectionModeClicked);
@@ -1056,6 +1134,41 @@ RadioBindSettings ConnectionPanel::currentManualBindSettings(bool* staleSelectio
     return settings;
 }
 
+void ConnectionPanel::loadRecentManualIps()
+{
+    const QStringList ips = loadRecentManualIpSettings();
+    const QSignalBlocker comboBlocker(m_manualIpCombo);
+    const QSignalBlocker editBlocker(m_manualIpEdit);
+
+    m_manualIpCombo->clear();
+    for (const auto& ip : ips)
+        m_manualIpCombo->addItem(ip);
+
+    if (!ips.isEmpty())
+        m_manualIpCombo->setCurrentText(ips.first());
+    else
+        m_manualIpEdit->clear();
+}
+
+void ConnectionPanel::rememberManualIp(const QString& ip)
+{
+    const QString normalized = normalizeManualIp(ip);
+    if (normalized.isEmpty())
+        return;
+
+    QStringList ips = loadRecentManualIpSettings();
+    ips.removeAll(normalized);
+    ips.prepend(normalized);
+    saveRecentManualIpSettings(ips);
+
+    const QSignalBlocker comboBlocker(m_manualIpCombo);
+    const QSignalBlocker editBlocker(m_manualIpEdit);
+    m_manualIpCombo->clear();
+    for (const auto& recentIp : loadRecentManualIpSettings())
+        m_manualIpCombo->addItem(recentIp);
+    m_manualIpCombo->setCurrentText(normalized);
+}
+
 void ConnectionPanel::saveManualProfile(const QString& targetIp,
                                         const RadioBindSettings& settings,
                                         const QHostAddress& lastSuccessfulLocalIp)
@@ -1209,6 +1322,7 @@ void ConnectionPanel::probeRadio(const QString& ip)
                     info.sessionBindAddress = localSource;
 
                     saveManualProfile(trimmedIp, bindSettings, info.sessionBindAddress);
+                    rememberManualIp(trimmedIp);
 
                     m_manualConnectBtn->setText("Connect by IP");
                     updateActionState();
