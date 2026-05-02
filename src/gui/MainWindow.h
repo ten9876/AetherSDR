@@ -192,7 +192,8 @@ private:
     bool confirmClientSlotAvailability(const RadioInfo& info, QList<quint32>* disconnectHandles);
     bool confirmClientSlotAvailability(const WanRadioInfo& info, QList<quint32>* disconnectHandles);
     void disconnectWanRadioClients(const WanRadioInfo& info);
-    void startWanRadioConnect(const WanRadioInfo& info);
+    void startWanRadioConnect(const WanRadioInfo& info, bool promptForClientSlots = true);
+    void requestWanReconnect();
     void showForcedDisconnectDialog(bool wasWan, const RadioInfo& radioInfo, const WanRadioInfo& wanInfo);
     void setPaTempDisplayUnit(bool useFahrenheit);
     void setPanadapterConnectionAnimation(bool visible, const QString& label = {});
@@ -329,6 +330,8 @@ private:
 
     // Pending WAN radio (between requestConnect and connectReady)
     WanRadioInfo     m_pendingWanRadio;
+    QTimer           m_wanReconnectTimer;
+    bool             m_wanReconnectAttemptInProgress{false};
 
     // Status bar labels (SmartSDR-style)
     QLabel* m_connStatusLabel{nullptr};   // hidden, used for connection state logic

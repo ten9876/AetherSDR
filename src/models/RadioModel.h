@@ -707,6 +707,7 @@ private:
     double        m_networkQualityScore{100.0};
     NetState      m_netState{NetState::Off};
     int           m_pingMissCount{0};          // consecutive unanswered pings
+    bool          m_pingDisconnectTriggered{false};
     static constexpr int PING_MISS_DISCONNECT = 5; // force disconnect after 5 missed pings (~5s)
 
     // Network diagnostics — byte counters for rate calculation

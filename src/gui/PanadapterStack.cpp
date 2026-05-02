@@ -745,6 +745,12 @@ void PanadapterStack::setFramelessMode(bool on)
 void PanadapterStack::prepareShutdown()
 {
     saveFloatingState();
+    for (auto* applet : m_pans) {
+        if (auto* sw = applet ? applet->spectrumWidget() : nullptr) {
+            sw->hide();
+            sw->resetGpuResources();
+        }
+    }
     for (auto* fw : m_floatingWindows) {
         fw->saveWindowGeometry();
         fw->setShuttingDown(true);

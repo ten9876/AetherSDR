@@ -688,9 +688,11 @@ void RadioModel::disconnectFromRadio()
 
 void RadioModel::forceDisconnect()
 {
-    // Close TCP without setting m_intentionalDisconnect — allows auto-reconnect
-    // when the radio reappears in discovery or via the repeating reconnect timer.
-    if (m_connection->isConnected()) {
+    // Close TCP/TLS without setting m_intentionalDisconnect so the UI can
+    // start the normal unexpected-disconnect reconnect path.
+    if (m_wanConn) {
+        m_wanConn->disconnectFromRadio();
+    } else if (m_connection->isConnected()) {
         quint32 handle = clientHandle();
         QMetaObject::invokeMethod(m_connection, [conn = m_connection, handle]() {
             conn->gracefulDisconnect(handle, QString(), 0);
@@ -1759,7 +1761,8 @@ void RadioModel::onDisconnected()
     m_forcedDisconnectInProgress = false;
 
     if (m_wanConn) {
-        qCDebug(lcProtocol) << "RadioModel: WAN disconnected (no auto-reconnect for SmartLink)";
+        qCDebug(lcProtocol) << "RadioModel: WAN disconnected";
+        m_wanConn->disconnect(this);
         m_wanConn = nullptr;
     } else if (!m_intentionalDisconnect && !m_lastInfo.address.isNull()) {
         qCDebug(lcProtocol) << "RadioModel: unexpected disconnect — reconnecting in 3s";
@@ -1803,6 +1806,7 @@ void RadioModel::startNetworkMonitor()
     m_lastPingRtt = 0;
     m_maxPingRtt = 0;
     m_pingMissCount = 0;
+    m_pingDisconnectTriggered = false;
 
     // RTT is read from kernel TCP_INFO (smoothed RTT from TCP ACK timing),
     // completely independent of Qt event loop buffering. Falls back to
@@ -1825,6 +1829,11 @@ void RadioModel::startNetworkMonitor()
         }
         ++m_pingMissCount;
         if (m_pingMissCount >= PING_MISS_DISCONNECT) {
+            if (m_pingDisconnectTriggered)
+                return;
+
+            m_pingDisconnectTriggered = true;
+            m_pingTimer.stop();
             qDebug() << "RadioModel:" << PING_MISS_DISCONNECT
                      << "consecutive pings unanswered — forcing disconnect";
             forceDisconnect();

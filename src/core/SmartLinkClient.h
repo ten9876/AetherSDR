@@ -68,6 +68,8 @@ public:
     void disconnectRadioClients(const QString& serial, const QList<quint32>& handles);
     // Disconnect from SmartLink server
     void disconnect();
+    // Reconnect to SmartLink using the current authenticated token.
+    void reconnect();
 
     bool isConnected()     const { return m_serverConnected; }
     bool isAuthenticated() const { return m_authenticated; }
@@ -117,6 +119,7 @@ private:
     QString m_idToken;
     QString m_refreshToken;
     bool    m_authenticated{false};
+    bool    m_authRequestInProgress{false};
 
     // SmartLink server TLS connection
     // NOTE: m_pingTimer and m_serverConnected must be declared before m_socket

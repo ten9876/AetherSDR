@@ -99,6 +99,11 @@ void SmartLinkClient::login(const QString& email, const QString& password)
 
 void SmartLinkClient::loginWithRefreshToken(const QString& refreshToken)
 {
+    if (m_authRequestInProgress) {
+        qCDebug(lcSmartLink) << "SmartLinkClient: Auth0 refresh already in progress";
+        return;
+    }
+
     QUrl url(QString("https://%1/oauth/token").arg(AUTH0_DOMAIN));
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -110,9 +115,11 @@ void SmartLinkClient::loginWithRefreshToken(const QString& refreshToken)
 
     qCDebug(lcSmartLink) << "SmartLinkClient: Auth0 refresh token login";
 
+    m_authRequestInProgress = true;
     auto* reply = m_nam.post(req, QJsonDocument(body).toJson());
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         reply->deleteLater();
+        m_authRequestInProgress = false;
 
         if (reply->error() != QNetworkReply::NoError) {
             const auto data = reply->readAll();
@@ -223,6 +230,11 @@ void SmartLinkClient::connectToServer()
         return;
     }
 
+    if (m_socket.state() != QAbstractSocket::UnconnectedState) {
+        qCWarning(lcSmartLink) << "SmartLinkClient: connect requested while socket is not idle";
+        return;
+    }
+
     qCDebug(lcSmartLink) << "SmartLinkClient: connecting to" << SMARTLINK_HOST << ":" << SMARTLINK_PORT;
 
     // Standard TLS with certificate validation
@@ -240,6 +252,32 @@ void SmartLinkClient::disconnect()
         m_socket.disconnectFromHost();
     }
     m_serverConnected = false;
+}
+
+void SmartLinkClient::reconnect()
+{
+    if (m_serverConnected) {
+        return;
+    }
+
+    if (m_socket.state() == QAbstractSocket::ClosingState)
+        m_socket.abort();
+
+    if (m_socket.state() != QAbstractSocket::UnconnectedState) {
+        qCDebug(lcSmartLink) << "SmartLinkClient: reconnect deferred until socket is idle";
+        return;
+    }
+
+    if (!m_refreshToken.isEmpty()) {
+        loginWithRefreshToken(m_refreshToken);
+        return;
+    }
+
+    if (m_idToken.isEmpty()) {
+        return;
+    }
+
+    connectToServer();
 }
 
 void SmartLinkClient::requestConnect(const QString& serial, quint16 holePunchPort)
@@ -350,7 +388,13 @@ void SmartLinkClient::parseMessage(const QString& msg)
         parseUserSettings(msg);
     } else if (msg.startsWith("application registration_invalid")) {
         qCWarning(lcSmartLink) << "SmartLinkClient: registration invalid — token rejected";
+        m_pingTimer.stop();
+        m_serverConnected = false;
         m_authenticated = false;
+        m_idToken.clear();
+        if (m_socket.state() != QAbstractSocket::UnconnectedState) {
+            m_socket.disconnectFromHost();
+        }
         emit authFailed("SmartLink registration invalid — please re-login");
     } else if (msg.startsWith("radio test_connection")) {
         parseTestResults(msg);
