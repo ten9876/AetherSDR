@@ -1236,6 +1236,7 @@ void TciServer::startTxChrono(QWebSocket* client, int trx)
         // both formats require dax=1 so the radio routes the dax_tx stream
         // to the modulator. Sending dax=0 keeps the radio on the physical
         // mic and silently discards every dax_tx packet. — fw v1.4.0.0
+        m_model->ensureDaxTxStream(DaxTxRequestReason::TciTxAudio);
         m_model->sendCmdPublic("transmit set dax=1", nullptr);
     }
 

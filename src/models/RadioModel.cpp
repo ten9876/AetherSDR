@@ -3,6 +3,7 @@
 #include "core/AppSettings.h"
 #include "core/LogManager.h"
 #include "core/StreamStatus.h"
+#include "core/UdpRegistrationPolicy.h"
 #include "RadioStatusOwnership.h"
 #include <QCoreApplication>
 #include <QDebug>
@@ -95,6 +96,12 @@ QString hexId(quint32 value)
 {
     return QStringLiteral("0x%1")
         .arg(QString::number(value, 16).rightJustified(8, QLatin1Char('0')));
+}
+
+QString hexCode(int value)
+{
+    return QStringLiteral("0x%1")
+        .arg(QString::number(static_cast<quint32>(value), 16).rightJustified(8, QLatin1Char('0')));
 }
 
 QString normalizePanadapterId(QString text)
@@ -1313,7 +1320,7 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
         if (!streamOk) {
             qCWarning(lcProtocol) << "RadioModel: UDP stream setup failed — disconnecting gracefully (#894)";
             emit connectionError(tr("UDP stream setup failed. If connecting over VPN, "
-                                    "ensure UDP port 4991 is routable."));
+                                    "ensure UDP traffic from the radio is routable."));
             QTimer::singleShot(0, this, &RadioModel::disconnectFromRadio);
             return;
         }
@@ -1348,14 +1355,63 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
         }
 
         const quint16 udpPort = m_panStream->localPort();
+        qCInfo(lcProtocol).noquote()
+            << "RadioModel: client udpport requested"
+            << QStringLiteral("port=%1").arg(udpPort);
         sendCmd(
             QString("client udpport %1").arg(udpPort),
-            [this, udpPort](int code2, const QString&) {
-                if (code2 == 0)
-                    qCDebug(lcProtocol) << "RadioModel: UDP port" << udpPort << "registered via client udpport";
-                else
+            [this, udpPort](int code2, const QString& body) {
+                if (code2 == 0) {
+                    qCInfo(lcProtocol).noquote()
+                        << "RadioModel: client udpport registered"
+                        << QStringLiteral("port=%1").arg(udpPort);
+                } else if (shouldRetryLanUdpPortRegistration(m_wanConn != nullptr, code2, body)) {
+                    bool rebound = false;
+                    QMetaObject::invokeMethod(m_panStream, [this, &rebound]() {
+                        rebound = m_panStream->rebindToEphemeralPort(m_connection);
+                    }, Qt::BlockingQueuedConnection);
+
+                    if (!rebound) {
+                        qCWarning(lcProtocol) << "RadioModel: UDP port" << udpPort
+                                              << "is already registered and AetherSDR could not rebind";
+                        emit connectionError(tr("UDP port %1 is already in use by another Flex client, "
+                                                "and AetherSDR could not switch to a free UDP port.")
+                                                 .arg(udpPort));
+                        QTimer::singleShot(0, this, &RadioModel::disconnectFromRadio);
+                        return;
+                    }
+
+                    const quint16 retryUdpPort = m_panStream->localPort();
+                    qCWarning(lcProtocol).noquote()
+                        << "RadioModel: client udpport collision"
+                        << QStringLiteral("port=%1").arg(udpPort)
+                        << QStringLiteral("code=%1").arg(hexCode(code2))
+                        << QStringLiteral("retry_port=%1").arg(retryUdpPort);
+                    qCInfo(lcProtocol).noquote()
+                        << "RadioModel: client udpport requested"
+                        << QStringLiteral("port=%1").arg(retryUdpPort);
+                    sendCmd(
+                        QString("client udpport %1").arg(retryUdpPort),
+                        [this, retryUdpPort](int retryCode, const QString& retryBody) {
+                            if (retryCode == 0) {
+                                qCInfo(lcProtocol).noquote()
+                                    << "RadioModel: client udpport retry registered"
+                                    << QStringLiteral("port=%1").arg(retryUdpPort);
+                            } else {
+                                qCWarning(lcProtocol).noquote()
+                                    << "RadioModel: client udpport retry failed"
+                                    << QStringLiteral("code=%1").arg(hexCode(retryCode))
+                                    << QStringLiteral("body=%1").arg(retryBody);
+                                emit connectionError(tr("UDP port registration failed after switching to port %1: %2")
+                                                         .arg(retryUdpPort)
+                                                         .arg(retryBody));
+                                QTimer::singleShot(0, this, &RadioModel::disconnectFromRadio);
+                            }
+                        });
+                } else {
                     qCDebug(lcProtocol) << "RadioModel: client udpport returned error" << Qt::hex << code2
                              << "(expected on WAN — using udp_register instead)";
+                }
 
                 // Query radio info (region, callsign, options, etc.)
                 // Response is comma-separated key=value pairs.
@@ -1451,26 +1507,9 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                         // stream. (#1014, #1051, #2037)
                         scheduleRxAudioStreamEnsure(QStringLiteral("connect"));
 
-        // Request DAX TX audio stream (PC mic → radio, DAX mode)
-                        sendCmd(
-                            "stream create type=dax_tx",
-                            [this](int code, const QString& body) {
-                                if (code == 0) {
-                                    quint32 id = body.trimmed().toUInt(nullptr, 16);
-                                    m_daxTxStreamId = id;
-                                    m_daxTxActive = false;
-                                    m_daxTxClientHandle = 0;
-                                    qCDebug(lcProtocol) << "RadioModel: dax_tx stream created, id:"
-                                             << Qt::hex << id;
-                                    qCDebug(lcDax).noquote()
-                                        << "RadioModel: requested DAX TX stream"
-                                        << QStringLiteral("stream=%1").arg(hexId(id));
-                                    emit txAudioStreamReady(id);
-                                } else {
-                                    qCWarning(lcProtocol) << "RadioModel: dax_tx failed, code"
-                                               << Qt::hex << code << "body:" << body;
-                                }
-                            });
+                        // Do not claim a dax_tx stream at GUI attach time. SmartSDR DAX
+                        // owns that stream on Windows; AetherSDR creates one lazily only
+                        // when its own bridge/TCI path needs to feed DAX TX audio.
 
                         // Request remote audio TX stream (voice mode, VOX monitoring)
                         // This stream carries mic audio to the radio for voice TX and
@@ -1660,6 +1699,10 @@ void RadioModel::onDisconnected()
     m_daxTxStreamId = 0;
     m_daxTxActive = false;
     m_daxTxClientHandle = 0;
+    m_daxTxCreatePending = false;
+    m_deadDaxRxSeen.clear();
+    m_externalDaxTxSeen.clear();
+    m_externalDaxRxSeen.clear();
 
     // Reset radio-model-specific state — different radios have different
     // capabilities (APD, max power, pan count, TGXL, amplifier, XVTR, etc.)
@@ -2469,7 +2512,11 @@ void RadioModel::traceDaxStreamStatus(const QString& object,
                 m_daxTxStreamId = 0;
                 m_daxTxActive = false;
                 m_daxTxClientHandle = 0;
+                m_daxTxCreatePending = false;
             }
+            m_deadDaxRxSeen.remove(stream.streamId);
+            m_externalDaxTxSeen.remove(stream.streamId);
+            m_externalDaxRxSeen.remove(stream.streamId);
             m_daxStreamDebug.remove(stream.streamId);
             return;
         }
@@ -2489,6 +2536,8 @@ void RadioModel::traceDaxStreamStatus(const QString& object,
             state.daxIqRate = kvs.value(QStringLiteral("daxiq_rate")).toInt();
         if (kvs.contains(QStringLiteral("pan")))
             state.panId = kvs.value(QStringLiteral("pan"));
+        if (kvs.contains(QStringLiteral("ip")))
+            state.ip = kvs.value(QStringLiteral("ip")).trimmed();
         if (kvs.contains(QStringLiteral("active"))) {
             state.active = kvs.value(QStringLiteral("active")) == QStringLiteral("1");
             state.activeKnown = true;
@@ -2498,14 +2547,56 @@ void RadioModel::traceDaxStreamStatus(const QString& object,
             state.txKnown = true;
         }
 
-        if (state.type == QStringLiteral("dax_tx")) {
-            m_daxTxStreamId = stream.streamId;
-            m_daxTxActive = state.tx;
-            m_daxTxClientHandle = state.clientHandle;
+        if (state.type == QStringLiteral("dax_rx") && isDeadOrphanDaxRxStatus(kvs)) {
+            if (!m_deadDaxRxSeen.contains(stream.streamId)) {
+                m_deadDaxRxSeen.insert(stream.streamId);
+                qCWarning(lcDax).noquote()
+                    << "RadioModel: ignoring dead DAX RX stream status"
+                    << QStringLiteral("stream=%1").arg(hexId(stream.streamId))
+                    << QStringLiteral("dax_ch=%1").arg(state.daxChannel)
+                    << QStringLiteral("slice=%1").arg(state.sliceId >= 0
+                        ? QString::number(state.sliceId)
+                        : QStringLiteral("?"))
+                    << QStringLiteral("ip=%1").arg(state.ip);
+            }
         }
 
         const bool ownerKnown = state.clientHandle != 0;
         const bool ownedByUs = ownerKnown && state.clientHandle == clientHandle();
+        if (state.type == QStringLiteral("dax_tx") && ownerKnown && !ownedByUs) {
+            if (!m_externalDaxTxSeen.contains(stream.streamId)) {
+                m_externalDaxTxSeen.insert(stream.streamId);
+                qCInfo(lcDax).noquote()
+                    << "RadioModel: external DAX TX stream observed"
+                    << QStringLiteral("stream=%1").arg(hexId(stream.streamId))
+                    << QStringLiteral("owner=%1").arg(hexId(state.clientHandle));
+            }
+        } else if (state.type == QStringLiteral("dax_rx") && ownerKnown && !ownedByUs) {
+            if (!m_externalDaxRxSeen.contains(stream.streamId)) {
+                m_externalDaxRxSeen.insert(stream.streamId);
+                qCInfo(lcDax).noquote()
+                    << "RadioModel: external DAX RX stream observed"
+                    << QStringLiteral("stream=%1").arg(hexId(stream.streamId))
+                    << QStringLiteral("owner=%1").arg(hexId(state.clientHandle))
+                    << QStringLiteral("dax_ch=%1").arg(state.daxChannel)
+                    << QStringLiteral("slice=%1").arg(state.sliceId >= 0
+                        ? QString::number(state.sliceId)
+                        : QStringLiteral("?"))
+                    << QStringLiteral("ip=%1").arg(state.ip.isEmpty()
+                        ? QStringLiteral("?")
+                        : state.ip);
+            }
+        }
+
+        if (state.type == QStringLiteral("dax_tx")
+            && daxTxStatusCanUpdateLocalState(stream.streamId, m_daxTxStreamId, kvs, clientHandle())) {
+            m_daxTxStreamId = stream.streamId;
+            m_daxTxActive = state.tx;
+            m_daxTxClientHandle = state.clientHandle;
+            if (ownedByUs)
+                m_daxTxCreatePending = false;
+        }
+
         QStringList fields;
         fields << QStringLiteral("stream=%1").arg(hexId(stream.streamId));
         fields << QStringLiteral("type=%1").arg(state.type.isEmpty() ? QStringLiteral("(unknown)") : state.type);
@@ -2522,6 +2613,8 @@ void RadioModel::traceDaxStreamStatus(const QString& object,
             fields << QStringLiteral("daxiq_rate=%1").arg(state.daxIqRate);
         if (!state.panId.isEmpty())
             fields << QStringLiteral("pan=%1").arg(state.panId);
+        if (!state.ip.isEmpty())
+            fields << QStringLiteral("ip=%1").arg(state.ip);
         if (state.activeKnown)
             fields << QStringLiteral("active=%1").arg(state.active ? 1 : 0);
         if (state.txKnown)
@@ -2547,8 +2640,10 @@ void RadioModel::traceDaxStreamStatus(const QString& object,
             m_daxTxStreamId = 0;
             m_daxTxActive = false;
             m_daxTxClientHandle = 0;
+            m_daxTxCreatePending = false;
         }
         m_daxStreamDebug.remove(txAudioStream.streamId);
+        m_externalDaxTxSeen.remove(txAudioStream.streamId);
         return;
     }
 
@@ -2560,12 +2655,22 @@ void RadioModel::traceDaxStreamStatus(const QString& object,
         state.tx = kvs.value(QStringLiteral("tx")) == QStringLiteral("1");
         state.txKnown = true;
     }
-    m_daxTxStreamId = txAudioStream.streamId;
-    m_daxTxActive = state.tx;
-    m_daxTxClientHandle = state.clientHandle;
-
     const bool ownerKnown = state.clientHandle != 0;
     const bool ownedByUs = ownerKnown && state.clientHandle == clientHandle();
+    if (ownerKnown && !ownedByUs && !m_externalDaxTxSeen.contains(txAudioStream.streamId)) {
+        m_externalDaxTxSeen.insert(txAudioStream.streamId);
+        qCInfo(lcDax).noquote()
+            << "RadioModel: external DAX TX stream observed"
+            << QStringLiteral("stream=%1").arg(hexId(txAudioStream.streamId))
+            << QStringLiteral("owner=%1").arg(hexId(state.clientHandle));
+    }
+    if (daxTxStatusCanUpdateLocalState(txAudioStream.streamId, m_daxTxStreamId, kvs, clientHandle())) {
+        m_daxTxStreamId = txAudioStream.streamId;
+        m_daxTxActive = state.tx;
+        m_daxTxClientHandle = state.clientHandle;
+        if (ownedByUs)
+            m_daxTxCreatePending = false;
+    }
     qCDebug(lcDax).noquote()
         << "RadioModel: DAX tx_audio_stream status"
         << QStringLiteral("stream=%1").arg(hexId(txAudioStream.streamId))
@@ -3842,22 +3947,76 @@ void RadioModel::createAudioStream()
     } else {
         createRxAudioStream();
     }
+}
 
+bool RadioModel::ensureDaxTxStream(DaxTxRequestReason reason)
+{
+    const DaxTxPolicyContext policyContext = currentDaxTxPolicyContext(reason);
+    const DaxTxPolicyDecision decision = evaluateDaxTxPolicy(policyContext);
+    const quint32 ourHandle = clientHandle();
+    qCInfo(lcDax).noquote()
+        << "RadioModel: DAX TX policy"
+        << QStringLiteral("reason=%1").arg(daxTxRequestReasonName(reason))
+        << QStringLiteral("platform=%1").arg(daxTxPlatformName(policyContext.platform))
+        << QStringLiteral("allowed=%1").arg(decision.allowed ? 1 : 0)
+        << QStringLiteral("mode=%1").arg(daxTxModeName(policyContext.mode))
+        << QStringLiteral("stream=%1").arg(m_daxTxStreamId != 0
+            ? hexId(m_daxTxStreamId)
+            : QStringLiteral("none"))
+        << QStringLiteral("owner=%1").arg(m_daxTxClientHandle != 0
+            ? hexId(m_daxTxClientHandle)
+            : QStringLiteral("unknown"));
+
+    if (!decision.allowed) {
+        qCInfo(lcDax).noquote()
+            << "RadioModel: DAX TX stream not created"
+            << QStringLiteral("reason=%1").arg(daxTxRequestReasonName(reason))
+            << QStringLiteral("mode=%1").arg(daxTxModeName(policyContext.mode))
+            << QStringLiteral("note=%1").arg(decision.note);
+        return false;
+    }
+
+    const bool existingStreamIsOurs = m_daxTxStreamId != 0
+        && (m_daxTxClientHandle == 0 || m_daxTxClientHandle == ourHandle);
+    if (existingStreamIsOurs || m_daxTxCreatePending)
+        return true;
+
+    m_daxTxCreatePending = true;
+    qCInfo(lcDax).noquote()
+        << "RadioModel: DAX TX create requested"
+        << QStringLiteral("reason=%1").arg(daxTxRequestReasonName(reason));
     sendCmd(
         "stream create type=dax_tx",
-        [this](int code, const QString& body) {
-            if (code == 0) {
-                quint32 id = body.trimmed().toUInt(nullptr, 16);
-                m_daxTxStreamId = id;
-                m_daxTxActive = false;
-                m_daxTxClientHandle = 0;
-                qCDebug(lcProtocol) << "RadioModel: dax_tx stream re-created, id:" << Qt::hex << id;
-                qCDebug(lcDax).noquote()
-                    << "RadioModel: requested DAX TX stream"
-                    << QStringLiteral("stream=%1").arg(hexId(id));
-                emit txAudioStreamReady(id);
+        [this, reason](int code, const QString& body) {
+            m_daxTxCreatePending = false;
+            if (code != 0) {
+                qCWarning(lcDax).noquote()
+                    << "RadioModel: DAX TX create failed"
+                    << QStringLiteral("code=%1").arg(hexCode(code))
+                    << QStringLiteral("body=%1").arg(body)
+                    << QStringLiteral("reason=%1").arg(daxTxRequestReasonName(reason));
+                return;
             }
+
+            const quint32 id = RadioStatusOwnership::parseCreateResponseStreamId(body);
+            if (id == 0) {
+                qCWarning(lcDax).noquote()
+                    << "RadioModel: DAX TX create failed"
+                    << QStringLiteral("code=0x00000000")
+                    << QStringLiteral("body=%1").arg(body)
+                    << QStringLiteral("reason=%1").arg(daxTxRequestReasonName(reason));
+                return;
+            }
+
+            m_daxTxStreamId = id;
+            m_daxTxActive = false;
+            m_daxTxClientHandle = clientHandle();
+            qCInfo(lcDax).noquote()
+                << "RadioModel: DAX TX create succeeded"
+                << QStringLiteral("stream=%1").arg(hexId(id));
+            emit txAudioStreamReady(id);
         });
+    return true;
 }
 
 QJsonObject RadioModel::troubleshootingSnapshot() const

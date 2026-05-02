@@ -29,7 +29,7 @@ class OpusCodec;
 // All packets from the radio use ExtDataWithStream (VITA-49 type 3), not IFDataWithStream.
 //
 // Protocol:
-//   1. Call start(conn) — binds port 4991 (LAN VITA port), falls back to OS-assigned.
+//   1. Call start(conn) - binds a unique local LAN VITA UDP port.
 //   2. Register the port with the radio via "client udpport <port>" (done by RadioModel).
 //   3. The radio streams panadapter and audio to that port.
 
@@ -49,6 +49,9 @@ public:
     // conn must remain valid for the lifetime of this stream.
     // Q_INVOKABLE: must run on the network worker thread (#502)
     Q_INVOKABLE bool start(RadioConnection* conn);
+    // Rebind to an OS-assigned LAN UDP port after the radio rejects our
+    // selected port/IP pair as already registered by another client.
+    Q_INVOKABLE bool rebindToEphemeralPort(RadioConnection* conn);
     // Start for WAN: use explicit radio address and UDP port.
     Q_INVOKABLE bool startWan(const QHostAddress& radioAddr, quint16 radioUdpPort);
 
