@@ -7709,6 +7709,9 @@ void MainWindow::onSliceAdded(SliceModel* s)
                                   mhz, mhz, result);
         }
 
+        if (s->isTxSlice() || s->sliceId() == m_swrSweep.sliceId)
+            clearSwrSweepForBandChange(s->sliceId(), BandSettings::bandForFrequency(mhz));
+
         // Feed frequency to Antenna Genius for band→antenna recall
         if (s->sliceId() == m_activeSliceId)
             m_antennaGenius.setRadioFrequency(mhz);
@@ -9199,6 +9202,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 << " freq_hint_mhz=" << QString::number(freqMhz, 'f', 6)
                 << " mode_hint=" << mode
                 << " xvtr=" << xvtrForBandSummary(bandName, xvtrs);
+            clearSwrSweepForBandChange(-1, bandName);
             m_bandSettings.setCurrentBand(bandName);
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
@@ -11004,11 +11008,45 @@ void MainWindow::clearSwrSweepPlot()
 
     m_swrSweep.samples.clear();
     m_swrSweep.sourceLabel.clear();
+    m_swrSweep.originalBandName.clear();
+    m_swrSweep.preserveBandSwitchOnFinish = false;
     for (auto* applet : m_panStack ? m_panStack->allApplets() : QList<PanadapterApplet*>{}) {
         if (auto* sw = applet ? applet->spectrumWidget() : nullptr)
             sw->clearSwrSweepPoints();
     }
     statusBar()->showMessage(QStringLiteral("SWR sweep plot cleared"), 2500);
+}
+
+void MainWindow::clearSwrSweepForBandChange(int sliceId, const QString& newBandName)
+{
+    if (m_swrSweep.originalBandName.isEmpty()
+        || newBandName.isEmpty()
+        || newBandName == m_swrSweep.originalBandName) {
+        return;
+    }
+
+    if (sliceId >= 0 && m_swrSweep.sliceId >= 0 && sliceId != m_swrSweep.sliceId)
+        return;
+
+    if (m_swrSweep.running) {
+        m_swrSweep.clearPlotOnFinish = true;
+        m_swrSweep.preserveBandSwitchOnFinish = true;
+        finishSwrSweep(true, QStringLiteral("SWR sweep disabled on band change"));
+        return;
+    }
+
+    if (m_swrSweep.samples.isEmpty())
+        return;
+
+    m_swrSweep.samples.clear();
+    m_swrSweep.sourceLabel.clear();
+    m_swrSweep.originalBandName.clear();
+    m_swrSweep.preserveBandSwitchOnFinish = false;
+    for (auto* applet : m_panStack ? m_panStack->allApplets() : QList<PanadapterApplet*>{}) {
+        if (auto* sw = applet ? applet->spectrumWidget() : nullptr)
+            sw->clearSwrSweepPoints();
+    }
+    statusBar()->showMessage(QStringLiteral("SWR sweep cleared on band change"), 2500);
 }
 
 void MainWindow::updateSwrSweepOverlay(double currentFreqMhz)
@@ -11190,6 +11228,7 @@ void MainWindow::startSwrSweep(int requestedSliceId, int sweepPowerWatts)
     m_swrSweep.sliceId = s->sliceId();
     m_swrSweep.panId = s->panId();
     m_swrSweep.originalFreqMhz = s->frequency();
+    m_swrSweep.originalBandName = bandName;
     m_swrSweep.frequencies = sweepFreqs;
     m_swrSweep.currentIndex = 0;
     m_swrSweep.originalTunePower = tx.tunePower();
@@ -11414,14 +11453,17 @@ void MainWindow::finishSwrSweepAfterTuneStopped()
         return;
 
     if (m_radioModel.isConnected()) {
-        if (auto* s = m_radioModel.slice(m_swrSweep.sliceId);
-            s && m_swrSweep.originalFreqMhz > 0.0) {
-            s->setFrequency(m_swrSweep.originalFreqMhz);
+        if (!m_swrSweep.preserveBandSwitchOnFinish) {
+            if (auto* s = m_radioModel.slice(m_swrSweep.sliceId);
+                s && m_swrSweep.originalFreqMhz > 0.0) {
+                s->setFrequency(m_swrSweep.originalFreqMhz);
+            }
         }
         if (m_swrSweep.originalTunePower != m_swrSweep.sweepTunePower)
             m_radioModel.transmitModel().setTunePower(m_swrSweep.originalTunePower);
 
-        if (m_swrSweep.finalAborted && !m_swrSweep.panId.isEmpty()
+        if (!m_swrSweep.preserveBandSwitchOnFinish
+            && m_swrSweep.finalAborted && !m_swrSweep.panId.isEmpty()
             && m_swrSweep.originalPanCenterMhz > 0.0
             && m_swrSweep.originalPanBandwidthMhz > 0.0) {
             applyPanRangeRequest(m_swrSweep.panId,
@@ -11470,6 +11512,8 @@ void MainWindow::completeSwrSweepFinish()
     if (clearPlot) {
         m_swrSweep.samples.clear();
         m_swrSweep.sourceLabel.clear();
+        m_swrSweep.originalBandName.clear();
+        m_swrSweep.preserveBandSwitchOnFinish = false;
         for (auto* applet : m_panStack ? m_panStack->allApplets() : QList<PanadapterApplet*>{}) {
             if (auto* sw = applet ? applet->spectrumWidget() : nullptr)
                 sw->clearSwrSweepPoints();

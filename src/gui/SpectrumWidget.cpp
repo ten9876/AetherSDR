@@ -32,6 +32,7 @@
 #include <QGuiApplication>
 #include <QClipboard>
 #include <QDesktopServices>
+#include <QStringList>
 #include <QUrl>
 #include "core/AppSettings.h"
 #include "models/BandPlanManager.h"
@@ -40,6 +41,7 @@
 #include <QTimeZone>
 #include <QElapsedTimer>
 #include "core/LogManager.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <utility>
@@ -4818,19 +4820,102 @@ void SpectrumWidget::drawSwrSweep(QPainter& p, const QRect& specRect)
     if (plotRect.width() < 80 || plotRect.height() < 28)
         return;
 
+    struct ValidSweepPoint {
+        double freqMhz{0.0};
+        float swr{1.0f};
+    };
+    QVector<ValidSweepPoint> validPoints;
+    validPoints.reserve(m_swrSweepPoints.size());
+
+    int bestPointIndex = -1;
+    double bestFreqMhz = 0.0;
+    float bestSwr = 0.0f;
     float maxSwr = 3.0f;
     for (const auto& point : m_swrSweepPoints) {
-        if (std::isfinite(static_cast<double>(point.swr)))
-            maxSwr = qMax(maxSwr, point.swr);
+        if (!std::isfinite(static_cast<double>(point.swr))
+            || !std::isfinite(static_cast<double>(point.freqMhz))) {
+            continue;
+        }
+
+        const float swr = qMax(1.0f, point.swr);
+        if (bestPointIndex < 0 || swr < bestSwr) {
+            bestPointIndex = validPoints.size();
+            bestSwr = swr;
+            bestFreqMhz = point.freqMhz;
+        }
+
+        maxSwr = qMax(maxSwr, swr);
+        validPoints.append({point.freqMhz, swr});
     }
+    const bool hasBest = bestPointIndex >= 0;
     maxSwr = qBound(2.0f, std::ceil(maxSwr * 2.0f) / 2.0f, 10.0f);
     constexpr float minSwr = 1.0f;
-    const float swrRange = qMax(0.1f, maxSwr - minSwr);
+    const float logRange = qMax(0.1f, static_cast<float>(std::log(maxSwr / minSwr)));
 
     auto yForSwr = [&](float swr) {
         const float clipped = qBound(minSwr, swr, maxSwr);
-        const float frac = (clipped - minSwr) / swrRange;
+        const float frac = static_cast<float>(std::log(clipped / minSwr)) / logRange;
         return plotRect.bottom() - frac * plotRect.height();
+    };
+
+    struct BandwidthSpan {
+        bool valid{false};
+        float threshold{0.0f};
+        double lowMhz{0.0};
+        double highMhz{0.0};
+    };
+
+    auto interpolateThreshold = [](const ValidSweepPoint& a,
+                                   const ValidSweepPoint& b,
+                                   float threshold) {
+        const double denom = static_cast<double>(b.swr) - static_cast<double>(a.swr);
+        if (std::abs(denom) < 1.0e-9)
+            return (a.freqMhz + b.freqMhz) * 0.5;
+
+        const double frac = qBound(0.0,
+                                   (static_cast<double>(threshold) - a.swr) / denom,
+                                   1.0);
+        return a.freqMhz + (b.freqMhz - a.freqMhz) * frac;
+    };
+
+    auto spanForThreshold = [&](float threshold) {
+        BandwidthSpan span;
+        span.threshold = threshold;
+        if (bestPointIndex < 0 || validPoints.size() < 2
+            || validPoints[bestPointIndex].swr > threshold) {
+            return span;
+        }
+
+        int left = bestPointIndex;
+        while (left > 0 && validPoints[left - 1].swr <= threshold)
+            --left;
+
+        int right = bestPointIndex;
+        while (right + 1 < validPoints.size() && validPoints[right + 1].swr <= threshold)
+            ++right;
+
+        span.lowMhz = (left == 0)
+            ? validPoints.first().freqMhz
+            : interpolateThreshold(validPoints[left - 1], validPoints[left], threshold);
+        span.highMhz = (right == validPoints.size() - 1)
+            ? validPoints.last().freqMhz
+            : interpolateThreshold(validPoints[right], validPoints[right + 1], threshold);
+        span.valid = std::isfinite(span.lowMhz)
+            && std::isfinite(span.highMhz)
+            && span.highMhz > span.lowMhz;
+        return span;
+    };
+
+    const BandwidthSpan bw15 = spanForThreshold(1.5f);
+    const BandwidthSpan bw20 = spanForThreshold(2.0f);
+
+    auto formatBandwidth = [](double widthMhz) {
+        const double khz = widthMhz * 1000.0;
+        if (khz >= 1000.0)
+            return QStringLiteral("%1 MHz").arg(widthMhz, 0, 'f', 2);
+        if (khz >= 100.0)
+            return QStringLiteral("%1 kHz").arg(khz, 0, 'f', 0);
+        return QStringLiteral("%1 kHz").arg(khz, 0, 'f', 1);
     };
 
     p.save();
@@ -4841,37 +4926,119 @@ void SpectrumWidget::drawSwrSweep(QPainter& p, const QRect& specRect)
     p.setBrush(QColor(0x06, 0x0d, 0x12, 190));
     p.drawRoundedRect(plotRect, 3, 3);
 
+    auto fillThresholdBand = [&](float lowSwr, float highSwr, const QColor& color) {
+        const float high = qMin(highSwr, maxSwr);
+        if (high <= lowSwr)
+            return;
+        const qreal top = yForSwr(high);
+        const qreal bottom = yForSwr(lowSwr);
+        p.fillRect(QRectF(plotRect.left(), top, plotRect.width(), bottom - top), color);
+    };
+    fillThresholdBand(1.0f, 1.5f, QColor(0x20, 0xc0, 0x60, 28));
+    fillThresholdBand(1.5f, 2.0f, QColor(0xff, 0xc0, 0x40, 22));
+    fillThresholdBand(2.0f, maxSwr, QColor(0xff, 0x58, 0x58, 16));
+
     p.setPen(QPen(QColor(0x80, 0x90, 0xa0, 120), 1, Qt::DotLine));
-    p.drawLine(plotRect.left(), yForSwr(1.5f), plotRect.right(), yForSwr(1.5f));
-    p.drawLine(plotRect.left(), yForSwr(2.0f), plotRect.right(), yForSwr(2.0f));
+    const float gridSwrs[] = {1.5f, 2.0f, 3.0f, 5.0f, 10.0f};
+    for (float gridSwr : gridSwrs) {
+        if (gridSwr < maxSwr)
+            p.drawLine(plotRect.left(), yForSwr(gridSwr), plotRect.right(), yForSwr(gridSwr));
+    }
 
     struct PlotPoint {
         QPointF pos;
+        double freqMhz{0.0};
         float swr{1.0f};
     };
     QVector<PlotPoint> visiblePoints;
+    int bestVisibleIndex = -1;
     QPolygonF poly;
-    for (const auto& point : m_swrSweepPoints) {
-        if (!std::isfinite(static_cast<double>(point.freqMhz))
-            || !std::isfinite(static_cast<double>(point.swr))) {
-            continue;
-        }
+    for (int i = 0; i < validPoints.size(); ++i) {
+        const auto& point = validPoints[i];
         const int x = mhzToX(point.freqMhz);
         if (x < plotRect.left() - 4 || x > plotRect.right() + 4)
             continue;
         const QPointF pos(x, yForSwr(point.swr));
-        visiblePoints.append({pos, point.swr});
+        if (i == bestPointIndex)
+            bestVisibleIndex = visiblePoints.size();
+        visiblePoints.append({pos, point.freqMhz, point.swr});
         poly << pos;
     }
 
     if (poly.size() >= 2) {
-        p.setPen(QPen(QColor(0xff, 0xc0, 0x40, 230), 2));
+        QPen sweepPen(QColor(0xff, 0xc0, 0x40, 235), 2);
+        sweepPen.setCapStyle(Qt::RoundCap);
+        sweepPen.setJoinStyle(Qt::RoundJoin);
+        p.setPen(sweepPen);
         p.drawPolyline(poly);
     }
     p.setPen(QPen(QColor(0x0a, 0x0a, 0x14, 220), 1));
     p.setBrush(QColor(0xff, 0xc0, 0x40, 240));
     for (const QPointF& pt : poly)
         p.drawEllipse(pt, 3.2, 3.2);
+
+    if (!visiblePoints.isEmpty()) {
+        auto drawEndpointNotch = [&](const QPointF& pt) {
+            const qreal top = std::clamp(pt.y() - 6.0, qreal(plotRect.top() + 2),
+                                         qreal(plotRect.bottom() - 2));
+            const qreal bottom = std::clamp(pt.y() + 6.0, qreal(plotRect.top() + 2),
+                                            qreal(plotRect.bottom() - 2));
+            p.drawLine(QPointF(pt.x(), top), QPointF(pt.x(), bottom));
+        };
+
+        QPen endpointPen(QColor(0xff, 0xe0, 0x90, 245), 2);
+        endpointPen.setCapStyle(Qt::RoundCap);
+        p.setPen(endpointPen);
+        drawEndpointNotch(visiblePoints.first().pos);
+        if (visiblePoints.size() > 1)
+            drawEndpointNotch(visiblePoints.last().pos);
+    }
+
+    if (bestVisibleIndex >= 0 && bestVisibleIndex < visiblePoints.size()) {
+        const QPointF bestPos = visiblePoints[bestVisibleIndex].pos;
+        QPen resonancePen(QColor(0x7c, 0xf4, 0xa4, 245), 2);
+        resonancePen.setCapStyle(Qt::RoundCap);
+        resonancePen.setJoinStyle(Qt::RoundJoin);
+        p.setPen(resonancePen);
+        p.setBrush(Qt::NoBrush);
+
+        const bool placeBelow = bestPos.y() - 11.0 < plotRect.top() + 2;
+        const qreal tipY = std::clamp(bestPos.y() + (placeBelow ? 2.0 : -2.0),
+                                      qreal(plotRect.top() + 2),
+                                      qreal(plotRect.bottom() - 2));
+        const qreal wingY = std::clamp(bestPos.y() + (placeBelow ? 11.0 : -11.0),
+                                       qreal(plotRect.top() + 2),
+                                       qreal(plotRect.bottom() - 2));
+        QPolygonF caret;
+        caret << QPointF(bestPos.x() - 6.0, wingY)
+              << QPointF(bestPos.x(), tipY)
+              << QPointF(bestPos.x() + 6.0, wingY);
+        p.drawPolyline(caret);
+        p.drawEllipse(bestPos, 4.4, 4.4);
+    }
+
+    auto drawBandwidthSpan = [&](const BandwidthSpan& span, int row, const QColor& color) {
+        if (m_swrSweepRunning || !span.valid)
+            return;
+        int x1 = mhzToX(span.lowMhz);
+        int x2 = mhzToX(span.highMhz);
+        if (x2 < x1)
+            std::swap(x1, x2);
+        x1 = qBound(plotRect.left() + 2, x1, plotRect.right() - 2);
+        x2 = qBound(plotRect.left() + 2, x2, plotRect.right() - 2);
+        if (x2 - x1 < 6)
+            return;
+
+        const qreal y = plotRect.bottom() - 5.0 - row * 5.0;
+        QPen spanPen(color, 2);
+        spanPen.setCapStyle(Qt::RoundCap);
+        p.setPen(spanPen);
+        p.drawLine(QPointF(x1, y), QPointF(x2, y));
+        p.drawLine(QPointF(x1, y - 3.0), QPointF(x1, y + 3.0));
+        p.drawLine(QPointF(x2, y - 3.0), QPointF(x2, y + 3.0));
+    };
+    drawBandwidthSpan(bw20, 0, QColor(0xff, 0xc0, 0x40, 205));
+    drawBandwidthSpan(bw15, 1, QColor(0x7c, 0xf4, 0xa4, 225));
 
     if (m_swrSweepCurrentFreqMhz > 0.0) {
         const int cx = mhzToX(m_swrSweepCurrentFreqMhz);
@@ -4886,16 +5053,40 @@ void SpectrumWidget::drawSwrSweep(QPainter& p, const QRect& specRect)
     f.setBold(true);
     p.setFont(f);
     const QFontMetrics fm(f);
-    const QString latest = m_swrSweepPoints.isEmpty()
-        ? QStringLiteral("SWR Sweep")
-        : QStringLiteral("SWR %1:1").arg(m_swrSweepPoints.last().swr, 0, 'f', 2);
-    QString label = m_swrSweepRunning
-        ? latest + QStringLiteral("  RUN")
-        : latest;
-    if (!m_swrSweepSourceLabel.isEmpty())
-        label += QStringLiteral("  ") + m_swrSweepSourceLabel;
-    const int labelW = fm.horizontalAdvance(label) + 8;
-    const int labelH = fm.height() + 2;
+    QStringList labelLines;
+    if (hasBest) {
+        QString bestLine = QStringLiteral("SWR %1:1").arg(bestSwr, 0, 'f', 2);
+        if (m_swrSweepRunning)
+            bestLine += QStringLiteral("  RUN");
+        labelLines << bestLine;
+
+        QString freqLine = QStringLiteral("Res %1 MHz").arg(bestFreqMhz, 0, 'f', 3);
+        if (!m_swrSweepSourceLabel.isEmpty())
+            freqLine += QStringLiteral("  ") + m_swrSweepSourceLabel;
+        labelLines << freqLine;
+
+        QStringList bandwidthParts;
+        if (!m_swrSweepRunning) {
+            if (bw15.valid)
+                bandwidthParts << QStringLiteral("1.5 %1").arg(formatBandwidth(bw15.highMhz - bw15.lowMhz));
+            if (bw20.valid)
+                bandwidthParts << QStringLiteral("2.0 %1").arg(formatBandwidth(bw20.highMhz - bw20.lowMhz));
+        }
+        if (!bandwidthParts.isEmpty())
+            labelLines << QStringLiteral("BW ") + bandwidthParts.join(QStringLiteral("  "));
+    } else {
+        labelLines << (m_swrSweepRunning
+            ? QStringLiteral("SWR Sweep  RUN")
+            : QStringLiteral("SWR Sweep"));
+        if (!m_swrSweepSourceLabel.isEmpty())
+            labelLines << m_swrSweepSourceLabel;
+    }
+
+    int labelW = 0;
+    for (const QString& line : labelLines)
+        labelW = qMax(labelW, fm.horizontalAdvance(line));
+    labelW += 8;
+    const int labelH = fm.lineSpacing() * labelLines.size() + 4;
     int labelX = plotRect.left() + 4;
     int labelY = plotRect.top() - labelH - 3;
     if (labelY < specRect.top() + 3)
@@ -4913,7 +5104,13 @@ void SpectrumWidget::drawSwrSweep(QPainter& p, const QRect& specRect)
     p.setBrush(QColor(0x0a, 0x0a, 0x14, 220));
     p.drawRoundedRect(labelRect, 2, 2);
     p.setPen(QColor(0xff, 0xd0, 0x70));
-    p.drawText(labelRect, Qt::AlignCenter, label);
+    for (int i = 0; i < labelLines.size(); ++i) {
+        const QRect lineRect(labelRect.left() + 4,
+                             labelRect.top() + 2 + i * fm.lineSpacing(),
+                             labelRect.width() - 8,
+                             fm.lineSpacing());
+        p.drawText(lineRect, Qt::AlignVCenter | Qt::AlignLeft, labelLines[i]);
+    }
 
     if (!visiblePoints.isEmpty()) {
         const int valueGap = 4;
