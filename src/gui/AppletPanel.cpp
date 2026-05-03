@@ -707,7 +707,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     makeChildContainer("cmp-rx",  "Aetherial AGC-C",          m_clientCompRxApplet, -1);
     makeChildContainer("tube",    "Aetherial Mic-PreAmp",     m_clientTubeApplet,   -1);
     makeChildContainer("tube-rx", "Aetherial Dynamic Tube",   m_clientTubeRxApplet, -1);
-    makeChildContainer("pudu",    QString::fromUtf8("Aetherial TX Poodoo\xe2\x84\xa2"), m_clientPuduApplet,   -1);
+    makeChildContainer("pudu",    QStringLiteral("Aetherial TX Voice Processor"), m_clientPuduApplet,   -1);
     makeChildContainer("pudu-rx", QString::fromUtf8("Aetherial RX Poodoo\xe2\x84\xa2"), m_clientPuduRxApplet, -1);
     makeChildContainer("reverb",  "Aetherial FreeVerb",       m_clientReverbApplet, -1);
     makeChildContainer("dsp-rx",  "Aetherial Noise Reduction", m_clientRxDspApplet, -1);
@@ -726,13 +726,13 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // Register the composite tx_dsp container as one tile in the
     // applet tray — users toggle it, drag it, and pop it out as a
     // unit.  Individual section pop-outs happen via each sub-
-    // container's own titlebar inside.  Button label is "PUDU" —
-    // matches the exciter stage name and the PooDoo™ Audio brand.
-    // Settings ID stays TXDSP for persistence.
+    // container's own titlebar inside.  Button label is "VUDU" —
+    // marketing name for the whole TX-DSP composite.  Settings ID
+    // stays TXDSP for persistence.
     {
-        auto entry = makeEntry("TXDSP", "PUDU", txDsp, false,
+        auto entry = makeEntry("TXDSP", "VUDU", txDsp, false,
                                btnRow2, btnLayout2);
-        if (entry.btn) entry.btn->setText("PUDU");
+        if (entry.btn) entry.btn->setText("VUDU");
         m_appletOrder.append(entry);
     }
 

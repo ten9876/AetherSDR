@@ -253,7 +253,7 @@ private:
     QThread*          m_audioThread{nullptr};
     NetworkDiagnosticsHistory* m_networkDiagnosticsHistory{nullptr};
     QsoRecorder*      m_qsoRecorder{nullptr};
-    ClientPuduMonitor* m_puduMonitor{nullptr};
+    ClientPuduMonitor* m_finalMonitor{nullptr};
     BandSettings      m_bandSettings;
     // 8-channel CAT: each channel (A-H) binds to a slice index (0-7)
     static constexpr int kCatChannels = 8;
@@ -422,10 +422,8 @@ private:
     void wireAetherDspWidget(class AetherDspWidget* widget);
     class ClientCompEditor* m_clientCompEditor{nullptr}; // lazy — created on first Edit… click
     class ClientGateEditor* m_clientGateEditor{nullptr}; // lazy — created on first Edit… click
-    class ClientDeEssEditor* m_clientDeEssEditor{nullptr}; // lazy — created on first Edit… click
     class ClientTubeEditor* m_clientTubeEditor{nullptr}; // lazy — created on first Edit… click
     class ClientPuduEditor* m_clientPuduEditor{nullptr}; // lazy — created on first Edit… click
-    class ClientReverbEditor* m_clientReverbEditor{nullptr}; // lazy — created on first Edit… click
     class AetherialAudioStrip* m_aetherialStrip{nullptr};    // lazy — created on first egg-nub click (#2301)
 
     // Applet-panel pop-out support (#1713 Phase 6).  When floating,

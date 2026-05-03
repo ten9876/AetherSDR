@@ -66,9 +66,10 @@ StripEqPanel::StripEqPanel(AudioEngine* engine, QWidget* parent)
     resize(kDefaultWidth, kDefaultHeight);
 
     auto* root = new QVBoxLayout(this);
-    // Margin trimmed to 0 at the top so the frameless title bar hugs
-    // the window edge; sides + bottom keep the original 8 px padding.
-    root->setContentsMargins(8, 0, 8, 8);
+    // Trim top + bottom margins so the title bar hugs the top edge and
+    // the param-row labels sit flush at the bottom — the previous 8 px
+    // bottom margin was crowding the band plan against the labels.
+    root->setContentsMargins(8, 0, 8, 0);
     root->setSpacing(6);
 
     // Custom 20 px-tall title bar with the active path heading on the
@@ -221,7 +222,9 @@ StripEqPanel::StripEqPanel(AudioEngine* engine, QWidget* parent)
             }
             if (m_canvas)   m_canvas->update();
             if (m_iconRow)  m_iconRow->update();
-            if (m_paramRow) m_paramRow->update();
+            // refresh() reloads each column's freq / gain / Q text from
+            // the engine; update() alone just repaints stale labels.
+            if (m_paramRow) m_paramRow->refresh();
         });
         row->addWidget(resetBtn);
 
@@ -426,6 +429,21 @@ void StripEqPanel::setRxFilterCutoffs(int audioLowHz, int audioHighHz)
     m_rxFilterHighCutHz = audioHighHz;
     if (m_canvas && m_path == ClientEqApplet::Path::Rx)
         m_canvas->setFilterCutoffs(audioLowHz, audioHighHz);
+}
+
+void StripEqPanel::refreshFromEngine()
+{
+    ClientEq* eq = (m_path == ClientEqApplet::Path::Rx)
+        ? (m_audio ? m_audio->clientEqRx() : nullptr)
+        : (m_audio ? m_audio->clientEqTx() : nullptr);
+    if (m_iconRow)  m_iconRow->refresh();
+    if (m_canvas)   m_canvas->update();
+    if (m_paramRow) m_paramRow->refresh();
+    if (eq && m_familyCombo) {
+        QSignalBlocker b(m_familyCombo);
+        m_familyCombo->setCurrentIndex(static_cast<int>(eq->filterFamily()));
+    }
+    syncBypassFromEq();
 }
 
 void StripEqPanel::closeEvent(QCloseEvent* ev)

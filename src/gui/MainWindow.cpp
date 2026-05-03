@@ -37,13 +37,11 @@
 #include "ClientGateApplet.h"
 #include "ClientGateEditor.h"
 #include "ClientDeEssApplet.h"
-#include "ClientDeEssEditor.h"
 #include "ClientTubeApplet.h"
 #include "ClientTubeEditor.h"
 #include "ClientPuduApplet.h"
 #include "ClientPuduEditor.h"
 #include "ClientReverbApplet.h"
-#include "ClientReverbEditor.h"
 #include "AetherialAudioStrip.h"
 #include "ClientChainApplet.h"
 #include "core/ClientComp.h"
@@ -950,8 +948,13 @@ MainWindow::MainWindow(QWidget* parent)
     // back through the RX sink so the user can hear what their chain
     // is producing without keying the radio.  Registered with
     // AudioEngine so its tap hook picks it up on the audio thread.
-    m_puduMonitor = new ClientPuduMonitor(this);
-    m_audio->setTxPostDspMonitor(m_puduMonitor);
+    // TX recording monitor — tapped post-final-limiter so a recording
+    // captures EXACTLY what the radio is told to transmit (the int16
+    // bytes that get packetised into VITA-49).  Drives the chain row's
+    // ⏺ / ▶ buttons in both the docked Chain applet and the channel
+    // strip.
+    m_finalMonitor = new ClientPuduMonitor(this);
+    m_audio->setTxFinalMonitor(m_finalMonitor);
     m_networkDiagnosticsHistory = new NetworkDiagnosticsHistory(&m_radioModel, m_audio, this);
 
     // Local CW sidetone — every key source (serial, MIDI, TCI, CWX, HID)
@@ -971,7 +974,7 @@ MainWindow::MainWindow(QWidget* parent)
     // playing so the user hears ONLY the captured PooDoo audio.
     // Mirrors QsoRecorder's muteRxRequested handling — merely setting
     // the sink volume to 0 would mute our playback too.
-    connect(m_puduMonitor, &ClientPuduMonitor::muteRxRequested,
+    connect(m_finalMonitor, &ClientPuduMonitor::muteRxRequested,
             this, [this](bool mute) {
         if (mute) {
             disconnect(m_radioModel.panStream(),
@@ -1744,8 +1747,8 @@ MainWindow::MainWindow(QWidget* parent)
             // If the user pulls the plug on readiness mid-recording
             // (mic source away from PC, or DAX back on), stop the
             // recording — auto-play kicks in via recordingStopped.
-            if (!ready && m_puduMonitor && m_puduMonitor->isRecording()) {
-                m_puduMonitor->stopRecording();
+            if (!ready && m_finalMonitor && m_finalMonitor->isRecording()) {
+                m_finalMonitor->stopRecording();
             }
         }
     });
@@ -3168,20 +3171,6 @@ MainWindow::MainWindow(QWidget* parent)
 
     // ── Client De-esser applet: TX sidechain-filtered dynamics (#1661 Phase 3) ─
     m_appletPanel->clientDeEssApplet()->setAudioEngine(m_audio);
-    connect(m_appletPanel->clientDeEssApplet(), &ClientDeEssApplet::editRequested,
-            this, [this]() {
-        if (!m_clientDeEssEditor) {
-            m_clientDeEssEditor = new ClientDeEssEditor(m_audio, this);
-            connect(m_clientDeEssEditor, &ClientDeEssEditor::bypassToggled,
-                    this, [this](bool /*bypassed*/) {
-                if (m_appletPanel && m_appletPanel->clientDeEssApplet())
-                    m_appletPanel->clientDeEssApplet()->refreshEnableFromEngine();
-                if (m_appletPanel && m_appletPanel->clientChainApplet())
-                    m_appletPanel->clientChainApplet()->refreshFromEngine();
-            });
-        }
-        m_clientDeEssEditor->showForTx();
-    });
 
     // ── Client Tube applets: TX (#1661) + RX (Phase 7.4) ───────────────────
     m_appletPanel->clientTubeTxApplet()->setAudioEngine(m_audio);
@@ -3268,7 +3257,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     // ── PUDU monitor wiring ─────────────────────────────────────
     auto* chainApplet = m_appletPanel->clientChainApplet();
-    chainApplet->setMonitorHasRecording(m_puduMonitor->hasRecording());
+    chainApplet->setMonitorHasRecording(m_finalMonitor->hasRecording());
 
     // Easter-egg nub on the chain applet → toggle the Aetherial Audio
     // Channel Strip.  Stubbed in step 1 of the strip plan (#2301);
@@ -3280,21 +3269,21 @@ MainWindow::MainWindow(QWidget* parent)
     // monitor's own signals drive the button visuals back.
     connect(chainApplet, &ClientChainApplet::monitorRecordClicked,
             this, [this]() {
-        if (m_puduMonitor->isRecording()) {
-            m_puduMonitor->stopRecording();
+        if (m_finalMonitor->isRecording()) {
+            m_finalMonitor->stopRecording();
         } else {
             // Don't record while playing — button shouldn't be
             // enabled in that state, but guard anyway.
-            if (m_puduMonitor->isPlaying()) m_puduMonitor->stopPlayback();
-            m_puduMonitor->startRecording();
+            if (m_finalMonitor->isPlaying()) m_finalMonitor->stopPlayback();
+            m_finalMonitor->startRecording();
         }
     });
     connect(chainApplet, &ClientChainApplet::monitorPlayClicked,
             this, [this]() {
-        if (m_puduMonitor->isPlaying()) {
-            m_puduMonitor->stopPlayback();
+        if (m_finalMonitor->isPlaying()) {
+            m_finalMonitor->stopPlayback();
         } else {
-            m_puduMonitor->startPlayback();
+            m_finalMonitor->startPlayback();
         }
     });
 
@@ -3302,14 +3291,14 @@ MainWindow::MainWindow(QWidget* parent)
     // separately via the muteRxRequested wiring above.  State is
     // forwarded both to the docked ClientChainApplet AND to the
     // AetherialAudioStrip's mirrored buttons (when the strip exists).
-    connect(m_puduMonitor, &ClientPuduMonitor::recordingStarted,
+    connect(m_finalMonitor, &ClientPuduMonitor::recordingStarted,
             this, [this]() {
         if (m_appletPanel && m_appletPanel->clientChainApplet())
             m_appletPanel->clientChainApplet()->setMonitorRecording(true);
         if (m_aetherialStrip)
             m_aetherialStrip->setMonitorRecording(true);
     });
-    connect(m_puduMonitor, &ClientPuduMonitor::recordingStopped,
+    connect(m_finalMonitor, &ClientPuduMonitor::recordingStopped,
             this, [this](int /*durationMs*/) {
         if (m_appletPanel && m_appletPanel->clientChainApplet()) {
             auto* a = m_appletPanel->clientChainApplet();
@@ -3323,16 +3312,16 @@ MainWindow::MainWindow(QWidget* parent)
         // Auto-start playback — the mute stays installed across the
         // transition because the monitor only emits muteRxRequested
         // (false) at stopPlayback().
-        m_puduMonitor->startPlayback();
+        m_finalMonitor->startPlayback();
     });
-    connect(m_puduMonitor, &ClientPuduMonitor::playbackStarted,
+    connect(m_finalMonitor, &ClientPuduMonitor::playbackStarted,
             this, [this]() {
         if (m_appletPanel && m_appletPanel->clientChainApplet())
             m_appletPanel->clientChainApplet()->setMonitorPlaying(true);
         if (m_aetherialStrip)
             m_aetherialStrip->setMonitorPlaying(true);
     });
-    connect(m_puduMonitor, &ClientPuduMonitor::playbackStopped,
+    connect(m_finalMonitor, &ClientPuduMonitor::playbackStopped,
             this, [this]() {
         if (m_appletPanel && m_appletPanel->clientChainApplet())
             m_appletPanel->clientChainApplet()->setMonitorPlaying(false);
@@ -3391,56 +3380,6 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_appletPanel->clientChainApplet(),
             &ClientChainApplet::stageEnabledChanged,
             this, &MainWindow::onTxChainStageEnabledChanged);
-    connect(m_appletPanel->clientChainApplet(),
-            &ClientChainApplet::editRequested,
-            this, [this](AudioEngine::TxChainStage stage) {
-        switch (stage) {
-            case AudioEngine::TxChainStage::Eq:
-                ensureClientEqEditor()->showForPath(ClientEqApplet::Path::Tx);
-                break;
-            case AudioEngine::TxChainStage::Comp:
-                ensureClientCompEditor()->showForTx();
-                break;
-            case AudioEngine::TxChainStage::Gate:
-                ensureClientGateEditor()->showForTx();
-                break;
-            case AudioEngine::TxChainStage::DeEss:
-                if (!m_clientDeEssEditor) {
-                    m_clientDeEssEditor = new ClientDeEssEditor(m_audio, this);
-                    connect(m_clientDeEssEditor, &ClientDeEssEditor::bypassToggled,
-                            this, [this](bool /*bypassed*/) {
-                        if (m_appletPanel && m_appletPanel->clientDeEssApplet())
-                            m_appletPanel->clientDeEssApplet()->refreshEnableFromEngine();
-                        if (m_appletPanel && m_appletPanel->clientChainApplet())
-                            m_appletPanel->clientChainApplet()->refreshFromEngine();
-                    });
-                }
-                m_clientDeEssEditor->showForTx();
-                break;
-            case AudioEngine::TxChainStage::Tube:
-                ensureClientTubeEditor()->showForTx();
-                break;
-            case AudioEngine::TxChainStage::Enh:
-                // Enh slot hosts PUDU.
-                ensureClientPuduEditor()->showForTx();
-                break;
-            case AudioEngine::TxChainStage::Reverb:
-                if (!m_clientReverbEditor) {
-                    m_clientReverbEditor = new ClientReverbEditor(m_audio, this);
-                    connect(m_clientReverbEditor, &ClientReverbEditor::bypassToggled,
-                            this, [this](bool /*bypassed*/) {
-                        if (m_appletPanel && m_appletPanel->clientReverbApplet())
-                            m_appletPanel->clientReverbApplet()->refreshEnableFromEngine();
-                        if (m_appletPanel && m_appletPanel->clientChainApplet())
-                            m_appletPanel->clientChainApplet()->refreshFromEngine();
-                    });
-                }
-                m_clientReverbEditor->showForTx();
-                break;
-            default:
-                break;
-        }
-    });
 
     // ── RX chain edit + bypass ──────────────────────────────────────────────
     // Phase 1 routes RX EQ double-clicks to the existing ClientEqEditor in
@@ -9784,22 +9723,22 @@ void MainWindow::toggleAetherialStrip()
         // ClientChainApplet.
         connect(m_aetherialStrip, &AetherialAudioStrip::monitorRecordClicked,
                 this, [this]() {
-            if (m_puduMonitor->isRecording()) {
-                m_puduMonitor->stopRecording();
+            if (m_finalMonitor->isRecording()) {
+                m_finalMonitor->stopRecording();
             } else {
-                if (m_puduMonitor->isPlaying()) m_puduMonitor->stopPlayback();
-                m_puduMonitor->startRecording();
+                if (m_finalMonitor->isPlaying()) m_finalMonitor->stopPlayback();
+                m_finalMonitor->startRecording();
             }
         });
         connect(m_aetherialStrip, &AetherialAudioStrip::monitorPlayClicked,
                 this, [this]() {
-            if (m_puduMonitor->isPlaying()) m_puduMonitor->stopPlayback();
-            else                            m_puduMonitor->startPlayback();
+            if (m_finalMonitor->isPlaying()) m_finalMonitor->stopPlayback();
+            else                            m_finalMonitor->startPlayback();
         });
         // Seed the strip with the monitor's current state.
-        m_aetherialStrip->setMonitorRecording(m_puduMonitor->isRecording());
-        m_aetherialStrip->setMonitorPlaying(m_puduMonitor->isPlaying());
-        m_aetherialStrip->setMonitorHasRecording(m_puduMonitor->hasRecording());
+        m_aetherialStrip->setMonitorRecording(m_finalMonitor->isRecording());
+        m_aetherialStrip->setMonitorPlaying(m_finalMonitor->isPlaying());
+        m_aetherialStrip->setMonitorHasRecording(m_finalMonitor->hasRecording());
         // Seed the chain's MIC-ready + TX-active indicators (reuse the
         // tx alias declared above for the EQ cutoff seeding).
         const bool ready = (tx.micSelection() == "PC") && !tx.daxOn();

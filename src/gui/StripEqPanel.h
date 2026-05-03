@@ -48,6 +48,13 @@ public:
     // Cached so RX → TX → RX path swaps restore the correct guides.
     void setRxFilterCutoffs(int audioLowHz, int audioHighHz);
 
+    // Reload every visual control (icon row, canvas, param row, family
+    // combo, bypass button) from the engine's current band state.
+    // Used after a preset import / load writes new values into the
+    // engine without going through the canvas's own gestures, so the
+    // text labels would otherwise stay stale.
+    void refreshFromEngine();
+
 signals:
     // Fired when the bypass button is toggled in the editor. The docked
     // applet subscribes so its Enable toggle stays in sync — both widgets

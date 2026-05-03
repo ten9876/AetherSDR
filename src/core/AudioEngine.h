@@ -39,6 +39,8 @@ class ClientTube;
 class ClientPudu;
 class ClientPuduMonitor;
 class ClientReverb;
+class ClientFinalLimiter;
+class ClientTxTestTone;
 class CwSidetoneGenerator;
 #ifdef __APPLE__
 class MacNRFilter;
@@ -225,6 +227,24 @@ public:
     // optional stage in the PooDoo™ chain.
     ClientReverb* clientReverbTx() { return m_clientReverbTx.get(); }
 
+    // Final brickwall limiter — sits at the very tail of the TX audio
+    // path, after every user-configurable chain stage AND after PC mic
+    // gain, so no sample escapes louder than the configured ceiling
+    // regardless of upstream behaviour.  Always present (not in the
+    // user-reorderable chain).  Enable / ceiling persisted via
+    // AppSettings under ClientFinalLimiter*.
+    ClientFinalLimiter* clientFinalLimiterTx() { return m_clientFinalLimiterTx.get(); }
+
+    // Test-tone generator at the head of the TX path.  When enabled,
+    // overrides mic input with a sine before the user's DSP chain
+    // runs — useful for setup / calibration.
+    ClientTxTestTone* clientTxTestTone() { return m_clientTxTestTone.get(); }
+
+    // Register a monitor that taps the post-final-limiter int16
+    // stream — the exact bytes that get packetised into VITA-49.
+    // Mirror of setTxPostDspMonitor but at the chain tail.
+    void setTxFinalMonitor(ClientPuduMonitor* m) noexcept;
+
     // Register/unregister a monitor that taps the post-DSP TX int16
     // stream on the audio thread.  Passed pointer must outlive the
     // registration — clear to nullptr before destroying the monitor.
@@ -327,7 +347,13 @@ public:
 
     // Client-side TX reverb (Freeverb) — persistence.
     void loadClientReverbSettings();
-    void saveClientReverbSettings() const;
+    // Non-const because it emits clientReverbStateChanged() at the
+    // end so any UI bound to the reverb (strip panel, docked applet,
+    // floating editor) can refresh from a single notification path
+    // instead of polling on a timer.
+    void saveClientReverbSettings();
+    void loadClientFinalLimiterSettings();
+    void saveClientFinalLimiterSettings() const;
 
     // Post-Client-EQ audio tap for the editor's FFT analyzer.  Exposes
     // a rolling mono buffer filled on the audio thread; UI thread copies
@@ -389,9 +415,20 @@ signals:
 
     void pcMicLevelChanged(float peakDbfs, float avgDbfs);  // client-side PC mic metering
     void scopeSamplesReady(const QByteArray& monoFloat32Pcm, int sampleRate, bool tx);
+    // Emitted on every TX block AFTER everything the strip can do to
+    // the audio: user DSP chain, PC mic gain, and the final brickwall
+    // limiter.  This is the exact int16 stream that gets packetised
+    // into VITA-49 and sent to the radio — what the strip's
+    // "Waveform CE-SSB" panel listens to so the operator sees the
+    // actual transmitted envelope.
+    void txPostChainScopeReady(const QByteArray& monoFloat32Pcm, int sampleRate);
     void radioTransmittingChanged(bool tx);
     void mutedChanged(bool muted);                          // local audio output mute state
     void txBypassChanged(bool on);                          // master TX BYPASS state
+    // Fired by saveClientReverbSettings() after any reverb param
+    // changes — UI surfaces (strip panel + docked applet) listen and
+    // refresh from a single notification path instead of polling.
+    void clientReverbStateChanged();
 
 private slots:
     void onTxAudioReady();
@@ -404,6 +441,7 @@ private:
     void sendVoiceTxPacket(const QByteArray& pcmData, quint32 streamId);
     void emitScopeFromFloat32Stereo(const QByteArray& pcm, int sampleRate, bool tx);
     void emitScopeFromInt16Stereo(const QByteArray& pcm, int sampleRate, bool tx);
+    void emitTxPostChainScopeFromInt16Stereo(const QByteArray& pcm, int sampleRate);
     QByteArray resampleStereo(const QByteArray& pcm);
     void processNr2(const QByteArray& stereoPcm);
     void updateRxBufferStats();
@@ -436,6 +474,8 @@ private:
     // Apply client-side TX reverb in-place.  No-op if disabled.
     void applyClientReverbTxInt16(QByteArray& int16stereo);
     void applyClientReverbTxFloat32(QByteArray& float32);
+    void applyClientFinalLimiterTxInt16(QByteArray& int16stereo);
+    void applyClientFinalLimiterTxFloat32(QByteArray& float32);
     // Apply the whole TX DSP chain (CMP + EQ) in the configured order.
     void applyClientTxDspInt16(QByteArray& int16stereo);
     void applyClientTxDspFloat32(QByteArray& float32);
@@ -499,8 +539,10 @@ private:
 
     QElapsedTimer m_lastRxScopeEmit;
     QElapsedTimer m_lastTxScopeEmit;
+    QElapsedTimer m_lastTxPostChainScopeEmit;
     QByteArray    m_scopeRxScratch;
     QByteArray    m_scopeTxScratch;
+    QByteArray    m_scopeTxPostChainScratch;
 
     QAudioDevice m_outputDevice;
     QAudioDevice m_inputDevice;
@@ -577,6 +619,12 @@ private:
     std::unique_ptr<ClientPudu> m_clientPuduRx;
     // Client-side TX reverb.
     std::unique_ptr<ClientReverb> m_clientReverbTx;
+    std::unique_ptr<ClientFinalLimiter> m_clientFinalLimiterTx;
+    std::unique_ptr<ClientTxTestTone>   m_clientTxTestTone;
+    // Audio-thread-loaded pointer for the post-final-limiter monitor
+    // (final-output recording).  Same lock-free atomic pointer pattern
+    // as m_txPostDspMonitor.
+    std::atomic<ClientPuduMonitor*> m_txFinalMonitor{nullptr};
     // Post-DSP TX monitor — owned by MainWindow; we just hold a
     // pointer the audio thread can load lock-free per block.
     std::atomic<ClientPuduMonitor*> m_txPostDspMonitor{nullptr};
@@ -609,6 +657,7 @@ private:
     QByteArray m_clientPuduTxScratch;
     QByteArray m_clientPuduRxScratch;
     QByteArray m_clientReverbTxScratch;
+    QByteArray m_clientFinalLimiterTxScratch;
     // Post-EQ analyzer tap. One ring per path, mono (L+R averaged).
     // Audio thread writes via tapClientEqRxStereo() / tapClientEqTxInt16()
     // / tapClientEqTxFloat32(); UI thread snapshots via the public

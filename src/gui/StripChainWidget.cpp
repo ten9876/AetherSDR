@@ -89,7 +89,7 @@ QString stageLabel(AudioEngine::TxChainStage s)
         case AudioEngine::TxChainStage::DeEss:  return "DESS";
         case AudioEngine::TxChainStage::Comp:   return "COMP";
         case AudioEngine::TxChainStage::Tube:   return "TUBE";
-        case AudioEngine::TxChainStage::Enh:    return "PUDU";
+        case AudioEngine::TxChainStage::Enh:    return "EVO";
         case AudioEngine::TxChainStage::Reverb: return "VERB";
         case AudioEngine::TxChainStage::None:   return "";
     }

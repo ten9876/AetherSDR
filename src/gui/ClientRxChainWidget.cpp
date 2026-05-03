@@ -74,7 +74,7 @@ QString stageLabel(AudioEngine::RxChainStage s)
         case AudioEngine::RxChainStage::Gate: return "AGC-T";
         case AudioEngine::RxChainStage::Comp: return "AGC-C";
         case AudioEngine::RxChainStage::Tube: return "TUBE";
-        case AudioEngine::RxChainStage::Pudu: return "PUDU";
+        case AudioEngine::RxChainStage::Pudu: return "EVO";
         case AudioEngine::RxChainStage::None: return "";
     }
     return "";

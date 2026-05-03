@@ -201,29 +201,17 @@ ClientChainApplet::ClientChainApplet(QWidget* parent) : QWidget(parent)
         " background: transparent; border: none; }");
     m_hint->setWordWrap(false);
 
-    // Easter-egg nub at the bottom-right — opens the Aetherial Audio
-    // Channel Strip (unified TX DSP window, issue #2301).  Bare egg
-    // glyph, no chrome — discoverable only to people who know it's
-    // there until the strip becomes canonical.
-    m_stripNub = new QPushButton(QString::fromUtf8("\xF0\x9F\xA5\x9A"), this);
-    m_stripNub->setFixedSize(16, 16);
-    m_stripNub->setFlat(true);
-    m_stripNub->setFocusPolicy(Qt::NoFocus);
-    m_stripNub->setStyleSheet(
-        "QPushButton { background: transparent; border: none;"
-        " font-size: 11px; padding: 0; }");
-    connect(m_stripNub, &QPushButton::clicked,
-            this, &ClientChainApplet::aetherialStripToggleRequested);
+    outer->addWidget(m_hint);
 
-    auto* hintRow = new QHBoxLayout;
-    hintRow->setContentsMargins(0, 0, 0, 0);
-    hintRow->setSpacing(4);
-    hintRow->addWidget(m_hint, 1);
-    hintRow->addWidget(m_stripNub, 0, Qt::AlignBottom | Qt::AlignRight);
-    outer->addLayout(hintRow);
-
-    connect(m_chain, &ClientChainWidget::editRequested,
-            this, &ClientChainApplet::editRequested);
+    // Double-click on any TX chain tile launches the Aetherial Audio
+    // Channel Strip — the unified TX DSP window.  The legacy per-
+    // stage floating editors are still reachable via the strip's own
+    // controls; double-click on the chain is now the canonical
+    // "edit my TX audio" gesture.
+    connect(m_chain, &ClientChainWidget::editRequested, this,
+            [this](AudioEngine::TxChainStage /*stage*/) {
+        emit aetherialStripToggleRequested();
+    });
     connect(m_chain, &ClientChainWidget::stageEnabledChanged,
             this, &ClientChainApplet::stageEnabledChanged);
     connect(m_chain, &ClientChainWidget::chainReordered,

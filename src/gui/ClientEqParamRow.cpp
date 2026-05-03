@@ -46,6 +46,12 @@ public:
         setMinimumWidth(70);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         setCursor(Qt::PointingHandCursor);
+        // The strip's open `QWidget { background: #08121d }` rule
+        // would otherwise paint a dark fill across the whole column,
+        // bleeding upward over the canvas's band-plan strip.  Make
+        // the column itself transparent so only the labels show.
+        setAttribute(Qt::WA_StyledBackground, false);
+        setStyleSheet("background: transparent;");
 
         auto* layout = new QVBoxLayout(this);
         layout->setContentsMargins(4, 2, 4, 2);
@@ -57,6 +63,11 @@ public:
         for (auto* lbl : { m_freqLbl, m_gainLbl, m_qLbl }) {
             lbl->setAlignment(Qt::AlignCenter);
         }
+        // Push labels to the bottom of the column.  Without this
+        // stretch the QVBoxLayout top-aligns its children, leaving
+        // the column's dark background bleeding upward over the
+        // canvas's band-plan strip directly above.
+        layout->addStretch();
         layout->addWidget(m_freqLbl);
         layout->addWidget(m_gainLbl);
         layout->addWidget(m_qLbl);
@@ -156,6 +167,11 @@ ClientEqParamRow::ClientEqParamRow(QWidget* parent) : QWidget(parent)
     // Matches ClientEqIconRow spacing so param column i sits directly
     // beneath icon column i (a single visual strip across the editor).
     m_layout->setSpacing(10);
+    // Transparent so the strip's wide `QWidget { background: #08121d }`
+    // rule doesn't bleed dark fill over the canvas's band-plan strip
+    // sitting just above this row.
+    setAttribute(Qt::WA_StyledBackground, false);
+    setStyleSheet("background: transparent;");
     setFixedHeight(58);
 }
 

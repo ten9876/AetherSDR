@@ -23,6 +23,10 @@ public:
     explicit PooDooLogo(QWidget* parent = nullptr);
 
     void setPudu(ClientPudu* p);
+    // Override the rendered wordmark.  Default is "PooDoo™" (used by
+    // the docked applet + floating editor).  The strip panel sets it
+    // to "AetherExciter™" for the rebranded final-stage version.
+    void setWordmark(const QString& mark);
 
 protected:
     void paintEvent(QPaintEvent* ev) override;
@@ -33,6 +37,7 @@ private:
     ClientPudu* m_pudu{nullptr};
     QTimer*     m_timer{nullptr};
     float       m_smoothedWetDb{-120.0f};   // smoothed level for pulse
+    QString     m_wordmark;                 // empty ⇒ default "PooDoo™"
 };
 
 } // namespace AetherSDR

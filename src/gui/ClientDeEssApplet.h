@@ -14,8 +14,8 @@ class ClientDeEssGrBar;
 
 // Docked tile for the client-side TX de-esser.  View-only — shows the
 // sidechain bandpass response curve with a live ball at the current
-// centre frequency, a compact GR strip, and Enable / Edit buttons.
-// Interactive editor lives in ClientDeEssEditor (floating).
+// centre frequency and a compact GR strip.  Bypass via the CHAIN
+// widget single-click; editing via the Aetherial Audio Channel Strip.
 class ClientDeEssApplet : public QWidget {
     Q_OBJECT
 
@@ -25,9 +25,6 @@ public:
     void setAudioEngine(AudioEngine* engine);
     void refreshEnableFromEngine();
 
-signals:
-    void editRequested();
-
 private:
     void buildUI();
     void syncEnableFromEngine();
@@ -36,7 +33,6 @@ private:
 
     AudioEngine*            m_audio{nullptr};
     QPushButton*            m_enable{nullptr};
-    QPushButton*            m_edit{nullptr};
     ClientDeEssCurveWidget* m_curve{nullptr};
     ClientDeEssGrBar*       m_grBar{nullptr};
     // Four-knob tuning row: sibilant band (Freq+Q), trigger threshold,

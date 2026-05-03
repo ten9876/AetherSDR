@@ -37,6 +37,13 @@ void PooDooLogo::setPudu(ClientPudu* p)
     update();
 }
 
+void PooDooLogo::setWordmark(const QString& mark)
+{
+    if (m_wordmark == mark) return;
+    m_wordmark = mark;
+    update();
+}
+
 void PooDooLogo::tick()
 {
     if (!m_pudu) return;
@@ -88,7 +95,9 @@ void PooDooLogo::paintEvent(QPaintEvent*)
     f.setWeight(QFont::Black);
     p.setFont(f);
 
-    const QString wordmark = QString::fromUtf8("PooDoo\xe2\x84\xa2");
+    const QString wordmark = m_wordmark.isEmpty()
+        ? QString::fromUtf8("PooDoo\xe2\x84\xa2")
+        : m_wordmark;
     p.setPen(textColor);
     p.drawText(r, Qt::AlignCenter, wordmark);
 

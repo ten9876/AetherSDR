@@ -11,9 +11,8 @@ class ClientCompKnob;
 
 // Docked tile for the client-side TX reverb (Freeverb).  Compact
 // 5-knob row — Size, Decay, Damping, PreDly, Mix — matches the PUDU
-// applet footprint.  Enable/Edit live on the CHAIN widget gestures
-// (single-click / double-click).  Interactive editor is
-// ClientReverbEditor.
+// applet footprint.  Bypass lives on the CHAIN widget single-click;
+// the Aetherial Audio Channel Strip hosts the full editor.
 class ClientReverbApplet : public QWidget {
     Q_OBJECT
 
@@ -22,9 +21,6 @@ public:
 
     void setAudioEngine(AudioEngine* engine);
     void refreshEnableFromEngine();
-
-signals:
-    void editRequested();
 
 private:
     void buildUI();
@@ -36,7 +32,7 @@ private:
     ClientCompKnob* m_damping{nullptr};
     ClientCompKnob* m_preDly{nullptr};
     ClientCompKnob* m_mix{nullptr};
-    QTimer*         m_syncTimer{nullptr};
+    QWidget*        m_viz{nullptr};   // ReverbVizBox (defined in .cpp)
 };
 
 } // namespace AetherSDR

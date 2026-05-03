@@ -134,7 +134,7 @@ StripDeEssPanel::StripDeEssPanel(AudioEngine* engine, QWidget* parent)
     left->setSpacing(10);
 
     m_freq = new ClientCompKnob;
-    m_freq->setLabel("Frequency");
+    m_freq->setLabel("Freq");
     m_freq->setCenterLabelMode(true);
     m_freq->setRange(1000.0f, 12000.0f);
     m_freq->setDefault(6000.0f);

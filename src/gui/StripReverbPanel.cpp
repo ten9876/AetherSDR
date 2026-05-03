@@ -200,6 +200,7 @@ StripReverbPanel::StripReverbPanel(AudioEngine* engine, QWidget* parent)
     // between the title bar and the knob row as a placeholder for any
     // future visualisation (decay tail, IR, etc.).
     auto* gridBox = new GridBox;
+    m_viz = gridBox;
     root->addWidget(gridBox, 1);
 
     auto* row = new QHBoxLayout;
@@ -301,10 +302,14 @@ StripReverbPanel::StripReverbPanel(AudioEngine* engine, QWidget* parent)
 
     syncControlsFromEngine();
 
-    m_syncTimer = new QTimer(this);
-    m_syncTimer->setInterval(33);
-    connect(m_syncTimer, &QTimer::timeout,
-            this, &StripReverbPanel::syncControlsFromEngine);
+    // Listen to the engine's reverb-state signal — fires whenever any
+    // path (this panel, the docked applet, the floating editor, a
+    // preset apply) writes new reverb values.  Replaces the 30 Hz
+    // polling that used to keep this UI in sync.
+    if (m_audio) {
+        connect(m_audio, &AudioEngine::clientReverbStateChanged,
+                this, &StripReverbPanel::syncControlsFromEngine);
+    }
 }
 
 StripReverbPanel::~StripReverbPanel() = default;
@@ -316,7 +321,6 @@ void StripReverbPanel::showForTx()
     show();
     raise();
     activateWindow();
-    if (m_syncTimer) m_syncTimer->start();
 }
 
 void StripReverbPanel::syncControlsFromEngine()
@@ -329,6 +333,16 @@ void StripReverbPanel::syncControlsFromEngine()
     if (m_damping) { QSignalBlocker b(m_damping); m_damping->setValue(r->damping()); }
     if (m_preDly)  { QSignalBlocker b(m_preDly);  m_preDly->setValue(r->preDelayMs()); }
     if (m_mix)     { QSignalBlocker b(m_mix);     m_mix->setValue(r->mix()); }
+    // Push to viz too — knob valueChanged is suppressed by the
+    // QSignalBlockers above so the wire lambdas don't fire during
+    // external sync (e.g. when the docked applet moves the engine).
+    if (auto* viz = dynamic_cast<GridBox*>(m_viz)) {
+        viz->setSize       (r->size());
+        viz->setDecayS     (r->decayS());
+        viz->setDamping    (r->damping());
+        viz->setPreDelayMs (r->preDelayMs());
+        viz->setMix        (r->mix());
+    }
     m_restoring = false;
 }
 
@@ -352,7 +366,6 @@ void StripReverbPanel::restoreGeometryFromSettings()
 
 void StripReverbPanel::closeEvent(QCloseEvent* ev)
 {
-    if (m_syncTimer) m_syncTimer->stop();
     saveGeometryToSettings();
     QWidget::closeEvent(ev);
 }
@@ -372,13 +385,11 @@ void StripReverbPanel::resizeEvent(QResizeEvent* ev)
 void StripReverbPanel::showEvent(QShowEvent* ev)
 {
     QWidget::showEvent(ev);
-    if (m_syncTimer) m_syncTimer->start();
 }
 
 void StripReverbPanel::hideEvent(QHideEvent* ev)
 {
     QWidget::hideEvent(ev);
-    if (m_syncTimer) m_syncTimer->stop();
 }
 
 } // namespace AetherSDR

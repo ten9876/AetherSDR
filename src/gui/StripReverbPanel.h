@@ -22,6 +22,10 @@ public:
 
     void showForTx();
 
+    // Pull every knob / button / label state from the bound engine.
+    // Called after preset load when the engine is mutated externally.
+    void syncControlsFromEngine();
+
 signals:
     // Present for API symmetry with the other editors; unused now that
     // bypass lives on the CHAIN widget.
@@ -37,7 +41,6 @@ protected:
 private:
     void saveGeometryToSettings();
     void restoreGeometryFromSettings();
-    void syncControlsFromEngine();
 
     AudioEngine*    m_audio{nullptr};
     ClientCompKnob* m_size{nullptr};
@@ -45,7 +48,7 @@ private:
     ClientCompKnob* m_damping{nullptr};
     ClientCompKnob* m_preDly{nullptr};
     ClientCompKnob* m_mix{nullptr};
-    QTimer*         m_syncTimer{nullptr};
+    QWidget*        m_viz{nullptr};   // GridBox (defined in .cpp)
     bool            m_restoring{false};
 };
 

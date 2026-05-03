@@ -10,6 +10,8 @@
 #include "StripPuduPanel.h"
 #include "StripReverbPanel.h"
 #include "StripTubePanel.h"
+#include "StripWaveformPanel.h"
+#include "StripFinalOutputPanel.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/ChannelStripPresets.h"
@@ -25,6 +27,8 @@
 #include <QByteArray>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -64,8 +68,13 @@ AetherialAudioStrip::AetherialAudioStrip(AudioEngine* engine, QWidget* parent)
         "QWidget { background: #0f0f1a; color: #d7e4f2; }"
         "QFrame#stripGroupBox { border: 1px solid #2a3744;"
         " border-radius: 4px; background: transparent; }");
-    setMinimumSize(1140, 1470);
-    resize(1140, 1470);
+    // Width is hard — the chain row + 50 px tiles need the full
+    // 1140 px to read.  Height drops to 900 so the strip fits on a
+    // 1080p display (1080 minus taskbar/title chrome ≈ 1000); the
+    // panel grid below the chain row scrolls vertically when the
+    // window is shorter than the natural content height.
+    setMinimumSize(1140, 900);
+    resize(1140, 1620);
 
     // Track mouse without buttons pressed so the resize cursor updates
     // while hovering the bare margin around the embedded grid.
@@ -351,7 +360,17 @@ AetherialAudioStrip::AetherialAudioStrip(AudioEngine* engine, QWidget* parent)
                 this, &AetherialAudioStrip::doDeletePreset);
         chainRow->addWidget(m_presetDeleteBtn);
 
-        rebuildPresetCombo();
+        // Restore the last-active preset name from AppSettings so the
+        // combo opens showing whichever preset was loaded last.  The
+        // engine state is already restored by AudioEngine's per-module
+        // load helpers — this just brings the UI label back in line.
+        const QString lastActive = AppSettings::instance()
+            .value("AetherialStripActivePreset", "").toString();
+        if (!lastActive.isEmpty() && m_presets
+            && m_presets->hasPreset(lastActive)) {
+            m_currentPresetName = lastActive;
+        }
+        rebuildPresetCombo(m_currentPresetName);
 
         body->addLayout(chainRow);
     }
@@ -367,8 +386,10 @@ AetherialAudioStrip::AetherialAudioStrip(AudioEngine* engine, QWidget* parent)
     m_eq     = new StripEqPanel    (m_audio, this);
     m_comp   = new StripCompPanel  (m_audio, this);
     m_dess   = new StripDeEssPanel (m_audio, this);
-    m_pudu   = new StripPuduPanel  (m_audio, this);
-    m_reverb = new StripReverbPanel(m_audio, this);
+    m_pudu        = new StripPuduPanel        (m_audio, this);
+    m_reverb      = new StripReverbPanel      (m_audio, this);
+    m_waveform    = new StripWaveformPanel    (m_audio, this);
+    m_finalOutput = new StripFinalOutputPanel (m_audio, this);
 
     // Wrap each panel in a frame so the strip reads as a row of distinct
     // stages rather than one continuous panel.  Object name lets the
@@ -396,20 +417,51 @@ AetherialAudioStrip::AetherialAudioStrip(AudioEngine* engine, QWidget* parent)
     // and leave dead space inside the group box.
     grid->addWidget(wrap(m_pudu,   Qt::AlignTop), ++r, 0);
     grid->addWidget(wrap(m_reverb, Qt::AlignTop),   r, 1);
+    // Final-output stage on the LEFT, waveform on the RIGHT — the
+    // waveform tap reads post-final-limiter, so visually it makes
+    // sense for the meter/limiter to sit to the left of the trace.
+    grid->addWidget(wrap(m_finalOutput, Qt::AlignTop), ++r, 0);
+    grid->addWidget(wrap(m_waveform,    Qt::AlignTop),   r, 1);
 
     grid->setColumnStretch(0, 1);
     grid->setColumnStretch(1, 1);
     // Only the EQ row (index 1) absorbs extra vertical height — its
     // canvas scales meaningfully with size.  Tube/Gate/Comp/DeEss/Pudu
-    // /Reverb rows stay at their content's natural height so the user
-    // doesn't see dead space inside the panel borders when the strip
-    // window is taller than the minimum.
+    // /Reverb/Waveform/FinalOutput rows stay at content height so the
+    // user doesn't see dead space inside the panel borders when the
+    // strip window is taller than the minimum.
     grid->setRowStretch(0, 0);
     grid->setRowStretch(1, 1);
     grid->setRowStretch(2, 0);
     grid->setRowStretch(3, 0);
+    grid->setRowStretch(4, 0);
 
-    body->addLayout(grid, 1);
+    // Wrap the panel grid in a vertical scroll area so users on
+    // 1080p / 1440p displays can shrink the window below the natural
+    // content height and scroll the DSP panels.  The chain row above
+    // (chainRow) stays sticky as it sits in `body` directly above
+    // this scroll area.
+    auto* gridHost = new QWidget;
+    gridHost->setLayout(grid);
+    auto* gridScroll = new QScrollArea;
+    gridScroll->setWidget(gridHost);
+    gridScroll->setWidgetResizable(true);
+    gridScroll->setFrameShape(QFrame::NoFrame);
+    gridScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    gridScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    gridScroll->setStyleSheet(
+        "QScrollArea { background: transparent; border: none; }"
+        "QScrollArea > QWidget > QWidget { background: transparent; }"
+        "QScrollBar:vertical { background: #0a1018; width: 10px; "
+        "border: none; margin: 0; }"
+        "QScrollBar::handle:vertical { background: #2a3744; "
+        "border-radius: 5px; min-height: 24px; }"
+        "QScrollBar::handle:vertical:hover { background: #4a5562; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical "
+        "{ height: 0; border: none; background: none; }"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical "
+        "{ background: none; }");
+    body->addWidget(gridScroll, 1);
 
     // Wire each panel to its TX-side engine.  The panels' showForTx() /
     // showForPath() methods do this — they also call show() / raise() /
@@ -424,12 +476,15 @@ AetherialAudioStrip::AetherialAudioStrip(AudioEngine* engine, QWidget* parent)
     m_dess->showForTx();
     m_pudu->showForTx();
     m_reverb->showForTx();
+    m_waveform->showForTx();
+    m_finalOutput->showForTx();
 
     // Forward the EQ panel's cutoff-drag signal to the strip's public
     // signal so MainWindow can wire it the same way it wires the
     // floating ClientEqEditor.
     connect(m_eq, &StripEqPanel::cutoffsDragRequested,
             this, &AetherialAudioStrip::cutoffsDragRequested);
+
 
     // Hide the min / max / close trio on each embedded panel's title bar
     // — the strip owns the window controls, so each panel just needs its
@@ -809,8 +864,29 @@ void AetherialAudioStrip::onPresetComboActivated(int idx)
     const QString name = nameVar.toString();
     if (m_presets->loadPreset(name)) {
         m_currentPresetName = name;
+        AppSettings::instance().setValue("AetherialStripActivePreset", name);
+        refreshAllPanelsFromEngine();
     }
     updatePresetButtonEnable();
+}
+
+void AetherialAudioStrip::refreshAllPanelsFromEngine()
+{
+    // Preset loader writes new values straight into the engine; nudge
+    // every panel so its widgets pick them up (knobs, param-row text,
+    // canvas curves, family combo).  Without this, only the live
+    // visualisations that re-read engine state on paint update — text
+    // labels stay stale.
+    if (m_eq)     m_eq->refreshFromEngine();
+    if (m_tube)   m_tube->syncControlsFromEngine();
+    if (m_gate)   m_gate->syncControlsFromEngine();
+    if (m_comp)   m_comp->syncControlsFromEngine();
+    if (m_dess)   m_dess->syncControlsFromEngine();
+    if (m_pudu)   m_pudu->syncControlsFromEngine();
+    if (m_reverb) m_reverb->syncControlsFromEngine();
+    if (m_waveform)    m_waveform->syncControlsFromEngine();
+    if (m_finalOutput) m_finalOutput->syncControlsFromEngine();
+    if (m_chain)  m_chain->update();
 }
 
 void AetherialAudioStrip::doImportPreset()
@@ -831,7 +907,11 @@ void AetherialAudioStrip::doImportPreset()
         return;
     }
     // Apply it immediately so the user sees the imported preset live.
-    if (m_presets->loadPreset(imported)) m_currentPresetName = imported;
+    if (m_presets->loadPreset(imported)) {
+        m_currentPresetName = imported;
+        AppSettings::instance().setValue("AetherialStripActivePreset", imported);
+        refreshAllPanelsFromEngine();
+    }
     rebuildPresetCombo(m_currentPresetName);
 }
 
@@ -875,6 +955,7 @@ void AetherialAudioStrip::doExportPreset()
         return;
     }
     m_currentPresetName = name;
+    AppSettings::instance().setValue("AetherialStripActivePreset", name);
     rebuildPresetCombo(m_currentPresetName);
 }
 
@@ -942,6 +1023,7 @@ void AetherialAudioStrip::doSavePreset()
         return;
     }
     m_currentPresetName = name;
+    AppSettings::instance().setValue("AetherialStripActivePreset", name);
     rebuildPresetCombo(m_currentPresetName);
 }
 
@@ -966,6 +1048,7 @@ void AetherialAudioStrip::doDeletePreset()
         return;
     }
     m_currentPresetName.clear();
+    AppSettings::instance().remove("AetherialStripActivePreset");
     rebuildPresetCombo();
 }
 

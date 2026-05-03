@@ -71,7 +71,6 @@ signals:
     // Wired in MainWindow to toggle the Aetherial Audio Channel Strip
     // (unified TX DSP window).  See issue #2301.
     void aetherialStripToggleRequested();
-    void editRequested(AudioEngine::TxChainStage stage);
     void stageEnabledChanged(AudioEngine::TxChainStage stage, bool enabled);
     // RX equivalents — forwarded from ClientRxChainWidget so MainWindow
     // can route them to the right editor / applet without depending on
@@ -123,7 +122,6 @@ private:
     QPushButton*       m_txBtn{nullptr};
     QPushButton*       m_rxBtn{nullptr};
     QPushButton*       m_bypassBtn{nullptr};
-    QPushButton*       m_stripNub{nullptr};      // Easter-egg launch for Channel Strip (#2301)
     QPushButton*       m_monRecBtn{nullptr};
     QPushButton*       m_monPlayBtn{nullptr};
     class QTimer*      m_monRecPulse{nullptr};

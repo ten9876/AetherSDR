@@ -33,6 +33,10 @@ public:
 
     void showForTx();
 
+    // Pull every knob / button / label state from the bound engine.
+    // Called after preset load when the engine is mutated externally.
+    void syncControlsFromEngine();
+
 signals:
     void bypassToggled(bool bypassed);
 
@@ -46,7 +50,6 @@ protected:
 private:
     void saveGeometryToSettings();
     void restoreGeometryFromSettings();
-    void syncControlsFromEngine();
 
     void applyFrequency(float hz);
     void applyQ(float q);

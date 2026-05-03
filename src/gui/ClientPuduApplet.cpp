@@ -111,6 +111,7 @@ void ClientPuduApplet::buildUI()
     // ── Logo ────────────────────────────────────────────────────
     m_logo = new PooDooLogo;
     m_logo->setMinimumHeight(40);
+    m_logo->setWordmark(QString::fromUtf8("AetherVoice\xe2\x84\xa2"));
     outer->addWidget(m_logo);
 
     // ── A/B mode toggle ─────────────────────────────────────────
@@ -160,10 +161,10 @@ void ClientPuduApplet::buildUI()
         grid->setContentsMargins(0, 0, 0, 0);
         grid->setHorizontalSpacing(0);
         grid->setVerticalSpacing(1);
-        grid->setColumnMinimumWidth(3, 8);    // gap between Poo and Doo
+        grid->setColumnMinimumWidth(3, 8);    // gap between Body and Clarity
 
-        grid->addWidget(makeBracketLabel("Poo"), 0, 0, 1, 3);
-        grid->addWidget(makeBracketLabel("Doo"), 0, 4, 1, 3);
+        grid->addWidget(makeBracketLabel("Body"),    0, 0, 1, 3);
+        grid->addWidget(makeBracketLabel("Clarity"), 0, 4, 1, 3);
 
         auto makeKnob = [](const QString& label) {
             auto* k = new ClientCompKnob;

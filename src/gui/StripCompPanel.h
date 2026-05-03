@@ -43,6 +43,10 @@ public:
     void showForTx();
     void showForRx();
 
+    // Pull every knob / button / label state from the bound engine.
+    // Called after preset load when the engine is mutated externally.
+    void syncControlsFromEngine();
+
 signals:
     // Fired when the bypass button is toggled inside the editor.  The
     // docked applet subscribes so its Enable toggle stays in sync —
@@ -60,10 +64,6 @@ protected:
 private:
     void saveGeometryToSettings();
     void restoreGeometryFromSettings();
-
-    // Pull the Bypass button / chain-order combo state from the engine
-    // so a programmatic change (e.g. loading settings) updates the UI.
-    void syncControlsFromEngine();
 
     // Refresh meter widgets from the latest ClientComp snapshot.
     void tickMeters();

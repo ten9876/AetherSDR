@@ -21,6 +21,8 @@ class StripCompPanel;
 class StripDeEssPanel;
 class StripPuduPanel;
 class StripReverbPanel;
+class StripWaveformPanel;
+class StripFinalOutputPanel;
 
 // Aetherial Audio Channel Strip — unified TX DSP window.
 //
@@ -53,6 +55,7 @@ public:
     void setMonitorPlaying(bool on);
     void setMonitorHasRecording(bool has);
 
+
     // MIC endpoint goes green when PC mic is selected and DAX is off
     // (i.e. PooDoo is actually in the TX signal path).  TX endpoint
     // pulses red while the user is transmitting on their own slice.
@@ -78,6 +81,7 @@ signals:
     // ClientChainApplet::monitorRecordClicked / monitorPlayClicked.
     void monitorRecordClicked();
     void monitorPlayClicked();
+
 
     // Re-emitted from the embedded StripChainWidget when the user
     // single-clicks a stage tile to toggle its bypass.  MainWindow
@@ -119,6 +123,10 @@ private:
     void doSavePreset();
     void doDeletePreset();
     void updatePresetButtonEnable();
+    // After a preset has been applied to the engine, push fresh values
+    // into every embedded panel's UI so labels / knobs / combos stop
+    // showing the previous preset's data.
+    void refreshAllPanelsFromEngine();
 
     AudioEngine*         m_audio{nullptr};
     ChannelStripPresets* m_presets{nullptr};
@@ -144,6 +152,8 @@ private:
     StripDeEssPanel*   m_dess{nullptr};
     StripPuduPanel*    m_pudu{nullptr};
     StripReverbPanel*  m_reverb{nullptr};
+    StripWaveformPanel*    m_waveform{nullptr};
+    StripFinalOutputPanel* m_finalOutput{nullptr};
     bool               m_restoring{false};
 };
 

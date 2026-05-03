@@ -8,6 +8,8 @@
 #include "ClientPudu.h"
 #include "ClientPuduMonitor.h"
 #include "ClientReverb.h"
+#include "ClientFinalLimiter.h"
+#include "ClientTxTestTone.h"
 #include "CwSidetoneGenerator.h"
 #include "CwSidetoneQAudioSink.h"
 #include "CwSidetoneSinkBackend.h"
@@ -47,6 +49,12 @@ namespace AetherSDR {
 namespace {
 constexpr qint64 kTxAutoRestartMinRuntimeMs = 60000;
 constexpr qint64 kScopeEmitMinIntervalMs = 25;  // ~40 fps, per RX/TX source
+// The strip's "Waveform CE-SSB" panel renders at higher refresh than
+// the floating Waveform applet, so its dedicated post-chain emit
+// path uses a shorter throttle so the widget actually has fresh data
+// to draw on every frame.  ~120 Hz max — emissions over the strip
+// widget's repaint rate are simply ignored by the panel.
+constexpr qint64 kTxPostChainEmitMinIntervalMs = 8;
 
 bool devicePresent(const QList<QAudioDevice>& devices, const QAudioDevice& target)
 {
@@ -135,6 +143,47 @@ void AudioEngine::emitScopeFromInt16Stereo(const QByteArray& pcm,
     emit scopeSamplesReady(mono, sampleRate > 0 ? sampleRate : DEFAULT_SAMPLE_RATE, tx);
 }
 
+void AudioEngine::emitTxPostChainScopeFromInt16Stereo(const QByteArray& pcm,
+                                                      int sampleRate)
+{
+    // Same int16-stereo → mono-float collapse as emitScopeFromInt16Stereo,
+    // but reuses the TX scratch and emits on the dedicated
+    // txPostChainScopeReady signal so consumers (channel-strip waveform
+    // panel) see exactly the post-DSP-chain audio without competing
+    // with the floating Waveform applet's main TX/RX feed.
+    const int intSamples = pcm.size() / static_cast<int>(sizeof(int16_t));
+    if (intSamples <= 0)
+        return;
+
+    if (m_lastTxPostChainScopeEmit.isValid()
+        && m_lastTxPostChainScopeEmit.elapsed() < kTxPostChainEmitMinIntervalMs)
+        return;
+
+    const bool stereo = (intSamples % 2) == 0;
+    const int monoSamples = stereo ? intSamples / 2 : intSamples;
+    m_scopeTxPostChainScratch.resize(monoSamples * static_cast<int>(sizeof(float)));
+
+    const auto* src = reinterpret_cast<const int16_t*>(pcm.constData());
+    auto* dst = reinterpret_cast<float*>(m_scopeTxPostChainScratch.data());
+    if (stereo) {
+        for (int i = 0; i < monoSamples; ++i) {
+            const float l = src[i * 2] / 32768.0f;
+            const float r = src[i * 2 + 1] / 32768.0f;
+            dst[i] = std::clamp((l + r) * 0.5f, -1.0f, 1.0f);
+        }
+    } else {
+        for (int i = 0; i < monoSamples; ++i)
+            dst[i] = std::clamp(src[i] / 32768.0f, -1.0f, 1.0f);
+    }
+
+    if (m_lastTxPostChainScopeEmit.isValid())
+        m_lastTxPostChainScopeEmit.restart();
+    else
+        m_lastTxPostChainScopeEmit.start();
+    emit txPostChainScopeReady(m_scopeTxPostChainScratch,
+                               sampleRate > 0 ? sampleRate : DEFAULT_SAMPLE_RATE);
+}
+
 void AudioEngine::updateRxBufferStats()
 {
     const qsizetype total = m_rxBuffer.size() + m_radeRxBuffer.size();
@@ -156,6 +205,8 @@ AudioEngine::AudioEngine(QObject* parent)
     , m_clientPuduTx(std::make_unique<ClientPudu>())
     , m_clientPuduRx(std::make_unique<ClientPudu>())
     , m_clientReverbTx(std::make_unique<ClientReverb>())
+    , m_clientFinalLimiterTx(std::make_unique<ClientFinalLimiter>())
+    , m_clientTxTestTone(std::make_unique<ClientTxTestTone>())
     , m_cwSidetone(std::make_unique<CwSidetoneGenerator>(48000))
 {
     // Prepare client DSP at the native 24 kHz rate. Sink resampling is
@@ -172,6 +223,8 @@ AudioEngine::AudioEngine(QObject* parent)
     m_clientTubeTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientPuduTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientReverbTx->prepare(DEFAULT_SAMPLE_RATE);
+    m_clientFinalLimiterTx->prepare(DEFAULT_SAMPLE_RATE);
+    m_clientTxTestTone->prepare(DEFAULT_SAMPLE_RATE);
     loadClientEqSettings();      // restore persisted bands before first audio
     loadClientCompSettings();    // restore persisted comp params + chain order
     loadClientGateSettings();    // restore persisted gate params
@@ -183,6 +236,7 @@ AudioEngine::AudioEngine(QObject* parent)
     loadClientTubeSettings();    // restore persisted tube params
     loadClientPuduSettings();    // restore persisted PUDU params
     loadClientReverbSettings();  // restore persisted reverb params
+    loadClientFinalLimiterSettings();  // restore persisted final-limiter params
     loadClientRxChainOrder();    // restore persisted RX chain order (Phase 0+)
 
     // Restore saved audio device selections
@@ -1390,6 +1444,40 @@ void AudioEngine::applyClientReverbTxInt16(QByteArray& int16stereo)
     }
 }
 
+void AudioEngine::applyClientFinalLimiterTxInt16(QByteArray& int16stereo)
+{
+    if (!m_clientFinalLimiterTx) return;
+    if (int16stereo.isEmpty()) return;
+
+    const int samples = int16stereo.size() / static_cast<int>(sizeof(int16_t));
+    if ((samples & 1) != 0) return;
+    const int frames = samples / 2;
+
+    m_clientFinalLimiterTxScratch.resize(samples * static_cast<int>(sizeof(float)));
+    auto* f32 = reinterpret_cast<float*>(m_clientFinalLimiterTxScratch.data());
+    const auto* i16 = reinterpret_cast<const int16_t*>(int16stereo.constData());
+    for (int i = 0; i < samples; ++i) f32[i] = i16[i] / 32768.0f;
+
+    m_clientFinalLimiterTx->process(f32, frames, 2);
+
+    auto* out = reinterpret_cast<int16_t*>(int16stereo.data());
+    for (int i = 0; i < samples; ++i) {
+        out[i] = static_cast<int16_t>(
+            std::clamp(f32[i] * 32768.0f, -32768.0f, 32767.0f));
+    }
+}
+
+void AudioEngine::applyClientFinalLimiterTxFloat32(QByteArray& float32)
+{
+    if (!m_clientFinalLimiterTx) return;
+    if (float32.isEmpty()) return;
+    const int samples  = float32.size() / static_cast<int>(sizeof(float));
+    const int channels = (samples % 2 == 0) ? 2 : 1;
+    const int frames   = samples / channels;
+    m_clientFinalLimiterTx->process(reinterpret_cast<float*>(float32.data()),
+                                    frames, channels);
+}
+
 void AudioEngine::applyClientReverbTxFloat32(QByteArray& float32)
 {
     if (!m_clientReverbTx || !m_clientReverbTx->isEnabled()) return;
@@ -2240,6 +2328,11 @@ void AudioEngine::setTxPostDspMonitor(ClientPuduMonitor* m) noexcept
     m_txPostDspMonitor.store(m, std::memory_order_release);
 }
 
+void AudioEngine::setTxFinalMonitor(ClientPuduMonitor* m) noexcept
+{
+    m_txFinalMonitor.store(m, std::memory_order_release);
+}
+
 void AudioEngine::saveClientPuduSettings() const
 {
     if (!m_clientPuduTx) return;
@@ -2326,7 +2419,7 @@ void AudioEngine::loadClientReverbSettings()
         s.value("ClientReverbTxMix", "0.15").toFloat());
 }
 
-void AudioEngine::saveClientReverbSettings() const
+void AudioEngine::saveClientReverbSettings()
 {
     if (!m_clientReverbTx) return;
     auto& s = AppSettings::instance();
@@ -2342,6 +2435,35 @@ void AudioEngine::saveClientReverbSettings() const
         QString::number(m_clientReverbTx->preDelayMs()));
     s.setValue("ClientReverbTxMix",
         QString::number(m_clientReverbTx->mix()));
+    emit clientReverbStateChanged();
+}
+
+void AudioEngine::loadClientFinalLimiterSettings()
+{
+    if (!m_clientFinalLimiterTx) return;
+    auto& s = AppSettings::instance();
+    m_clientFinalLimiterTx->setEnabled(
+        s.value("ClientFinalLimiterTxEnabled", "True").toString() == "True");
+    m_clientFinalLimiterTx->setCeilingDb(
+        s.value("ClientFinalLimiterTxCeilingDb", "-1.0").toFloat());
+    m_clientFinalLimiterTx->setOutputTrimDb(
+        s.value("ClientFinalLimiterTxOutputTrimDb", "0.0").toFloat());
+    m_clientFinalLimiterTx->setDcBlockEnabled(
+        s.value("ClientFinalLimiterTxDcBlock", "True").toString() == "True");
+}
+
+void AudioEngine::saveClientFinalLimiterSettings() const
+{
+    if (!m_clientFinalLimiterTx) return;
+    auto& s = AppSettings::instance();
+    s.setValue("ClientFinalLimiterTxEnabled",
+        m_clientFinalLimiterTx->isEnabled() ? QString("True") : QString("False"));
+    s.setValue("ClientFinalLimiterTxCeilingDb",
+        QString::number(m_clientFinalLimiterTx->ceilingDb()));
+    s.setValue("ClientFinalLimiterTxOutputTrimDb",
+        QString::number(m_clientFinalLimiterTx->outputTrimDb()));
+    s.setValue("ClientFinalLimiterTxDcBlock",
+        m_clientFinalLimiterTx->dcBlockEnabled() ? QString("True") : QString("False"));
 }
 
 static QString wisdomDir()
@@ -3220,6 +3342,17 @@ void AudioEngine::onTxAudioReady()
     // Opus / VITA-49, so the user hears the shaped signal exactly as the
     // radio will receive it.  Chain order (CMP→EQ vs EQ→CMP) is user-
     // selectable via setTxChainOrder().
+    // ── Test tone (head of chain) ───────────────────────────────
+    // When enabled, replaces mic input with a sine so the user can
+    // run the chain on a known signal.  Runs BEFORE the user's DSP
+    // chain so the tone exits the strip with all stages applied.
+    if (m_clientTxTestTone && m_clientTxTestTone->isEnabled()) {
+        const int samples = data.size() / static_cast<int>(sizeof(int16_t));
+        const int frames  = samples / 2;
+        m_clientTxTestTone->process(
+            reinterpret_cast<int16_t*>(data.data()), frames, 2);
+    }
+
     applyClientTxDspInt16(data);
 
     // ── PUDU monitor tap ─────────────────────────────────────────
@@ -3239,6 +3372,30 @@ void AudioEngine::onTxAudioReady()
             pcm[i] = static_cast<int16_t>(std::clamp(
                 static_cast<int>(pcm[i] * gain), -32768, 32767));
     }
+
+    // ── Final brickwall limiter (TX tail) ───────────────────────────────
+    // Sits at the very end of the chain — after every user-configurable
+    // stage AND after PC mic gain — so no sample escapes louder than the
+    // configured ceiling regardless of upstream behaviour.  Its meters
+    // (input / output peak, GR, active) are what the strip's "Final
+    // Output Stage" panel reads.
+    applyClientFinalLimiterTxInt16(data);
+
+    // ── Final-output monitor tap ────────────────────────────────
+    // Mirrors the post-PUDU monitor but reads at the chain's tail
+    // (post-limiter), so a recording captures EXACTLY what the radio
+    // is told to transmit.  Lock-free pointer load; the monitor's
+    // feedTxPostDsp() handles the not-recording fast path.
+    if (auto* mon = m_txFinalMonitor.load(std::memory_order_acquire)) {
+        mon->feedTxPostDsp(data);
+    }
+
+    // ── TX post-final-limiter scope tap ─────────────────────────
+    // Sampled here, AFTER everything the strip can do to the audio
+    // (user chain, PC mic gain, brickwall limiter), so the strip's
+    // "Waveform CE-SSB" panel shows the exact int16 stream that gets
+    // packetised into VITA-49 and sent to the radio.
+    emitTxPostChainScopeFromInt16Stereo(data, DEFAULT_SAMPLE_RATE);
 
     // ── Client-side PC mic level metering (int16) ───────────────────────
     {

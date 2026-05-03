@@ -4,6 +4,7 @@
 #include "ClientComp.h"
 #include "ClientDeEss.h"
 #include "ClientEq.h"
+#include "ClientFinalLimiter.h"
 #include "ClientGate.h"
 #include "ClientPudu.h"
 #include "ClientReverb.h"
@@ -500,6 +501,18 @@ QJsonObject ChannelStripPresets::capturePresetJson() const
         preset["reverb"] = o;
     }
 
+    // Final brickwall limiter (always present, not in user chain).
+    // Test-tone state is intentionally NOT in presets — it's a
+    // session-time setup tool, not a "voice mix" parameter.
+    if (auto* lim = m_engine->clientFinalLimiterTx()) {
+        QJsonObject o;
+        o["enabled"]      = lim->isEnabled();
+        o["ceilingDb"]    = lim->ceilingDb();
+        o["outputTrimDb"] = lim->outputTrimDb();
+        o["dcBlock"]      = lim->dcBlockEnabled();
+        preset["finalLimiter"] = o;
+    }
+
     return preset;
 }
 
@@ -637,6 +650,31 @@ void ChannelStripPresets::applyPresetJson(const QJsonObject& preset)
         r->setPreDelayMs(jnum(o, "preDelayMs", r->preDelayMs()));
         r->setMix(jnum(o, "mix", r->mix()));
     }
+
+    // Final brickwall limiter.
+    if (auto* lim = m_engine->clientFinalLimiterTx();
+        lim && preset.contains("finalLimiter")
+            && preset.value("finalLimiter").isObject()) {
+        const auto o = preset.value("finalLimiter").toObject();
+        lim->setEnabled(jbool(o, "enabled", lim->isEnabled()));
+        lim->setCeilingDb(jnum(o, "ceilingDb", lim->ceilingDb()));
+        lim->setOutputTrimDb(jnum(o, "outputTrimDb", lim->outputTrimDb()));
+        lim->setDcBlockEnabled(jbool(o, "dcBlock", lim->dcBlockEnabled()));
+    }
+
+    // Persist the new engine state back to AppSettings so the values
+    // survive an app restart.  Without this, the per-module setters
+    // above only update in-memory state — on next launch the engine
+    // would reload whatever AppSettings had BEFORE the preset was
+    // applied, making it look like the preset never stuck.
+    m_engine->saveClientGateSettings();
+    m_engine->saveClientEqSettings();
+    m_engine->saveClientCompSettings();
+    m_engine->saveClientDeEssSettings();
+    m_engine->saveClientTubeSettings();
+    m_engine->saveClientPuduSettings();
+    m_engine->saveClientReverbSettings();
+    m_engine->saveClientFinalLimiterSettings();
 }
 
 } // namespace AetherSDR

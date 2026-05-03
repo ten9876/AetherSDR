@@ -90,7 +90,7 @@ StripPuduPanel::StripPuduPanel(AudioEngine* engine, QWidget* parent)
     : QWidget(parent)
     , m_audio(engine)
 {
-    setWindowTitle(QString::fromUtf8("Aetherial Poodoo\xe2\x84\xa2"));
+    setWindowTitle(QStringLiteral("Aetherial Voice Processor"));
     setStyleSheet(kWindowStyle);
     resize(kDefaultWidth, kDefaultHeight);
 
@@ -104,6 +104,10 @@ StripPuduPanel::StripPuduPanel(AudioEngine* engine, QWidget* parent)
 
     // ── Logo (big in the editor) ────────────────────────────────
     m_logo = new PooDooLogo;
+    // Strip-side rebrand — the docked applet keeps the legacy
+    // "PooDoo™" mark; this strip panel uses the operator-facing
+    // marketing name.
+    m_logo->setWordmark(QString::fromUtf8("AetherVoice\xe2\x84\xa2"));
     m_logo->setMinimumHeight(80);
     root->addWidget(m_logo);
 
@@ -166,8 +170,8 @@ StripPuduPanel::StripPuduPanel(AudioEngine* engine, QWidget* parent)
         grid->setVerticalSpacing(4);
         grid->setColumnMinimumWidth(3, 32);   // gap between Poo and Doo
 
-        grid->addWidget(makeBracketLabel("Poo"), 0, 0, 1, 3);
-        grid->addWidget(makeBracketLabel("Doo"), 0, 4, 1, 3);
+        grid->addWidget(makeBracketLabel("Body"),    0, 0, 1, 3);
+        grid->addWidget(makeBracketLabel("Clarity"), 0, 4, 1, 3);
 
         auto makeKnob = [](const QString& label) {
             auto* k = new ClientCompKnob;
@@ -274,38 +278,19 @@ StripPuduPanel::~StripPuduPanel() = default;
 
 ClientPudu* StripPuduPanel::pudu() const
 {
-    if (!m_audio) return nullptr;
-    return m_side == Side::Rx ? m_audio->clientPuduRx()
-                              : m_audio->clientPuduTx();
+    return m_audio ? m_audio->clientPuduTx() : nullptr;
 }
 
 void StripPuduPanel::savePuduSettings() const
 {
-    if (!m_audio) return;
-    if (m_side == Side::Rx) m_audio->saveClientPuduRxSettings();
-    else                    m_audio->saveClientPuduSettings();
+    if (m_audio) m_audio->saveClientPuduSettings();
 }
 
 void StripPuduPanel::showForTx()
 {
-    m_side = Side::Tx;
     if (m_logo && pudu()) m_logo->setPudu(pudu());
-    const QString title = QString::fromUtf8("Aetherial Poodoo\xe2\x84\xa2 \xe2\x80\x94 TX");
-    if (m_titleBar)
-        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
-    setWindowTitle(title);
-    syncControlsFromEngine();
-    restoreGeometryFromSettings();
-    show();
-    raise();
-    activateWindow();
-}
-
-void StripPuduPanel::showForRx()
-{
-    m_side = Side::Rx;
-    if (m_logo && pudu()) m_logo->setPudu(pudu());
-    const QString title = QString::fromUtf8("Aetherial Poodoo\xe2\x84\xa2 \xe2\x80\x94 RX");
+    const QString title = QString::fromUtf8(
+        "Aetherial Voice Processor \xe2\x80\x94 TX");
     if (m_titleBar)
         static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
     setWindowTitle(title);

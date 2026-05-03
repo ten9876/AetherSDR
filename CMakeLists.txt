@@ -420,6 +420,8 @@ set(CORE_SOURCES
     src/core/ClientPudu.cpp
     src/core/ClientPuduMonitor.cpp
     src/core/ClientReverb.cpp
+    src/core/ClientFinalLimiter.cpp
+    src/core/ClientTxTestTone.cpp
     src/core/CwSidetoneGenerator.cpp
     src/core/CwSidetoneQAudioSink.cpp
     src/core/CwxLocalKeyer.cpp
@@ -570,7 +572,6 @@ set(GUI_SOURCES
     src/gui/ClientGateLevelView.cpp
     src/gui/ClientDeEssApplet.cpp
     src/gui/ClientDeEssCurveWidget.cpp
-    src/gui/ClientDeEssEditor.cpp
     src/gui/StripDeEssPanel.cpp
     src/gui/ClientTubeApplet.cpp
     src/gui/ClientTubeCurveWidget.cpp
@@ -580,8 +581,10 @@ set(GUI_SOURCES
     src/gui/ClientPuduEditor.cpp
     src/gui/StripPuduPanel.cpp
     src/gui/ClientReverbApplet.cpp
-    src/gui/ClientReverbEditor.cpp
     src/gui/StripReverbPanel.cpp
+    src/gui/StripWaveform.cpp
+    src/gui/StripWaveformPanel.cpp
+    src/gui/StripFinalOutputPanel.cpp
     src/gui/AetherialAudioStrip.cpp
     src/gui/PooDooLogo.cpp
     src/gui/ClientCompLimiterButton.cpp

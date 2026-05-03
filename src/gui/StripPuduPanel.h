@@ -18,16 +18,17 @@ class StripPuduPanel : public QWidget {
     Q_OBJECT
 
 public:
-    enum class Side { Tx, Rx };
-
     explicit StripPuduPanel(AudioEngine* engine, QWidget* parent = nullptr);
     ~StripPuduPanel() override;
 
     void showForTx();
-    void showForRx();
+
+    // Pull every knob / button / label state from the bound engine.
+    // Called after preset load when the engine is mutated externally.
+    void syncControlsFromEngine();
 
 signals:
-    void bypassToggled(Side side, bool bypassed);
+    void bypassToggled(bool bypassed);
 
 protected:
     void closeEvent(QCloseEvent* ev) override;
@@ -39,7 +40,6 @@ protected:
 private:
     void saveGeometryToSettings();
     void restoreGeometryFromSettings();
-    void syncControlsFromEngine();
 
     void onModeToggled(int id);
     void applyPooDrive(float db);
@@ -50,7 +50,6 @@ private:
     void applyDooMix(float v);
 
     AudioEngine*    m_audio{nullptr};
-    Side            m_side{Side::Tx};
     QWidget*        m_titleBar{nullptr};   // EditorFramelessTitleBar*
     class ClientPudu* pudu() const;
     void              savePuduSettings() const;

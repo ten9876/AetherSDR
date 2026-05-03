@@ -45,6 +45,10 @@ public:
     void showForTx();
     void showForRx();
 
+    // Pull every knob / button / label state from the bound engine.
+    // Called after preset load when the engine is mutated externally.
+    void syncControlsFromEngine();
+
 signals:
     // Fired when bypass toggles.  Docked applet subscribes to keep
     // its Enable button in sync.  side identifies which path (Tx or
@@ -61,7 +65,6 @@ protected:
 private:
     void saveGeometryToSettings();
     void restoreGeometryFromSettings();
-    void syncControlsFromEngine();
 
     // Parameter commit — all control signals land here; each writes
     // the engine + persists via AppSettings.
