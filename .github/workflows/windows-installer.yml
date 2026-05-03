@@ -75,6 +75,10 @@ jobs:
           if ($false) {
           }
 
+      - name: Stage MSVC runtime for installer
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\stage-msvc-runtime.ps1 -OutputDir installer-runtime
+
       - name: Create portable ZIP
         run: |
           Compress-Archive -Path deploy\* -DestinationPath "AetherSDR-${{ github.ref_name }}-Windows-x64-portable.zip"
@@ -82,7 +86,8 @@ jobs:
       - name: Create installer (Inno Setup)
         run: |
           $version = "${{ github.ref_name }}" -replace '^v', ''
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAPP_VERSION=$version packaging\windows\installer.iss
+          $runtimeDir = (Resolve-Path "installer-runtime").Path
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAPP_VERSION=$version "/DVC_RUNTIME_DIR=$runtimeDir" packaging\windows\installer.iss
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
