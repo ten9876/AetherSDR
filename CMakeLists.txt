@@ -473,9 +473,19 @@ set(CORE_SOURCES
 if(APPLE)
     list(APPEND CORE_SOURCES src/core/VirtualAudioBridge.cpp src/core/MacMicPermission.mm)
 elseif(UNIX)
-    # Linux DAX uses PulseAudio pipe modules via pactl (works with PipeWire too)
+    # Linux DAX uses PulseAudio pipe modules via pactl (works with PipeWire too).
+    # When libpipewire-0.3 dev headers are present we additionally compile a
+    # native pw_stream-based RX source for sub-100ms DAX RX latency.
     list(APPEND CORE_SOURCES src/core/PipeWireAudioBridge.cpp)
     set(HAVE_PIPEWIRE TRUE)
+    pkg_check_modules(PIPEWIRE_NATIVE libpipewire-0.3)
+    if(PIPEWIRE_NATIVE_FOUND)
+        list(APPEND CORE_SOURCES
+            src/core/PipeWireNativeContext.cpp
+            src/core/PipeWireNativeRxSource.cpp
+        )
+        set(HAVE_PIPEWIRE_NATIVE TRUE)
+    endif()
 endif()
 
 set(MODEL_SOURCES
@@ -1074,6 +1084,14 @@ endif()
 if(HAVE_PIPEWIRE)
     target_compile_definitions(AetherSDR PRIVATE HAVE_PIPEWIRE)
     message(STATUS "Linux DAX bridge enabled (PulseAudio pipe modules)")
+endif()
+
+if(HAVE_PIPEWIRE_NATIVE)
+    target_compile_definitions(AetherSDR PRIVATE HAVE_PIPEWIRE_NATIVE)
+    target_include_directories(AetherSDR PRIVATE ${PIPEWIRE_NATIVE_INCLUDE_DIRS})
+    target_link_libraries(AetherSDR PRIVATE ${PIPEWIRE_NATIVE_LIBRARIES})
+    target_compile_options(AetherSDR PRIVATE ${PIPEWIRE_NATIVE_CFLAGS_OTHER})
+    message(STATUS "Linux DAX RX uses native pw_stream (libpipewire-0.3 ${PIPEWIRE_NATIVE_VERSION})")
 endif()
 
 # Pass project version to code

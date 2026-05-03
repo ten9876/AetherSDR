@@ -1,8 +1,13 @@
 #include "PipeWireAudioBridge.h"
 #include "LogManager.h"
 
+#ifdef HAVE_PIPEWIRE_NATIVE
+#include "PipeWireNativeRxSource.h"
+#endif
+
 #include <QTimer>
 #include <QProcess>
+#include <QDateTime>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -47,8 +52,22 @@ bool PipeWireAudioBridge::open()
 
     cleanupStaleModules();
 
-    // Create 4 RX pipe sources (radio → apps)
+    // Create 4 RX sources (radio → apps).  When libpipewire-0.3 is available
+    // at build time, prefer native pw_stream sources — those let us set
+    // PW_KEY_NODE_LATENCY directly and avoid the kernel FIFO entirely, which
+    // is the path to <100 ms WSJT-X DT.  Fall back per-channel to the legacy
+    // module-pipe-source FIFO if the native open fails (e.g. PipeWire not
+    // running, only PulseAudio).
     for (int i = 0; i < NUM_CHANNELS; ++i) {
+#ifdef HAVE_PIPEWIRE_NATIVE
+        auto native = std::make_unique<PipeWireNativeRxSource>(i + 1);
+        if (native->open()) {
+            m_nativeRx[i] = std::move(native);
+            continue;
+        }
+        qCInfo(lcDax) << "PipeWireAudioBridge: native pw_stream unavailable for ch"
+                      << (i + 1) << "— falling back to module-pipe-source";
+#endif
         if (!loadPipeSource(i)) {
             qCWarning(lcDax) << "PipeWireAudioBridge: failed to create RX pipe" << (i + 1);
             close();
@@ -70,25 +89,36 @@ bool PipeWireAudioBridge::open()
     connect(m_txReadTimer, &QTimer::timeout, this, &PipeWireAudioBridge::readTxPipe);
     m_txReadTimer->start();
 
-    m_open = true;
+    m_open.store(true, std::memory_order_release);
     qCInfo(lcDax) << "PipeWireAudioBridge: opened — 4 RX sources + 1 TX sink";
     return true;
 }
 
 void PipeWireAudioBridge::close()
 {
+    // Tell the audio fast path we're shutting down before we tear down
+    // the native sources it might still be writing into.
+    m_open.store(false, std::memory_order_release);
+
     if (m_silenceTimer) {
         m_silenceTimer->stop();
         delete m_silenceTimer;
         m_silenceTimer = nullptr;
     }
-    m_transmitting = false;
+    m_transmitting.store(false, std::memory_order_release);
 
     if (m_txReadTimer) {
         m_txReadTimer->stop();
         delete m_txReadTimer;
         m_txReadTimer = nullptr;
     }
+
+#ifdef HAVE_PIPEWIRE_NATIVE
+    // Tear down native pw_stream sources (drops their context refcount).
+    for (auto& src : m_nativeRx) {
+        src.reset();
+    }
+#endif
 
     // Close pipe file descriptors
     for (auto& rx : m_rx) {
@@ -110,7 +140,6 @@ void PipeWireAudioBridge::close()
         m_tx.pipePath.clear();
     }
 
-    m_open = false;
     qCInfo(lcDax) << "PipeWireAudioBridge: closed";
 }
 
@@ -147,15 +176,20 @@ bool PipeWireAudioBridge::loadPipeSource(int index)
         return false;
     }
 
-    // Load PulseAudio pipe-source module
+    // Load PulseAudio pipe-source module.
+    // Format/rate match the PipeWire graph (48 kHz float32) so PipeWire does
+    // not insert a resampler on this node — that resampler is the dominant
+    // remaining latency source after pipe_size was reduced (see issue #1008).
+    // node.latency=256/48000 (~5.3 ms quantum) tells PipeWire to negotiate a
+    // small quantum for this node instead of falling back to clock.quantum-limit.
     uint32_t modIdx = runPactl({
         "load-module", "module-pipe-source",
         QStringLiteral("file=%1").arg(pipePath),
         QStringLiteral("source_name=%1").arg(sourceName),
-        QStringLiteral("source_properties=device.description=\"%1\"").arg(sourceDesc),
-        QStringLiteral("format=s16le"),
-        QStringLiteral("rate=%1").arg(SAMPLE_RATE),
-        QStringLiteral("channels=%1").arg(CHANNELS),
+        QStringLiteral("source_properties=device.description=\"%1\" node.latency=256/48000").arg(sourceDesc),
+        QStringLiteral("format=float32le"),
+        QStringLiteral("rate=%1").arg(PIPE_RATE),
+        QStringLiteral("channels=%1").arg(PIPE_CHANNELS),
     });
 
     if (modIdx == 0) {
@@ -170,6 +204,12 @@ bool PipeWireAudioBridge::loadPipeSource(int index)
         runPactl({"unload-module", QString::number(modIdx)});
         ::unlink(pipePath.toUtf8().constData());
         return false;
+    }
+
+    // Cap kernel FIFO capacity so back-pressure surfaces quickly instead of
+    // accumulating ~1.3 s of audio in the default 64 KB pipe buffer.
+    if (::fcntl(fd, F_SETPIPE_SZ, PIPE_KERNEL_BUF) < 0) {
+        qCDebug(lcDax) << "PipeWireAudioBridge: F_SETPIPE_SZ failed (non-fatal):" << strerror(errno);
     }
 
     m_rx[index].fd = fd;
@@ -200,8 +240,8 @@ bool PipeWireAudioBridge::loadPipeSink()
         QStringLiteral("sink_name=%1").arg(sinkName),
         QStringLiteral("sink_properties=device.description=\"%1\"").arg(sinkDesc),
         QStringLiteral("format=s16le"),
-        QStringLiteral("rate=%1").arg(SAMPLE_RATE),
-        QStringLiteral("channels=%1").arg(CHANNELS),
+        QStringLiteral("rate=%1").arg(TX_RATE),
+        QStringLiteral("channels=%1").arg(TX_CHANNELS),
         QStringLiteral("pipe_size=2048"),
     });
 
@@ -247,13 +287,13 @@ void PipeWireAudioBridge::setGain(float g)
 {
     m_gain = std::clamp(g, 0.0f, 1.0f);
     for (int i = 0; i < NUM_CHANNELS; ++i)
-        m_channelGain[i] = m_gain;
+        m_channelGain[i].store(m_gain, std::memory_order_relaxed);
 }
 
 void PipeWireAudioBridge::setChannelGain(int channel, float g)
 {
     if (channel >= 1 && channel <= NUM_CHANNELS)
-        m_channelGain[channel - 1] = std::clamp(g, 0.0f, 1.0f);
+        m_channelGain[channel - 1].store(std::clamp(g, 0.0f, 1.0f), std::memory_order_relaxed);
 }
 
 void PipeWireAudioBridge::setTxGain(float g)
@@ -263,46 +303,70 @@ void PipeWireAudioBridge::setTxGain(float g)
 
 void PipeWireAudioBridge::feedDaxAudio(int channel, const QByteArray& pcm)
 {
-    if (!m_open) return;
+    // This slot may run on PanadapterStream's network thread via
+    // Qt::DirectConnection — keep it lock-free.  All Qt-thread-affine work
+    // (timer stop, etc.) is deferred to the main-thread silence timer
+    // below, which observes m_lastAudioMs.
+    if (!m_open.load(std::memory_order_acquire)) return;
     if (channel < 1 || channel > NUM_CHANNELS) return;
 
-    // Real DAX audio has arrived — stop the silence fill timer if running.
-    if (m_transmitting && m_silenceTimer && m_silenceTimer->isActive()) {
-        m_silenceTimer->stop();
-        m_transmitting = false;
-    }
+    // Note "real audio just arrived" so the main-thread silence timer can
+    // stop itself on its next tick.  No locks, no Qt API touched here.
+    m_lastAudioMs.store(QDateTime::currentMSecsSinceEpoch(),
+                        std::memory_order_relaxed);
 
-    auto& rx = m_rx[channel - 1];
-    if (rx.fd < 0) return;
-
-    // Input is float32 stereo — convert to mono int16 (average L+R) with gain
+    // Input is 24 kHz stereo float32 from the radio.  Output is 48 kHz mono
+    // float32 — matches PipeWire graph rate so no in-graph resampler runs.
+    // Linear-interpolate between input samples for the off-grid output:
+    //   in:   x[0]   x[1]   x[2]   ...
+    //   out:  m[0]a  x[0]   m[1]a  x[1]   m[2]a  x[2] ...
+    //   m[n]a = (prev + x[n]) / 2
+    // prev is held across packets to avoid a click at packet boundaries.
     const auto* src = reinterpret_cast<const float*>(pcm.constData());
-    int stereoFloats = pcm.size() / static_cast<int>(sizeof(float));
-    int monoSamples = stereoFloats / 2;
-    float chGain = m_channelGain[channel - 1];
+    const int stereoFloats = pcm.size() / static_cast<int>(sizeof(float));
+    const int monoSamplesIn = stereoFloats / 2;
+    if (monoSamplesIn <= 0) return;
 
-    QByteArray mono(monoSamples * static_cast<int>(sizeof(int16_t)), Qt::Uninitialized);
-    auto* dst = reinterpret_cast<int16_t*>(mono.data());
-    for (int i = 0; i < monoSamples; ++i) {
-        float avg = (src[i * 2] + src[i * 2 + 1]) * 0.5f * chGain;
-        dst[i] = static_cast<int16_t>(std::clamp(avg * 32768.0f, -32768.0f, 32767.0f));
+    const float chGain = m_channelGain[channel - 1].load(std::memory_order_relaxed);
+    const int outSamples = monoSamplesIn * 2;
+    QByteArray out(outSamples * static_cast<int>(sizeof(float)), Qt::Uninitialized);
+    auto* dst = reinterpret_cast<float*>(out.data());
+
+    float prev = m_rxLastSample[channel - 1];
+    for (int i = 0; i < monoSamplesIn; ++i) {
+        const float cur = (src[i * 2] + src[i * 2 + 1]) * 0.5f * chGain;
+        dst[i * 2]     = (prev + cur) * 0.5f;  // interpolated midpoint
+        dst[i * 2 + 1] = cur;                  // on-grid input sample
+        prev = cur;
     }
-    ::write(rx.fd, mono.constData(), mono.size());
+    m_rxLastSample[channel - 1] = prev;
 
-    // Calculate RMS for meter display (every ~100ms = ~10 calls at 24kHz)
+#ifdef HAVE_PIPEWIRE_NATIVE
+    if (m_nativeRx[channel - 1]) {
+        m_nativeRx[channel - 1]->feedAudio(dst, static_cast<uint32_t>(outSamples));
+    } else
+#endif
+    {
+        auto& rx = m_rx[channel - 1];
+        if (rx.fd < 0) return;
+        ::write(rx.fd, out.constData(), out.size());
+    }
+
+    // Calculate RMS for meter display (every ~100ms = ~10 packets at 24kHz)
     static int meterCount[NUM_CHANNELS]{};
     if (++meterCount[channel - 1] % 10 == 0) {
         float sum = 0;
-        for (int i = 0; i < monoSamples; ++i)
-            sum += (dst[i] / 32768.0f) * (dst[i] / 32768.0f);
-        float rms = std::sqrt(sum / std::max(1, monoSamples));
+        for (int i = 0; i < outSamples; ++i) {
+            sum += dst[i] * dst[i];
+        }
+        const float rms = std::sqrt(sum / std::max(1, outSamples));
         emit daxRxLevel(channel, rms);
     }
 }
 
 void PipeWireAudioBridge::setTransmitting(bool tx)
 {
-    m_transmitting = tx;
+    m_transmitting.store(tx, std::memory_order_release);
 
     if (tx) {
         // Start a timer that feeds silence into all RX pipes so the
@@ -326,25 +390,46 @@ void PipeWireAudioBridge::setTransmitting(bool tx)
 
 void PipeWireAudioBridge::feedSilenceToAllPipes()
 {
-    if (!m_open) return;
+    if (!m_open.load(std::memory_order_acquire)) return;
 
-    // Compute the exact number of mono int16 silence samples based on
+    // Self-stop: if real DAX audio has arrived in the last 50 ms, the radio
+    // has resumed RX — drop the silence fill.  This used to live in
+    // feedDaxAudio() but had to move here so the audio fast path can run on
+    // any thread without touching QTimer (QTimer is thread-affine).
+    const qint64 nowMs  = QDateTime::currentMSecsSinceEpoch();
+    const qint64 lastMs = m_lastAudioMs.load(std::memory_order_relaxed);
+    if (lastMs != 0 && (nowMs - lastMs) < 50) {
+        m_silenceTimer->stop();
+        m_transmitting.store(false, std::memory_order_release);
+        return;
+    }
+
+    // Compute the exact number of mono float32 silence samples based on
     // elapsed wall-clock time.  This avoids cumulative drift from QTimer
     // jitter (same approach as the macOS VirtualAudioBridge fix).
     const qint64 elapsedNs = m_silenceElapsed.nsecsElapsed();
     m_silenceElapsed.start();
 
-    // mono samples = elapsed_s * sampleRate
+    // Pipe runs at PIPE_RATE (48 kHz) mono float32.
     const int monoSamples = static_cast<int>(
-        elapsedNs * SAMPLE_RATE / 1000000000LL);
+        elapsedNs * PIPE_RATE / 1000000000LL);
     if (monoSamples <= 0) return;
 
-    // Write silence (zero int16 samples) to each active RX pipe.
-    QByteArray silence(monoSamples * static_cast<int>(sizeof(int16_t)), '\0');
+    // Write silence (zero float32 samples) to each active RX path.
+    QByteArray silence(monoSamples * static_cast<int>(sizeof(float)), '\0');
+    const auto* silenceFloat = reinterpret_cast<const float*>(silence.constData());
     for (int i = 0; i < NUM_CHANNELS; ++i) {
+#ifdef HAVE_PIPEWIRE_NATIVE
+        if (m_nativeRx[i]) {
+            m_nativeRx[i]->feedAudio(silenceFloat, static_cast<uint32_t>(monoSamples));
+        } else
+#endif
         if (m_rx[i].fd >= 0) {
             ::write(m_rx[i].fd, silence.constData(), silence.size());
         }
+        // Reset upsample state to silence so the first real packet after TX
+        // doesn't interpolate from a stale audio sample.
+        m_rxLastSample[i] = 0.0f;
     }
 }
 

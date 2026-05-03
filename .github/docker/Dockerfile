@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y \
     libhidapi-dev \
     qtkeychain-qt6-dev \
     portaudio19-dev \
+    libpipewire-0.3-dev \
     autoconf \
     automake \
     libtool \
