@@ -11897,9 +11897,16 @@ bool MainWindow::startDax()
         }
     }
 
-    // Wire DAX RX: PanadapterStream routes registered DAX streams here
+    // Wire DAX RX: PanadapterStream routes registered DAX streams here.
+    // Qt::DirectConnection is intentional — feedDaxAudio runs on PanadapterStream's
+    // network thread instead of being queued on the GUI event loop.  That removes
+    // 10–50 ms of variable latency that the main thread was adding under heavy
+    // GUI load (waterfall paints, multiple panadapters).  Requires the DaxBridge
+    // implementations to be safe to call off the GUI thread (PipeWireAudioBridge
+    // was made lock-free / atomic for this in #1008).
     connect(m_radioModel.panStream(), &PanadapterStream::daxAudioReady,
-            m_daxBridge, &DaxBridge::feedDaxAudio);
+            m_daxBridge, &DaxBridge::feedDaxAudio,
+            Qt::DirectConnection);
 
     // ── DAX IQ stream status + VITA routing ─────────────────────────────
     connect(&m_radioModel, &RadioModel::statusReceived,
