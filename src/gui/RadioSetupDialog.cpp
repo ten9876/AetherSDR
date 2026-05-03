@@ -52,6 +52,7 @@
 #include <QHostAddress>
 #include <QDebug>
 #include <QPointer>
+#include <QSignalBlocker>
 
 #include <memory>
 
@@ -72,6 +73,91 @@ static const QString kValueStyle =
 static const QString kEditStyle =
     "QLineEdit { background: #1a2a3a; border: 1px solid #304050; "
     "border-radius: 3px; color: #c8d8e8; font-size: 12px; padding: 2px 4px; }";
+
+static QString normalizedOscillatorValue(QString value)
+{
+    value = value.trimmed().toLower();
+    return value == "ext" ? QStringLiteral("external") : value;
+}
+
+static QString oscillatorSourceLabel(const QString& value)
+{
+    const QString normalized = normalizedOscillatorValue(value);
+    if (normalized == "auto") return QStringLiteral("Auto");
+    if (normalized == "external") return QStringLiteral("External 10 MHz");
+    if (normalized == "gpsdo") return QStringLiteral("GPSDO");
+    if (normalized == "tcxo") return QStringLiteral("TCXO");
+    return value.trimmed().isEmpty() ? QStringLiteral("Unknown") : value.toUpper();
+}
+
+static QString oscillatorStatusText(const RadioModel* model)
+{
+    const QString setting = normalizedOscillatorValue(model->oscSetting());
+    const QString state = normalizedOscillatorValue(model->oscState());
+    if (state.isEmpty())
+        return QStringLiteral("Waiting for oscillator status");
+
+    QString text;
+    if (setting == "auto" && state != "auto") {
+        text = QStringLiteral("Auto -> %1").arg(oscillatorSourceLabel(state));
+    } else if (!setting.isEmpty() && setting != state && state != "auto") {
+        text = QStringLiteral("%1 -> %2")
+                   .arg(oscillatorSourceLabel(setting), oscillatorSourceLabel(state));
+    } else {
+        text = oscillatorSourceLabel(state);
+    }
+
+    text += model->oscLocked() ? QStringLiteral(" Locked")
+                               : QStringLiteral(" Unlocked");
+    if (state == "external" && !model->extPresent())
+        text += QStringLiteral(" (not detected)");
+    return text;
+}
+
+static QString oscillatorStatusColor(const RadioModel* model)
+{
+    if (normalizedOscillatorValue(model->oscState()).isEmpty())
+        return QStringLiteral("#8aa8c0");
+    return model->oscLocked() ? QStringLiteral("#00c040")
+                              : QStringLiteral("#c04040");
+}
+
+static void addOscillatorChoice(QComboBox* combo, const QString& label,
+                                const QString& value)
+{
+    if (combo->findData(value) < 0)
+        combo->addItem(label, value);
+}
+
+static void refreshOscillatorSourceCombo(QComboBox* combo, const RadioModel* model,
+                                         const QString& preferred = {})
+{
+    const QString current = normalizedOscillatorValue(
+        preferred.isEmpty() ? combo->currentData().toString() : preferred);
+    const QString setting = normalizedOscillatorValue(model->oscSetting());
+    const QString state = normalizedOscillatorValue(model->oscState());
+    const bool hasOscillatorStatus = !state.isEmpty();
+
+    auto shouldKeep = [&](const QString& value) {
+        return current == value || setting == value || state == value;
+    };
+
+    combo->clear();
+    addOscillatorChoice(combo, QStringLiteral("Auto"), QStringLiteral("auto"));
+    if (hasOscillatorStatus || model->tcxoPresent() || shouldKeep(QStringLiteral("tcxo")))
+        addOscillatorChoice(combo, QStringLiteral("TCXO"), QStringLiteral("tcxo"));
+    if (model->gpsdoPresent() || shouldKeep(QStringLiteral("gpsdo")))
+        addOscillatorChoice(combo, QStringLiteral("GPSDO"), QStringLiteral("gpsdo"));
+    if (hasOscillatorStatus || model->extPresent() || shouldKeep(QStringLiteral("external")))
+        addOscillatorChoice(combo, QStringLiteral("External 10 MHz"),
+                            QStringLiteral("external"));
+
+    const QString desired = setting.isEmpty() ? current : setting;
+    int idx = combo->findData(desired);
+    if (idx < 0) idx = combo->findData(current);
+    if (idx < 0) idx = combo->findData(QStringLiteral("auto"));
+    if (idx >= 0) combo->setCurrentIndex(idx);
+}
 
 RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
                                    TgxlConnection* tgxl, PgxlConnection* pgxl,
@@ -1474,13 +1560,7 @@ QWidget* RadioSetupDialog::buildRxTab()
 
         auto* srcCmb = new QComboBox;
         AetherSDR::applyComboStyle(srcCmb);
-        srcCmb->addItem("Auto", "auto");
-        if (m_model->tcxoPresent())  srcCmb->addItem("TCXO", "tcxo");
-        if (m_model->gpsdoPresent()) srcCmb->addItem("GPSDO", "gpsdo");
-        if (m_model->extPresent())   srcCmb->addItem("External", "external");
-        // Select current setting
-        int idx = srcCmb->findData(m_model->oscSetting());
-        if (idx >= 0) srcCmb->setCurrentIndex(idx);
+        refreshOscillatorSourceCombo(srcCmb, m_model);
         connect(srcCmb, &QComboBox::currentIndexChanged, this, [this, srcCmb](int i) {
             m_model->sendCommand(
                 "radio oscillator " + srcCmb->itemData(i).toString());
@@ -1488,32 +1568,22 @@ QWidget* RadioSetupDialog::buildRxTab()
         grid->addWidget(srcCmb, 0, 1);
 
         // Lock status
-        auto* lockLbl = new QLabel(
-            m_model->oscState().toUpper() + (m_model->oscLocked() ? " Locked" : " Unlocked"));
-        lockLbl->setStyleSheet(m_model->oscLocked()
-            ? "QLabel { color: #00c040; font-size: 12px; font-weight: bold; }"
-            : "QLabel { color: #c04040; font-size: 12px; font-weight: bold; }");
+        auto* lockLbl = new QLabel(oscillatorStatusText(m_model));
+        lockLbl->setStyleSheet(QStringLiteral(
+            "QLabel { color: %1; font-size: 12px; font-weight: bold; }")
+            .arg(oscillatorStatusColor(m_model)));
         grid->addWidget(lockLbl, 0, 2);
 
         // Live-update oscillator status when radio state changes (#967)
-        connect(m_model, &RadioModel::infoChanged, this, [this, srcCmb, lockLbl] {
-            const QString text = m_model->oscState().toUpper()
-                + (m_model->oscLocked() ? " Locked" : " Unlocked");
-            lockLbl->setText(text);
-            lockLbl->setStyleSheet(m_model->oscLocked()
-                ? "QLabel { color: #00c040; font-size: 12px; font-weight: bold; }"
-                : "QLabel { color: #c04040; font-size: 12px; font-weight: bold; }");
+        connect(m_model, &RadioModel::oscillatorChanged, this, [this, srcCmb, lockLbl] {
+            lockLbl->setText(oscillatorStatusText(m_model));
+            lockLbl->setStyleSheet(QStringLiteral(
+                "QLabel { color: %1; font-size: 12px; font-weight: bold; }")
+                .arg(oscillatorStatusColor(m_model)));
 
-            const QString current = srcCmb->currentData().toString();
+            const QString current = normalizedOscillatorValue(srcCmb->currentData().toString());
             QSignalBlocker blocker(srcCmb);
-            srcCmb->clear();
-            srcCmb->addItem("Auto", "auto");
-            if (m_model->tcxoPresent())  { srcCmb->addItem("TCXO",     "tcxo"); }
-            if (m_model->gpsdoPresent()) { srcCmb->addItem("GPSDO",    "gpsdo"); }
-            if (m_model->extPresent())   { srcCmb->addItem("External", "external"); }
-            int idx = srcCmb->findData(m_model->oscSetting());
-            if (idx < 0) { idx = srcCmb->findData(current); }
-            if (idx >= 0) { srcCmb->setCurrentIndex(idx); }
+            refreshOscillatorSourceCombo(srcCmb, m_model, current);
         });
 
         vbox->addWidget(group);

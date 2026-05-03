@@ -354,6 +354,8 @@ signals:
                           const QString& grid, const QString& altitude,
                           const QString& lat, const QString& lon,
                           const QString& utcTime);
+    // Emitted when the radio reports 10 MHz reference oscillator state.
+    void oscillatorChanged();
     // Emitted when network quality assessment changes.
     // quality: "Off", "Excellent", "Very Good", "Good", "Fair", "Poor"
     // pingMs: round-trip time in milliseconds

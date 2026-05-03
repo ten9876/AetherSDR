@@ -3601,37 +3601,90 @@ MainWindow::MainWindow(QWidget* parent)
             m_stationLabel->setText(nick);
     });
 
-    // Frequency reference label from oscillator status (#478)
-    // Show what the radio is actually locked to, not GPS satellite state.
-    connect(&m_radioModel, &RadioModel::infoChanged, this, [this]() {
-        const QString& state = m_radioModel.oscState();
+    auto normalizeOscillatorValue = [](QString value) {
+        value = value.trimmed().toLower();
+        return value == "ext" ? QStringLiteral("external") : value;
+    };
+    auto oscillatorName = [normalizeOscillatorValue](const QString& value, bool compact) {
+        const QString normalized = normalizeOscillatorValue(value);
+        if (normalized == "auto") return QStringLiteral("Auto");
+        if (normalized == "external")
+            return compact ? QStringLiteral("Ext 10M") : QStringLiteral("External 10 MHz");
+        if (normalized == "gpsdo") return QStringLiteral("GPSDO");
+        if (normalized == "tcxo") return QStringLiteral("TCXO");
+        return value.trimmed().isEmpty() ? QStringLiteral("Unknown") : value.toUpper();
+    };
+    auto updateFrequencyReferenceLabel = [this, normalizeOscillatorValue, oscillatorName] {
+        const QString state = normalizeOscillatorValue(m_radioModel.oscState());
+        const QString setting = normalizeOscillatorValue(m_radioModel.oscSetting());
         const bool locked = m_radioModel.oscLocked();
-        if (state == "gpsdo" && locked) {
-            // Don't override — GPS status handler shows satellite count
-        } else if (m_radioModel.extPresent() && (state == "ext" || state == "external")) {
-            m_gpsLabel->setText("Ref: Ext 10M");
-            m_gpsStatusLabel->setText(QString("[%1]").arg(locked ? "Locked" : "Unlocked"));
+
+        QString sourceLabel;
+        QString statusLabel;
+        if (state.isEmpty()) {
+            sourceLabel = QStringLiteral("Ref: --");
+            statusLabel = QStringLiteral("[Waiting]");
+        } else if (state == "gpsdo") {
+            if (locked && (m_radioModel.gpsTracked() > 0 || m_radioModel.gpsVisible() > 0)) {
+                sourceLabel = QStringLiteral("GPS: %1/%2")
+                                  .arg(m_radioModel.gpsTracked())
+                                  .arg(m_radioModel.gpsVisible());
+            } else {
+                sourceLabel = QStringLiteral("Ref: GPSDO");
+            }
+            statusLabel = locked && !m_radioModel.gpsStatus().isEmpty()
+                ? QStringLiteral("[%1]").arg(m_radioModel.gpsStatus())
+                : QStringLiteral("[%1]").arg(locked ? "Locked" : "Unlocked");
+        } else if (state == "external") {
+            sourceLabel = QStringLiteral("Ref: Ext 10M");
+            statusLabel = !m_radioModel.extPresent()
+                ? QStringLiteral("[No 10M]")
+                : QStringLiteral("[%1]").arg(locked ? "Locked" : "Unlocked");
         } else {
-            m_gpsLabel->setText("Ref: TCXO");
-            m_gpsStatusLabel->setText("[Locked]");
+            sourceLabel = QStringLiteral("Ref: %1").arg(oscillatorName(state, true));
+            statusLabel = QStringLiteral("[%1]").arg(locked ? "Locked" : "Unlocked");
         }
-    });
+
+        m_gpsLabel->setText(sourceLabel);
+        m_gpsStatusLabel->setText(statusLabel);
+
+        QString tooltip = QStringLiteral("10 MHz reference\nSetting: %1\nActual: %2\nLock: %3")
+            .arg(oscillatorName(setting, false),
+                 oscillatorName(state, false),
+                 locked ? QStringLiteral("Locked") : QStringLiteral("Unlocked"));
+        if (state == "external") {
+            tooltip += QStringLiteral("\nExternal 10 MHz: %1")
+                .arg(m_radioModel.extPresent() ? QStringLiteral("detected")
+                                                : QStringLiteral("not detected"));
+        }
+        if (state == "gpsdo") {
+            tooltip += QStringLiteral("\nGPS: %1/%2 satellites")
+                .arg(m_radioModel.gpsTracked())
+                .arg(m_radioModel.gpsVisible());
+            if (!m_radioModel.gpsStatus().isEmpty())
+                tooltip += QStringLiteral("\nGPS status: %1").arg(m_radioModel.gpsStatus());
+        }
+        m_gpsLabel->setToolTip(tooltip);
+        m_gpsStatusLabel->setToolTip(tooltip);
+    };
+
+    // Frequency reference label from oscillator status (#478)
+    // Show radio oscillator state immediately; GPS status only adds details.
+    connect(&m_radioModel, &RadioModel::oscillatorChanged, this, updateFrequencyReferenceLabel);
+    updateFrequencyReferenceLabel();
 
     connect(&m_radioModel, &RadioModel::gpsStatusChanged,
-            this, [this](const QString& status, int tracked, int visible,
-                         const QString& grid, const QString& /*alt*/,
+            this, [this, normalizeOscillatorValue, updateFrequencyReferenceLabel](
+                         const QString& /*status*/, int /*tracked*/, int /*visible*/,
+                         const QString& /*grid*/, const QString& /*alt*/,
                          const QString& /*lat*/, const QString& /*lon*/,
                          const QString& utcTime) {
-        // Only show satellite count + lock status when GPSDO is active
-        if (m_radioModel.oscState() == "gpsdo" && m_radioModel.oscLocked()) {
-            m_gpsLabel->setText(QString("GPS: %1/%2").arg(tracked).arg(visible));
-            m_gpsStatusLabel->setText(QString("[%1]").arg(status));
-        }
+        updateFrequencyReferenceLabel();
 
         // Use GPS UTC time only when GPSDO is installed and locked.
         // GPS with no antenna/lock sends stale "00:00:00Z" — fall back to system clock.
         if (!utcTime.isEmpty()
-            && m_radioModel.oscState() == "gpsdo"
+            && normalizeOscillatorValue(m_radioModel.oscState()) == "gpsdo"
             && m_radioModel.oscLocked()) {
             m_gpsTimeLabel->setText(utcTime);
             m_useSystemClock = false;

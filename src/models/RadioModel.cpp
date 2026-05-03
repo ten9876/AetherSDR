@@ -2878,6 +2878,7 @@ void RadioModel::onStatusReceived(const QString& object,
         if (kvs.contains("gpsdo_present"))m_gpsdoPresent= kvs["gpsdo_present"] == "1";
         if (kvs.contains("tcxo_present")) m_tcxoPresent = kvs["tcxo_present"] == "1";
         if (kvs.contains("gnss_present")) m_gpsdoPresent= m_gpsdoPresent || kvs["gnss_present"] == "1";
+        emit oscillatorChanged();
         emit infoChanged();
         return;
     }
