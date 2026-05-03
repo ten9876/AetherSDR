@@ -128,7 +128,6 @@ jobs:
           $cargs = @(
             "-B","build","-G","Ninja",
             "-DCMAKE_BUILD_TYPE=Release",
-            "-DENABLE_RADE=OFF",
             "-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded"
           )
           if ($launcher) {
@@ -136,6 +135,12 @@ jobs:
             $cargs += "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
           }
           & cmake @cargs
+
+      - name: Build Opus (RADE dependency)
+        # ExternalProject dependency ordering via BUILD_BYPRODUCTS is correct,
+        # but a separate step gives clearer CI failure attribution and avoids
+        # any Ninja parallel-build ordering edge cases with IMPORTED targets.
+        run: cmake --build build --target build_opus -j $env:NUMBER_OF_PROCESSORS
 
       - name: Build
         run: cmake --build build -j $env:NUMBER_OF_PROCESSORS
