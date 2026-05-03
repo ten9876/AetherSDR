@@ -512,7 +512,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
         "QDialog { background: #050710; }"
         "QTabWidget::pane { border: 1px solid #203040; border-radius: 4px; top: -1px; }"
         "QTabBar::tab { background: #0a0a14; border: 1px solid #203040; "
-        "border-bottom: none; color: #8aa8c0; padding: 6px 12px; }"
+        "border-bottom: none; color: #8aa8c0; padding: 7px 12px; }"
         "QTabBar::tab:selected { color: #c8d8e8; background: #111120; }"
         "QTabBar::tab:hover { color: #c8d8e8; }"
         "QGroupBox { border: 1px solid #203040; border-radius: 4px; "
@@ -607,13 +607,13 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     // on every edge.
     auto* outerContent = new QWidget(this);
     auto* body = new QVBoxLayout(outerContent);
-    body->setContentsMargins(10, 10, 10, 10);
+    body->setContentsMargins(10, 8, 10, 10);
     body->setSpacing(8);
     root->addWidget(outerContent, 1);
 
-    auto* controlRow = new QHBoxLayout;
-    auto* titleLabel = new QLabel("Network Diagnostics");
-    titleLabel->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; font-size: 15px; }");
+    // Timeframe selector lives in the top-right corner of the QTabWidget's
+    // tab bar so the tabs and the dropdown share a single row, eliminating
+    // the otherwise-empty band above the tabs.
     auto* rangeLabel = new QLabel("Timeframe");
     rangeLabel->setStyleSheet("QLabel { color: #8aa8c0; }");
     m_rangeCombo = new QComboBox(this);
@@ -631,16 +631,15 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     m_rangeCombo->addItem("1 hour", 60 * 60);
     m_rangeCombo->addItem("1 day", 24 * 60 * 60);
     m_rangeCombo->addItem("1 week", 7 * 24 * 60 * 60);
-    // Title text now lives in the chrome title bar above; drop the
-    // duplicate inline header but keep the timeframe selector right-
-    // aligned for parity with the previous layout.
-    titleLabel->hide();
-    controlRow->addStretch();
-    controlRow->addWidget(rangeLabel);
-    controlRow->addWidget(m_rangeCombo);
-    body->addLayout(controlRow);
 
     auto* tabs = new QTabWidget(this);
+    auto* corner = new QWidget(tabs);
+    auto* cornerRow = new QHBoxLayout(corner);
+    cornerRow->setContentsMargins(0, 0, 6, 2);
+    cornerRow->setSpacing(6);
+    cornerRow->addWidget(rangeLabel);
+    cornerRow->addWidget(m_rangeCombo);
+    tabs->setCornerWidget(corner, Qt::TopRightCorner);
     body->addWidget(tabs, 1);
 
     auto* overviewPage = new QWidget(this);
