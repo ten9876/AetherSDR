@@ -16,6 +16,14 @@
 #include <QStandardPaths>
 #include <QRegularExpression>
 
+#ifdef _WIN32
+#include <io.h>
+#define isatty _isatty
+#define fileno _fileno
+#else
+#include <unistd.h>
+#endif
+
 #ifdef __linux__
 #include <dlfcn.h>
 
@@ -105,7 +113,6 @@ static QString redactPii(const QString& msg)
 static void messageHandler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg)
 {
     Q_UNUSED(ctx);
-    QMutexLocker locker(logMutex());
 
     static const char* labels[] = {"DBG", "WRN", "CRT", "FTL", "INF"};
     const char* label = (type <= QtInfoMsg) ? labels[type] : "???";
@@ -115,13 +122,25 @@ static void messageHandler(QtMsgType type, const QMessageLogContext& ctx, const 
         .arg(QDateTime::currentDateTime().toString("HH:mm:ss.zzz"), label, safeMsg);
     const QByteArray lineBytes = line.toUtf8();
 
-    // Write to log file (PII-redacted)
-    if (s_logFile && s_logFile->isOpen()) {
-        s_logFile->write(lineBytes);
-        s_logFile->flush();
+    // File write is the only thing that needs the mutex — QFile is not
+    // thread-safe (PR #2284 added this serialization to fix concurrent-write
+    // corruption).
+    {
+        QMutexLocker locker(logMutex());
+        if (s_logFile && s_logFile->isOpen()) {
+            s_logFile->write(lineBytes);
+            s_logFile->flush();
+        }
     }
-    // Also print to stderr (PII-redacted)
-    fprintf(stderr, "%s", lineBytes.constData());
+
+    // Skip stderr when it's a pipe to a non-draining parent (Stream Deck
+    // "Run Command", systemd user services, GUI launchers).  Once the
+    // ~64 KB pipe buffer fills, a blocking write would lock up the app.
+    // The fprintf is outside the log mutex so even an unexpected stall
+    // here can't block other threads' log calls.
+    static const bool stderrIsTty = isatty(fileno(stderr));
+    if (stderrIsTty)
+        fprintf(stderr, "%s", lineBytes.constData());
 }
 
 int main(int argc, char* argv[])
