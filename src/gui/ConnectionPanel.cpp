@@ -1159,12 +1159,13 @@ void ConnectionPanel::rememberManualIp(const QString& ip)
     QStringList ips = loadRecentManualIpSettings();
     ips.removeAll(normalized);
     ips.prepend(normalized);
-    saveRecentManualIpSettings(ips);
+    const QStringList sanitized = sanitizeRecentManualIps(ips);
+    saveRecentManualIpSettings(sanitized);
 
     const QSignalBlocker comboBlocker(m_manualIpCombo);
     const QSignalBlocker editBlocker(m_manualIpEdit);
     m_manualIpCombo->clear();
-    for (const auto& recentIp : loadRecentManualIpSettings())
+    for (const auto& recentIp : sanitized)
         m_manualIpCombo->addItem(recentIp);
     m_manualIpCombo->setCurrentText(normalized);
 }
