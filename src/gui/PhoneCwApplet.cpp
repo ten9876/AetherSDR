@@ -202,7 +202,13 @@ void PhoneCwApplet::buildPhonePanel()
 
         connect(m_micLevelSlider, &QSlider::valueChanged, this, [this](int v) {
             m_micLevelLabel->setText(QString::number(v));
-            if (!m_updatingFromModel && m_model)
+            // Don't push to the radio in RADE mode: the slider is acting
+            // as client-side RADE gain (PcMicGain), and sending
+            // mic_level=N would silently overwrite the user's hardware-mic
+            // setting.  PC mode is already client-authoritative on the
+            // radio side (mic_level is ignored for PC), so the gate only
+            // matters for RADE-with-hardware-mic.
+            if (!m_updatingFromModel && m_model && !m_radeActive)
                 m_model->setMicLevel(v);
             emit micLevelChanged(v);
         });
