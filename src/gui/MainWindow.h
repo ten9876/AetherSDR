@@ -243,7 +243,8 @@ private:
     void commandSwrSweepFrequency(double freqMhz, int settleMs);
     void updateSwrSweepOverlay(double currentFreqMhz = -1.0);
     void setSwrSweepInputsLocked(bool locked);
-    void clearSwrSweepForBandChange(int sliceId, const QString& newBandName);
+    void clearSwrSweepForBandChange(int sliceId, const QString& panId,
+                                    const QString& newBandName);
     SliceModel* swrSweepTargetSlice(int requestedSliceId = -1) const;
 
     // Core objects

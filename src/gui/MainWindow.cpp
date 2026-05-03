@@ -7709,8 +7709,10 @@ void MainWindow::onSliceAdded(SliceModel* s)
                                   mhz, mhz, result);
         }
 
-        if (s->isTxSlice() || s->sliceId() == m_swrSweep.sliceId)
-            clearSwrSweepForBandChange(s->sliceId(), BandSettings::bandForFrequency(mhz));
+        if (s->isTxSlice() || s->sliceId() == m_swrSweep.sliceId) {
+            clearSwrSweepForBandChange(s->sliceId(), s->panId(),
+                                       BandSettings::bandForFrequency(mhz));
+        }
 
         // Feed frequency to Antenna Genius for band→antenna recall
         if (s->sliceId() == m_activeSliceId)
@@ -9202,7 +9204,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 << " freq_hint_mhz=" << QString::number(freqMhz, 'f', 6)
                 << " mode_hint=" << mode
                 << " xvtr=" << xvtrForBandSummary(bandName, xvtrs);
-            clearSwrSweepForBandChange(-1, bandName);
+            clearSwrSweepForBandChange(-1, applet->panId(), bandName);
             m_bandSettings.setCurrentBand(bandName);
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
@@ -11017,13 +11019,17 @@ void MainWindow::clearSwrSweepPlot()
     statusBar()->showMessage(QStringLiteral("SWR sweep plot cleared"), 2500);
 }
 
-void MainWindow::clearSwrSweepForBandChange(int sliceId, const QString& newBandName)
+void MainWindow::clearSwrSweepForBandChange(int sliceId, const QString& panId,
+                                            const QString& newBandName)
 {
     if (m_swrSweep.originalBandName.isEmpty()
         || newBandName.isEmpty()
         || newBandName == m_swrSweep.originalBandName) {
         return;
     }
+
+    if (!panId.isEmpty() && !m_swrSweep.panId.isEmpty() && panId != m_swrSweep.panId)
+        return;
 
     if (sliceId >= 0 && m_swrSweep.sliceId >= 0 && sliceId != m_swrSweep.sliceId)
         return;
