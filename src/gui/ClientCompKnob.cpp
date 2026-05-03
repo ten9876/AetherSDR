@@ -6,6 +6,7 @@
 #include <QPainterPath>
 #include <QPaintEvent>
 #include <QPen>
+#include <QPixmap>
 #include <QWheelEvent>
 #include <algorithm>
 #include <cmath>

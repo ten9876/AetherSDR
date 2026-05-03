@@ -1,4 +1,4 @@
-#include "ClientChainWidget.h"
+#include "StripChainWidget.h"
 #include "core/ClientComp.h"
 #include "core/ClientEq.h"
 #include "core/ClientGate.h"
@@ -35,9 +35,9 @@ namespace {
 // wraps into multiple rows snake-style — row 0 reads left-to-right,
 // row 1 right-to-left, and so on — so the full 8-box chain fits
 // inside a 260 px applet panel without crushing the boxes.
-constexpr int   kBoxHeight     = 20;
-constexpr int   kBoxWidthMin   = 36;
-constexpr int   kBoxWidthMax   = 54;
+constexpr int   kBoxHeight     = 30;
+constexpr int   kBoxWidthMin   = 50;
+constexpr int   kBoxWidthMax   = 50;
 constexpr int   kBoxGapMin     = 6;
 constexpr int   kBoxGapPref    = 10;
 // kMarginX must exceed kTurnOffset so row-transition connectors don't
@@ -98,7 +98,7 @@ QString stageLabel(AudioEngine::TxChainStage s)
 
 } // namespace
 
-ClientChainWidget::ClientChainWidget(QWidget* parent) : QWidget(parent)
+StripChainWidget::StripChainWidget(QWidget* parent) : QWidget(parent)
 {
     setAcceptDrops(true);
     setMouseTracking(true);
@@ -121,21 +121,21 @@ ClientChainWidget::ClientChainWidget(QWidget* parent) : QWidget(parent)
     });
 }
 
-void ClientChainWidget::setAudioEngine(AudioEngine* engine)
+void StripChainWidget::setAudioEngine(AudioEngine* engine)
 {
     m_audio = engine;
     rebuildLayout();
     update();
 }
 
-void ClientChainWidget::setMicInputReady(bool ready)
+void StripChainWidget::setMicInputReady(bool ready)
 {
     if (m_micInputReady == ready) return;
     m_micInputReady = ready;
     update();
 }
 
-void ClientChainWidget::setTxActive(bool active)
+void StripChainWidget::setTxActive(bool active)
 {
     if (m_txActive == active) return;
     m_txActive = active;
@@ -158,7 +158,7 @@ void ClientChainWidget::setTxActive(bool active)
     update();
 }
 
-bool ClientChainWidget::isStageImplemented(AudioEngine::TxChainStage s) const
+bool StripChainWidget::isStageImplemented(AudioEngine::TxChainStage s) const
 {
     // All six TX DSP stages are now implemented.  The Enh slot hosts
     // the PUDU exciter (Phase 5) — the enum name is legacy; the
@@ -172,7 +172,7 @@ bool ClientChainWidget::isStageImplemented(AudioEngine::TxChainStage s) const
         || s == AudioEngine::TxChainStage::Reverb;
 }
 
-bool ClientChainWidget::isStageBypassed(AudioEngine::TxChainStage s) const
+bool StripChainWidget::isStageBypassed(AudioEngine::TxChainStage s) const
 {
     if (!m_audio) return true;
     switch (s) {
@@ -195,7 +195,7 @@ bool ClientChainWidget::isStageBypassed(AudioEngine::TxChainStage s) const
     }
 }
 
-void ClientChainWidget::rebuildLayout()
+void StripChainWidget::rebuildLayout()
 {
     m_boxes.clear();
     if (!m_audio) return;
@@ -206,28 +206,27 @@ void ClientChainWidget::rebuildLayout()
     const int totalBoxes = 2 + stages.size();
     if (totalBoxes <= 0) return;
 
-    // Snake layout: wrap the chain into multiple rows so 8 boxes fit
-    // inside the 260 px applet panel comfortably.  Box width is
-    // preferred size (kBoxWidthMax); gap shrinks to fit if needed;
-    // boxesPerRow falls out of how many fit in the available width.
-    const int avail = std::max(0, width() - 2 * kMarginX);
-    int gap  = kBoxGapPref;
-    int boxW = kBoxWidthMax;
-
-    auto computeBoxesPerRow = [&]() {
-        // floor((avail + gap) / (boxW + gap)) — the +gap accounts for
-        // no gap after the last box.
-        if (boxW <= 0) return 1;
-        return std::max(1, (avail + gap) / (boxW + gap));
-    };
-    int boxesPerRow = std::min(totalBoxes, computeBoxesPerRow());
-
-    // If even the minimum box fits <2 per row, shrink the gap first,
-    // then fall back to single-row cramming.
-    if (boxesPerRow < 2 && totalBoxes > 1) {
-        gap  = kBoxGapMin;
-        boxW = kBoxWidthMin;
-        boxesPerRow = std::min(totalBoxes, computeBoxesPerRow());
+    // Strip variant: never wrap.  Box width scales between
+    // kBoxWidthMin and kBoxWidthMax to fit all boxes on one row; gap
+    // drops to kBoxGapMin if at min-box the layout still wouldn't fit.
+    // boxRect() prepends kRowLeftPad to every row, so subtract it from
+    // the available width or the rightmost box ends up clipped.
+    const int avail = std::max(0, width() - 2 * kMarginX - kRowLeftPad);
+    const int boxesPerRow = totalBoxes;
+    int gap = kBoxGapPref;
+    int boxW;
+    if (totalBoxes <= 1) {
+        boxW = kBoxWidthMax;
+    } else {
+        const int totalGap = (totalBoxes - 1) * gap;
+        const int per = std::max(1, (avail - totalGap) / totalBoxes);
+        boxW = std::clamp(per, kBoxWidthMin, kBoxWidthMax);
+        if (totalBoxes * boxW + (totalBoxes - 1) * gap > avail) {
+            gap = kBoxGapMin;
+            const int totalGap2 = (totalBoxes - 1) * gap;
+            const int per2 = std::max(1, (avail - totalGap2) / totalBoxes);
+            boxW = std::max(8, std::min(per2, kBoxWidthMax));
+        }
     }
 
     const int numRows = (totalBoxes + boxesPerRow - 1) / boxesPerRow;
@@ -270,7 +269,7 @@ void ClientChainWidget::rebuildLayout()
     if (height() != desiredH) setFixedHeight(desiredH);
 }
 
-int ClientChainWidget::hitTest(const QPointF& pos) const
+int StripChainWidget::hitTest(const QPointF& pos) const
 {
     for (int i = 0; i < m_boxes.size(); ++i) {
         if (m_boxes[i].rect.contains(pos)) return i;
@@ -278,7 +277,7 @@ int ClientChainWidget::hitTest(const QPointF& pos) const
     return -1;
 }
 
-int ClientChainWidget::dropInsertIndex(const QPointF& pos) const
+int StripChainWidget::dropInsertIndex(const QPointF& pos) const
 {
     // Return an index in the *processor list* (excluding endpoints)
     // where the dragged stage should be inserted.  Processor boxes
@@ -338,7 +337,7 @@ int ClientChainWidget::dropInsertIndex(const QPointF& pos) const
     return std::clamp(procIdx, 0, nProc);
 }
 
-void ClientChainWidget::paintEvent(QPaintEvent*)
+void StripChainWidget::paintEvent(QPaintEvent*)
 {
     rebuildLayout();
 
@@ -417,9 +416,10 @@ void ClientChainWidget::paintEvent(QPaintEvent*)
         }
     }
 
-    // Boxes.  9 px bold matches the RX/TX tab label scale.
+    // Boxes.  14 px bold — sized for the strip's 30-tall tiles so
+    // 4-char labels (DESS / PUDU / VERB) read at a glance.
     QFont labelFont = p.font();
-    labelFont.setPixelSize(9);
+    labelFont.setPixelSize(12);
     labelFont.setBold(true);
     p.setFont(labelFont);
 
@@ -518,7 +518,7 @@ void ClientChainWidget::paintEvent(QPaintEvent*)
     }
 }
 
-void ClientChainWidget::mousePressEvent(QMouseEvent* ev)
+void StripChainWidget::mousePressEvent(QMouseEvent* ev)
 {
     if (ev->button() != Qt::LeftButton) { QWidget::mousePressEvent(ev); return; }
     const int idx = hitTest(ev->position());
@@ -531,7 +531,7 @@ void ClientChainWidget::mousePressEvent(QMouseEvent* ev)
     ev->accept();
 }
 
-void ClientChainWidget::mouseMoveEvent(QMouseEvent* ev)
+void StripChainWidget::mouseMoveEvent(QMouseEvent* ev)
 {
     if (m_pressIndex < 0 || !(ev->buttons() & Qt::LeftButton)) {
         // Hover → update cursor over interactive boxes.
@@ -562,7 +562,7 @@ void ClientChainWidget::mouseMoveEvent(QMouseEvent* ev)
         pp.drawRoundedRect(QRectF(0, 0, pix.width() - 1, pix.height() - 1),
                            kRadius, kRadius);
         QFont f = pp.font();
-        f.setPixelSize(9);
+        f.setPixelSize(12);
         f.setBold(true);
         pp.setFont(f);
         pp.setPen(kTextLabel);
@@ -577,7 +577,7 @@ void ClientChainWidget::mouseMoveEvent(QMouseEvent* ev)
     update();
 }
 
-void ClientChainWidget::mouseReleaseEvent(QMouseEvent* ev)
+void StripChainWidget::mouseReleaseEvent(QMouseEvent* ev)
 {
     if (ev->button() != Qt::LeftButton) { QWidget::mouseReleaseEvent(ev); return; }
     // If m_pressIndex was cleared by mouseMoveEvent (drag started) the
@@ -597,7 +597,7 @@ void ClientChainWidget::mouseReleaseEvent(QMouseEvent* ev)
     ev->accept();
 }
 
-void ClientChainWidget::mouseDoubleClickEvent(QMouseEvent* ev)
+void StripChainWidget::mouseDoubleClickEvent(QMouseEvent* ev)
 {
     // Double-click = open editor.  Cancel the deferred bypass toggle
     // queued by the preceding single-click release.
@@ -612,7 +612,7 @@ void ClientChainWidget::mouseDoubleClickEvent(QMouseEvent* ev)
     ev->accept();
 }
 
-void ClientChainWidget::toggleStageBypass(int boxIdx)
+void StripChainWidget::toggleStageBypass(int boxIdx)
 {
     if (!m_audio) return;
     if (boxIdx < 0 || boxIdx >= m_boxes.size()) return;
@@ -671,7 +671,7 @@ void ClientChainWidget::toggleStageBypass(int boxIdx)
     update();
 }
 
-void ClientChainWidget::contextMenuEvent(QContextMenuEvent* ev)
+void StripChainWidget::contextMenuEvent(QContextMenuEvent* ev)
 {
     const int idx = hitTest(ev->pos());
     if (idx < 0 || m_boxes[idx].isEndpoint) { QWidget::contextMenuEvent(ev); return; }
@@ -728,14 +728,14 @@ void ClientChainWidget::contextMenuEvent(QContextMenuEvent* ev)
     }
 }
 
-void ClientChainWidget::dragEnterEvent(QDragEnterEvent* ev)
+void StripChainWidget::dragEnterEvent(QDragEnterEvent* ev)
 {
     if (ev->mimeData()->hasFormat(kMimeFormat)) {
         ev->acceptProposedAction();
     }
 }
 
-void ClientChainWidget::dragMoveEvent(QDragMoveEvent* ev)
+void StripChainWidget::dragMoveEvent(QDragMoveEvent* ev)
 {
     if (!ev->mimeData()->hasFormat(kMimeFormat)) return;
     const int idx = dropInsertIndex(ev->position());
@@ -743,13 +743,13 @@ void ClientChainWidget::dragMoveEvent(QDragMoveEvent* ev)
     ev->acceptProposedAction();
 }
 
-void ClientChainWidget::dragLeaveEvent(QDragLeaveEvent*)
+void StripChainWidget::dragLeaveEvent(QDragLeaveEvent*)
 {
     m_dropIndex = -1;
     update();
 }
 
-void ClientChainWidget::dropEvent(QDropEvent* ev)
+void StripChainWidget::dropEvent(QDropEvent* ev)
 {
     if (!m_audio || !ev->mimeData()->hasFormat(kMimeFormat)) {
         m_dropIndex = -1;
@@ -777,17 +777,22 @@ void ClientChainWidget::dropEvent(QDropEvent* ev)
     ev->acceptProposedAction();
 }
 
-void ClientChainWidget::leaveEvent(QEvent*)
+void StripChainWidget::leaveEvent(QEvent*)
 {
     setCursor(Qt::ArrowCursor);
 }
 
-QSize ClientChainWidget::sizeHint() const
+QSize StripChainWidget::sizeHint() const
 {
-    // Minimum-height-only hint; the widget scales box widths to fit
-    // whatever horizontal space the parent layout allots (260 px in
-    // the applet panel is plenty).
-    return QSize(2 * kMarginX + 8 * kBoxWidthMin + 7 * kBoxGapMin,
+    // Single-row width hint based on the actual stage count (MIC + N
+    // chain stages + TX) so the strip's outer layout never asks the
+    // widget to shrink below a single-row fit.
+    const int totalBoxes = m_audio
+        ? 2 + static_cast<int>(m_audio->txChainStages().size())
+        : 8;
+    return QSize(2 * kMarginX + kRowLeftPad
+                                + totalBoxes * kBoxWidthMin
+                                + std::max(0, totalBoxes - 1) * kBoxGapMin,
                  2 * kMarginY + kBoxHeight);
 }
 

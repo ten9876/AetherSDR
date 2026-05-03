@@ -67,6 +67,13 @@ void EditorFramelessTitleBar::setTitleText(const QString& text)
     if (m_titleLbl) m_titleLbl->setText(text);
 }
 
+void EditorFramelessTitleBar::setControlsVisible(bool on)
+{
+    if (m_minLbl)   m_minLbl->setVisible(on);
+    if (m_maxLbl)   m_maxLbl->setVisible(on);
+    if (m_closeLbl) m_closeLbl->setVisible(on);
+}
+
 void EditorFramelessTitleBar::mousePressEvent(QMouseEvent* ev)
 {
     if (ev->button() == Qt::LeftButton) {

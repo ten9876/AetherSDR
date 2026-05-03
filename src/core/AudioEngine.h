@@ -274,6 +274,18 @@ public:
     void setTxChainStages(const QVector<TxChainStage>& stages);
     QVector<TxChainStage> txChainStages() const;
 
+    // ── Master TX bypass ─────────────────────────────────────────
+    // Single source of truth for the chain-wide BYPASS state shared
+    // between the docked Chain applet's BYPASS button and the channel
+    // strip's BYPASS button.  setTxBypassed(true) snapshots the
+    // currently-enabled TX stages and disables them all; calling
+    // setTxBypassed(false) restores only those stages that were on
+    // before bypass engaged.  Stages flipped on manually while bypass
+    // was active survive the restore (they're not in the snapshot).
+    // Emits txBypassChanged(bool) on transitions.
+    void setTxBypassed(bool on);
+    bool isTxBypassed() const;
+
     // Legacy two-stage API — the existing ClientCompEditor combo box
     // still drives this during the transition to the generalised chain.
     // Reads the relative position of Comp vs Eq in the current chain.
@@ -379,6 +391,7 @@ signals:
     void scopeSamplesReady(const QByteArray& monoFloat32Pcm, int sampleRate, bool tx);
     void radioTransmittingChanged(bool tx);
     void mutedChanged(bool muted);                          // local audio output mute state
+    void txBypassChanged(bool on);                          // master TX BYPASS state
 
 private slots:
     void onTxAudioReady();
@@ -574,6 +587,11 @@ private:
     // [Gate, Eq, DeEss, Comp, Tube, Enh] — but only Eq and Comp have
     // implementations today, so the others are no-op pass-throughs.
     std::atomic<uint64_t> m_txChainPacked{0};
+    // Master-bypass snapshot — the stages that were enabled at the
+    // moment setTxBypassed(true) was called.  Lives on the engine so
+    // both the Chain applet and the channel-strip BYPASS buttons
+    // share one source of truth.  Empty ⇒ not bypassed.
+    QVector<TxChainStage> m_txBypassSnapshot;
     // RX chain — same packing convention.  RxChainStage::None terminates
     // the list.  Phase 0 dispatcher iterates this but every stage is a
     // no-op until its DSP class lands in a later phase.

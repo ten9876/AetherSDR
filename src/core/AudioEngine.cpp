@@ -1624,6 +1624,104 @@ QVector<AudioEngine::TxChainStage> AudioEngine::txChainStages() const
     return unpackChain(m_txChainPacked.load(std::memory_order_acquire));
 }
 
+bool AudioEngine::isTxBypassed() const
+{
+    return !m_txBypassSnapshot.isEmpty();
+}
+
+void AudioEngine::setTxBypassed(bool on)
+{
+    if (on == isTxBypassed()) return;
+
+    auto setStageEnabled = [this](TxChainStage s, bool enabled) {
+        switch (s) {
+            case TxChainStage::Eq:
+                if (m_clientEqTx) {
+                    m_clientEqTx->setEnabled(enabled);
+                    saveClientEqSettings();
+                }
+                break;
+            case TxChainStage::Comp:
+                if (m_clientCompTx) {
+                    m_clientCompTx->setEnabled(enabled);
+                    saveClientCompSettings();
+                }
+                break;
+            case TxChainStage::Gate:
+                if (m_clientGateTx) {
+                    m_clientGateTx->setEnabled(enabled);
+                    saveClientGateSettings();
+                }
+                break;
+            case TxChainStage::DeEss:
+                if (m_clientDeEssTx) {
+                    m_clientDeEssTx->setEnabled(enabled);
+                    saveClientDeEssSettings();
+                }
+                break;
+            case TxChainStage::Tube:
+                if (m_clientTubeTx) {
+                    m_clientTubeTx->setEnabled(enabled);
+                    saveClientTubeSettings();
+                }
+                break;
+            case TxChainStage::Enh:   // PUDU
+                if (m_clientPuduTx) {
+                    m_clientPuduTx->setEnabled(enabled);
+                    saveClientPuduSettings();
+                }
+                break;
+            case TxChainStage::Reverb:
+                if (m_clientReverbTx) {
+                    m_clientReverbTx->setEnabled(enabled);
+                    saveClientReverbSettings();
+                }
+                break;
+            case TxChainStage::None:
+                break;
+        }
+    };
+
+    auto isEnabled = [this](TxChainStage s) -> bool {
+        switch (s) {
+            case TxChainStage::Eq:     return m_clientEqTx     && m_clientEqTx->isEnabled();
+            case TxChainStage::Comp:   return m_clientCompTx   && m_clientCompTx->isEnabled();
+            case TxChainStage::Gate:   return m_clientGateTx   && m_clientGateTx->isEnabled();
+            case TxChainStage::DeEss:  return m_clientDeEssTx  && m_clientDeEssTx->isEnabled();
+            case TxChainStage::Tube:   return m_clientTubeTx   && m_clientTubeTx->isEnabled();
+            case TxChainStage::Enh:    return m_clientPuduTx   && m_clientPuduTx->isEnabled();
+            case TxChainStage::Reverb: return m_clientReverbTx && m_clientReverbTx->isEnabled();
+            case TxChainStage::None:   return false;
+        }
+        return false;
+    };
+
+    static const QVector<TxChainStage> kAllStages{
+        TxChainStage::Eq,
+        TxChainStage::Comp,
+        TxChainStage::Gate,
+        TxChainStage::DeEss,
+        TxChainStage::Tube,
+        TxChainStage::Enh,
+        TxChainStage::Reverb,
+    };
+
+    if (on) {
+        m_txBypassSnapshot.clear();
+        for (auto s : kAllStages) {
+            if (isEnabled(s)) {
+                m_txBypassSnapshot.append(s);
+                setStageEnabled(s, false);
+            }
+        }
+    } else {
+        for (auto s : m_txBypassSnapshot) setStageEnabled(s, true);
+        m_txBypassSnapshot.clear();
+    }
+
+    emit txBypassChanged(on);
+}
+
 void AudioEngine::setRxChainStages(const QVector<RxChainStage>& stages)
 {
     m_rxChainPacked.store(packRxChain(stages), std::memory_order_release);

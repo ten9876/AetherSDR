@@ -411,6 +411,7 @@ set(CORE_SOURCES
     src/core/TgxlConnection.cpp
     src/core/CommandParser.cpp
     src/core/AudioEngine.cpp
+    src/core/ChannelStripPresets.cpp
     src/core/ClientEq.cpp
     src/core/ClientComp.cpp
     src/core/ClientGate.cpp
@@ -544,6 +545,7 @@ set(GUI_SOURCES
     src/gui/ClientEqCurveWidget.cpp
     src/gui/ClientEqEditor.cpp
     src/gui/ClientEqEditorCanvas.cpp
+    src/gui/StripEqPanel.cpp
     src/gui/ClientEqFftAnalyzer.cpp
     src/gui/ClientEqIconRow.cpp
     src/gui/ClientEqOutputFader.cpp
@@ -551,6 +553,7 @@ set(GUI_SOURCES
     src/gui/ClientEqParamRow.cpp
     src/gui/ClientChainApplet.cpp
     src/gui/ClientChainWidget.cpp
+    src/gui/StripChainWidget.cpp
     src/gui/ClientRxChainWidget.cpp
     src/gui/EditorFramelessTitleBar.cpp
     src/gui/containers/ContainerManager.cpp
@@ -563,23 +566,30 @@ set(GUI_SOURCES
     src/gui/ClientGateApplet.cpp
     src/gui/ClientGateCurveWidget.cpp
     src/gui/ClientGateEditor.cpp
+    src/gui/StripGatePanel.cpp
     src/gui/ClientGateLevelView.cpp
     src/gui/ClientDeEssApplet.cpp
     src/gui/ClientDeEssCurveWidget.cpp
     src/gui/ClientDeEssEditor.cpp
+    src/gui/StripDeEssPanel.cpp
     src/gui/ClientTubeApplet.cpp
     src/gui/ClientTubeCurveWidget.cpp
     src/gui/ClientTubeEditor.cpp
+    src/gui/StripTubePanel.cpp
     src/gui/ClientPuduApplet.cpp
     src/gui/ClientPuduEditor.cpp
+    src/gui/StripPuduPanel.cpp
     src/gui/ClientReverbApplet.cpp
     src/gui/ClientReverbEditor.cpp
+    src/gui/StripReverbPanel.cpp
+    src/gui/AetherialAudioStrip.cpp
     src/gui/PooDooLogo.cpp
     src/gui/ClientCompLimiterButton.cpp
     src/gui/ClientCompMeter.cpp
     src/gui/ClientCompThresholdFader.cpp
     src/gui/ClientCompEditor.cpp
     src/gui/ClientCompEditorCanvas.cpp
+    src/gui/StripCompPanel.cpp
     src/gui/CatControlApplet.cpp
     src/gui/DaxApplet.cpp
     src/gui/TciApplet.cpp

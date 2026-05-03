@@ -1,0 +1,642 @@
+#include "ChannelStripPresets.h"
+
+#include "AudioEngine.h"
+#include "ClientComp.h"
+#include "ClientDeEss.h"
+#include "ClientEq.h"
+#include "ClientGate.h"
+#include "ClientPudu.h"
+#include "ClientReverb.h"
+#include "ClientTube.h"
+
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QStandardPaths>
+#include <algorithm>
+
+namespace AetherSDR {
+
+namespace {
+
+constexpr int kSchemaVersion = 1;
+
+// ── Stage enum/string mapping ─────────────────────────────────────
+// Local copy (the AudioEngine.cpp helpers are file-static); kept
+// trivial enough to maintain alongside the canonical map there.
+
+QString stageEnumToName(AudioEngine::TxChainStage s)
+{
+    switch (s) {
+        case AudioEngine::TxChainStage::Gate:   return "Gate";
+        case AudioEngine::TxChainStage::Eq:     return "Eq";
+        case AudioEngine::TxChainStage::DeEss:  return "DeEss";
+        case AudioEngine::TxChainStage::Comp:   return "Comp";
+        case AudioEngine::TxChainStage::Tube:   return "Tube";
+        case AudioEngine::TxChainStage::Enh:    return "Enh";
+        case AudioEngine::TxChainStage::Reverb: return "Reverb";
+        case AudioEngine::TxChainStage::None:   return "";
+    }
+    return "";
+}
+
+AudioEngine::TxChainStage stageNameToEnum(const QString& n)
+{
+    if (n == "Gate")   return AudioEngine::TxChainStage::Gate;
+    if (n == "Eq")     return AudioEngine::TxChainStage::Eq;
+    if (n == "DeEss")  return AudioEngine::TxChainStage::DeEss;
+    if (n == "Comp")   return AudioEngine::TxChainStage::Comp;
+    if (n == "Tube")   return AudioEngine::TxChainStage::Tube;
+    if (n == "Enh")    return AudioEngine::TxChainStage::Enh;
+    if (n == "Reverb") return AudioEngine::TxChainStage::Reverb;
+    return AudioEngine::TxChainStage::None;
+}
+
+// ── Per-module enum string maps ───────────────────────────────────
+
+QString eqFilterTypeName(ClientEq::FilterType t)
+{
+    switch (t) {
+        case ClientEq::FilterType::Peak:      return "Peak";
+        case ClientEq::FilterType::LowShelf:  return "LowShelf";
+        case ClientEq::FilterType::HighShelf: return "HighShelf";
+        case ClientEq::FilterType::LowPass:   return "LowPass";
+        case ClientEq::FilterType::HighPass:  return "HighPass";
+    }
+    return "Peak";
+}
+
+ClientEq::FilterType eqFilterTypeFromName(const QString& n)
+{
+    if (n == "LowShelf")  return ClientEq::FilterType::LowShelf;
+    if (n == "HighShelf") return ClientEq::FilterType::HighShelf;
+    if (n == "LowPass")   return ClientEq::FilterType::LowPass;
+    if (n == "HighPass")  return ClientEq::FilterType::HighPass;
+    return ClientEq::FilterType::Peak;
+}
+
+QString eqFilterFamilyName(ClientEq::FilterFamily f)
+{
+    switch (f) {
+        case ClientEq::FilterFamily::Butterworth: return "Butterworth";
+        case ClientEq::FilterFamily::Chebyshev:   return "Chebyshev";
+        case ClientEq::FilterFamily::Bessel:      return "Bessel";
+        case ClientEq::FilterFamily::Elliptic:    return "Elliptic";
+    }
+    return "Butterworth";
+}
+
+ClientEq::FilterFamily eqFilterFamilyFromName(const QString& n)
+{
+    if (n == "Chebyshev") return ClientEq::FilterFamily::Chebyshev;
+    if (n == "Bessel")    return ClientEq::FilterFamily::Bessel;
+    if (n == "Elliptic")  return ClientEq::FilterFamily::Elliptic;
+    return ClientEq::FilterFamily::Butterworth;
+}
+
+QString gateModeName(ClientGate::Mode m)
+{
+    switch (m) {
+        case ClientGate::Mode::Expander:  return "Expander";
+        case ClientGate::Mode::Gate:      return "Gate";
+    }
+    return "Expander";
+}
+
+ClientGate::Mode gateModeFromName(const QString& n)
+{
+    if (n == "Gate") return ClientGate::Mode::Gate;
+    return ClientGate::Mode::Expander;
+}
+
+QString tubeModelName(ClientTube::Model m)
+{
+    switch (m) {
+        case ClientTube::Model::A: return "A";
+        case ClientTube::Model::B: return "B";
+        case ClientTube::Model::C: return "C";
+    }
+    return "A";
+}
+
+ClientTube::Model tubeModelFromName(const QString& n)
+{
+    if (n == "B") return ClientTube::Model::B;
+    if (n == "C") return ClientTube::Model::C;
+    return ClientTube::Model::A;
+}
+
+QString puduModeName(ClientPudu::Mode m)
+{
+    switch (m) {
+        case ClientPudu::Mode::Aphex:     return "Aphex";
+        case ClientPudu::Mode::Behringer: return "Behringer";
+    }
+    return "Aphex";
+}
+
+ClientPudu::Mode puduModeFromName(const QString& n)
+{
+    if (n == "Behringer") return ClientPudu::Mode::Behringer;
+    return ClientPudu::Mode::Aphex;
+}
+
+// ── Helpers for safe JSON reads ───────────────────────────────────
+
+double jnum(const QJsonObject& o, const QString& k, double fallback)
+{
+    const auto v = o.value(k);
+    return v.isDouble() ? v.toDouble() : fallback;
+}
+
+bool jbool(const QJsonObject& o, const QString& k, bool fallback)
+{
+    const auto v = o.value(k);
+    return v.isBool() ? v.toBool() : fallback;
+}
+
+QString jstr(const QJsonObject& o, const QString& k,
+             const QString& fallback = QString())
+{
+    const auto v = o.value(k);
+    return v.isString() ? v.toString() : fallback;
+}
+
+} // namespace
+
+// ──────────────────────────────────────────────────────────────────
+// Construction
+// ──────────────────────────────────────────────────────────────────
+
+ChannelStripPresets::ChannelStripPresets(AudioEngine* engine,
+                                         QObject*     parent)
+    : QObject(parent)
+    , m_engine(engine)
+{
+    if (!loadFromDisk()) {
+        m_root = QJsonObject{
+            {"version", kSchemaVersion},
+            {"presets", QJsonObject{}},
+        };
+    }
+}
+
+QString ChannelStripPresets::filePath() const
+{
+    // Sibling of AetherSDR.settings under XDG_CONFIG_HOME.
+    const QString dir = QStandardPaths::writableLocation(
+        QStandardPaths::AppConfigLocation);
+    QDir().mkpath(dir);
+    return dir + "/ChannelStrip.settings";
+}
+
+bool ChannelStripPresets::loadFromDisk()
+{
+    QFile f(filePath());
+    if (!f.exists() || !f.open(QIODevice::ReadOnly)) return false;
+    const auto doc = QJsonDocument::fromJson(f.readAll());
+    if (!doc.isObject()) return false;
+    m_root = doc.object();
+    if (!m_root.contains("presets") || !m_root["presets"].isObject())
+        m_root["presets"] = QJsonObject{};
+    if (!m_root.contains("version"))
+        m_root["version"] = kSchemaVersion;
+    return true;
+}
+
+bool ChannelStripPresets::saveToDisk() const
+{
+    QFile f(filePath());
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    f.write(QJsonDocument(m_root).toJson(QJsonDocument::Indented));
+    return true;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Public preset library API
+// ──────────────────────────────────────────────────────────────────
+
+QStringList ChannelStripPresets::presetNames() const
+{
+    QStringList names = m_root.value("presets").toObject().keys();
+    names.sort(Qt::CaseInsensitive);
+    return names;
+}
+
+bool ChannelStripPresets::hasPreset(const QString& name) const
+{
+    return m_root.value("presets").toObject().contains(name);
+}
+
+bool ChannelStripPresets::loadPreset(const QString& name)
+{
+    const auto presets = m_root.value("presets").toObject();
+    if (!presets.contains(name)) return false;
+    applyPresetJson(presets.value(name).toObject());
+    return true;
+}
+
+bool ChannelStripPresets::savePresetFromCurrent(const QString& name)
+{
+    if (name.trimmed().isEmpty()) return false;
+    auto presets = m_root.value("presets").toObject();
+    presets[name] = capturePresetJson();
+    m_root["presets"] = presets;
+    if (!saveToDisk()) return false;
+    emit presetsChanged();
+    return true;
+}
+
+bool ChannelStripPresets::deletePreset(const QString& name)
+{
+    auto presets = m_root.value("presets").toObject();
+    if (!presets.contains(name)) return false;
+    presets.remove(name);
+    m_root["presets"] = presets;
+    if (!saveToDisk()) return false;
+    emit presetsChanged();
+    return true;
+}
+
+bool ChannelStripPresets::exportPresetToFile(const QString& name,
+                                             const QString& path) const
+{
+    const auto presets = m_root.value("presets").toObject();
+    if (!presets.contains(name)) return false;
+
+    // Single-preset shareable format: top-level object IS the preset
+    // body, plus a `name` field so importers can recover the name
+    // even if the file was renamed on disk.
+    QJsonObject out = presets.value(name).toObject();
+    out["name"] = name;
+    out["schema"] = "AetherSDR ChannelStripPreset v1";
+
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    f.write(QJsonDocument(out).toJson(QJsonDocument::Indented));
+    return true;
+}
+
+bool ChannelStripPresets::exportLibraryToFile(const QString& path) const
+{
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    f.write(QJsonDocument(m_root).toJson(QJsonDocument::Indented));
+    return true;
+}
+
+bool ChannelStripPresets::exportCurrentToFile(const QString& presetName,
+                                              const QString& path) const
+{
+    QJsonObject out = capturePresetJson();
+    out["name"] = presetName;
+    out["schema"] = "AetherSDR ChannelStripPreset v1";
+
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    f.write(QJsonDocument(out).toJson(QJsonDocument::Indented));
+    return true;
+}
+
+QString ChannelStripPresets::importPresetFromFile(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return QString();
+    const auto doc = QJsonDocument::fromJson(f.readAll());
+    if (!doc.isObject()) return QString();
+
+    const QJsonObject root = doc.object();
+    auto presets = m_root.value("presets").toObject();
+
+    QString firstImported;
+
+    // Full library form (has "presets" wrapper).
+    if (root.contains("presets") && root.value("presets").isObject()) {
+        const auto incoming = root.value("presets").toObject();
+        for (auto it = incoming.begin(); it != incoming.end(); ++it) {
+            if (!it.value().isObject()) continue;
+            QString name = it.key();
+            // De-collide on import: append " (imported)" if a same-name
+            // preset already exists in the local library, then suffix
+            // with numbers if needed.
+            if (presets.contains(name)) {
+                QString base = name + " (imported)";
+                QString candidate = base;
+                int n = 2;
+                while (presets.contains(candidate))
+                    candidate = base + QString(" %1").arg(n++);
+                name = candidate;
+            }
+            presets[name] = it.value().toObject();
+            if (firstImported.isEmpty()) firstImported = name;
+        }
+    } else {
+        // Single-preset form (top-level object IS the preset body).
+        QString name = root.value("name").toString();
+        if (name.trimmed().isEmpty()) {
+            // Fall back to filename without extension.
+            name = QFileInfo(path).completeBaseName();
+        }
+        if (name.trimmed().isEmpty()) return QString();
+        if (presets.contains(name)) {
+            QString base = name + " (imported)";
+            QString candidate = base;
+            int n = 2;
+            while (presets.contains(candidate))
+                candidate = base + QString(" %1").arg(n++);
+            name = candidate;
+        }
+        QJsonObject body = root;
+        body.remove("name");
+        body.remove("schema");
+        presets[name] = body;
+        firstImported = name;
+    }
+
+    if (firstImported.isEmpty()) return QString();
+    m_root["presets"] = presets;
+    if (!saveToDisk()) return QString();
+    emit presetsChanged();
+    return firstImported;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Capture: engine → JSON
+// ──────────────────────────────────────────────────────────────────
+
+QJsonObject ChannelStripPresets::capturePresetJson() const
+{
+    QJsonObject preset;
+    preset["createdBy"] = "AetherSDR";
+    preset["createdAt"] = QDateTime::currentDateTimeUtc()
+        .toString(Qt::ISODate);
+
+    if (!m_engine) return preset;
+
+    // Chain order.
+    {
+        QJsonArray chain;
+        for (auto s : m_engine->txChainStages()) {
+            const QString n = stageEnumToName(s);
+            if (!n.isEmpty()) chain.append(n);
+        }
+        preset["chain"] = chain;
+    }
+
+    // Gate.
+    if (auto* g = m_engine->clientGateTx()) {
+        QJsonObject o;
+        o["enabled"]      = g->isEnabled();
+        o["mode"]         = gateModeName(g->mode());
+        o["thresholdDb"]  = g->thresholdDb();
+        o["ratio"]        = g->ratio();
+        o["attackMs"]     = g->attackMs();
+        o["releaseMs"]    = g->releaseMs();
+        o["holdMs"]       = g->holdMs();
+        o["floorDb"]      = g->floorDb();
+        o["returnDb"]     = g->returnDb();
+        o["lookaheadMs"]  = g->lookaheadMs();
+        preset["gate"] = o;
+    }
+
+    // EQ.
+    if (auto* e = m_engine->clientEqTx()) {
+        QJsonObject o;
+        o["enabled"]         = e->isEnabled();
+        o["masterGain"]      = e->masterGain();
+        o["filterFamily"]    = eqFilterFamilyName(e->filterFamily());
+        o["activeBandCount"] = e->activeBandCount();
+        QJsonArray bands;
+        for (int i = 0; i < ClientEq::kMaxBands; ++i) {
+            const auto b = e->band(i);
+            QJsonObject bo;
+            bo["freqHz"]        = b.freqHz;
+            bo["gainDb"]        = b.gainDb;
+            bo["q"]             = b.q;
+            bo["type"]          = eqFilterTypeName(b.type);
+            bo["enabled"]       = b.enabled;
+            bo["slopeDbPerOct"] = b.slopeDbPerOct;
+            bands.append(bo);
+        }
+        o["bands"] = bands;
+        preset["eq"] = o;
+    }
+
+    // Comp.
+    if (auto* c = m_engine->clientCompTx()) {
+        QJsonObject o;
+        o["enabled"]          = c->isEnabled();
+        o["thresholdDb"]      = c->thresholdDb();
+        o["ratio"]            = c->ratio();
+        o["attackMs"]         = c->attackMs();
+        o["releaseMs"]        = c->releaseMs();
+        o["kneeDb"]           = c->kneeDb();
+        o["makeupDb"]         = c->makeupDb();
+        o["limiterEnabled"]   = c->limiterEnabled();
+        o["limiterCeilingDb"] = c->limiterCeilingDb();
+        preset["comp"] = o;
+    }
+
+    // De-Esser.
+    if (auto* d = m_engine->clientDeEssTx()) {
+        QJsonObject o;
+        o["enabled"]     = d->isEnabled();
+        o["frequencyHz"] = d->frequencyHz();
+        o["q"]           = d->q();
+        o["thresholdDb"] = d->thresholdDb();
+        o["amountDb"]    = d->amountDb();
+        o["attackMs"]    = d->attackMs();
+        o["releaseMs"]   = d->releaseMs();
+        preset["deess"] = o;
+    }
+
+    // Tube.
+    if (auto* t = m_engine->clientTubeTx()) {
+        QJsonObject o;
+        o["enabled"]        = t->isEnabled();
+        o["model"]          = tubeModelName(t->model());
+        o["driveDb"]        = t->driveDb();
+        o["biasAmount"]     = t->biasAmount();
+        o["tone"]           = t->tone();
+        o["outputGainDb"]   = t->outputGainDb();
+        o["dryWet"]         = t->dryWet();
+        o["envelopeAmount"] = t->envelopeAmount();
+        o["attackMs"]       = t->attackMs();
+        o["releaseMs"]      = t->releaseMs();
+        preset["tube"] = o;
+    }
+
+    // Pudu.
+    if (auto* p = m_engine->clientPuduTx()) {
+        QJsonObject o;
+        o["enabled"]        = p->isEnabled();
+        o["mode"]           = puduModeName(p->mode());
+        o["pooDriveDb"]     = p->pooDriveDb();
+        o["pooTuneHz"]      = p->pooTuneHz();
+        o["pooMix"]         = p->pooMix();
+        o["dooTuneHz"]      = p->dooTuneHz();
+        o["dooHarmonicsDb"] = p->dooHarmonicsDb();
+        o["dooMix"]         = p->dooMix();
+        preset["pudu"] = o;
+    }
+
+    // Reverb.
+    if (auto* r = m_engine->clientReverbTx()) {
+        QJsonObject o;
+        o["enabled"]    = r->isEnabled();
+        o["size"]       = r->size();
+        o["decayS"]     = r->decayS();
+        o["damping"]    = r->damping();
+        o["preDelayMs"] = r->preDelayMs();
+        o["mix"]        = r->mix();
+        preset["reverb"] = o;
+    }
+
+    return preset;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Apply: JSON → engine
+// ──────────────────────────────────────────────────────────────────
+
+void ChannelStripPresets::applyPresetJson(const QJsonObject& preset)
+{
+    if (!m_engine) return;
+
+    // Chain order.
+    if (preset.contains("chain") && preset.value("chain").isArray()) {
+        QVector<AudioEngine::TxChainStage> stages;
+        for (const auto& v : preset.value("chain").toArray()) {
+            const auto s = stageNameToEnum(v.toString());
+            if (s != AudioEngine::TxChainStage::None) stages.append(s);
+        }
+        if (!stages.isEmpty()) m_engine->setTxChainStages(stages);
+    }
+
+    // Gate.
+    if (auto* g = m_engine->clientGateTx();
+        g && preset.contains("gate") && preset.value("gate").isObject()) {
+        const auto o = preset.value("gate").toObject();
+        g->setEnabled(jbool(o, "enabled", g->isEnabled()));
+        g->setMode(gateModeFromName(jstr(o, "mode", gateModeName(g->mode()))));
+        g->setThresholdDb(jnum(o, "thresholdDb", g->thresholdDb()));
+        g->setRatio(jnum(o, "ratio", g->ratio()));
+        g->setAttackMs(jnum(o, "attackMs", g->attackMs()));
+        g->setReleaseMs(jnum(o, "releaseMs", g->releaseMs()));
+        g->setHoldMs(jnum(o, "holdMs", g->holdMs()));
+        g->setFloorDb(jnum(o, "floorDb", g->floorDb()));
+        g->setReturnDb(jnum(o, "returnDb", g->returnDb()));
+        g->setLookaheadMs(jnum(o, "lookaheadMs", g->lookaheadMs()));
+    }
+
+    // EQ.
+    if (auto* e = m_engine->clientEqTx();
+        e && preset.contains("eq") && preset.value("eq").isObject()) {
+        const auto o = preset.value("eq").toObject();
+        e->setEnabled(jbool(o, "enabled", e->isEnabled()));
+        e->setMasterGain(static_cast<float>(jnum(o, "masterGain", e->masterGain())));
+        e->setFilterFamily(eqFilterFamilyFromName(
+            jstr(o, "filterFamily", eqFilterFamilyName(e->filterFamily()))));
+        const int activeCount = static_cast<int>(jnum(o, "activeBandCount",
+                                                       e->activeBandCount()));
+        if (o.contains("bands") && o.value("bands").isArray()) {
+            const auto bands = o.value("bands").toArray();
+            const int n = std::min<int>(bands.size(), ClientEq::kMaxBands);
+            for (int i = 0; i < n; ++i) {
+                const auto bo = bands.at(i).toObject();
+                ClientEq::BandParams p = e->band(i);
+                p.freqHz = static_cast<float>(jnum(bo, "freqHz", p.freqHz));
+                p.gainDb = static_cast<float>(jnum(bo, "gainDb", p.gainDb));
+                p.q      = static_cast<float>(jnum(bo, "q", p.q));
+                p.type   = eqFilterTypeFromName(
+                    jstr(bo, "type", eqFilterTypeName(p.type)));
+                p.enabled = jbool(bo, "enabled", p.enabled);
+                p.slopeDbPerOct = static_cast<int>(
+                    jnum(bo, "slopeDbPerOct", p.slopeDbPerOct));
+                e->setBand(i, p);
+            }
+        }
+        e->setActiveBandCount(activeCount);
+    }
+
+    // Comp.
+    if (auto* c = m_engine->clientCompTx();
+        c && preset.contains("comp") && preset.value("comp").isObject()) {
+        const auto o = preset.value("comp").toObject();
+        c->setEnabled(jbool(o, "enabled", c->isEnabled()));
+        c->setThresholdDb(jnum(o, "thresholdDb", c->thresholdDb()));
+        c->setRatio(jnum(o, "ratio", c->ratio()));
+        c->setAttackMs(jnum(o, "attackMs", c->attackMs()));
+        c->setReleaseMs(jnum(o, "releaseMs", c->releaseMs()));
+        c->setKneeDb(jnum(o, "kneeDb", c->kneeDb()));
+        c->setMakeupDb(jnum(o, "makeupDb", c->makeupDb()));
+        c->setLimiterEnabled(jbool(o, "limiterEnabled", c->limiterEnabled()));
+        c->setLimiterCeilingDb(jnum(o, "limiterCeilingDb",
+                                    c->limiterCeilingDb()));
+    }
+
+    // De-Esser.
+    if (auto* d = m_engine->clientDeEssTx();
+        d && preset.contains("deess") && preset.value("deess").isObject()) {
+        const auto o = preset.value("deess").toObject();
+        d->setEnabled(jbool(o, "enabled", d->isEnabled()));
+        d->setFrequencyHz(jnum(o, "frequencyHz", d->frequencyHz()));
+        d->setQ(jnum(o, "q", d->q()));
+        d->setThresholdDb(jnum(o, "thresholdDb", d->thresholdDb()));
+        d->setAmountDb(jnum(o, "amountDb", d->amountDb()));
+        d->setAttackMs(jnum(o, "attackMs", d->attackMs()));
+        d->setReleaseMs(jnum(o, "releaseMs", d->releaseMs()));
+    }
+
+    // Tube.
+    if (auto* t = m_engine->clientTubeTx();
+        t && preset.contains("tube") && preset.value("tube").isObject()) {
+        const auto o = preset.value("tube").toObject();
+        t->setEnabled(jbool(o, "enabled", t->isEnabled()));
+        t->setModel(tubeModelFromName(jstr(o, "model", tubeModelName(t->model()))));
+        t->setDriveDb(jnum(o, "driveDb", t->driveDb()));
+        t->setBiasAmount(jnum(o, "biasAmount", t->biasAmount()));
+        t->setTone(jnum(o, "tone", t->tone()));
+        t->setOutputGainDb(jnum(o, "outputGainDb", t->outputGainDb()));
+        t->setDryWet(jnum(o, "dryWet", t->dryWet()));
+        t->setEnvelopeAmount(jnum(o, "envelopeAmount", t->envelopeAmount()));
+        t->setAttackMs(jnum(o, "attackMs", t->attackMs()));
+        t->setReleaseMs(jnum(o, "releaseMs", t->releaseMs()));
+    }
+
+    // Pudu.
+    if (auto* p = m_engine->clientPuduTx();
+        p && preset.contains("pudu") && preset.value("pudu").isObject()) {
+        const auto o = preset.value("pudu").toObject();
+        p->setEnabled(jbool(o, "enabled", p->isEnabled()));
+        p->setMode(puduModeFromName(jstr(o, "mode", puduModeName(p->mode()))));
+        p->setPooDriveDb(jnum(o, "pooDriveDb", p->pooDriveDb()));
+        p->setPooTuneHz(jnum(o, "pooTuneHz", p->pooTuneHz()));
+        p->setPooMix(jnum(o, "pooMix", p->pooMix()));
+        p->setDooTuneHz(jnum(o, "dooTuneHz", p->dooTuneHz()));
+        p->setDooHarmonicsDb(jnum(o, "dooHarmonicsDb", p->dooHarmonicsDb()));
+        p->setDooMix(jnum(o, "dooMix", p->dooMix()));
+    }
+
+    // Reverb.
+    if (auto* r = m_engine->clientReverbTx();
+        r && preset.contains("reverb") && preset.value("reverb").isObject()) {
+        const auto o = preset.value("reverb").toObject();
+        r->setEnabled(jbool(o, "enabled", r->isEnabled()));
+        r->setSize(jnum(o, "size", r->size()));
+        r->setDecayS(jnum(o, "decayS", r->decayS()));
+        r->setDamping(jnum(o, "damping", r->damping()));
+        r->setPreDelayMs(jnum(o, "preDelayMs", r->preDelayMs()));
+        r->setMix(jnum(o, "mix", r->mix()));
+    }
+}
+
+} // namespace AetherSDR

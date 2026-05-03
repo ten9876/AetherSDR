@@ -26,6 +26,12 @@ public:
 
     void setTitleText(const QString& text);
 
+    // Hide the min / max / close trio while leaving the title label
+    // visible.  Used by the AetherialAudioStrip when it embeds the
+    // per-stage editors — the strip owns its own window controls, so
+    // each embedded panel just needs the name plate (#2301).
+    void setControlsVisible(bool on);
+
 protected:
     void mousePressEvent(QMouseEvent* ev) override;
     void mouseDoubleClickEvent(QMouseEvent* ev) override;

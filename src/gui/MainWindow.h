@@ -55,6 +55,9 @@
 
 class QAbstractSlider;
 
+#include "gui/ClientEqApplet.h"   // ClientEqApplet::Path enum used in
+                                   // onEqCutoffsDragRequested signature.
+
 namespace AetherSDR {
 
 class ConnectionPanel;
@@ -171,6 +174,22 @@ private:
     void applyUiScale(int pct);
     void stepUiScale(int direction);  // +1 = zoom in, -1 = zoom out
     void toggleMinimalMode(bool on);
+    // Toggle the Aetherial Audio Channel Strip — unified TX DSP window.
+    // Stubbed in step 1 of #2301; step 4 lazy-creates the strip window
+    // and persists visibility via AppSettings("AetherialStripVisible").
+    void toggleAetherialStrip();
+    // Cutoff-line drag handler shared between the floating ClientEqEditor
+    // and the embedded EQ panel inside AetherialAudioStrip.  Writes TX
+    // filter cutoffs to TransmitModel, or RX filter offsets to the
+    // active SliceModel (with mode-aware audio→slice conversion).
+    void onEqCutoffsDragRequested(ClientEqApplet::Path path,
+                                  int audioLow, int audioHigh);
+    // Single handler for TX chain-stage enable/bypass changes from
+    // ANY widget (docked Chain applet OR channel strip).  Refreshes
+    // the matching applet's enable indicator and forces a repaint on
+    // both chain widgets so they stay in lock-step.
+    void onTxChainStageEnabledChanged(AudioEngine::TxChainStage stage,
+                                      bool enabled);
     // Toggle OS window-chrome on/off (Qt::FramelessWindowHint).  Persists
     // to AppSettings("FramelessWindow"). When on, users move/close the
     // window via keyboard shortcuts or taskbar.
@@ -404,6 +423,7 @@ private:
     class ClientTubeEditor* m_clientTubeEditor{nullptr}; // lazy — created on first Edit… click
     class ClientPuduEditor* m_clientPuduEditor{nullptr}; // lazy — created on first Edit… click
     class ClientReverbEditor* m_clientReverbEditor{nullptr}; // lazy — created on first Edit… click
+    class AetherialAudioStrip* m_aetherialStrip{nullptr};    // lazy — created on first egg-nub click (#2301)
 
     // Applet-panel pop-out support (#1713 Phase 6).  When floating,
     // the panel lives inside m_appletPanelFloatWindow and its splitter

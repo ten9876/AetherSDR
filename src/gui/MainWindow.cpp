@@ -44,6 +44,7 @@
 #include "ClientPuduEditor.h"
 #include "ClientReverbApplet.h"
 #include "ClientReverbEditor.h"
+#include "AetherialAudioStrip.h"
 #include "ClientChainApplet.h"
 #include "core/ClientComp.h"
 #include "core/ClientEq.h"
@@ -1047,6 +1048,11 @@ MainWindow::MainWindow(QWidget* parent)
     if (AppSettings::instance().value("MinimalModeEnabled", "False").toString() == "True")
         toggleMinimalMode(true);
 
+    // Restore the Aetherial Audio Channel Strip if it was open on last
+    // exit (#2301).  toggleAetherialStrip() lazy-creates and shows.
+    if (AppSettings::instance().value("AetherialStripVisible", "False").toString() == "True")
+        toggleAetherialStrip();
+
     // ── Wire up discovery ──────────────────────────────────────────────────
     connect(&m_discovery, &RadioDiscovery::radioDiscovered,
             m_connPanel, &ConnectionPanel::onRadioDiscovered);
@@ -1727,6 +1733,10 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->clientChainApplet()->setMicInputReady(ready);
             m_appletPanel->clientChainApplet()->setTxActive(
                 ready && tx.isTransmitting());
+            if (m_aetherialStrip) {
+                m_aetherialStrip->setMicInputReady(ready);
+                m_aetherialStrip->setTxActive(ready && tx.isTransmitting());
+            }
 
             // If the user pulls the plug on readiness mid-recording
             // (mic source away from PC, or DAX back on), stop the
@@ -3108,6 +3118,8 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->clientEqTxApplet()->setTxFilterCutoffs(lo, hi);
         if (m_clientEqEditor)
             m_clientEqEditor->setTxFilterCutoffs(lo, hi);
+        if (m_aetherialStrip)
+            m_aetherialStrip->setTxFilterCutoffs(lo, hi);
     };
     {
         const auto& tx = m_radioModel.transmitModel();
@@ -3233,6 +3245,10 @@ MainWindow::MainWindow(QWidget* parent)
         m_appletPanel->clientChainApplet()->setMicInputReady(ready);
         m_appletPanel->clientChainApplet()->setTxActive(
             ready && tx.isTransmitting());
+        if (m_aetherialStrip) {
+            m_aetherialStrip->setMicInputReady(ready);
+            m_aetherialStrip->setTxActive(ready && tx.isTransmitting());
+        }
     }
     // Pulse the TX endpoint red when we're transmitting AND PooDoo
     // is actually in the signal path (MIC=PC and DAX off).  Otherwise
@@ -3243,11 +3259,19 @@ MainWindow::MainWindow(QWidget* parent)
         const auto& tx = m_radioModel.transmitModel();
         const bool ready = (tx.micSelection() == "PC") && !tx.daxOn();
         m_appletPanel->clientChainApplet()->setTxActive(ready && txActive);
+        if (m_aetherialStrip)
+            m_aetherialStrip->setTxActive(ready && txActive);
     });
 
     // ── PUDU monitor wiring ─────────────────────────────────────
     auto* chainApplet = m_appletPanel->clientChainApplet();
     chainApplet->setMonitorHasRecording(m_puduMonitor->hasRecording());
+
+    // Easter-egg nub on the chain applet → toggle the Aetherial Audio
+    // Channel Strip.  Stubbed in step 1 of the strip plan (#2301);
+    // step 4 lazy-creates the strip window and toggles visibility.
+    connect(chainApplet, &ClientChainApplet::aetherialStripToggleRequested,
+            this, &MainWindow::toggleAetherialStrip);
 
     // User-click → start/stop based on current monitor state.  The
     // monitor's own signals drive the button visuals back.
@@ -3272,11 +3296,15 @@ MainWindow::MainWindow(QWidget* parent)
     });
 
     // Monitor state → UI updates.  RX audio gating is handled
-    // separately via the muteRxRequested wiring above.
+    // separately via the muteRxRequested wiring above.  State is
+    // forwarded both to the docked ClientChainApplet AND to the
+    // AetherialAudioStrip's mirrored buttons (when the strip exists).
     connect(m_puduMonitor, &ClientPuduMonitor::recordingStarted,
             this, [this]() {
         if (m_appletPanel && m_appletPanel->clientChainApplet())
             m_appletPanel->clientChainApplet()->setMonitorRecording(true);
+        if (m_aetherialStrip)
+            m_aetherialStrip->setMonitorRecording(true);
     });
     connect(m_puduMonitor, &ClientPuduMonitor::recordingStopped,
             this, [this](int /*durationMs*/) {
@@ -3284,6 +3312,10 @@ MainWindow::MainWindow(QWidget* parent)
             auto* a = m_appletPanel->clientChainApplet();
             a->setMonitorRecording(false);
             a->setMonitorHasRecording(true);
+        }
+        if (m_aetherialStrip) {
+            m_aetherialStrip->setMonitorRecording(false);
+            m_aetherialStrip->setMonitorHasRecording(true);
         }
         // Auto-start playback — the mute stays installed across the
         // transition because the monitor only emits muteRxRequested
@@ -3294,11 +3326,15 @@ MainWindow::MainWindow(QWidget* parent)
             this, [this]() {
         if (m_appletPanel && m_appletPanel->clientChainApplet())
             m_appletPanel->clientChainApplet()->setMonitorPlaying(true);
+        if (m_aetherialStrip)
+            m_aetherialStrip->setMonitorPlaying(true);
     });
     connect(m_puduMonitor, &ClientPuduMonitor::playbackStopped,
             this, [this]() {
         if (m_appletPanel && m_appletPanel->clientChainApplet())
             m_appletPanel->clientChainApplet()->setMonitorPlaying(false);
+        if (m_aetherialStrip)
+            m_aetherialStrip->setMonitorPlaying(false);
     });
     // TX chain applet visibility is independent of bypass state — the
     // user controls show/hide via the applet header ✕ and toolbar
@@ -3351,32 +3387,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(m_appletPanel->clientChainApplet(),
             &ClientChainApplet::stageEnabledChanged,
-            this, [this](AudioEngine::TxChainStage stage, bool /*enabled*/) {
-        // Refresh the applet's bypass indicator only — applet visibility
-        // is independent of bypass state for TX chain DSPs.
-        if (stage == AudioEngine::TxChainStage::Eq) {
-            if (m_appletPanel->clientEqApplet())
-                m_appletPanel->clientEqApplet()->refreshEnableFromEngine();
-        } else if (stage == AudioEngine::TxChainStage::Comp) {
-            if (m_appletPanel->clientCompApplet())
-                m_appletPanel->clientCompApplet()->refreshEnableFromEngine();
-        } else if (stage == AudioEngine::TxChainStage::Gate) {
-            if (m_appletPanel->clientGateApplet())
-                m_appletPanel->clientGateApplet()->refreshEnableFromEngine();
-        } else if (stage == AudioEngine::TxChainStage::DeEss) {
-            if (m_appletPanel->clientDeEssApplet())
-                m_appletPanel->clientDeEssApplet()->refreshEnableFromEngine();
-        } else if (stage == AudioEngine::TxChainStage::Tube) {
-            if (m_appletPanel->clientTubeApplet())
-                m_appletPanel->clientTubeApplet()->refreshEnableFromEngine();
-        } else if (stage == AudioEngine::TxChainStage::Enh) {
-            if (m_appletPanel->clientPuduApplet())
-                m_appletPanel->clientPuduApplet()->refreshEnableFromEngine();
-        } else if (stage == AudioEngine::TxChainStage::Reverb) {
-            if (m_appletPanel->clientReverbApplet())
-                m_appletPanel->clientReverbApplet()->refreshEnableFromEngine();
-        }
-    });
+            this, &MainWindow::onTxChainStageEnabledChanged);
     connect(m_appletPanel->clientChainApplet(),
             &ClientChainApplet::editRequested,
             this, [this](AudioEngine::TxChainStage stage) {
@@ -3901,43 +3912,81 @@ ClientEqEditor* MainWindow::ensureClientEqEditor()
         m_clientEqEditor->setTxFilterCutoffs(tx.txFilterLow(), tx.txFilterHigh());
         pushRxFilterCutoffsToEq();
 
-        // Cutoff-line drag → write to the radio.  TX is direct (audio
-        // domain == TransmitModel domain).  RX requires a mode-aware
-        // conversion back from audio-domain to slice filter offsets.
+        // Cutoff-line drag → write to the radio.  Shared with the strip's
+        // embedded EQ panel via MainWindow::onEqCutoffsDragRequested.
         connect(m_clientEqEditor, &ClientEqEditor::cutoffsDragRequested,
-                this, [this](ClientEqApplet::Path path, int audioLo, int audioHi) {
-            if (path == ClientEqApplet::Path::Tx) {
-                auto& txm = m_radioModel.transmitModel();
-                if (audioLo != txm.txFilterLow())  txm.setTxFilterLow(audioLo);
-                if (audioHi != txm.txFilterHigh()) txm.setTxFilterHigh(audioHi);
-                return;
-            }
-            // RX: convert audio-domain Hz back to slice filter offsets
-            // based on the active slice's mode.
-            auto* s = activeSlice();
-            if (!s) return;
-            const QString mode = s->mode();
-            int lo = audioLo;
-            int hi = audioHi;
-            if (mode == "LSB" || mode == "DIGL") {
-                // Lower-sideband: filter offsets are negative; the audio
-                // low edge maps to the high (closest-to-zero) offset and
-                // vice versa.
-                lo = -audioHi;
-                hi = -audioLo;
-            } else if (mode == "AM" || mode == "SAM" || mode == "FM"
-                    || mode == "NFM" || mode == "DFM" || mode == "DSB") {
-                // Symmetric around carrier — only audio_high meaningfully
-                // controls bandwidth; audio_low is fixed at 0.
-                lo = -audioHi;
-                hi =  audioHi;
-            }
-            // USB / DIGU / FDV / CW / RTTY / others: audio domain matches
-            // slice domain directly — pass through.
-            s->setFilterWidth(lo, hi);
-        });
+                this, &MainWindow::onEqCutoffsDragRequested);
     }
     return m_clientEqEditor;
+}
+
+void MainWindow::onTxChainStageEnabledChanged(
+    AudioEngine::TxChainStage stage, bool /*enabled*/)
+{
+    // Refresh the matching docked applet's enable indicator.  Applet
+    // visibility is independent of bypass state for TX chain DSPs.
+    if (stage == AudioEngine::TxChainStage::Eq) {
+        if (m_appletPanel->clientEqApplet())
+            m_appletPanel->clientEqApplet()->refreshEnableFromEngine();
+    } else if (stage == AudioEngine::TxChainStage::Comp) {
+        if (m_appletPanel->clientCompApplet())
+            m_appletPanel->clientCompApplet()->refreshEnableFromEngine();
+    } else if (stage == AudioEngine::TxChainStage::Gate) {
+        if (m_appletPanel->clientGateApplet())
+            m_appletPanel->clientGateApplet()->refreshEnableFromEngine();
+    } else if (stage == AudioEngine::TxChainStage::DeEss) {
+        if (m_appletPanel->clientDeEssApplet())
+            m_appletPanel->clientDeEssApplet()->refreshEnableFromEngine();
+    } else if (stage == AudioEngine::TxChainStage::Tube) {
+        if (m_appletPanel->clientTubeApplet())
+            m_appletPanel->clientTubeApplet()->refreshEnableFromEngine();
+    } else if (stage == AudioEngine::TxChainStage::Enh) {
+        if (m_appletPanel->clientPuduApplet())
+            m_appletPanel->clientPuduApplet()->refreshEnableFromEngine();
+    } else if (stage == AudioEngine::TxChainStage::Reverb) {
+        if (m_appletPanel->clientReverbApplet())
+            m_appletPanel->clientReverbApplet()->refreshEnableFromEngine();
+    }
+    // Cross-paint: nudge whichever chain widget didn't initiate the
+    // change.  Engine state is the source of truth — both widgets read
+    // from it on paint, so a plain update() is enough.
+    if (m_appletPanel && m_appletPanel->clientChainApplet())
+        m_appletPanel->clientChainApplet()->refreshFromEngine();
+    if (m_aetherialStrip)
+        m_aetherialStrip->refreshChainPaint();
+}
+
+void MainWindow::onEqCutoffsDragRequested(ClientEqApplet::Path path,
+                                          int audioLo, int audioHi)
+{
+    if (path == ClientEqApplet::Path::Tx) {
+        auto& txm = m_radioModel.transmitModel();
+        if (audioLo != txm.txFilterLow())  txm.setTxFilterLow(audioLo);
+        if (audioHi != txm.txFilterHigh()) txm.setTxFilterHigh(audioHi);
+        return;
+    }
+    // RX: convert audio-domain Hz back to slice filter offsets based on
+    // the active slice's mode.
+    auto* s = activeSlice();
+    if (!s) return;
+    const QString mode = s->mode();
+    int lo = audioLo;
+    int hi = audioHi;
+    if (mode == "LSB" || mode == "DIGL") {
+        // Lower-sideband: filter offsets are negative; the audio low edge
+        // maps to the high (closest-to-zero) offset and vice versa.
+        lo = -audioHi;
+        hi = -audioLo;
+    } else if (mode == "AM" || mode == "SAM" || mode == "FM"
+            || mode == "NFM" || mode == "DFM" || mode == "DSB") {
+        // Symmetric around carrier — only audio_high meaningfully
+        // controls bandwidth; audio_low is fixed at 0.
+        lo = -audioHi;
+        hi =  audioHi;
+    }
+    // USB / DIGU / FDV / CW / RTTY / others: audio domain matches slice
+    // domain directly — pass through.
+    s->setFilterWidth(lo, hi);
 }
 
 ClientGateEditor* MainWindow::ensureClientGateEditor()
@@ -9668,6 +9717,63 @@ void MainWindow::setFramelessWindow(bool on)
     if (m_panStack) m_panStack->setFramelessMode(on);
     if (m_appletPanel && m_appletPanel->containerManager())
         m_appletPanel->containerManager()->setFramelessMode(on);
+}
+
+void MainWindow::toggleAetherialStrip()
+{
+    if (!m_aetherialStrip) {
+        m_aetherialStrip = new AetherialAudioStrip(m_audio, this);
+        // Override the parent-window relationship so the strip behaves as
+        // an independent window (own taskbar entry, raisable separately).
+        m_aetherialStrip->setWindowFlag(Qt::Window, true);
+        // Seed the embedded EQ with the current TX filter cutoff values
+        // so the dashed yellow guide lines render immediately rather than
+        // waiting for the next txFilterCutoffChanged signal.
+        const auto& tx = m_radioModel.transmitModel();
+        m_aetherialStrip->setTxFilterCutoffs(tx.txFilterLow(), tx.txFilterHigh());
+        // Drag-to-adjust on the strip's EQ cutoff lines → same handler
+        // the floating ClientEqEditor uses, so dragging in the strip
+        // writes the same TX filter command to the radio.
+        connect(m_aetherialStrip, &AetherialAudioStrip::cutoffsDragRequested,
+                this, &MainWindow::onEqCutoffsDragRequested);
+        // Stage bypass via the strip's chain tiles → same handler the
+        // docked Chain applet's signal connects to, so both chain
+        // widgets repaint and the matching applet refreshes.
+        connect(m_aetherialStrip, &AetherialAudioStrip::stageEnabledChanged,
+                this, &MainWindow::onTxChainStageEnabledChanged);
+        // PUDU monitor record / play — same toggle logic as the docked
+        // ClientChainApplet.
+        connect(m_aetherialStrip, &AetherialAudioStrip::monitorRecordClicked,
+                this, [this]() {
+            if (m_puduMonitor->isRecording()) {
+                m_puduMonitor->stopRecording();
+            } else {
+                if (m_puduMonitor->isPlaying()) m_puduMonitor->stopPlayback();
+                m_puduMonitor->startRecording();
+            }
+        });
+        connect(m_aetherialStrip, &AetherialAudioStrip::monitorPlayClicked,
+                this, [this]() {
+            if (m_puduMonitor->isPlaying()) m_puduMonitor->stopPlayback();
+            else                            m_puduMonitor->startPlayback();
+        });
+        // Seed the strip with the monitor's current state.
+        m_aetherialStrip->setMonitorRecording(m_puduMonitor->isRecording());
+        m_aetherialStrip->setMonitorPlaying(m_puduMonitor->isPlaying());
+        m_aetherialStrip->setMonitorHasRecording(m_puduMonitor->hasRecording());
+        // Seed the chain's MIC-ready + TX-active indicators (reuse the
+        // tx alias declared above for the EQ cutoff seeding).
+        const bool ready = (tx.micSelection() == "PC") && !tx.daxOn();
+        m_aetherialStrip->setMicInputReady(ready);
+        m_aetherialStrip->setTxActive(ready && tx.isTransmitting());
+    }
+    if (m_aetherialStrip->isVisible()) {
+        m_aetherialStrip->hide();
+    } else {
+        m_aetherialStrip->show();
+        m_aetherialStrip->raise();
+        m_aetherialStrip->activateWindow();
+    }
 }
 
 void MainWindow::toggleMinimalMode(bool on)

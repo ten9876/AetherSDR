@@ -575,13 +575,44 @@ void TciServer::onTextMessage(const QString& msg)
                 QString source;
                 if (parts.size() >= 3)
                     source = parts[2].trimmed().toLower().remove(';');
-                const bool wantDax = source.isEmpty()
-                                  || source == QStringLiteral("dax")
-                                  || source == QStringLiteral("tci");
+                // The default DAX-routed path was unconditionally
+                // enabling dax=1 on the slice the moment a TCI client
+                // keyed up.  For voice modes (USB / LSB / AM / FM /
+                // CW) this clobbered the user's PC mic selection and
+                // they'd lose audio mid-QSO.  Restrict the DAX path to
+                // the modes that actually use it: clients still ask
+                // for DAX explicitly via `,dax` / `,tci` source args,
+                // but the empty-source default now picks the route
+                // based on the slice's mode (issue #2304).
+                const bool isDigitalMode = [&] {
+                    if (!m_model) return false;
+                    // Same TRX→slice lookup that TciProtocol uses:
+                    // index into m_model->slices() with trx, fall back
+                    // to by-id, then to first slice.
+                    auto sl = m_model->slices();
+                    SliceModel* s = nullptr;
+                    if (trx >= 0 && trx < sl.size()) {
+                        s = sl.at(trx);
+                    } else {
+                        for (auto* cand : sl)
+                            if (cand && cand->sliceId() == trx) { s = cand; break; }
+                        if (!s && !sl.isEmpty()) s = sl.first();
+                    }
+                    if (!s) return false;
+                    const QString m = s->mode();
+                    return m == QStringLiteral("DIGU")
+                        || m == QStringLiteral("DIGL")
+                        || m == QStringLiteral("RTTY")
+                        || m == QStringLiteral("FDV");
+                }();
+                const bool wantDax = source == QStringLiteral("dax")
+                                  || source == QStringLiteral("tci")
+                                  || (source.isEmpty() && isDigitalMode);
                 qCInfo(lcCat) << "TCI: trx request"
                               << "trx=" << trx
                               << "txOn=" << txOn
                               << "source=" << (source.isEmpty() ? QStringLiteral("[default]") : source)
+                              << "isDigital=" << isDigitalMode
                               << "route=" << (wantDax ? QStringLiteral("tci-audio") : QStringLiteral("radio-direct"));
                 if (txOn) {
                     if (wantDax) {

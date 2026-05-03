@@ -200,7 +200,27 @@ ClientChainApplet::ClientChainApplet(QWidget* parent) : QWidget(parent)
         "QLabel { color: #607888; font-size: 9px;"
         " background: transparent; border: none; }");
     m_hint->setWordWrap(false);
-    outer->addWidget(m_hint);
+
+    // Easter-egg nub at the bottom-right — opens the Aetherial Audio
+    // Channel Strip (unified TX DSP window, issue #2301).  Bare egg
+    // glyph, no chrome — discoverable only to people who know it's
+    // there until the strip becomes canonical.
+    m_stripNub = new QPushButton(QString::fromUtf8("\xF0\x9F\xA5\x9A"), this);
+    m_stripNub->setFixedSize(16, 16);
+    m_stripNub->setFlat(true);
+    m_stripNub->setFocusPolicy(Qt::NoFocus);
+    m_stripNub->setStyleSheet(
+        "QPushButton { background: transparent; border: none;"
+        " font-size: 11px; padding: 0; }");
+    connect(m_stripNub, &QPushButton::clicked,
+            this, &ClientChainApplet::aetherialStripToggleRequested);
+
+    auto* hintRow = new QHBoxLayout;
+    hintRow->setContentsMargins(0, 0, 0, 0);
+    hintRow->setSpacing(4);
+    hintRow->addWidget(m_hint, 1);
+    hintRow->addWidget(m_stripNub, 0, Qt::AlignBottom | Qt::AlignRight);
+    outer->addLayout(hintRow);
 
     connect(m_chain, &ClientChainWidget::editRequested,
             this, &ClientChainApplet::editRequested);
@@ -236,6 +256,25 @@ void ClientChainApplet::setAudioEngine(AudioEngine* engine)
     m_audio = engine;
     if (m_chain)   m_chain->setAudioEngine(engine);
     if (m_rxChain) m_rxChain->setAudioEngine(engine);
+
+    // Master TX bypass is now an engine-owned state — observe its
+    // signal so the BYPASS button mirrors clicks from the channel
+    // strip's BYPASS button (and vice versa).  Only update the visual
+    // when we're actually showing the TX side.
+    if (m_audio && m_bypassBtn) {
+        QSignalBlocker blocker(m_bypassBtn);
+        if (m_mode == ChainMode::Tx) {
+            m_bypassBtn->setChecked(m_audio->isTxBypassed());
+        }
+        connect(m_audio, &AudioEngine::txBypassChanged,
+                this, [this](bool on) {
+            if (!m_bypassBtn) return;
+            if (m_mode != ChainMode::Tx) return;
+            QSignalBlocker b(m_bypassBtn);
+            m_bypassBtn->setChecked(on);
+            if (m_chain) m_chain->update();
+        });
+    }
 }
 
 void ClientChainApplet::refreshFromEngine()
@@ -366,7 +405,7 @@ void ClientChainApplet::setMode(ChainMode m)
     // the toggled() handler from re-firing onBypassToggled and
     // touching the engine.
     if (m_bypassBtn) {
-        const bool bypassed = tx ? !m_bypassSnapshot.isEmpty()
+        const bool bypassed = tx ? (m_audio && m_audio->isTxBypassed())
                                  : !m_rxBypassSnapshot.isEmpty();
         QSignalBlocker blocker(m_bypassBtn);
         m_bypassBtn->setChecked(bypassed);
@@ -494,108 +533,11 @@ void ClientChainApplet::onBypassToggled(bool checked)
         return;
     }
 
-    // Dispatch on stage so we can route to the right engine getter
-    // and settings-save function in one place.  Returns true if the
-    // stage is currently enabled.
-    auto setStageEnabled = [&](AudioEngine::TxChainStage stage, bool on) {
-        switch (stage) {
-            case AudioEngine::TxChainStage::Eq:
-                if (auto* d = m_audio->clientEqTx()) {
-                    d->setEnabled(on);
-                    m_audio->saveClientEqSettings();
-                }
-                break;
-            case AudioEngine::TxChainStage::Comp:
-                if (auto* d = m_audio->clientCompTx()) {
-                    d->setEnabled(on);
-                    m_audio->saveClientCompSettings();
-                }
-                break;
-            case AudioEngine::TxChainStage::Gate:
-                if (auto* d = m_audio->clientGateTx()) {
-                    d->setEnabled(on);
-                    m_audio->saveClientGateSettings();
-                }
-                break;
-            case AudioEngine::TxChainStage::DeEss:
-                if (auto* d = m_audio->clientDeEssTx()) {
-                    d->setEnabled(on);
-                    m_audio->saveClientDeEssSettings();
-                }
-                break;
-            case AudioEngine::TxChainStage::Tube:
-                if (auto* d = m_audio->clientTubeTx()) {
-                    d->setEnabled(on);
-                    m_audio->saveClientTubeSettings();
-                }
-                break;
-            case AudioEngine::TxChainStage::Enh:   // PUDU slot
-                if (auto* d = m_audio->clientPuduTx()) {
-                    d->setEnabled(on);
-                    m_audio->saveClientPuduSettings();
-                }
-                break;
-            case AudioEngine::TxChainStage::Reverb:
-                if (auto* d = m_audio->clientReverbTx()) {
-                    d->setEnabled(on);
-                    m_audio->saveClientReverbSettings();
-                }
-                break;
-            case AudioEngine::TxChainStage::None:
-                break;
-        }
-        emit stageEnabledChanged(stage, on);
-    };
-
-    auto isEnabled = [&](AudioEngine::TxChainStage stage) {
-        switch (stage) {
-            case AudioEngine::TxChainStage::Eq:
-                return m_audio->clientEqTx() && m_audio->clientEqTx()->isEnabled();
-            case AudioEngine::TxChainStage::Comp:
-                return m_audio->clientCompTx() && m_audio->clientCompTx()->isEnabled();
-            case AudioEngine::TxChainStage::Gate:
-                return m_audio->clientGateTx() && m_audio->clientGateTx()->isEnabled();
-            case AudioEngine::TxChainStage::DeEss:
-                return m_audio->clientDeEssTx() && m_audio->clientDeEssTx()->isEnabled();
-            case AudioEngine::TxChainStage::Tube:
-                return m_audio->clientTubeTx() && m_audio->clientTubeTx()->isEnabled();
-            case AudioEngine::TxChainStage::Enh:
-                return m_audio->clientPuduTx() && m_audio->clientPuduTx()->isEnabled();
-            case AudioEngine::TxChainStage::Reverb:
-                return m_audio->clientReverbTx() && m_audio->clientReverbTx()->isEnabled();
-            case AudioEngine::TxChainStage::None:
-                return false;
-        }
-        return false;
-    };
-
-    static const QVector<AudioEngine::TxChainStage> kAllStages{
-        AudioEngine::TxChainStage::Eq,
-        AudioEngine::TxChainStage::Comp,
-        AudioEngine::TxChainStage::Gate,
-        AudioEngine::TxChainStage::DeEss,
-        AudioEngine::TxChainStage::Tube,
-        AudioEngine::TxChainStage::Enh,
-        AudioEngine::TxChainStage::Reverb,
-    };
-
-    if (checked) {
-        // Snapshot whatever was on, then kill them all.
-        m_bypassSnapshot.clear();
-        for (auto s : kAllStages) {
-            if (isEnabled(s)) {
-                m_bypassSnapshot.append(s);
-                setStageEnabled(s, false);
-            }
-        }
-    } else {
-        // Restore only the stages we had on before.  If the user
-        // flipped anything on manually while bypass was active,
-        // those survive here because they're not in the snapshot.
-        for (auto s : m_bypassSnapshot) setStageEnabled(s, true);
-        m_bypassSnapshot.clear();
-    }
-
+    // TX bypass — route through the engine so the strip's BYPASS
+    // button stays in lock-step.  The engine owns the snapshot now;
+    // ClientChainApplet observes txBypassChanged to update its own
+    // button visual when the user toggles bypass elsewhere.
+    m_audio->setTxBypassed(checked);
     if (m_chain) m_chain->update();
 }
 
