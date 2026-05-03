@@ -4,6 +4,7 @@
 #include "core/AudioEngine.h"
 #include "core/ClientTube.h"
 
+#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QPushButton>
@@ -171,6 +172,17 @@ void ClientTubeApplet::setAudioEngine(AudioEngine* engine)
 void ClientTubeApplet::syncEnableFromEngine()
 {
     if (m_curve) m_curve->update();
+
+    // Bypass dim — render the whole tile at reduced opacity when the
+    // stage is bypassed, matching the dim effect on the EQ curve.
+    const bool dspEnabled = (m_audio && tube()) ? tube()->isEnabled() : true;
+    auto* eff = qobject_cast<QGraphicsOpacityEffect*>(graphicsEffect());
+    if (!eff) {
+        eff = new QGraphicsOpacityEffect(this);
+        setGraphicsEffect(eff);
+    }
+    eff->setOpacity(dspEnabled ? 1.0 : 0.55);
+
     if (!m_audio || !tube()) return;
     ClientTube* t = tube();
     if (m_drive)  { QSignalBlocker b(m_drive);  m_drive->setValue(t->driveDb()); }

@@ -73,6 +73,11 @@ signals:
     // can route them to the right editor / applet without depending on
     // the chain widget directly.
     void rxEditRequested(AudioEngine::RxChainStage stage);
+    // Emitted when the user double-clicks the RX-chain DSP status tile.
+    void rxDspEditRequested();
+    // Forwarded from ClientRxChainWidget when single-click re-enables
+    // NR2 from LastClientNr; MainWindow runs the wisdom-prep path.
+    void rxNr2EnableWithWisdomRequested();
     void rxStageEnabledChanged(AudioEngine::RxChainStage stage, bool enabled);
     // Emitted after a successful drag-reorder of the RX chain.  Mirrors
     // chainReordered() above on the TX side.

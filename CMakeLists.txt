@@ -514,6 +514,8 @@ set(GUI_SOURCES
     src/gui/MemoryDialog.cpp
     src/gui/SpotSettingsDialog.cpp
     src/gui/AetherDspDialog.cpp
+    src/gui/AetherDspWidget.cpp
+    src/gui/ClientRxDspApplet.cpp
     src/gui/DspParamPopup.cpp
     src/gui/DxClusterDialog.cpp
     src/gui/CwxPanel.cpp

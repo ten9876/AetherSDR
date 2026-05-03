@@ -235,6 +235,45 @@ void ClientRxChainWidget::toggleStageBypass(int boxIdx)
 {
     if (!m_audio || boxIdx < 0 || boxIdx >= m_boxes.size()) return;
     const auto& box = m_boxes[boxIdx];
+
+    // DSP status tile toggle: client-side NR is exclusive, so a click
+    // here means "turn off whichever module is currently on", and a
+    // click while everything is off re-enables the last-active module
+    // saved by AetherDspWidget::onDspButtonClicked.
+    if (box.kind == TileKind::StatusDsp) {
+        const bool anyOn = m_audio->nr2Enabled()  || m_audio->nr4Enabled()
+                        || m_audio->mnrEnabled()  || m_audio->dfnrEnabled()
+                        || m_audio->rn2Enabled()  || m_audio->bnrEnabled();
+        if (anyOn) {
+            QMetaObject::invokeMethod(m_audio, [audio = m_audio]() {
+                if (audio->nr2Enabled())  audio->setNr2Enabled(false);
+                if (audio->nr4Enabled())  audio->setNr4Enabled(false);
+                if (audio->mnrEnabled())  audio->setMnrEnabled(false);
+                if (audio->dfnrEnabled()) audio->setDfnrEnabled(false);
+                if (audio->rn2Enabled())  audio->setRn2Enabled(false);
+                if (audio->bnrEnabled())  audio->setBnrEnabled(false);
+            });
+        } else {
+            const QString name = AppSettings::instance()
+                .value("LastClientNr", "").toString();
+            if (name.isEmpty()) return;
+            // NR2 enable goes through MainWindow's wisdom prep path —
+            // plain audio-thread setter can crash on bad FFTW plans.
+            if (name == "NR2") {
+                emit nr2EnableWithWisdomRequested();
+                return;
+            }
+            QMetaObject::invokeMethod(m_audio, [audio = m_audio, name]() {
+                if (name == "NR4")       audio->setNr4Enabled(true);
+                else if (name == "MNR")  audio->setMnrEnabled(true);
+                else if (name == "DFNR") audio->setDfnrEnabled(true);
+                else if (name == "RN2")  audio->setRn2Enabled(true);
+                else if (name == "BNR")  audio->setBnrEnabled(true);
+            });
+        }
+        return;
+    }
+
     if (box.kind != TileKind::Stage) return;
     if (!isStageImplemented(box.stage)) return;
 
@@ -290,8 +329,11 @@ void ClientRxChainWidget::mousePressEvent(QMouseEvent* ev)
         return;
     }
     const auto& box = m_boxes[idx];
-    if (box.kind != TileKind::Stage || !isStageImplemented(box.stage)) {
-        // Status tiles + unimplemented stages: nothing on click.
+    const bool clickableStage = (box.kind == TileKind::Stage
+                                 && isStageImplemented(box.stage));
+    const bool clickableDsp   = (box.kind == TileKind::StatusDsp);
+    if (!clickableStage && !clickableDsp) {
+        // RADIO / SPEAK status tiles + unimplemented stages: nothing on click.
         m_pressIndex = -1;
         QWidget::mousePressEvent(ev);
         return;
@@ -370,7 +412,10 @@ void ClientRxChainWidget::mouseReleaseEvent(QMouseEvent* ev)
     m_pressIndex = -1;
     if (idx < 0 || idx >= m_boxes.size()) return;
     const auto& box = m_boxes[idx];
-    if (box.kind != TileKind::Stage || !isStageImplemented(box.stage)) return;
+    const bool clickableStage = (box.kind == TileKind::Stage
+                                 && isStageImplemented(box.stage));
+    const bool clickableDsp   = (box.kind == TileKind::StatusDsp);
+    if (!clickableStage && !clickableDsp) return;
     m_pendingClickIdx = idx;
     if (m_clickTimer)
         m_clickTimer->start(QApplication::doubleClickInterval());
@@ -386,6 +431,11 @@ void ClientRxChainWidget::mouseDoubleClickEvent(QMouseEvent* ev)
     const int idx = hitTest(ev->position());
     if (idx < 0) { QWidget::mouseDoubleClickEvent(ev); return; }
     const auto& box = m_boxes[idx];
+    if (box.kind == TileKind::StatusDsp) {
+        emit dspEditRequested();
+        ev->accept();
+        return;
+    }
     if (box.kind != TileKind::Stage || !isStageImplemented(box.stage)) {
         QWidget::mouseDoubleClickEvent(ev);
         return;

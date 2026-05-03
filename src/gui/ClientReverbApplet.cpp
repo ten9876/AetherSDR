@@ -3,6 +3,7 @@
 #include "core/AudioEngine.h"
 #include "core/ClientReverb.h"
 
+#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QSignalBlocker>
 #include <QTimer>
@@ -131,6 +132,17 @@ void ClientReverbApplet::refreshEnableFromEngine()
 
 void ClientReverbApplet::syncKnobsFromEngine()
 {
+    // Bypass dim — render the whole tile at reduced opacity when the
+    // stage is bypassed, matching the dim effect on the EQ curve.
+    auto* r0 = (m_audio ? m_audio->clientReverbTx() : nullptr);
+    const bool dspEnabled = r0 ? r0->isEnabled() : true;
+    auto* eff = qobject_cast<QGraphicsOpacityEffect*>(graphicsEffect());
+    if (!eff) {
+        eff = new QGraphicsOpacityEffect(this);
+        setGraphicsEffect(eff);
+    }
+    eff->setOpacity(dspEnabled ? 1.0 : 0.55);
+
     if (!m_audio || !m_audio->clientReverbTx()) return;
     ClientReverb* r = m_audio->clientReverbTx();
     if (m_size)    { QSignalBlocker b(m_size);    m_size->setValue(r->size()); }

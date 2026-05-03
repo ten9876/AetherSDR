@@ -370,6 +370,14 @@ bool TitleBar::startWindowMove(QMouseEvent* ev, bool useSystemMove)
             m_windowMoveUsesSystem = h->startSystemMove();
     }
 
+    // Manual-move path: when a child-widget eventFilter consumes the press
+    // (returns true), Qt never establishes an implicit grab on the child,
+    // so subsequent mouse-move events stop reaching us as soon as the
+    // cursor leaves the widget that was clicked.  Explicitly grab on
+    // TitleBar so all moves/releases route to our handlers.
+    if (!m_windowMoveUsesSystem)
+        grabMouse();
+
     ev->accept();
     return true;
 }
@@ -398,8 +406,11 @@ bool TitleBar::finishWindowMove(QMouseEvent* ev)
     if (!m_windowMoveActive)
         return false;
 
+    const bool wasManual = !m_windowMoveUsesSystem;
     m_windowMoveActive = false;
     m_windowMoveUsesSystem = false;
+    if (wasManual)
+        releaseMouse();
     if (ev)
         ev->accept();
     return true;
@@ -451,11 +462,15 @@ bool TitleBar::eventFilter(QObject* obj, QEvent* ev)
         }
     }
 
-    if (isDragHandle(obj) && ev->type() == QEvent::MouseButtonDblClick) {
-        auto* me = static_cast<QMouseEvent*>(ev);
-        handleTitleDoubleClick(me);
-        return me->isAccepted();
-    }
+    // Drag-handle press / double-click: do NOT intercept here.  Letting
+    // the event bubble to TitleBar's own mousePressEvent /
+    // mouseDoubleClickEvent gives us a working startSystemMove path with
+    // proper grab semantics (intercepting from a child eventFilter does
+    // not establish an implicit grab, so manual w->move() loses the
+    // cursor as soon as it leaves the originally-pressed widget).  The
+    // markDragHandle() cursor change still applies for the affordance
+    // hint, and the m_windowMoveActive branch above still routes
+    // child-widget mouse moves during an in-progress drag.
 
     if (ev->type() == QEvent::MouseButtonPress) {
         auto* me = static_cast<QMouseEvent*>(ev);
@@ -479,8 +494,6 @@ bool TitleBar::eventFilter(QObject* obj, QEvent* ev)
                 if (auto* w = window()) w->close();
                 return true;
             }
-            if (isDragHandle(obj))
-                return startWindowMove(me, false);
         }
     }
     return QWidget::eventFilter(obj, ev);

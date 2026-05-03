@@ -171,8 +171,6 @@ private:
     void applyUiScale(int pct);
     void stepUiScale(int direction);  // +1 = zoom in, -1 = zoom out
     void toggleMinimalMode(bool on);
-    void exitMinimalModeToWindowedMode(bool saveMinimalGeometry);
-    void exitMinimalModeFromWindowStateChange();
     // Toggle OS window-chrome on/off (Qt::FramelessWindowHint).  Persists
     // to AppSettings("FramelessWindow"). When on, users move/close the
     // window via keyboard shortcuts or taskbar.
@@ -395,6 +393,11 @@ private:
     class ClientCompEditor* ensureClientCompEditor();
     class ClientTubeEditor* ensureClientTubeEditor();
     class ClientPuduEditor* ensureClientPuduEditor();
+
+    // Wire AetherDspWidget parameter signals to AudioEngine setters.  Used
+    // by both the modeless AetherDspDialog and the docked ClientRxDspApplet
+    // so they push every change into the engine identically.
+    void wireAetherDspWidget(class AetherDspWidget* widget);
     class ClientCompEditor* m_clientCompEditor{nullptr}; // lazy — created on first Edit… click
     class ClientGateEditor* m_clientGateEditor{nullptr}; // lazy — created on first Edit… click
     class ClientDeEssEditor* m_clientDeEssEditor{nullptr}; // lazy — created on first Edit… click
@@ -474,8 +477,7 @@ private:
     SwrSweepState m_swrSweep;
     QTimer m_swrSweepTimer;
     bool m_minimalMode{false};             // true when spectrum is hidden (#208)
-    bool m_exitingMinimalModeFromWindowState{false};
-    bool m_skipMinimalModeGeometrySave{false};
+    bool m_exitingMinimalMode{false};      // re-entry guard for changeEvent → toggleMinimalMode(false)
     QAction* m_minimalModeAction{nullptr};
     bool m_panadapterConnectionAnimationVisible{false};
     bool m_waitingForFirstPanadapterFrame{false};

@@ -37,6 +37,7 @@ class ClientDeEssApplet;
 class ClientTubeApplet;
 class ClientPuduApplet;
 class ClientReverbApplet;
+class ClientRxDspApplet;
 class ClientChainApplet;
 class CatControlApplet;
 class DaxApplet;
@@ -102,6 +103,7 @@ public:
     ClientPuduApplet* clientPuduTxApplet() { return m_clientPuduApplet; }
     ClientPuduApplet* clientPuduRxApplet() { return m_clientPuduRxApplet; }
     ClientReverbApplet* clientReverbApplet() { return m_clientReverbApplet; }
+    ClientRxDspApplet*  clientRxDspApplet() { return m_clientRxDspApplet; }
     ClientChainApplet* clientChainApplet() { return m_clientChainApplet; }
     CatControlApplet* catControlApplet() { return m_catControlApplet; }
     DaxApplet*      daxApplet()      { return m_daxApplet; }
@@ -218,6 +220,7 @@ private:
     ClientPuduApplet* m_clientPuduApplet{nullptr};
     ClientPuduApplet* m_clientPuduRxApplet{nullptr};
     ClientReverbApplet* m_clientReverbApplet{nullptr};
+    ClientRxDspApplet*  m_clientRxDspApplet{nullptr};
     ClientChainApplet* m_clientChainApplet{nullptr};
     CatControlApplet* m_catControlApplet{nullptr};
     DaxApplet*     m_daxApplet{nullptr};

@@ -94,6 +94,8 @@
 #include "MidiMappingDialog.h"
 #endif
 #include "AetherDspDialog.h"
+#include "AetherDspWidget.h"
+#include "ClientRxDspApplet.h"
 #include "DspParamPopup.h"
 
 #include <algorithm>
@@ -2358,98 +2360,9 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
 
-    // ── NR2/RN2 feedback: AudioEngine → all VFO + overlay buttons ──────
-    // Iterate all panadapter spectrums to find VFO widgets and overlay menus,
-    // since spectrum()/vfoWidget() lookups can return null depending on
-    // pan activation state.
-    auto syncNr2 = [this](bool on) {
-        // Iterate PanadapterStack's actual applets — avoids RadioModel→PanStack
-        // ID mismatch during connect when rekey hasn't happened yet.
-        if (m_panStack) {
-            for (auto* applet : m_panStack->allApplets()) {
-                auto* sw = applet->spectrumWidget();
-                if (auto* vfo = sw->vfoWidget(m_activeSliceId)) {
-                    QSignalBlocker sb(vfo->nr2Button());
-                    vfo->nr2Button()->setChecked(on);
-                }
-                if (auto* btn = sw->overlayMenu()->dspNr2Button())
-                    { QSignalBlocker sb(btn); btn->setChecked(on); }
-            }
-        }
-    };
-    auto syncRn2 = [this](bool on) {
-        if (m_panStack) {
-            for (auto* applet : m_panStack->allApplets()) {
-                auto* sw = applet->spectrumWidget();
-                if (auto* vfo = sw->vfoWidget(m_activeSliceId)) {
-                    QSignalBlocker sb(vfo->rn2Button());
-                    vfo->rn2Button()->setChecked(on);
-                }
-                if (auto* btn = sw->overlayMenu()->dspRn2Button())
-                    { QSignalBlocker sb(btn); btn->setChecked(on); }
-            }
-        }
-    };
-    auto syncBnr = [this](bool on) {
-        if (m_panStack) {
-            for (auto* applet : m_panStack->allApplets()) {
-                auto* sw = applet->spectrumWidget();
-                if (auto* vfo = sw->vfoWidget(m_activeSliceId)) {
-                    QSignalBlocker sb(vfo->bnrButton());
-                    vfo->bnrButton()->setChecked(on);
-                }
-                if (auto* btn = sw->overlayMenu()->dspBnrButton())
-                    { QSignalBlocker sb(btn); btn->setChecked(on); }
-            }
-        }
-    };
-    auto syncNr4 = [this](bool on) {
-        if (m_panStack) {
-            for (auto* applet : m_panStack->allApplets()) {
-                auto* sw = applet->spectrumWidget();
-                if (auto* vfo = sw->vfoWidget(m_activeSliceId)) {
-                    QSignalBlocker sb(vfo->nr4Button());
-                    vfo->nr4Button()->setChecked(on);
-                }
-                if (auto* btn = sw->overlayMenu()->dspNr4Button())
-                    { QSignalBlocker sb(btn); btn->setChecked(on); }
-            }
-        }
-    };
-    auto syncMnr = [this](bool on) {
-        if (m_panStack) {
-            for (auto* applet : m_panStack->allApplets()) {
-                auto* sw = applet->spectrumWidget();
-                if (auto* vfo = sw->vfoWidget(m_activeSliceId)) {
-                    QSignalBlocker sb(vfo->mnrButton());
-                    vfo->mnrButton()->setChecked(on);
-                }
-                if (auto* btn = sw->overlayMenu()->dspMnrButton())
-                    { QSignalBlocker sb(btn); btn->setChecked(on); }
-            }
-        }
-    };
-    auto syncDfnr = [this](bool on) {
-        if (m_panStack) {
-            for (auto* applet : m_panStack->allApplets()) {
-                auto* sw = applet->spectrumWidget();
-                if (auto* vfo = sw->vfoWidget(m_activeSliceId)) {
-                    QSignalBlocker sb(vfo->dfnrButton());
-                    vfo->dfnrButton()->setChecked(on);
-                }
-                if (auto* btn = sw->overlayMenu()->dspDfnrButton())
-                    { QSignalBlocker sb(btn); btn->setChecked(on); }
-            }
-        }
-    };
-    connect(m_audio, &AudioEngine::nr2EnabledChanged, this, syncNr2);
-    connect(m_audio, &AudioEngine::rn2EnabledChanged, this, syncRn2);
-    connect(m_audio, &AudioEngine::bnrEnabledChanged, this, syncBnr);
-    connect(m_audio, &AudioEngine::nr4EnabledChanged, this, syncNr4);
-    connect(m_audio, &AudioEngine::mnrEnabledChanged, this, syncMnr);
-    connect(m_audio, &AudioEngine::dfnrEnabledChanged, this, syncDfnr);
-    // NR2/RN2/BNR/NR4/DFNR DSP controls now only in VFO DSP tab and spectrum overlay.
-    // RxApplet DSP buttons removed — no sync wiring needed.
+    // Client-side DSP buttons (NR2 / NR4 / MNR / BNR / DFNR / RN2) now
+    // live only in the AetherDSP applet, which owns its own
+    // *EnabledChanged subscriptions.
 
 #ifdef HAVE_RADE
     connect(m_appletPanel->rxApplet(), &RxApplet::radeActivated,
@@ -3244,13 +3157,11 @@ MainWindow::MainWindow(QWidget* parent)
         if (!m_clientDeEssEditor) {
             m_clientDeEssEditor = new ClientDeEssEditor(m_audio, this);
             connect(m_clientDeEssEditor, &ClientDeEssEditor::bypassToggled,
-                    this, [this](bool bypassed) {
+                    this, [this](bool /*bypassed*/) {
                 if (m_appletPanel && m_appletPanel->clientDeEssApplet())
                     m_appletPanel->clientDeEssApplet()->refreshEnableFromEngine();
                 if (m_appletPanel && m_appletPanel->clientChainApplet())
                     m_appletPanel->clientChainApplet()->refreshFromEngine();
-                if (m_appletPanel)
-                    m_appletPanel->setAppletVisible("DESS", !bypassed);
             });
         }
         m_clientDeEssEditor->showForTx();
@@ -3267,6 +3178,16 @@ MainWindow::MainWindow(QWidget* parent)
     // ── Client Reverb applet: TX reverb (Freeverb) ─
     m_appletPanel->clientReverbApplet()->setAudioEngine(m_audio);
 
+    // ── RX-side AetherDSP applet — same controls as the Settings menu
+    // dialog, embedded as a docked tile in PooDoo Audio (RX).  Parameter
+    // changes route through the same per-signal wiring used by the dialog,
+    // factored into wireAetherDspWidget() to keep dialog + applet in sync.
+    if (auto* a = m_appletPanel->clientRxDspApplet()) {
+        a->setAudioEngine(m_audio);
+        if (auto* w = a->widget())
+            wireAetherDspWidget(w);
+    }
+
     // ── Client PUDU applets: TX (#1661 Phase 5) + RX (Phase 7.5) ───────────
     m_appletPanel->clientPuduTxApplet()->setAudioEngine(m_audio);
     m_appletPanel->clientPuduRxApplet()->setAudioEngine(m_audio);
@@ -3277,15 +3198,13 @@ MainWindow::MainWindow(QWidget* parent)
 
     // ── TX signal-chain applet (#1661) ──────────────────────────────────────
     // Visual strip showing MIC → stages → TX with per-stage bypass +
-    // drag-drop reorder.  Clicking a stage opens its floating editor
-    // (only EQ and COMP have editors today; Gate / DeEss / Tube / Enh
-    // are placeholders awaiting their DSP).
+    // drag-drop reorder.  Clicking a stage opens its floating editor.
     //
-    // CEQ and CMP tile visibility is driven by DSP bypass state — the
-    // chain widget right-click menu, and the Bypass buttons inside
-    // each floating editor, all push the new state through
-    // stageEnabledChanged → setAppletVisible here.  Initial state is
-    // seeded from the engine below so settings persist across launches.
+    // TX-stage applet visibility is independent of bypass state — the
+    // chain widget click and the editor Bypass buttons toggle the DSP
+    // and refresh the applet's bypass indicator, but do not show or
+    // hide the tile.  Users control applet visibility via the applet
+    // header ✕ and toolbar toggles (persisted as Applet_<ID>).
     m_appletPanel->clientChainApplet()->setAudioEngine(m_audio);
     // PooDoo TX/RX tab → AppletPanel side filter.  Hides the inactive
     // side's per-stage applet tiles whenever the user flips the chain
@@ -3380,34 +3299,10 @@ MainWindow::MainWindow(QWidget* parent)
         if (m_appletPanel && m_appletPanel->clientChainApplet())
             m_appletPanel->clientChainApplet()->setMonitorPlaying(false);
     });
-    if (m_audio && m_audio->clientEqTx()) {
-        m_appletPanel->setAppletVisible(
-            "CEQ", m_audio->clientEqTx()->isEnabled());
-    }
-    if (m_audio && m_audio->clientCompTx()) {
-        m_appletPanel->setAppletVisible(
-            "CMP", m_audio->clientCompTx()->isEnabled());
-    }
-    if (m_audio && m_audio->clientGateTx()) {
-        m_appletPanel->setAppletVisible(
-            "GATE", m_audio->clientGateTx()->isEnabled());
-    }
-    if (m_audio && m_audio->clientDeEssTx()) {
-        m_appletPanel->setAppletVisible(
-            "DESS", m_audio->clientDeEssTx()->isEnabled());
-    }
-    if (m_audio && m_audio->clientTubeTx()) {
-        m_appletPanel->setAppletVisible(
-            "TUBE", m_audio->clientTubeTx()->isEnabled());
-    }
-    if (m_audio && m_audio->clientPuduTx()) {
-        m_appletPanel->setAppletVisible(
-            "PUDU", m_audio->clientPuduTx()->isEnabled());
-    }
-    if (m_audio && m_audio->clientReverbTx()) {
-        m_appletPanel->setAppletVisible(
-            "REVERB", m_audio->clientReverbTx()->isEnabled());
-    }
+    // TX chain applet visibility is independent of bypass state — the
+    // user controls show/hide via the applet header ✕ and toolbar
+    // toggles, persisted via Applet_<ID>.  Bypassing a stage just
+    // shows the applet as bypassed; it doesn't hide the tile.
 
     // Initial applet-stack order mirrors the persisted chain order
     // for both sides, and stays in sync on every subsequent drag-
@@ -3455,34 +3350,28 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(m_appletPanel->clientChainApplet(),
             &ClientChainApplet::stageEnabledChanged,
-            this, [this](AudioEngine::TxChainStage stage, bool enabled) {
+            this, [this](AudioEngine::TxChainStage stage, bool /*enabled*/) {
+        // Refresh the applet's bypass indicator only — applet visibility
+        // is independent of bypass state for TX chain DSPs.
         if (stage == AudioEngine::TxChainStage::Eq) {
-            m_appletPanel->setAppletVisible("CEQ", enabled);
             if (m_appletPanel->clientEqApplet())
                 m_appletPanel->clientEqApplet()->refreshEnableFromEngine();
         } else if (stage == AudioEngine::TxChainStage::Comp) {
-            m_appletPanel->setAppletVisible("CMP", enabled);
             if (m_appletPanel->clientCompApplet())
                 m_appletPanel->clientCompApplet()->refreshEnableFromEngine();
         } else if (stage == AudioEngine::TxChainStage::Gate) {
-            m_appletPanel->setAppletVisible("GATE", enabled);
             if (m_appletPanel->clientGateApplet())
                 m_appletPanel->clientGateApplet()->refreshEnableFromEngine();
         } else if (stage == AudioEngine::TxChainStage::DeEss) {
-            m_appletPanel->setAppletVisible("DESS", enabled);
             if (m_appletPanel->clientDeEssApplet())
                 m_appletPanel->clientDeEssApplet()->refreshEnableFromEngine();
         } else if (stage == AudioEngine::TxChainStage::Tube) {
-            m_appletPanel->setAppletVisible("TUBE", enabled);
             if (m_appletPanel->clientTubeApplet())
                 m_appletPanel->clientTubeApplet()->refreshEnableFromEngine();
         } else if (stage == AudioEngine::TxChainStage::Enh) {
-            // Enh slot hosts the PUDU exciter.
-            m_appletPanel->setAppletVisible("PUDU", enabled);
             if (m_appletPanel->clientPuduApplet())
                 m_appletPanel->clientPuduApplet()->refreshEnableFromEngine();
         } else if (stage == AudioEngine::TxChainStage::Reverb) {
-            m_appletPanel->setAppletVisible("REVERB", enabled);
             if (m_appletPanel->clientReverbApplet())
                 m_appletPanel->clientReverbApplet()->refreshEnableFromEngine();
         }
@@ -3504,13 +3393,11 @@ MainWindow::MainWindow(QWidget* parent)
                 if (!m_clientDeEssEditor) {
                     m_clientDeEssEditor = new ClientDeEssEditor(m_audio, this);
                     connect(m_clientDeEssEditor, &ClientDeEssEditor::bypassToggled,
-                            this, [this](bool bypassed) {
+                            this, [this](bool /*bypassed*/) {
                         if (m_appletPanel && m_appletPanel->clientDeEssApplet())
                             m_appletPanel->clientDeEssApplet()->refreshEnableFromEngine();
                         if (m_appletPanel && m_appletPanel->clientChainApplet())
                             m_appletPanel->clientChainApplet()->refreshFromEngine();
-                        if (m_appletPanel)
-                            m_appletPanel->setAppletVisible("DESS", !bypassed);
                     });
                 }
                 m_clientDeEssEditor->showForTx();
@@ -3526,13 +3413,11 @@ MainWindow::MainWindow(QWidget* parent)
                 if (!m_clientReverbEditor) {
                     m_clientReverbEditor = new ClientReverbEditor(m_audio, this);
                     connect(m_clientReverbEditor, &ClientReverbEditor::bypassToggled,
-                            this, [this](bool bypassed) {
+                            this, [this](bool /*bypassed*/) {
                         if (m_appletPanel && m_appletPanel->clientReverbApplet())
                             m_appletPanel->clientReverbApplet()->refreshEnableFromEngine();
                         if (m_appletPanel && m_appletPanel->clientChainApplet())
                             m_appletPanel->clientChainApplet()->refreshFromEngine();
-                        if (m_appletPanel)
-                            m_appletPanel->setAppletVisible("REVERB", !bypassed);
                     });
                 }
                 m_clientReverbEditor->showForTx();
@@ -3997,9 +3882,9 @@ ClientEqEditor* MainWindow::ensureClientEqEditor()
                 this, [this](ClientEqApplet::Path path, bool bypassed) {
             if (!m_appletPanel) return;
             if (path == ClientEqApplet::Path::Tx) {
+                // TX applet visibility is independent of bypass state.
                 if (m_appletPanel->clientEqTxApplet())
                     m_appletPanel->clientEqTxApplet()->refreshEnableFromEngine();
-                m_appletPanel->setAppletVisible("CEQ", !bypassed);
             } else {
                 if (m_appletPanel->clientEqRxApplet())
                     m_appletPanel->clientEqRxApplet()->refreshEnableFromEngine();
@@ -4062,9 +3947,9 @@ ClientGateEditor* MainWindow::ensureClientGateEditor()
                 this, [this](ClientGateEditor::Side side, bool bypassed) {
             if (!m_appletPanel) return;
             if (side == ClientGateEditor::Side::Tx) {
+                // TX applet visibility is independent of bypass state.
                 if (m_appletPanel->clientGateTxApplet())
                     m_appletPanel->clientGateTxApplet()->refreshEnableFromEngine();
-                m_appletPanel->setAppletVisible("GATE", !bypassed);
             } else {
                 if (m_appletPanel->clientGateRxApplet())
                     m_appletPanel->clientGateRxApplet()->refreshEnableFromEngine();
@@ -4085,9 +3970,9 @@ ClientCompEditor* MainWindow::ensureClientCompEditor()
                 this, [this](ClientCompEditor::Side side, bool bypassed) {
             if (!m_appletPanel) return;
             if (side == ClientCompEditor::Side::Tx) {
+                // TX applet visibility is independent of bypass state.
                 if (m_appletPanel->clientCompTxApplet())
                     m_appletPanel->clientCompTxApplet()->refreshEnableFromEngine();
-                m_appletPanel->setAppletVisible("CMP", !bypassed);
             } else {
                 if (m_appletPanel->clientCompRxApplet())
                     m_appletPanel->clientCompRxApplet()->refreshEnableFromEngine();
@@ -4108,9 +3993,9 @@ ClientTubeEditor* MainWindow::ensureClientTubeEditor()
                 this, [this](ClientTubeEditor::Side side, bool bypassed) {
             if (!m_appletPanel) return;
             if (side == ClientTubeEditor::Side::Tx) {
+                // TX applet visibility is independent of bypass state.
                 if (m_appletPanel->clientTubeTxApplet())
                     m_appletPanel->clientTubeTxApplet()->refreshEnableFromEngine();
-                m_appletPanel->setAppletVisible("TUBE", !bypassed);
             } else {
                 if (m_appletPanel->clientTubeRxApplet())
                     m_appletPanel->clientTubeRxApplet()->refreshEnableFromEngine();
@@ -4131,9 +4016,9 @@ ClientPuduEditor* MainWindow::ensureClientPuduEditor()
                 this, [this](ClientPuduEditor::Side side, bool bypassed) {
             if (!m_appletPanel) return;
             if (side == ClientPuduEditor::Side::Tx) {
+                // TX applet visibility is independent of bypass state.
                 if (m_appletPanel->clientPuduTxApplet())
                     m_appletPanel->clientPuduTxApplet()->refreshEnableFromEngine();
-                m_appletPanel->setAppletVisible("PUDU", !bypassed);
             } else {
                 if (m_appletPanel->clientPuduRxApplet())
                     m_appletPanel->clientPuduRxApplet()->refreshEnableFromEngine();
@@ -4144,6 +4029,73 @@ ClientPuduEditor* MainWindow::ensureClientPuduEditor()
         });
     }
     return m_clientPuduEditor;
+}
+
+void MainWindow::wireAetherDspWidget(AetherDspWidget* w)
+{
+    if (!w || !m_audio) return;
+
+    // NR2
+    connect(w, &AetherDspWidget::nr2GainMaxChanged, this, [this](float v) {
+        QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2GainMax(v); });
+    });
+    connect(w, &AetherDspWidget::nr2GainSmoothChanged, this, [this](float v) {
+        QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2GainSmooth(v); });
+    });
+    connect(w, &AetherDspWidget::nr2QsppChanged, this, [this](float v) {
+        QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2Qspp(v); });
+    });
+    connect(w, &AetherDspWidget::nr2GainMethodChanged, this, [this](int m) {
+        QMetaObject::invokeMethod(m_audio, [this, m]() { m_audio->setNr2GainMethod(m); });
+    });
+    connect(w, &AetherDspWidget::nr2NpeMethodChanged, this, [this](int m) {
+        QMetaObject::invokeMethod(m_audio, [this, m]() { m_audio->setNr2NpeMethod(m); });
+    });
+    connect(w, &AetherDspWidget::nr2AeFilterChanged, this, [this](bool on) {
+        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr2AeFilter(on); });
+    });
+    // NR4
+    connect(w, &AetherDspWidget::nr4ReductionChanged, this, [this](float v) {
+        QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4ReductionAmount(v); });
+    });
+    connect(w, &AetherDspWidget::nr4SmoothingChanged, this, [this](float v) {
+        QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4SmoothingFactor(v); });
+    });
+    connect(w, &AetherDspWidget::nr4WhiteningChanged, this, [this](float v) {
+        QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4WhiteningFactor(v); });
+    });
+    connect(w, &AetherDspWidget::nr4AdaptiveNoiseChanged, this, [this](bool on) {
+        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr4AdaptiveNoise(on); });
+    });
+    connect(w, &AetherDspWidget::nr4NoiseMethodChanged, this, [this](int m) {
+        QMetaObject::invokeMethod(m_audio, [this, m]() { m_audio->setNr4NoiseEstimationMethod(m); });
+    });
+    connect(w, &AetherDspWidget::nr4MaskingDepthChanged, this, [this](float v) {
+        QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4MaskingDepth(v); });
+    });
+    connect(w, &AetherDspWidget::nr4SuppressionChanged, this, [this](float v) {
+        QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4SuppressionStrength(v); });
+    });
+    // DFNR
+    connect(w, &AetherDspWidget::dfnrAttenLimitChanged, this, [this](float v) {
+        QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setDfnrAttenLimit(v); });
+    });
+    connect(w, &AetherDspWidget::dfnrPostFilterBetaChanged, this, [this](float v) {
+        QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setDfnrPostFilterBeta(v); });
+    });
+    // MNR
+    connect(w, &AetherDspWidget::mnrEnabledChanged, this, [this](bool on) {
+        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setMnrEnabled(on); });
+    });
+    connect(w, &AetherDspWidget::mnrStrengthChanged, this, [this](float v) {
+        QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setMnrStrength(v); });
+    });
+    // NR2 enable: route through enableNr2WithWisdom so FFTW plans are
+    // ready before AudioEngine constructs SpectralNR — direct enable on
+    // the audio thread can leave plans incompatible with the runtime
+    // FFTW version and crash the next feedAudioData. (#2275 / NR4→NR2)
+    connect(w, &AetherDspWidget::nr2EnableWithWisdomRequested,
+            this, &MainWindow::enableNr2WithWisdom);
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event)
@@ -4166,7 +4118,7 @@ void MainWindow::changeEvent(QEvent* event)
 
     if (event->type() != QEvent::WindowStateChange
         || !m_minimalMode
-        || m_exitingMinimalModeFromWindowState) {
+        || m_exitingMinimalMode) {
         return;
     }
 
@@ -4174,8 +4126,16 @@ void MainWindow::changeEvent(QEvent* event)
     if (!(state & (Qt::WindowMaximized | Qt::WindowFullScreen)))
         return;
 
-    m_exitingMinimalModeFromWindowState = true;
-    QTimer::singleShot(0, this, &MainWindow::exitMinimalModeFromWindowStateChange);
+    // WM/keyboard/double-click maximized us while in minimal mode.  Defer
+    // the exit so we don't tear down geometry mid-event-dispatch; the
+    // re-entry guard prevents a second changeEvent (from showNormal inside
+    // toggleMinimalMode) from re-scheduling.
+    m_exitingMinimalMode = true;
+    QTimer::singleShot(0, this, [this]() {
+        if (m_minimalMode)
+            toggleMinimalMode(false);
+        m_exitingMinimalMode = false;
+    });
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
@@ -5586,64 +5546,22 @@ void MainWindow::buildMenuBar()
         }
         auto* dlg = new AetherDspDialog(m_audio, this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
-        // Wire NR2 parameter signals to AudioEngine (audio thread safe)
-        connect(dlg, &AetherDspDialog::nr2GainMaxChanged, this, [this](float v) {
-            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2GainMax(v); });
-        });
-        connect(dlg, &AetherDspDialog::nr2GainSmoothChanged, this, [this](float v) {
-            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2GainSmooth(v); });
-        });
-        connect(dlg, &AetherDspDialog::nr2QsppChanged, this, [this](float v) {
-            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr2Qspp(v); });
-        });
-        connect(dlg, &AetherDspDialog::nr2GainMethodChanged, this, [this](int m) {
-            QMetaObject::invokeMethod(m_audio, [this, m]() { m_audio->setNr2GainMethod(m); });
-        });
-        connect(dlg, &AetherDspDialog::nr2NpeMethodChanged, this, [this](int m) {
-            QMetaObject::invokeMethod(m_audio, [this, m]() { m_audio->setNr2NpeMethod(m); });
-        });
-        connect(dlg, &AetherDspDialog::nr2AeFilterChanged, this, [this](bool on) {
-            QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr2AeFilter(on); });
-        });
-        // Wire NR4 parameter signals to AudioEngine
-        connect(dlg, &AetherDspDialog::nr4ReductionChanged, this, [this](float v) {
-            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4ReductionAmount(v); });
-        });
-        connect(dlg, &AetherDspDialog::nr4SmoothingChanged, this, [this](float v) {
-            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4SmoothingFactor(v); });
-        });
-        connect(dlg, &AetherDspDialog::nr4WhiteningChanged, this, [this](float v) {
-            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4WhiteningFactor(v); });
-        });
-        connect(dlg, &AetherDspDialog::nr4AdaptiveNoiseChanged, this, [this](bool on) {
-            QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr4AdaptiveNoise(on); });
-        });
-        connect(dlg, &AetherDspDialog::nr4NoiseMethodChanged, this, [this](int m) {
-            QMetaObject::invokeMethod(m_audio, [this, m]() { m_audio->setNr4NoiseEstimationMethod(m); });
-        });
-        connect(dlg, &AetherDspDialog::nr4MaskingDepthChanged, this, [this](float v) {
-            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4MaskingDepth(v); });
-        });
-        connect(dlg, &AetherDspDialog::nr4SuppressionChanged, this, [this](float v) {
-            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setNr4SuppressionStrength(v); });
-        });
-        // Wire DFNR parameter signals
-        connect(dlg, &AetherDspDialog::dfnrAttenLimitChanged, this, [this](float v) {
-            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setDfnrAttenLimit(v); });
-        });
-        connect(dlg, &AetherDspDialog::dfnrPostFilterBetaChanged, this, [this](float v) {
-            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setDfnrPostFilterBeta(v); });
-        });
-        // Wire MNR enable / strength signals
-        connect(dlg, &AetherDspDialog::mnrEnabledChanged, this, [this](bool on) {
-            QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setMnrEnabled(on); });
-        });
-        connect(dlg, &AetherDspDialog::mnrStrengthChanged, this, [this](float v) {
-            QMetaObject::invokeMethod(m_audio, [this, v]() { m_audio->setMnrStrength(v); });
-        });
+        if (auto* w = dlg->widget()) wireAetherDspWidget(w);
         m_dspDialog = dlg;
         dlg->show();
     });
+    // RX chain DSP tile double-click also opens the full AetherDSP
+    // Settings dialog — same entry point as the Settings menu action.
+    if (m_appletPanel && m_appletPanel->clientChainApplet()) {
+        connect(m_appletPanel->clientChainApplet(),
+                &ClientChainApplet::rxDspEditRequested,
+                this, [dspAction]() { dspAction->trigger(); });
+        // Single-click re-enable of NR2 from LastClientNr also runs
+        // through enableNr2WithWisdom (#2275 — direct enable can crash).
+        connect(m_appletPanel->clientChainApplet(),
+                &ClientChainApplet::rxNr2EnableWithWisdomRequested,
+                this, &MainWindow::enableNr2WithWisdom);
+    }
 
     settingsMenu->addSeparator();
 
@@ -6239,7 +6157,7 @@ void MainWindow::buildUI()
         }
     });
     connect(m_titleBar, &TitleBar::minimalModeWindowedExitRequested, this, [this]() {
-        exitMinimalModeToWindowedMode(true);
+        toggleMinimalMode(false);
     });
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
@@ -8482,9 +8400,6 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     menu->setPanId(applet->panId());
     menu->setMemories(m_radioModel.memories());
 
-    // Hide 8000-series-only DSP filters on 6000-series radios (#2177)
-    menu->setHasExtendedDsp(m_radioModel.hasExtendedDspFilters());
-
     // Antenna list → this overlay menu (per-pan, mirrors VfoWidget pattern) (#1260)
     connect(&m_radioModel, &RadioModel::antListChanged,
             menu, &SpectrumOverlayMenu::setAntennaList);
@@ -9266,65 +9181,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     connect(menu, &SpectrumOverlayMenu::swrSweepClearRequested,
             this, &MainWindow::clearSwrSweepPlot);
 
-    // ── NR2/RN2 overlay toggle → AudioEngine ───────────────────────────
-    // Button sync back to overlay + VFO handled by nr2/rn2EnabledChanged above.
-    connect(menu, &SpectrumOverlayMenu::nr2Toggled,
-            this, [this, menu](bool on) {
-        if (on) {
-            // NR2 amplifies Opus codec artifacts → disable when compressed audio active (#1597)
-            if (m_radioModel.audioCompressionParam() == "opus") {
-                QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
-                statusBar()->showMessage("NR2 is not available with compressed (SmartLink) audio", 4000);
-                return;
-            }
-            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setRn2Enabled(false); });
-            enableNr2WithWisdom();
-        } else {
-            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
-        }
-        // VFO button sync happens via AudioEngine::nr2EnabledChanged signal
-    });
-    connect(menu, &SpectrumOverlayMenu::nr2RightClicked,
-            this, [this](const QPoint& pos) { showNr2ParamPopup(pos); });
-    connect(menu, &SpectrumOverlayMenu::rn2Toggled,
-            this, [this](bool on) {
-        if (on) {
-            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); });
-            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setRn2Enabled(true); });
-        } else {
-            QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setRn2Enabled(false); });
-        }
-        // VFO button sync happens via AudioEngine::rn2EnabledChanged signal
-    });
-    connect(menu, &SpectrumOverlayMenu::bnrToggled,
-            this, [this](bool on) {
-        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setBnrEnabled(on); });
-        // VFO button sync happens via AudioEngine::bnrEnabledChanged signal
-    });
-    connect(menu, &SpectrumOverlayMenu::bnrIntensityChanged,
-            this, [this](float ratio) {
-        m_audio->setBnrIntensity(ratio);
-    });
-    connect(menu, &SpectrumOverlayMenu::nr4Toggled,
-            this, [this](bool on) {
-        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr4Enabled(on); });
-        // VFO button sync happens via AudioEngine::nr4EnabledChanged signal
-    });
-    connect(menu, &SpectrumOverlayMenu::nr4RightClicked,
-            this, [this](const QPoint& pos) { showNr4ParamPopup(pos); });
-    connect(menu, &SpectrumOverlayMenu::mnrToggled,
-            this, [this](bool on) {
-        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setMnrEnabled(on); });
-        // VFO button sync happens via AudioEngine::mnrEnabledChanged signal
-    });
-    connect(menu, &SpectrumOverlayMenu::mnrRightClicked,
-            this, [this](const QPoint&) { showMnrSettings(); });
-    connect(menu, &SpectrumOverlayMenu::dfnrToggled,
-            this, [this](bool on) {
-        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setDfnrEnabled(on); });
-    });
-    connect(menu, &SpectrumOverlayMenu::dfnrRightClicked,
-            this, [this](const QPoint& pos) { showDfnrParamPopup(pos); });
+    // Client-side DSP toggles (NR2 / RN2 / NR4 / MNR / BNR / DFNR) now
+    // live exclusively in the AetherDSP applet; the spectrum overlay menu
+    // no longer surfaces them.
 }
 
 MainWindow::TuneCenteringResult MainWindow::revealFrequencyIfNeeded(
@@ -9589,42 +9448,10 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
         }
     });
 
-    // NR2 toggle with FFTW wisdom generation — wired once per VFO, never disconnected
-    connect(w, &VfoWidget::nr2Toggled, this, [this, w](bool on) {
-        if (!on) { QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setNr2Enabled(false); }); return; }
-        // NR2 amplifies Opus codec artifacts → disable when compressed audio is active (#1597)
-        if (m_radioModel.audioCompressionParam() == "opus") {
-            QSignalBlocker blocker(w->nr2Button());
-            w->nr2Button()->setChecked(false);
-            statusBar()->showMessage("NR2 is not available with compressed (SmartLink) audio", 4000);
-            return;
-        }
-        enableNr2WithWisdom();
-    });
-    connect(w, &VfoWidget::nr2RightClicked,
-            this, [this](const QPoint& pos) { showNr2ParamPopup(pos); });
-
-    // RN2 toggle
-    connect(w, &VfoWidget::rn2Toggled, this, [this](bool on) {
-        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setRn2Enabled(on); });
-    });
-    connect(w, &VfoWidget::bnrToggled, this, [this](bool on) {
-        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setBnrEnabled(on); });
-    });
-    connect(w, &VfoWidget::nr4Toggled, this, [this](bool on) {
-        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setNr4Enabled(on); });
-    });
-    connect(w, &VfoWidget::nr4RightClicked,
-            this, [this](const QPoint& pos) { showNr4ParamPopup(pos); });
-    connect(w, &VfoWidget::mnrToggled, this, [this](bool on) {
-        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setMnrEnabled(on); });
-    });
-    connect(w, &VfoWidget::mnrRightClicked, this, [this](const QPoint&) { showMnrSettings(); });
-    connect(w, &VfoWidget::dfnrToggled, this, [this](bool on) {
-        QMetaObject::invokeMethod(m_audio, [this, on]() { m_audio->setDfnrEnabled(on); });
-    });
-    connect(w, &VfoWidget::dfnrRightClicked,
-            this, [this](const QPoint& pos) { showDfnrParamPopup(pos); });
+    // Client-side DSP toggles (NR2 / NR4 / MNR / BNR / DFNR / RN2) used
+    // to live on the VFO DSP grid; they were removed from there in
+    // favour of the spectrum overlay menu and the AetherDSP applet, so
+    // the per-VFO connect block that handled them is gone.
 
 #ifdef HAVE_RADE
     connect(w, &VfoWidget::radeActivated, this, [this](bool on, int sliceId) {
@@ -9694,26 +9521,13 @@ void MainWindow::updateNr2Availability()
         statusBar()->showMessage("NR2 disabled — not available with compressed (SmartLink) audio", 4000);
     }
 
-    // Update all NR2 buttons: VFO widgets and spectrum overlay menus
-    if (m_panStack) {
-        for (auto* applet : m_panStack->allApplets()) {
-            // Overlay menu NR2 button
-            if (auto* menu = applet->spectrumWidget()->overlayMenu()) {
-                if (auto* btn = menu->dspNr2Button()) {
-                    btn->setEnabled(!opusActive);
-                    btn->setToolTip(tooltip);
-                }
-            }
-            // VFO NR2 buttons (one per slice on this pan)
-            for (auto* s : m_radioModel.slices()) {
-                if (auto* vfo = applet->spectrumWidget()->vfoWidget(s->sliceId())) {
-                    if (auto* btn = vfo->nr2Button()) {
-                        btn->setEnabled(!opusActive);
-                        btn->setToolTip(tooltip);
-                    }
-                }
-            }
-        }
+    // Update the NR2 selector in the AetherDSP applet — the only
+    // remaining surface for client-side NR controls.  The modeless
+    // AetherDspDialog is created on demand and owns its own enable
+    // sync via nr2EnabledChanged + setEnabled-on-show.
+    if (auto* a = m_appletPanel ? m_appletPanel->clientRxDspApplet() : nullptr) {
+        if (auto* w = a->widget())
+            w->setNr2Available(!opusActive, tooltip);
     }
 }
 
@@ -9855,33 +9669,6 @@ void MainWindow::setFramelessWindow(bool on)
         m_appletPanel->containerManager()->setFramelessMode(on);
 }
 
-void MainWindow::exitMinimalModeToWindowedMode(bool saveMinimalGeometry)
-{
-    if (!m_minimalMode)
-        return;
-
-    showNormal();
-
-    if (m_minimalModeAction) {
-        QSignalBlocker b(m_minimalModeAction);
-        m_minimalModeAction->setChecked(false);
-    }
-
-    m_skipMinimalModeGeometrySave = !saveMinimalGeometry;
-    toggleMinimalMode(false);
-    m_skipMinimalModeGeometrySave = false;
-
-    showNormal();
-}
-
-void MainWindow::exitMinimalModeFromWindowStateChange()
-{
-    if (m_minimalMode)
-        exitMinimalModeToWindowedMode(false);
-
-    m_exitingMinimalModeFromWindowState = false;
-}
-
 void MainWindow::toggleMinimalMode(bool on)
 {
     m_minimalMode = on;
@@ -9925,8 +9712,25 @@ void MainWindow::toggleMinimalMode(bool on)
             restoreGeometry(geom);
 
     } else {
-        // Save minimal geometry
-        if (!m_skipMinimalModeGeometrySave)
+        // Sync the View-menu action so non-action entry points (the
+        // title-bar maximize button, WM-driven maximize via changeEvent)
+        // leave the menu checkbox in the right state.  Blocker prevents
+        // toggled→toggleMinimalMode recursion.
+        if (m_minimalModeAction) {
+            QSignalBlocker b(m_minimalModeAction);
+            m_minimalModeAction->setChecked(false);
+        }
+
+        // If the WM/double-click maximized or fullscreened us before we
+        // got here, the current geometry is the maximized rect — not a
+        // useful "minimal mode" geometry to persist.  Un-maximize first
+        // and skip the save.  The normal Ctrl+M / maximize-button paths
+        // arrive at minimal width with no abnormal state and save as usual.
+        const bool abnormalState =
+            windowState() & (Qt::WindowMaximized | Qt::WindowFullScreen);
+        if (abnormalState)
+            showNormal();
+        else
             s.setValue("MinimalModeGeometry", saveGeometry().toBase64());
 
         // Reparent applet panel back into the splitter and restore layout
@@ -9957,6 +9761,10 @@ void MainWindow::toggleMinimalMode(bool on)
             s.value("FullModeGeometry", "").toByteArray());
         if (!geom.isEmpty())
             restoreGeometry(geom);
+
+        // Belt-and-suspenders: if FullModeGeometry encoded a state, ensure
+        // we land windowed.
+        showNormal();
     }
 
     s.setValue("MinimalModeEnabled", on ? "True" : "False");

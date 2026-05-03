@@ -7,6 +7,7 @@
 #include <QButtonGroup>
 #include <QFrame>
 #include <QGridLayout>
+#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -271,6 +272,16 @@ void ClientPuduApplet::setAudioEngine(AudioEngine* engine)
 
 void ClientPuduApplet::syncControlsFromEngine()
 {
+    // Bypass dim — render the whole tile at reduced opacity when the
+    // stage is bypassed, matching the dim effect on the EQ curve.
+    const bool dspEnabled = (m_audio && pudu()) ? pudu()->isEnabled() : true;
+    auto* eff = qobject_cast<QGraphicsOpacityEffect*>(graphicsEffect());
+    if (!eff) {
+        eff = new QGraphicsOpacityEffect(this);
+        setGraphicsEffect(eff);
+    }
+    eff->setOpacity(dspEnabled ? 1.0 : 0.55);
+
     if (!m_audio || !pudu()) return;
     ClientPudu* p = pudu();
 

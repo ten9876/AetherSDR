@@ -5,6 +5,7 @@
 #include "core/AudioEngine.h"
 #include "core/ClientDeEss.h"
 
+#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QPushButton>
@@ -216,6 +217,18 @@ void ClientDeEssApplet::setAudioEngine(AudioEngine* engine)
 void ClientDeEssApplet::syncEnableFromEngine()
 {
     if (m_curve) m_curve->update();
+
+    // Bypass dim — render the whole tile at reduced opacity when the
+    // stage is bypassed, matching the dim effect on the EQ curve.
+    auto* dsp0 = (m_audio ? m_audio->clientDeEssTx() : nullptr);
+    const bool dspEnabled = dsp0 ? dsp0->isEnabled() : true;
+    auto* eff = qobject_cast<QGraphicsOpacityEffect*>(graphicsEffect());
+    if (!eff) {
+        eff = new QGraphicsOpacityEffect(this);
+        setGraphicsEffect(eff);
+    }
+    eff->setOpacity(dspEnabled ? 1.0 : 0.55);
+
     if (!m_audio || !m_audio->clientDeEssTx()) return;
     ClientDeEss* d = m_audio->clientDeEssTx();
     if (m_freq)   { QSignalBlocker b(m_freq);   m_freq->setValue(d->frequencyHz()); }
