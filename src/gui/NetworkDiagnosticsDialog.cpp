@@ -8,6 +8,7 @@
 
 #include <QComboBox>
 #include <QDateTime>
+#include <QEvent>
 #include <QFrame>
 #include <QGroupBox>
 #include <QGridLayout>
@@ -20,6 +21,11 @@
 #include <QSet>
 #include <QTabWidget>
 #include <QVBoxLayout>
+#include <QWindow>
+
+namespace {
+constexpr int kResizeMargin = 6;
+}
 
 namespace AetherSDR {
 
@@ -72,6 +78,20 @@ public:
         m_primaryAxisSeries = std::move(label);
     }
 
+    // Switch the y-axis to logarithmic scale.  Suitable for series whose
+    // dynamic range spans multiple orders of magnitude (rate graphs:
+    // RX total ~4 Mbps next to per-stream lines ~50 kbps).  Latency,
+    // loss, and audio-buffer graphs stay linear — their ranges are
+    // small enough that log scaling would just compress useful detail.
+    void setLogScale(bool on)
+    {
+        if (m_logScale == on) {
+            return;
+        }
+        m_logScale = on;
+        update();
+    }
+
 protected:
     void paintEvent(QPaintEvent*) override
     {
@@ -112,16 +132,52 @@ protected:
                 maxY = std::max(maxY, point.y());
             }
         }
-        maxY = niceCeiling(maxY);
         const QString axisSuffix = activeAxisSuffix(visibleSeries);
 
+        // Log-scale path: snap maxY up to the next power of 10 and
+        // anchor the floor at 1 unit (1 kbps for rate graphs) so quiet
+        // streams have headroom and the low decades stay visible
+        // regardless of the smallest observed sample.  Log can't plot
+        // zero, but the bottom decade label is overridden to "0" below
+        // so the axis reads with a familiar zero baseline.
+        double minY = 1.0;
+        if (m_logScale) {
+            const double exactMax = std::max(maxY, 10.0);
+            maxY = std::pow(10.0, std::ceil(std::log10(exactMax)));
+            minY = 1.0;
+            if (minY >= maxY) {
+                minY = maxY / 10.0;
+            }
+        } else {
+            maxY = niceCeiling(maxY);
+        }
+
+        // Y-axis grid + tick labels.  Linear: 4 evenly-spaced.
+        // Log: one tick per decade between minY and maxY so labels
+        // sit at clean 1k / 10k / 100k / 1M / 10M boundaries.
+        const int yTicks = m_logScale
+            ? std::max(1, static_cast<int>(std::round(std::log10(maxY / minY))))
+            : 4;
         painter.setPen(QPen(QColor("#203040"), 1));
-        for (int i = 0; i <= 4; ++i) {
-            const double y = plot.bottom() - (plot.height() * i / 4.0);
+        for (int i = 0; i <= yTicks; ++i) {
+            const double y = plot.bottom() - (plot.height() * i / yTicks);
             painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y));
+            const double tickValue = m_logScale
+                ? minY * std::pow(10.0, static_cast<double>(i) * std::log10(maxY / minY) / yTicks)
+                : maxY * i / yTicks;
+            // For the log path, relabel the bottom-most tick as "0" so
+            // the axis reads with a familiar zero baseline — values at
+            // or below the floor (~1 unit) are functionally silent and
+            // already clamp to minY in the y-mapping below.
+            QString label;
+            if (m_logScale && i == 0) {
+                label = QString("0%1").arg(axisSuffix);
+            } else {
+                label = formatAxisValue(tickValue, axisSuffix);
+            }
             painter.setPen(QColor("#8aa8c0"));
             painter.drawText(QRectF(4, y - 8, 74, 16), Qt::AlignRight | Qt::AlignVCenter,
-                             formatAxisValue(maxY * i / 4.0, axisSuffix));
+                             label);
             painter.setPen(QPen(QColor("#203040"), 1));
         }
         for (int i = 0; i <= 4; ++i) {
@@ -157,7 +213,13 @@ protected:
 
             for (const QPointF& point : series.points) {
                 const double xRatio = std::clamp(point.x() / std::max(1, m_rangeSeconds), 0.0, 1.0);
-                const double yRatio = std::clamp(point.y() / maxY, 0.0, 1.0);
+                double yRatio;
+                if (m_logScale) {
+                    const double clamped = std::clamp(point.y(), minY, maxY);
+                    yRatio = std::log10(clamped / minY) / std::log10(maxY / minY);
+                } else {
+                    yRatio = std::clamp(point.y() / maxY, 0.0, 1.0);
+                }
                 const QPointF mapped(plot.left() + plot.width() * xRatio,
                                      plot.bottom() - plot.height() * yRatio);
                 const int pixel = static_cast<int>(std::round(mapped.x()));
@@ -174,6 +236,73 @@ protected:
             flushBucket();
             painter.setPen(QPen(series.color, 2));
             painter.drawPath(path);
+        }
+
+        // Per-series "last sample" hints in the left gutter.  Each
+        // visible series gets a colored label at the y-pixel matching
+        // its most recent value; labels are spread vertically to avoid
+        // overlap when several streams sit close together (e.g. RX and
+        // Audio both around ~1 Mbps).
+        struct ValueHint {
+            double  idealY;
+            double  y;
+            QColor  color;
+            QString text;
+        };
+        QVector<ValueHint> hints;
+        hints.reserve(visibleSeries.size());
+        for (const Series& series : visibleSeries) {
+            if (series.points.isEmpty()) {
+                continue;
+            }
+            const double v = series.points.last().y();
+            double yRatio;
+            if (m_logScale) {
+                const double clamped = std::clamp(v, minY, maxY);
+                yRatio = std::log10(clamped / minY) / std::log10(maxY / minY);
+            } else {
+                yRatio = std::clamp(v / maxY, 0.0, 1.0);
+            }
+            const double y = plot.bottom() - plot.height() * yRatio;
+            const QString unitSuffix = series.unitSuffix.isEmpty() ? m_suffix : series.unitSuffix;
+            hints.push_back({y, y, series.color, formatAxisValue(v, unitSuffix)});
+        }
+        std::sort(hints.begin(), hints.end(),
+                  [](const ValueHint& a, const ValueHint& b) { return a.idealY < b.idealY; });
+        constexpr double kHintMinGap = 14.0;
+        double prev = plot.top() - kHintMinGap;
+        for (ValueHint& h : hints) {
+            if (h.y < prev + kHintMinGap) h.y = prev + kHintMinGap;
+            if (h.y > plot.bottom())      h.y = plot.bottom();
+            prev = h.y;
+        }
+        double next = plot.bottom() + kHintMinGap;
+        for (int i = hints.size() - 1; i >= 0; --i) {
+            if (hints[i].y > next - kHintMinGap) hints[i].y = next - kHintMinGap;
+            if (hints[i].y < plot.top())          hints[i].y = plot.top();
+            next = hints[i].y;
+        }
+        for (const ValueHint& h : hints) {
+            const QRectF rect(4, h.y - 10, 74, 20);
+            // Vertical alpha gradient (0 → chart bg → 0) so the soft
+            // top/bottom edges blend into adjacent hints rather than
+            // butting them with a hard rectangle seam.  The opaque
+            // middle band still hides whatever decade tick may sit at
+            // the same y-coordinate.
+            QLinearGradient bgGrad(rect.center().x(), rect.top(),
+                                   rect.center().x(), rect.bottom());
+            const QColor bgSolid("#0a0a14");
+            QColor bgEdge = bgSolid;
+            bgEdge.setAlpha(0);
+            // 20 px total: 6 px fully-opaque centre band, 7 px fade
+            // on each side (stops at 0.35 and 0.65 = 7/20 and 13/20).
+            bgGrad.setColorAt(0.0,  bgEdge);
+            bgGrad.setColorAt(0.35, bgSolid);
+            bgGrad.setColorAt(0.65, bgSolid);
+            bgGrad.setColorAt(1.0,  bgEdge);
+            painter.fillRect(rect, bgGrad);
+            painter.setPen(h.color);
+            painter.drawText(rect, Qt::AlignRight | Qt::AlignVCenter, h.text);
         }
 
         drawLegend(&painter, plot);
@@ -223,6 +352,19 @@ private:
 
     QString formatAxisValue(double value, const QString& suffix) const
     {
+        // kbps already has a metric prefix baked in — scale up to
+        // Mbps / Gbps when the value crosses each power of 1000 so the
+        // axis reads "3.8 Mbps" rather than the confusing "3.8k kbps".
+        if (suffix.contains("kbps", Qt::CaseInsensitive)) {
+            if (value >= 1'000'000.0) {
+                return QString("%1 Gbps").arg(value / 1'000'000.0, 0, 'f', 1);
+            }
+            if (value >= 1000.0) {
+                return QString("%1 Mbps").arg(value / 1000.0, 0, 'f', 1);
+            }
+            const int precision = value >= 10.0 ? 0 : 1;
+            return QString("%1 kbps").arg(value, 0, 'f', precision);
+        }
         if (value >= 1000000.0) {
             return QString("%1M%2").arg(value / 1000000.0, 0, 'f', 1).arg(suffix);
         }
@@ -350,6 +492,7 @@ private:
     QVector<Series> m_series;
     QSet<QString> m_selectedLabels;
     QVector<LegendHit> m_legendHits;
+    bool m_logScale{false};
 };
 
 NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
@@ -359,8 +502,12 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     : QDialog(parent), m_model(model), m_audio(audio), m_history(history)
 {
     setWindowTitle("Network Diagnostics");
+    setWindowFlag(Qt::FramelessWindowHint, true);
     setMinimumSize(920, 680);
     resize(980, 760);
+    // Track mouse without buttons pressed so the resize cursor updates
+    // while hovering the bare margin around the dialog body.
+    setMouseTracking(true);
     setStyleSheet(
         "QDialog { background: #050710; }"
         "QTabWidget::pane { border: 1px solid #203040; border-radius: 4px; top: -1px; }"
@@ -375,8 +522,95 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
         "QScrollArea { background: transparent; border: none; }"
         "QScrollArea > QWidget > QWidget { background: transparent; }");
 
+    // Outer layout: zero-margin so the title bar runs edge-to-edge.  The
+    // 8 px resize hit zone lives on the bare gap around the inner content
+    // widget (which carries its own padding).
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(10, 10, 10, 10);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+
+    // ── Custom title bar ─────────────────────────────────────────────
+    // Same chrome family as AetherialAudioStrip / ContainerTitleBar:
+    // 18 px tall, blue-gradient background, 10 px bold title, trio of
+    // window-control buttons at the right.  Built inline so the
+    // gradient + grip glyphs match exactly.
+    {
+        m_titleBar = new QWidget(this);
+        m_titleBar->setFixedHeight(18);
+        m_titleBar->setAttribute(Qt::WA_StyledBackground, true);
+        m_titleBar->setStyleSheet(
+            "QWidget { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            "stop:0 #5a7494, stop:0.5 #384e68, stop:1 #1e2e3e); "
+            "border-bottom: 1px solid #0a1a28; }");
+        m_titleBar->installEventFilter(this);
+
+        auto* tbRow = new QHBoxLayout(m_titleBar);
+        tbRow->setContentsMargins(6, 0, 2, 0);
+        tbRow->setSpacing(4);
+
+        auto* grip = new QLabel(QString::fromUtf8("\xe2\x8b\xae\xe2\x8b\xae"),
+                                m_titleBar);
+        grip->setStyleSheet(
+            "QLabel { background: transparent; color: #a0b4c8;"
+            " font-size: 10px; }");
+        tbRow->addWidget(grip);
+
+        auto* tbTitle = new QLabel("Network Diagnostics", m_titleBar);
+        tbTitle->setStyleSheet(
+            "QLabel { background: transparent; color: #e0ecf4;"
+            " font-size: 10px; font-weight: bold; }");
+        tbRow->addWidget(tbTitle);
+        tbRow->addStretch();
+
+        const QString btnStyle =
+            "QPushButton { background: transparent; border: none;"
+            " color: #c8d8e8; font-size: 11px; font-weight: bold;"
+            " padding: 0px 4px; }"
+            "QPushButton:hover { color: #ffffff; }";
+        const QString closeBtnStyle =
+            "QPushButton { background: transparent; border: none;"
+            " color: #c8d8e8; font-size: 11px; font-weight: bold;"
+            " padding: 0px 4px; }"
+            "QPushButton:hover { color: #ffffff; background: #cc2030; }";
+
+        auto* minBtn = new QPushButton(QString::fromUtf8("\xe2\x80\x94"), m_titleBar);
+        minBtn->setFixedSize(16, 16);
+        minBtn->setCursor(Qt::ArrowCursor);
+        minBtn->setStyleSheet(btnStyle);
+        minBtn->setToolTip("Minimize");
+        connect(minBtn, &QPushButton::clicked, this, &QWidget::showMinimized);
+        tbRow->addWidget(minBtn);
+
+        auto* maxBtn = new QPushButton(QString::fromUtf8("\xe2\x96\xa1"), m_titleBar);
+        maxBtn->setFixedSize(16, 16);
+        maxBtn->setCursor(Qt::ArrowCursor);
+        maxBtn->setStyleSheet(btnStyle);
+        maxBtn->setToolTip("Maximize");
+        connect(maxBtn, &QPushButton::clicked, this, [this]() {
+            if (isMaximized()) showNormal(); else showMaximized();
+        });
+        tbRow->addWidget(maxBtn);
+
+        auto* closeBtn = new QPushButton(QString::fromUtf8("\xc3\x97"), m_titleBar);
+        closeBtn->setFixedSize(16, 16);
+        closeBtn->setCursor(Qt::ArrowCursor);
+        closeBtn->setStyleSheet(closeBtnStyle);
+        closeBtn->setToolTip("Close");
+        connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
+        tbRow->addWidget(closeBtn);
+
+        root->addWidget(m_titleBar);
+    }
+
+    // Content area — gets its own layout with 10 px padding so the
+    // resize hit zone (bare ~8 px margin around content) is reachable
+    // on every edge.
+    auto* outerContent = new QWidget(this);
+    auto* body = new QVBoxLayout(outerContent);
+    body->setContentsMargins(10, 10, 10, 10);
+    body->setSpacing(8);
+    root->addWidget(outerContent, 1);
+
     auto* controlRow = new QHBoxLayout;
     auto* titleLabel = new QLabel("Network Diagnostics");
     titleLabel->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; font-size: 15px; }");
@@ -391,19 +625,23 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
         "QComboBox::drop-down { border: none; width: 18px; }"
         "QComboBox QAbstractItemView { background: #111120; color: #c8d8e8; "
         "selection-background-color: #00b4d8; selection-color: #000; }");
+    m_rangeCombo->addItem("1 minute", 60);
     m_rangeCombo->addItem("5 minutes", 5 * 60);
     m_rangeCombo->addItem("15 minutes", 15 * 60);
     m_rangeCombo->addItem("1 hour", 60 * 60);
     m_rangeCombo->addItem("1 day", 24 * 60 * 60);
     m_rangeCombo->addItem("1 week", 7 * 24 * 60 * 60);
-    controlRow->addWidget(titleLabel);
+    // Title text now lives in the chrome title bar above; drop the
+    // duplicate inline header but keep the timeframe selector right-
+    // aligned for parity with the previous layout.
+    titleLabel->hide();
     controlRow->addStretch();
     controlRow->addWidget(rangeLabel);
     controlRow->addWidget(m_rangeCombo);
-    root->addLayout(controlRow);
+    body->addLayout(controlRow);
 
     auto* tabs = new QTabWidget(this);
-    root->addWidget(tabs, 1);
+    body->addWidget(tabs, 1);
 
     auto* overviewPage = new QWidget(this);
     auto* overviewLayout = new QGridLayout(overviewPage);
@@ -661,6 +899,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     m_overviewLatencyGraph = new TimeSeriesGraphWidget("Latency and Jitter", " ms");
     m_overviewLossGraph = new TimeSeriesGraphWidget("Recent Packet Loss", "%");
     m_overviewRatesGraph = new TimeSeriesGraphWidget("Total Stream Rates", " kbps");
+    m_overviewRatesGraph->setLogScale(true);
     m_overviewAudioGraph = new TimeSeriesGraphWidget("Audio Buffer", " ms");
     m_overviewAudioGraph->setPrimaryAxisSeries("Buffer");
     overviewLayout->addWidget(m_overviewLatencyGraph, 1, 0, 1, 2);
@@ -679,6 +918,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     };
     makeGraphTab("Latency", &m_latencyGraph, "Latency, Arrival Gap, and Jitter", " ms");
     makeGraphTab("Rates", &m_ratesGraph, "Incoming Stream Rates", " kbps");
+    m_ratesGraph->setLogScale(true);
     makeGraphTab("Packet Loss", &m_lossGraph, "Packet Loss by Stream", "%");
     makeGraphTab("Audio", &m_audioGraph, "Playback Buffer", " ms");
     m_audioGraph->setPrimaryAxisSeries("Buffer");
@@ -689,7 +929,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     auto* btnRow = new QHBoxLayout;
     btnRow->addStretch();
     btnRow->addWidget(closeBtn);
-    root->addLayout(btnRow);
+    body->addLayout(btnRow);
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
 
     // Refresh every second
@@ -1133,6 +1373,103 @@ void NetworkDiagnosticsDialog::updateCharts()
     m_ratesGraph->setSeries(rateSeries, rangeSeconds);
     m_lossGraph->setSeries(lossSeries, rangeSeconds);
     m_audioGraph->setSeries(audioBufferSeries, rangeSeconds);
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Frameless 8-axis resize + drag-to-move
+// ──────────────────────────────────────────────────────────────────
+
+Qt::Edges NetworkDiagnosticsDialog::edgesAt(const QPoint& pos) const
+{
+    if (isMaximized() || isFullScreen()) {
+        return {};
+    }
+    Qt::Edges edges;
+    if (pos.x() <= kResizeMargin) {
+        edges |= Qt::LeftEdge;
+    } else if (pos.x() >= width() - kResizeMargin) {
+        edges |= Qt::RightEdge;
+    }
+    if (pos.y() <= kResizeMargin) {
+        edges |= Qt::TopEdge;
+    } else if (pos.y() >= height() - kResizeMargin) {
+        edges |= Qt::BottomEdge;
+    }
+    return edges;
+}
+
+void NetworkDiagnosticsDialog::updateResizeCursor(const QPoint& pos)
+{
+    const Qt::Edges edges = edgesAt(pos);
+    Qt::CursorShape shape = Qt::ArrowCursor;
+    if ((edges & (Qt::LeftEdge | Qt::TopEdge))     == (Qt::LeftEdge | Qt::TopEdge)
+        || (edges & (Qt::RightEdge | Qt::BottomEdge)) == (Qt::RightEdge | Qt::BottomEdge)) {
+        shape = Qt::SizeFDiagCursor;
+    } else if ((edges & (Qt::RightEdge | Qt::TopEdge))    == (Qt::RightEdge | Qt::TopEdge)
+        ||     (edges & (Qt::LeftEdge | Qt::BottomEdge)) == (Qt::LeftEdge | Qt::BottomEdge)) {
+        shape = Qt::SizeBDiagCursor;
+    } else if (edges & (Qt::LeftEdge | Qt::RightEdge)) {
+        shape = Qt::SizeHorCursor;
+    } else if (edges & (Qt::TopEdge | Qt::BottomEdge)) {
+        shape = Qt::SizeVerCursor;
+    }
+    setCursor(shape);
+}
+
+void NetworkDiagnosticsDialog::mouseMoveEvent(QMouseEvent* ev)
+{
+    if (!(ev->buttons() & Qt::LeftButton)) {
+        updateResizeCursor(ev->pos());
+    }
+    QDialog::mouseMoveEvent(ev);
+}
+
+void NetworkDiagnosticsDialog::mousePressEvent(QMouseEvent* ev)
+{
+    if (ev->button() == Qt::LeftButton) {
+        const Qt::Edges edges = edgesAt(ev->pos());
+        if (edges) {
+            if (auto* h = windowHandle()) {
+                h->startSystemResize(edges);
+                ev->accept();
+                return;
+            }
+        }
+    }
+    QDialog::mousePressEvent(ev);
+}
+
+void NetworkDiagnosticsDialog::leaveEvent(QEvent* ev)
+{
+    setCursor(Qt::ArrowCursor);
+    QDialog::leaveEvent(ev);
+}
+
+bool NetworkDiagnosticsDialog::eventFilter(QObject* obj, QEvent* ev)
+{
+    // Drag-to-move via the custom title bar.  The trio buttons are
+    // their own QPushButtons that consume the press themselves, so
+    // this only fires on the bare title-bar background.
+    if (obj == m_titleBar && ev->type() == QEvent::MouseButtonPress) {
+        auto* me = static_cast<QMouseEvent*>(ev);
+        if (me->button() == Qt::LeftButton) {
+            if (auto* h = windowHandle()) {
+                h->startSystemMove();
+                me->accept();
+                return true;
+            }
+        }
+    }
+    if (obj == m_titleBar && ev->type() == QEvent::MouseButtonDblClick) {
+        if (isMaximized()) {
+            showNormal();
+        } else {
+            showMaximized();
+        }
+        ev->accept();
+        return true;
+    }
+    return QDialog::eventFilter(obj, ev);
 }
 
 } // namespace AetherSDR
