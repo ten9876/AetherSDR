@@ -219,12 +219,17 @@ public:
     void setWfColorGain(int gain);
     void setWfBlackLevel(int level);
     void setWfAutoBlack(bool on);
+    // Auto-black offset (0-100, 50 = noise floor, <50 darker, >50 lighter).
+    // Only consulted while m_wfAutoBlack is on; lets users bias the noise-
+    // floor target without leaving auto-black.
+    void setWfAutoBlackOffset(int level);
     void setWfLineDuration(int ms);
     void setWfColorScheme(int scheme);
     void resetWfTimeScale();
     int   wfColorGain() const          { return m_wfColorGain; }
     int   wfBlackLevel() const         { return m_wfBlackLevel; }
     bool  wfAutoBlack() const          { return m_wfAutoBlack; }
+    int   wfAutoBlackOffset() const    { return m_wfAutoBlackOffset; }
     int   wfLineDuration() const       { return m_wfLineDuration; }
     int   wfColorScheme() const        { return static_cast<int>(m_wfColorScheme); }
 
@@ -506,6 +511,11 @@ private:
     int   m_wfColorGain{50};         // 0-100, maps intensity to color range
     int   m_wfBlackLevel{15};        // 0-125, intensity floor (below = black)
     bool  m_wfAutoBlack{true};
+    // Auto-black offset (0-100). 50 → no offset (today's behaviour); <50
+    // pushes the threshold above the noise floor (darker waterfall); >50
+    // pulls it below (lighter).  Stored separately from m_wfBlackLevel so
+    // toggling AUTO swaps between the two without losing either value.
+    int   m_wfAutoBlackOffset{50};
     WfColorScheme m_wfColorScheme{WfColorScheme::Default};
     float m_autoBlackThresh{145.0f}; // client-side auto-black: tracked noise floor
     int   m_wfLineDuration{100};     // ms per waterfall row

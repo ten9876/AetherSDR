@@ -37,10 +37,13 @@ public:
     // Set the antenna list (from RadioModel::antListChanged).
     void setAntennaList(const QStringList& ants);
 
-    // Sync Display sub-panel controls with saved settings.
+    // Sync Display sub-panel controls with saved settings.  The Black slider
+    // displays `black` while autoBlack is off and `autoBlackOffset` while it
+    // is on; both values are stored internally so toggling the AUTO button
+    // swaps the slider position without losing either preference.
     void syncDisplaySettings(int avg, int fps, int fillPct, bool weightedAvg,
                              const QColor& fillColor, int gain, int black,
-                             bool autoBlack, int rate,
+                             bool autoBlack, int autoBlackOffset, int rate,
                              int floorPos = 75, bool floorEnable = false,
                              bool heatMap = true, int colorScheme = 0,
                              bool showGrid = true,
@@ -104,6 +107,9 @@ signals:
     void wfColorGainChanged(int gain);
     void wfBlackLevelChanged(int level);
     void wfAutoBlackChanged(bool on);
+    // Auto-black target offset (0-100, 50 = at noise floor).  Emitted when
+    // the Black slider moves while AUTO is engaged.
+    void wfAutoBlackOffsetChanged(int offset);
     void wfLineDurationChanged(int ms);
     void wfColorSchemeChanged(int scheme);
     void noiseFloorPositionChanged(int pos);
@@ -212,6 +218,11 @@ private:
     QSlider*     m_blackSlider{nullptr};
     QLabel*      m_blackLabel{nullptr};
     QPushButton* m_autoBlackBtn{nullptr};
+    // Two values backing the single Black slider; the slider shows whichever
+    // matches the current AUTO state.  Toggling AUTO swaps the displayed
+    // value, edits route to the matching member + matching signal.
+    int          m_blackManualValue{15};
+    int          m_blackAutoOffsetValue{50};
     QComboBox*   m_colorSchemeCmb{nullptr};
     QSlider*     m_rateSlider{nullptr};
     QLabel*      m_rateLabel{nullptr};

@@ -8734,6 +8734,10 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             this, [this, sw](bool on) {
         sw->setWfAutoBlack(on);
     });
+    connect(menu, &SpectrumOverlayMenu::wfAutoBlackOffsetChanged,
+            this, [sw](int offset) {
+        sw->setWfAutoBlackOffset(offset);
+    });
     connect(menu, &SpectrumOverlayMenu::wfLineDurationChanged,
             this, [this, applet, sw](int ms) {
         sw->setWfLineDuration(ms);
@@ -8784,6 +8788,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setWfColorGain(50);
         sw->setWfBlackLevel(15);
         sw->setWfAutoBlack(true);
+        sw->setWfAutoBlackOffset(50);
         sw->setWfLineDuration(100);
         sw->setWfBlankerEnabled(false);
         sw->setWfBlankerThreshold(1.15f);
@@ -8836,7 +8841,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 
         // Sync all Display panel UI controls
         menu->syncDisplaySettings(0, 25, 70, false, QColor(0x00, 0xe5, 0xff),
-                                  50, 15, true, 100, 75, false, true, 0);
+                                  50, 15, true, 50, 100, 75, false, true, 0);
         menu->syncExtraDisplaySettings(false, 1.15f, 80, 0);
     });
 

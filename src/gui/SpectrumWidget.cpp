@@ -293,6 +293,7 @@ void SpectrumWidget::loadSettings()
     m_wfColorGain    = s.value(settingsKey("DisplayWfColorGain"), "50").toInt();
     m_wfBlackLevel   = s.value(settingsKey("DisplayWfBlackLevel"), "15").toInt();
     m_wfAutoBlack    = s.value(settingsKey("DisplayWfAutoBlack"), "True").toString() == "True";
+    m_wfAutoBlackOffset = s.value(settingsKey("DisplayWfAutoBlackOffset"), "50").toInt();
     m_wfLineDuration = s.value(settingsKey("DisplayWfLineDuration"), "100").toInt();
     // NB Waterfall Blanker (#277)
     m_wfBlankerEnabled   = s.value(settingsKey("WaterfallBlankingEnabled"), "False").toString() == "True";
@@ -326,7 +327,8 @@ void SpectrumWidget::loadSettings()
     if (m_overlayMenu) {
         m_overlayMenu->syncDisplaySettings(m_fftAverage, m_fftFps,
             static_cast<int>(m_fftFillAlpha * 100), m_fftWeightedAvg, m_fftFillColor,
-            m_wfColorGain, m_wfBlackLevel, m_wfAutoBlack, m_wfLineDuration,
+            m_wfColorGain, m_wfBlackLevel, m_wfAutoBlack, m_wfAutoBlackOffset,
+            m_wfLineDuration,
             75, false, m_fftHeatMap, static_cast<int>(m_wfColorScheme), m_showGrid,
             m_fftLineWidth);
         m_overlayMenu->syncExtraDisplaySettings(m_wfBlankerEnabled,
@@ -500,6 +502,17 @@ void SpectrumWidget::setWfAutoBlack(bool on) {
     auto& s = AppSettings::instance();
     s.setValue(settingsKey("DisplayWfAutoBlack"), on ? "True" : "False");
     s.save();
+    update();
+}
+void SpectrumWidget::setWfAutoBlackOffset(int level) {
+    int clamped = std::clamp(level, 0, 100);
+    if (clamped != m_wfAutoBlackOffset) {
+        m_wfAutoBlackOffset = clamped;
+        auto& s = AppSettings::instance();
+        s.setValue(settingsKey("DisplayWfAutoBlackOffset"), QString::number(m_wfAutoBlackOffset));
+        s.save();
+    }
+    update();
 }
 void SpectrumWidget::setWfLineDuration(int ms) {
     m_wfLineDuration = std::clamp(ms, 50, 500);
@@ -2883,10 +2896,14 @@ QRgb SpectrumWidget::dbmToRgb(float dbm) const
 QRgb SpectrumWidget::intensityToRgb(float intensity) const
 {
     // Map black_level (0-100) to an intensity threshold.
-    // When auto-black is on, use the measured noise floor instead.
+    // When auto-black is on, anchor to the measured noise floor and let the
+    // user bias it via the auto-black offset slider:
+    //   offset 50 → no bias (threshold sits at the noise floor)
+    //   offset  0 → +25 intensity above the noise floor (darker waterfall)
+    //   offset 100 → -25 intensity below the noise floor (lighter waterfall)
     float blackThresh;
     if (m_wfAutoBlack) {
-        blackThresh = m_autoBlackThresh;
+        blackThresh = m_autoBlackThresh + (50 - m_wfAutoBlackOffset) * 0.5f;
     } else {
         // Manual: slider 0 → thresh 160 (well above noise), slider 100 → thresh 60.
         blackThresh = 160.0f - m_wfBlackLevel * 1.0f;

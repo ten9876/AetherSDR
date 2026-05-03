@@ -863,18 +863,46 @@ void SpectrumOverlayMenu::buildDisplayPanel()
         });
     }
 
-    // Black + Auto
-    makeRowWithBtn("Black:", 0, 100, 15, m_blackSlider, m_blackLabel,
+    // Black + Auto.  Single slider with two roles depending on AUTO state:
+    //   AUTO off → manual black-level (0..100), value persists in
+    //              m_blackManualValue and emits wfBlackLevelChanged.
+    //   AUTO on  → noise-floor offset (0..100, 50 = noise floor), value
+    //              persists in m_blackAutoOffsetValue and emits
+    //              wfAutoBlackOffsetChanged.
+    makeRowWithBtn("Black:", 0, 100, 50, m_blackSlider, m_blackLabel,
                    m_autoBlackBtn, "Auto");
     m_autoBlackBtn->setChecked(true);
     connect(m_blackSlider, &QSlider::valueChanged, this, [this](int v) {
         m_blackLabel->setText(QString::number(v));
-        emit wfBlackLevelChanged(v);
+        if (m_autoBlackBtn && m_autoBlackBtn->isChecked()) {
+            m_blackAutoOffsetValue = v;
+            emit wfAutoBlackOffsetChanged(v);
+        } else {
+            m_blackManualValue = v;
+            emit wfBlackLevelChanged(v);
+        }
     });
     connect(m_autoBlackBtn, &QPushButton::toggled, this, [this](bool on) {
         emit wfAutoBlackChanged(on);
+        // Swap the displayed slider value to whichever role just became
+        // active.  Block signals so the swap doesn't echo back as a user
+        // edit — we just want the UI to reflect the matching stored value.
+        if (m_blackSlider) {
+            QSignalBlocker bs(m_blackSlider);
+            const int v = on ? m_blackAutoOffsetValue : m_blackManualValue;
+            m_blackSlider->setValue(v);
+            if (m_blackLabel)
+                m_blackLabel->setText(QString::number(v));
+        }
+        if (m_blackSlider) {
+            m_blackSlider->setToolTip(on
+                ? "Auto-black target offset. 50 = at noise floor; lower = darker, higher = lighter."
+                : "Waterfall black level. Decrease to darken the noise floor.");
+        }
         if (!on)
-            emit wfBlackLevelChanged(m_blackSlider->value());
+            emit wfBlackLevelChanged(m_blackManualValue);
+        else
+            emit wfAutoBlackOffsetChanged(m_blackAutoOffsetValue);
     });
 
     // NB Blank + Off/On
@@ -1040,7 +1068,8 @@ void SpectrumOverlayMenu::buildDisplayPanel()
 
 void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
                                                bool weightedAvg, const QColor& fillColor,
-                                               int gain, int black, bool autoBlack, int rate,
+                                               int gain, int black, bool autoBlack,
+                                               int autoBlackOffset, int rate,
                                                int floorPos, bool floorEnable,
                                                bool heatMap, int colorScheme,
                                                bool showGrid,
@@ -1065,8 +1094,14 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
                 " border-radius: 2px; }").arg(fillColor.name()));
     m_gainSlider->setValue(gain);
     m_gainLabel->setText(QString::number(gain));
-    m_blackSlider->setValue(black);
-    m_blackLabel->setText(QString::number(black));
+    m_blackManualValue     = black;
+    m_blackAutoOffsetValue = autoBlackOffset;
+    const int displayBlack = autoBlack ? autoBlackOffset : black;
+    m_blackSlider->setValue(displayBlack);
+    m_blackLabel->setText(QString::number(displayBlack));
+    m_blackSlider->setToolTip(autoBlack
+        ? "Auto-black target offset. 50 = at noise floor; lower = darker, higher = lighter."
+        : "Waterfall black level. Decrease to darken the noise floor.");
     m_autoBlackBtn->setChecked(autoBlack);
     int rateSliderVal = std::clamp(rate - 70, 1, 30);  // line_duration 71-100 → slider 1-30
     m_rateSlider->setValue(rateSliderVal);
