@@ -64,7 +64,7 @@ void TxApplet::buildUI()
     // Body with margins
     auto* body = new QWidget;
     auto* vbox = new QVBoxLayout(body);
-    vbox->setContentsMargins(4, 2, 4, 2);
+    vbox->setContentsMargins(4, 2, 8, 2);
     vbox->setSpacing(2);
 
     // ── Forward Power gauge (0–120 W, red > 100 W) ─────────────────────────
@@ -101,7 +101,7 @@ void TxApplet::buildUI()
 
         m_rfPowerLabel = new QLabel("100");
         m_rfPowerLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 10px; }");
-        m_rfPowerLabel->setFixedWidth(22);
+        m_rfPowerLabel->setFixedWidth(30);
         m_rfPowerLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         row->addWidget(m_rfPowerLabel);
         vbox->addLayout(row);
@@ -125,7 +125,7 @@ void TxApplet::buildUI()
 
         m_tunePowerLabel = new QLabel("10");
         m_tunePowerLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 10px; }");
-        m_tunePowerLabel->setFixedWidth(22);
+        m_tunePowerLabel->setFixedWidth(30);
         m_tunePowerLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         row->addWidget(m_tunePowerLabel);
         vbox->addLayout(row);

@@ -166,7 +166,8 @@ protected:
             const QFontMetrics fm(tickFont);
             int tw = fm.horizontalAdvance(tick.label);
             // Center label on tick position, clamp to widget bounds
-            int lx = qBound(0, tx - tw / 2, w - tw);
+            // Leave a small right margin so the last tick isn't flush to the edge
+            int lx = qBound(2, tx - tw / 2, w - tw - 4);
             p.drawText(lx, 10, tick.label);
         }
 
