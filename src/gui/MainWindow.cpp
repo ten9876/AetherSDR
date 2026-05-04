@@ -947,13 +947,6 @@ MainWindow::MainWindow(QWidget* parent)
         }
         if (s.value("FramelessWindow", "True").toString() == "True")
             setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
-
-        // Migrate spot-lines key renamed in v0.9.7 (SpotShowLines → IsSpotsLinesEnabled).
-        if (s.contains("SpotShowLines") && !s.contains("IsSpotsLinesEnabled")) {
-            s.setValue("IsSpotsLinesEnabled", s.value("SpotShowLines", "True").toString());
-            s.remove("SpotShowLines");
-            s.save();
-        }
     }
 
     applyDarkTheme();
