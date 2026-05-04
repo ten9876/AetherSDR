@@ -6,6 +6,10 @@
 #include <QString>
 #include <QStringList>
 
+#include <functional>
+
+class QTimer;
+
 namespace AetherSDR {
 
 // ATU tune status values (from FlexLib ATUTuneStatus enum).
@@ -146,6 +150,30 @@ public:
     void toggleTwoToneTune();
     void stopTune();
     void setMox(bool on);
+
+    // PTT request coordinator (#2262) — single entry point for "user
+    // wants to key/unkey".  When Quindar is enabled and the active TX
+    // slice is on a phone mode, runs the engage/disengage tone state
+    // machine before the actual MOX flip; otherwise forwards directly
+    // to setMox().  All UI and TCI hardware-PTT callers should use this
+    // path so Quindar tones happen consistently regardless of source.
+    enum class PttSource : uint8_t {
+        Mox          = 0,   // GUI MOX button
+        TciHardware  = 1,   // TCI radio-direct PTT (e.g. Stream Deck plugin)
+        Footswitch   = 2,   // future: serial-PTT or other hardware path
+    };
+    void requestPttOn(PttSource source);
+    void requestPttOff(PttSource source);
+    // Bindings injected once at MainWindow wire-up.  The coordinator
+    // needs the Quindar DSP module pointer to drive intro/outro
+    // phases, and a callable that returns the active TX slice's mode
+    // string for the phone-mode gate.  The mode-getter indirection
+    // keeps TransmitModel decoupled from RadioModel/SliceModel so the
+    // test executables don't need Qt6::Network linkage.
+    void setQuindarTone(class ClientQuindarTone* tone);
+    using TxModeGetter = std::function<QString()>;
+    void setTxModeGetter(TxModeGetter getter);
+
     void atuStart();
     void atuBypass();
     void setAtuMemories(bool on);
@@ -209,9 +237,23 @@ signals:
     void apdEqualizerResetReceived();
     void maxPowerLevelChanged(int maxWatts);
     void commandReady(const QString& cmd);
+    // Quindar active-phase signal (#2262).  Emitted on the GUI thread
+    // immediately when intro/outro starts and again when each finishes,
+    // sized from the tone's current duration.  Used by the strip's
+    // QUIN chip to flash bright while a tone is playing — replaces an
+    // earlier 30 Hz poll of ClientQuindarTone::phase().
+    void quindarActiveChanged(bool active);
 
 private:
     static ATUStatus parseAtuTuneStatus(const QString& s);
+    bool isPhoneModeForQuindar() const;
+    void cancelPendingQuindarOff();
+
+    // PTT coordinator state (#2262)
+    class ClientQuindarTone* m_quindarTone{nullptr};
+    TxModeGetter             m_txModeGetter;
+    QTimer*                  m_pendingMoxOffTimer{nullptr};
+    bool                     m_quindarOutroInFlight{false};
 
     // APD state
     bool m_apdEnabled{false};

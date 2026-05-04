@@ -69,6 +69,11 @@ public:
     // just nudges the widget to repaint from it.
     void refreshChainPaint();
 
+    // Accessor for the embedded Final Output panel — MainWindow wires
+    // this to TransmitModel::quindarActiveChanged so the QUIN chip
+    // flashes via signal hop instead of a poll.
+    StripFinalOutputPanel* finalOutputPanel() const { return m_finalOutput; }
+
 signals:
     // Re-emitted from the embedded StripEqPanel when the user drags one
     // of the dashed cutoff lines.  MainWindow connects this to the same

@@ -1,6 +1,8 @@
 #include "TransmitModel.h"
+#include "core/ClientQuindarTone.h"
 #include "core/LogManager.h"
 #include <QDebug>
+#include <QTimer>
 
 namespace AetherSDR {
 
@@ -726,6 +728,118 @@ ATUStatus TransmitModel::parseAtuTuneStatus(const QString& s)
     if (s == "TUNE_MANUAL_BYPASS") return ATUStatus::ManualBypass;
     qCDebug(lcTransmit) << "TransmitModel: unknown ATU status:" << s;
     return ATUStatus::None;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// PTT request coordinator (#2262 — Quindar tones)
+// ─────────────────────────────────────────────────────────────────────
+
+void TransmitModel::setQuindarTone(ClientQuindarTone* tone)
+{
+    m_quindarTone = tone;
+}
+
+void TransmitModel::setTxModeGetter(TxModeGetter getter)
+{
+    m_txModeGetter = std::move(getter);
+}
+
+bool TransmitModel::isPhoneModeForQuindar() const
+{
+    if (!m_txModeGetter) return false;
+    const QString m = m_txModeGetter();
+    // Phone modes accepted for Quindar: SSB families, AM, FM, FreeDV.
+    // Digital (DIGU/DIGL/RTTY/CW/FT8) intentionally excluded — the
+    // tone would corrupt the digital waveform.
+    return m == "USB" || m == "LSB"
+        || m == "AM"  || m == "FM"  || m == "NFM"
+        || m == "FDV";
+}
+
+void TransmitModel::cancelPendingQuindarOff()
+{
+    if (m_pendingMoxOffTimer) {
+        m_pendingMoxOffTimer->stop();
+        m_pendingMoxOffTimer->deleteLater();
+        m_pendingMoxOffTimer = nullptr;
+    }
+    m_quindarOutroInFlight = false;
+}
+
+void TransmitModel::requestPttOn(PttSource /*source*/)
+{
+    // If Quindar is enabled + phone mode + we have an engine, start
+    // the intro tone alongside MOX so the radio keys up while the
+    // tone plays (the tone gets transmitted as part of the audio).
+    auto* tone = m_quindarTone;
+
+    // Coalesce a re-engage that fires during the outro window — flip
+    // phase back to Live, cancel the pending xmit-0 timer, and skip a
+    // fresh intro so the user doesn't feel an outro+intro dead zone.
+    if (tone && tone->isEnabled()
+        && tone->phase() == ClientQuindarTone::Phase::Disengaging) {
+        if (tone->coalesceReEngage()) {
+            cancelPendingQuindarOff();
+            // Outro flash ends — phase is now back in Live, no tone
+            // playing locally.  MOX is already true (we never sent
+            // xmit 0); just bail.
+            emit quindarActiveChanged(false);
+            return;
+        }
+    }
+
+    if (tone && tone->isEnabled() && isPhoneModeForQuindar()) {
+        tone->startIntro();
+        // Flash the QUIN chip for the intro duration; the audio thread
+        // auto-transitions Engaging → Live when its frame counter
+        // hits the same duration, so we model the visible flash with
+        // a single-shot timer here on the GUI thread.
+        emit quindarActiveChanged(true);
+        const int introMs = std::max(50, tone->currentIntroDurationMs());
+        QTimer::singleShot(introMs, this, [this]() {
+            emit quindarActiveChanged(false);
+        });
+    }
+    setMox(true);
+}
+
+void TransmitModel::requestPttOff(PttSource /*source*/)
+{
+    auto* tone = m_quindarTone;
+
+    // No Quindar, no phone mode, or already shutting down → straight
+    // through.  The phase check is essential — if MOX was never on
+    // (or already off) we shouldn't run an outro.
+    if (!tone || !tone->isEnabled() || !isPhoneModeForQuindar()
+        || tone->phase() == ClientQuindarTone::Phase::Idle
+        || m_quindarOutroInFlight) {
+        cancelPendingQuindarOff();
+        setMox(false);
+        return;
+    }
+
+    // Start the outro and defer xmit 0 by the outro duration so the
+    // tone gets transmitted before the radio unkeys.  Outro duration
+    // is style-dependent and computed from current settings.
+    tone->startOutro();
+    m_quindarOutroInFlight = true;
+    emit quindarActiveChanged(true);
+    const int outroMs = std::max(50, tone->currentOutroDurationMs());
+
+    cancelPendingQuindarOff();
+    m_pendingMoxOffTimer = new QTimer(this);
+    m_pendingMoxOffTimer->setSingleShot(true);
+    m_pendingMoxOffTimer->setInterval(outroMs);
+    connect(m_pendingMoxOffTimer, &QTimer::timeout, this, [this]() {
+        // If a re-engage happened during the outro window the timer
+        // would have been cancelled; if we're here, the outro fully
+        // completed and it's safe to flip MOX off.
+        m_pendingMoxOffTimer = nullptr;
+        m_quindarOutroInFlight = false;
+        emit quindarActiveChanged(false);
+        setMox(false);
+    });
+    m_pendingMoxOffTimer->start();
 }
 
 } // namespace AetherSDR

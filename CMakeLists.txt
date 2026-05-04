@@ -422,6 +422,8 @@ set(CORE_SOURCES
     src/core/ClientReverb.cpp
     src/core/ClientFinalLimiter.cpp
     src/core/ClientTxTestTone.cpp
+    src/core/ClientQuindarTone.cpp
+    src/core/QuindarLocalSink.cpp
     src/core/CwSidetoneGenerator.cpp
     src/core/CwSidetoneQAudioSink.cpp
     src/core/CwxLocalKeyer.cpp
@@ -1126,6 +1128,13 @@ add_executable(client_comp_test
 )
 target_include_directories(client_comp_test PRIVATE src)
 
+add_executable(client_quindar_test
+    tests/client_quindar_test.cpp
+    src/core/ClientQuindarTone.cpp
+)
+target_include_directories(client_quindar_test PRIVATE src)
+target_link_libraries(client_quindar_test PRIVATE Qt6::Core)
+
 add_executable(client_gate_test
     tests/client_gate_test.cpp
     src/core/ClientGate.cpp
@@ -1245,6 +1254,7 @@ target_link_libraries(memory_recall_policy_test PRIVATE Qt6::Core)
 add_executable(transmit_model_apd_test
     tests/transmit_model_apd_test.cpp
     src/models/TransmitModel.cpp
+    src/core/ClientQuindarTone.cpp
     src/core/LogManager.cpp
     src/core/AppSettings.cpp
 )
@@ -1280,6 +1290,7 @@ target_link_libraries(midi_settings_test PRIVATE Qt6::Core)
 add_executable(transmit_model_test
     tests/transmit_model_test.cpp
     src/models/TransmitModel.cpp
+    src/core/ClientQuindarTone.cpp
     src/core/AppSettings.cpp
     src/core/LogManager.cpp
 )

@@ -41,6 +41,8 @@ class ClientPuduMonitor;
 class ClientReverb;
 class ClientFinalLimiter;
 class ClientTxTestTone;
+class ClientQuindarTone;
+class QuindarLocalSink;
 class CwSidetoneGenerator;
 #ifdef __APPLE__
 class MacNRFilter;
@@ -79,6 +81,8 @@ public:
     // local sidetone for the first time after connect.
     Q_INVOKABLE bool startSidetoneStream();
     Q_INVOKABLE void stopSidetoneStream();
+    Q_INVOKABLE bool startQuindarLocalSink();
+    Q_INVOKABLE void stopQuindarLocalSink();
 
     // TX (microphone) – capture audio and send VITA-49 packets to radio
     Q_INVOKABLE bool startTxStream(const QHostAddress& radioAddress, quint16 radioPort);
@@ -240,6 +244,13 @@ public:
     // runs — useful for setup / calibration.
     ClientTxTestTone* clientTxTestTone() { return m_clientTxTestTone.get(); }
 
+    // Quindar tone generator (#2262).  Sits AFTER the user DSP chain
+    // and PC mic gain but BEFORE the final brickwall limiter, so the
+    // generated tone is unprocessed by Comp/EQ but still bounded by
+    // the configured ceiling.  Driven by the TransmitModel PTT
+    // coordinator on phone modes; bypassed on CW / digital.
+    ClientQuindarTone* clientQuindarTone() { return m_clientQuindarTone.get(); }
+
     // Register a monitor that taps the post-final-limiter int16
     // stream — the exact bytes that get packetised into VITA-49.
     // Mirror of setTxPostDspMonitor but at the chain tail.
@@ -354,6 +365,8 @@ public:
     void saveClientReverbSettings();
     void loadClientFinalLimiterSettings();
     void saveClientFinalLimiterSettings() const;
+    void loadClientQuindarSettings();
+    void saveClientQuindarSettings() const;
 
     // Post-Client-EQ audio tap for the editor's FFT analyzer.  Exposes
     // a rolling mono buffer filled on the audio thread; UI thread copies
@@ -496,6 +509,7 @@ private:
     // disabled by AppSettings["CwSidetoneBackend"]=="QAudioSink"; QAudioSink
     // (push mode, 2 ms timer, 50 ms buffer) otherwise.  See CwSidetoneSinkBackend.h.
     std::unique_ptr<class CwSidetoneSinkBackend> m_sidetoneSink;
+    std::unique_ptr<QuindarLocalSink>            m_quindarLocalSink;
 
     // TX
     QUdpSocket    m_txSocket;
@@ -621,6 +635,7 @@ private:
     std::unique_ptr<ClientReverb> m_clientReverbTx;
     std::unique_ptr<ClientFinalLimiter> m_clientFinalLimiterTx;
     std::unique_ptr<ClientTxTestTone>   m_clientTxTestTone;
+    std::unique_ptr<ClientQuindarTone>  m_clientQuindarTone;
     // Audio-thread-loaded pointer for the post-final-limiter monitor
     // (final-output recording).  Same lock-free atomic pointer pattern
     // as m_txPostDspMonitor.

@@ -43,6 +43,7 @@
 #include "ClientPuduEditor.h"
 #include "ClientReverbApplet.h"
 #include "AetherialAudioStrip.h"
+#include "StripFinalOutputPanel.h"
 #include "ClientChainApplet.h"
 #include "core/ClientComp.h"
 #include "core/ClientEq.h"
@@ -955,6 +956,30 @@ MainWindow::MainWindow(QWidget* parent)
     // strip.
     m_finalMonitor = new ClientPuduMonitor(this);
     m_audio->setTxFinalMonitor(m_finalMonitor);
+
+    // Wire the Quindar tone coordinator (#2262).  TransmitModel needs
+    // the DSP module (to drive intro/outro phases) and a TX-mode
+    // getter for the phone-mode gate.  The getter indirection keeps
+    // TransmitModel decoupled from RadioModel for test-build purposes.
+    m_radioModel.transmitModel().setQuindarTone(m_audio->clientQuindarTone());
+    m_radioModel.transmitModel().setTxModeGetter([this]() -> QString {
+        for (auto* s : m_radioModel.slices()) {
+            if (s && s->isTxSlice()) return s->mode();
+        }
+        return QString();
+    });
+    // QUIN chip flash via signal hop — see TransmitModel::quindarActiveChanged.
+    // Strip is created lazily; the lambda checks for existence each fire so
+    // we don't need to re-connect when the strip pops up.
+    connect(&m_radioModel.transmitModel(),
+            &TransmitModel::quindarActiveChanged,
+            this, [this](bool active) {
+        if (m_aetherialStrip) {
+            if (auto* p = m_aetherialStrip->finalOutputPanel())
+                p->setQuindarActive(active);
+        }
+    });
+
     m_networkDiagnosticsHistory = new NetworkDiagnosticsHistory(&m_radioModel, m_audio, this);
 
     // Local CW sidetone — every key source (serial, MIDI, TCI, CWX, HID)

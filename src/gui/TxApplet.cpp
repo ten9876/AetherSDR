@@ -289,10 +289,16 @@ void TxApplet::buildUI()
             m_model->startTune();
     });
 
-    // MOX button — toggle transmit
+    // MOX button — toggle transmit.  Routes through requestPttOn/Off so
+    // the Quindar tone coordinator (#2262) can run intro/outro tones on
+    // phone modes when enabled.  Falls through to setMox() when Quindar
+    // is disabled or the active TX slice isn't on a phone mode.
     connect(m_moxBtn, &QPushButton::toggled, this, [this](bool on) {
-        if (!m_updatingFromModel && m_model)
-            m_model->setMox(on);
+        if (m_updatingFromModel || !m_model) return;
+        if (on)
+            m_model->requestPttOn(TransmitModel::PttSource::Mox);
+        else
+            m_model->requestPttOff(TransmitModel::PttSource::Mox);
     });
 
     // ATU button — toggle between tune and bypass.

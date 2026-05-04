@@ -504,6 +504,9 @@ QJsonObject ChannelStripPresets::capturePresetJson() const
     // Final brickwall limiter (always present, not in user chain).
     // Test-tone state is intentionally NOT in presets — it's a
     // session-time setup tool, not a "voice mix" parameter.
+    // Quindar tones (#2262) are likewise excluded: they're a PTT-time
+    // stylistic choice, not voice-shaping, and preset recall shouldn't
+    // silently start signing off everyone's transmissions.
     if (auto* lim = m_engine->clientFinalLimiterTx()) {
         QJsonObject o;
         o["enabled"]      = lim->isEnabled();

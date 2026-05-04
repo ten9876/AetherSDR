@@ -619,8 +619,14 @@ void TciServer::onTextMessage(const QString& msg)
                         startTxChrono(ws, trx);
                     } else {
                         if (m_model) {
+                            // Route through the PTT coordinator so
+                            // Quindar tones (#2262) fire on hardware-PTT
+                            // transitions too.  Falls back to setMox()
+                            // for non-phone modes; tone is a no-op when
+                            // disabled.
                             QMetaObject::invokeMethod(m_model, [this]() {
-                                m_model->setTransmit(true);
+                                m_model->transmitModel().requestPttOn(
+                                    TransmitModel::PttSource::TciHardware);
                             }, Qt::QueuedConnection);
                         }
                     }
@@ -628,7 +634,8 @@ void TciServer::onTextMessage(const QString& msg)
                     stopTxChrono();
                     if (m_model) {
                         QMetaObject::invokeMethod(m_model, [this]() {
-                            m_model->setTransmit(false);
+                            m_model->transmitModel().requestPttOff(
+                                TransmitModel::PttSource::TciHardware);
                         }, Qt::QueuedConnection);
                     }
                 }
