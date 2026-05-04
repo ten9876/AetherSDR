@@ -30,7 +30,7 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
     m_spotColor  = QColor(s.value("SpotsOverrideColor", "#FFFF00").toString());
     m_bgColor    = QColor(s.value("SpotsOverrideBgColor", "#000000").toString());
     m_bgOpacity  = s.value("SpotsBackgroundOpacity", 48).toInt();
-    m_spotLines  = s.value("SpotShowLines", "True").toString() == "True";
+    m_spotShowLines = s.value("IsSpotsLinesEnabled", "True").toString() == "True";
     // Migrate from old minutes key to new seconds key
     int lifetimeSec = s.value("DxClusterSpotLifetimeSec", 0).toInt();
     if (lifetimeSec <= 0)
@@ -272,18 +272,18 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
 
     // ── Spot Lines ──────────────────────────────────────────────────────
     grid->addWidget(new QLabel("Spot Lines:"), row, 0);
-    m_spotLinesToggle = new QPushButton(m_spotLines ? "Enabled" : "Disabled");
+    m_spotLinesToggle = new QPushButton(m_spotShowLines ? "Enabled" : "Disabled");
     m_spotLinesToggle->setCheckable(true);
-    m_spotLinesToggle->setChecked(m_spotLines);
+    m_spotLinesToggle->setChecked(m_spotShowLines);
     m_spotLinesToggle->setFixedWidth(80);
     m_spotLinesToggle->setToolTip("Show vertical lines from the spectrum up to each spot label");
     m_spotLinesToggle->setStyleSheet(
         "QPushButton { background: #206030; color: white; border: 1px solid #305040; padding: 3px; }"
         "QPushButton:!checked { background: #603020; }");
     connect(m_spotLinesToggle, &QPushButton::toggled, this, [this, save](bool on) {
-        m_spotLines = on;
+        m_spotShowLines = on;
         m_spotLinesToggle->setText(on ? "Enabled" : "Disabled");
-        save("SpotShowLines", on ? "True" : "False");
+        save("IsSpotsLinesEnabled", on ? "True" : "False");
     });
     grid->addWidget(m_spotLinesToggle, row++, 1, Qt::AlignLeft);
 

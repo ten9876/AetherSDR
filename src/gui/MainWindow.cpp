@@ -914,6 +914,13 @@ MainWindow::MainWindow(QWidget* parent)
         }
         if (s.value("FramelessWindow", "True").toString() == "True")
             setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
+
+        // Migrate spot-lines key renamed in v0.9.7 (SpotShowLines → IsSpotsLinesEnabled).
+        if (s.contains("SpotShowLines") && !s.contains("IsSpotsLinesEnabled")) {
+            s.setValue("IsSpotsLinesEnabled", s.value("SpotShowLines", "True").toString());
+            s.remove("SpotShowLines");
+            s.save();
+        }
     }
 
     applyDarkTheme();
@@ -5344,7 +5351,7 @@ void MainWindow::buildMenuBar()
                 sw->setSpotColor(spotColor);
                 sw->setSpotBgColor(bgColor);
                 sw->setSpotBgOpacity(bgOpacity);
-                sw->setSpotLines(s.value("SpotShowLines", "True").toString() == "True");
+                sw->setSpotShowLines(s.value("IsSpotsLinesEnabled", "True").toString() == "True");
             }
             // Rebuild markers so source-level visibility changes, such as the
             // Memories feed toggle, apply immediately without mutating the cache.
@@ -8712,7 +8719,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setSpotColor(QColor(s.value("SpotsOverrideColor", "#FFFF00").toString()));
         sw->setSpotBgColor(QColor(s.value("SpotsOverrideBgColor", "#000000").toString()));
         sw->setSpotBgOpacity(s.value("SpotsBackgroundOpacity", 48).toInt());
-        sw->setSpotLines(s.value("SpotShowLines", "True").toString() == "True");
+        sw->setSpotShowLines(s.value("IsSpotsLinesEnabled", "True").toString() == "True");
     }
 
     // ── Per-pan display controls (client-side) ───────────────────────────

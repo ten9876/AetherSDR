@@ -48,7 +48,7 @@ private:
     bool   m_overrideColors{false};
     bool   m_overrideBg{true};
     bool   m_overrideBgAutoMode{true};
-    bool   m_spotLines{true};
+    bool   m_spotShowLines{true};
     QColor m_spotColor{Qt::yellow};
     QColor m_bgColor{Qt::black};
     int    m_bgOpacity{48};
