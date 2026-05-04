@@ -111,6 +111,7 @@
 #include <QPropertyAnimation>
 #include <QIcon>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QHelpEvent>
 #include <QWindow>
 #include <QPixmap>
@@ -416,9 +417,22 @@ static QString buildNetworkTooltip(const RadioModel& model)
 static constexpr const char* kPaTempUnitSettingKey = "PaTempDisplayUnit";
 static constexpr int kMemorySpotIdBase = 1000000;
 static constexpr int kPassiveSpotIdBase = 2000000;
+static constexpr const char* kCwStraightKeyActionId = "cwkey";
+static constexpr const char* kCwLeftPaddleActionId = "cwdit";
+static constexpr const char* kCwRightPaddleActionId = "cwdah";
+static constexpr const char* kCwStraightKeyActionName = "Trigger straight key";
+static constexpr const char* kCwLeftPaddleActionName = "Trigger CW Left Paddle";
+static constexpr const char* kCwRightPaddleActionName = "Trigger CW Right Paddle";
 
 static bool s_keyboardShortcutsEnabled = false;
 static bool s_sliderShortcutLeaseActive = false;
+
+static bool isCwMomentaryActionId(const QString& id)
+{
+    return id == QLatin1String(kCwStraightKeyActionId)
+        || id == QLatin1String(kCwLeftPaddleActionId)
+        || id == QLatin1String(kCwRightPaddleActionId);
+}
 
 static int memorySpotId(int memoryIndex)
 {
@@ -492,6 +506,19 @@ static bool shortcutInputCaptured()
 
 static bool shortcutGuard() {
     return s_keyboardShortcutsEnabled && !shortcutInputCaptured();
+}
+
+static QKeySequence shortcutSequenceFromKeyEvent(const QKeyEvent* ev)
+{
+    if (!ev || ev->key() == Qt::Key_unknown)
+        return {};
+
+    const Qt::KeyboardModifiers modifiers =
+        ev->modifiers() & (Qt::ShiftModifier
+                           | Qt::ControlModifier
+                           | Qt::AltModifier
+                           | Qt::MetaModifier);
+    return QKeySequence(static_cast<int>(modifiers) | ev->key());
 }
 
 static QStringList splitClientField(const QString& raw)
@@ -1834,8 +1861,6 @@ MainWindow::MainWindow(QWidget* parent)
         };
         connect(&m_radioModel.transmitModel(), &TransmitModel::phoneStateChanged,
                 this, syncLocalKeyerToRadio);
-        // Initial sync once the radio reports its state.
-        syncLocalKeyerToRadio();
 
         // Mirror the radio's CW state into the local sidetone generator —
         // sidetone enable, volume (mon_gain_cw), and pitch all follow the
@@ -1885,20 +1910,20 @@ MainWindow::MainWindow(QWidget* parent)
             // would have produced from a hardware paddle.
             if (m_audio && m_audio->cwSidetone())
                 m_audio->cwSidetone()->setKeyDown(down);
-            const quint64 traceId = m_lastCwMidiTraceId.load(std::memory_order_relaxed);
-            const quint64 sourceMs = m_lastCwMidiSourceMs.load(std::memory_order_relaxed);
+            const quint64 traceId = m_lastCwPaddleTraceId.load(std::memory_order_relaxed);
+            const quint64 sourceMs = m_lastCwPaddleSourceMs.load(std::memory_order_relaxed);
             if (lcCw().isDebugEnabled()) {
                 const quint64 now = cwTraceNowMs();
                 qCDebug(lcCw).noquote().nospace()
                     << "CW iambic key-edge trace=" << traceId
                     << " t=" << now << "ms"
-                    << " sinceMidiMs=" << (sourceMs ? static_cast<qint64>(now - sourceMs) : -1)
+                    << " sinceSourceMs=" << (sourceMs ? static_cast<qint64>(now - sourceMs) : -1)
                     << " down=" << down;
             }
             QMetaObject::invokeMethod(this, [this, down]() {
-                const quint64 traceId = m_lastCwMidiTraceId.load(std::memory_order_relaxed);
-                const quint64 sourceMs = m_lastCwMidiSourceMs.load(std::memory_order_relaxed);
-                m_radioModel.sendCwKeyEdge(down, QStringLiteral("midi:iambic-keyer"),
+                const quint64 traceId = m_lastCwPaddleTraceId.load(std::memory_order_relaxed);
+                const quint64 sourceMs = m_lastCwPaddleSourceMs.load(std::memory_order_relaxed);
+                m_radioModel.sendCwKeyEdge(down, QStringLiteral("cw:iambic-keyer"),
                                            traceId, sourceMs);
             }, Qt::QueuedConnection);
         });
@@ -1907,27 +1932,28 @@ MainWindow::MainWindow(QWidget* parent)
             // press/release, not one per element, so the radio doesn't
             // thrash through TX/RX gates between dits.
             const bool active = dit || dah;
-            const quint64 traceId = m_lastCwMidiTraceId.load(std::memory_order_relaxed);
-            const quint64 sourceMs = m_lastCwMidiSourceMs.load(std::memory_order_relaxed);
+            const quint64 traceId = m_lastCwPaddleTraceId.load(std::memory_order_relaxed);
+            const quint64 sourceMs = m_lastCwPaddleSourceMs.load(std::memory_order_relaxed);
             if (lcCw().isDebugEnabled()) {
                 const quint64 now = cwTraceNowMs();
                 qCDebug(lcCw).noquote().nospace()
                     << "CW iambic paddle-event trace=" << traceId
                     << " t=" << now << "ms"
-                    << " sinceMidiMs=" << (sourceMs ? static_cast<qint64>(now - sourceMs) : -1)
+                    << " sinceSourceMs=" << (sourceMs ? static_cast<qint64>(now - sourceMs) : -1)
                     << " dit=" << dit
                     << " dah=" << dah
                     << " ptt=" << active;
             }
             QMetaObject::invokeMethod(this, [this, active]() {
-                const quint64 traceId = m_lastCwMidiTraceId.load(std::memory_order_relaxed);
-                const quint64 sourceMs = m_lastCwMidiSourceMs.load(std::memory_order_relaxed);
-                m_radioModel.sendCwPtt(active, QStringLiteral("midi:iambic-keyer"),
+                const quint64 traceId = m_lastCwPaddleTraceId.load(std::memory_order_relaxed);
+                const quint64 sourceMs = m_lastCwPaddleSourceMs.load(std::memory_order_relaxed);
+                m_radioModel.sendCwPtt(active, QStringLiteral("cw:iambic-keyer"),
                                        traceId, sourceMs);
             }, Qt::QueuedConnection);
         });
-        // Mode/WPM/start are driven by the radio's iambic state — see
-        // syncLocalKeyerToRadio below.
+        // Initial sync after callbacks are installed. Without this, the
+        // default/radio-reported iambic-on state may never emit a change.
+        syncLocalKeyerToRadio();
     }
 
     // TX/RX transition → waterfall tile source switching
@@ -2833,8 +2859,8 @@ MainWindow::MainWindow(QWidget* parent)
     });
     connect(m_serialPort, &SerialPortController::cwPaddleChanged,
             this, [this](bool dit, bool dah) {
-        m_lastCwMidiTraceId.store(0, std::memory_order_relaxed);
-        m_lastCwMidiSourceMs.store(0, std::memory_order_relaxed);
+        m_lastCwPaddleTraceId.store(0, std::memory_order_relaxed);
+        m_lastCwPaddleSourceMs.store(0, std::memory_order_relaxed);
         // When the local iambic keyer is running, feed it the raw paddle
         // state — it forwards to the radio AND drives the sidetone gate
         // directly.  Otherwise pass straight through to the radio (radio's
@@ -2990,7 +3016,7 @@ MainWindow::MainWindow(QWidget* parent)
         auto it = m_midiSetters.find(paramId);
         if (it == m_midiSetters.end()) return;
         const quint64 mainMs = cwTraceNowMs();
-        if (paramId.startsWith(QStringLiteral("cw.")) && lcCw().isDebugEnabled()) {
+        if (isCwMomentaryActionId(paramId) && lcCw().isDebugEnabled()) {
             qCDebug(lcCw).noquote().nospace()
                 << "CW MIDI main trace=" << traceId
                 << " t=" << mainMs << "ms"
@@ -4413,6 +4439,177 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event)
     QMainWindow::keyReleaseEvent(event);
 }
 
+void MainWindow::cancelTransmitFromIndicator()
+{
+    if (!m_radioModel.isConnected()) {
+        statusBar()->showMessage("TX cancel ignored: not connected", 2000);
+        return;
+    }
+
+    const quint32 owner = m_radioModel.txClientHandle();
+    const quint32 ours = m_radioModel.ourClientHandle();
+    if (owner != 0 && ours != 0 && owner != ours
+        && !m_radioModel.transmitModel().isTransmitting()) {
+        statusBar()->showMessage("TX is owned by another station", 2500);
+        return;
+    }
+
+    m_spacePttActive = false;
+    m_cwStraightKeyActive = false;
+    m_cwLeftPaddleActive = false;
+    m_cwRightPaddleActive = false;
+    m_lastCwPaddleTraceId.store(0, std::memory_order_relaxed);
+    m_lastCwPaddleSourceMs.store(0, std::memory_order_relaxed);
+
+    if (m_iambicKeyer && m_iambicKeyer->isRunning()) {
+        m_iambicKeyer->setPaddleState(false, false);
+        m_iambicKeyer->reset();
+    }
+    if (m_audio && m_audio->cwSidetone())
+        m_audio->cwSidetone()->setKeyDown(false);
+
+    const quint64 sourceMs = cwTraceNowMs();
+    const quint64 traceId = nextCwTraceId();
+    const QString source = QStringLiteral("tx-indicator:cancel");
+    m_radioModel.sendCwKey(false, source, traceId, sourceMs);
+    m_radioModel.sendCwPtt(false, source, traceId, sourceMs);
+    m_radioModel.transmitModel().stopTune();
+    m_radioModel.setTransmit(false);
+
+    statusBar()->showMessage("TX cancel requested", 2000);
+}
+
+void MainWindow::setCwStraightKeyState(bool down, const QString& source,
+                                       quint64 traceId, quint64 sourceMs)
+{
+    if (m_cwStraightKeyActive == down)
+        return;
+
+    m_cwStraightKeyActive = down;
+    const QString actionSource = source.isEmpty()
+        ? QStringLiteral("cw:straight-key")
+        : source;
+
+    if (lcCw().isDebugEnabled()) {
+        const quint64 now = cwTraceNowMs();
+        qCDebug(lcCw).noquote().nospace()
+            << "CW action straight-key trace=" << traceId
+            << " t=" << now << "ms"
+            << " sinceSourceMs=" << (sourceMs ? static_cast<qint64>(now - sourceMs) : -1)
+            << " source=" << actionSource
+            << " down=" << down;
+    }
+
+    m_radioModel.sendCwKey(down, actionSource, traceId, sourceMs);
+}
+
+void MainWindow::setCwLeftPaddleState(bool down, const QString& source,
+                                      quint64 traceId, quint64 sourceMs)
+{
+    if (m_cwLeftPaddleActive == down)
+        return;
+
+    m_cwLeftPaddleActive = down;
+    pushCwPaddleState(source.isEmpty() ? QStringLiteral("cw:left-paddle") : source,
+                      traceId, sourceMs);
+}
+
+void MainWindow::setCwRightPaddleState(bool down, const QString& source,
+                                       quint64 traceId, quint64 sourceMs)
+{
+    if (m_cwRightPaddleActive == down)
+        return;
+
+    m_cwRightPaddleActive = down;
+    pushCwPaddleState(source.isEmpty() ? QStringLiteral("cw:right-paddle") : source,
+                      traceId, sourceMs);
+}
+
+void MainWindow::pushCwPaddleState(const QString& source,
+                                   quint64 traceId, quint64 sourceMs)
+{
+    const QString actionSource = source.isEmpty()
+        ? QStringLiteral("cw:paddle")
+        : source;
+
+    m_lastCwPaddleTraceId.store(traceId, std::memory_order_relaxed);
+    m_lastCwPaddleSourceMs.store(sourceMs, std::memory_order_relaxed);
+
+    if (lcCw().isDebugEnabled()) {
+        const quint64 now = cwTraceNowMs();
+        qCDebug(lcCw).noquote().nospace()
+            << "CW action paddle trace=" << traceId
+            << " t=" << now << "ms"
+            << " sinceSourceMs=" << (sourceMs ? static_cast<qint64>(now - sourceMs) : -1)
+            << " source=" << actionSource
+            << " leftDit=" << m_cwLeftPaddleActive
+            << " rightDah=" << m_cwRightPaddleActive
+            << " localIambic=" << (m_iambicKeyer && m_iambicKeyer->isRunning());
+    }
+
+    if (m_iambicKeyer && m_iambicKeyer->isRunning()) {
+        m_iambicKeyer->setPaddleState(m_cwLeftPaddleActive, m_cwRightPaddleActive);
+    } else {
+        m_radioModel.sendCwPaddle(m_cwLeftPaddleActive, m_cwRightPaddleActive,
+                                  actionSource, traceId, sourceMs);
+    }
+}
+
+bool MainWindow::handleCwMomentaryShortcut(QKeyEvent* keyEvent, QEvent::Type eventType)
+{
+    if (!keyEvent || keyEvent->isAutoRepeat())
+        return false;
+    if (eventType != QEvent::KeyPress && eventType != QEvent::KeyRelease)
+        return false;
+
+    const QKeySequence seq = shortcutSequenceFromKeyEvent(keyEvent);
+    const auto* action = m_shortcutManager.actionForKey(seq);
+    if (!action)
+        return false;
+
+    enum class CwAction { None, StraightKey, LeftPaddle, RightPaddle };
+    CwAction cwAction = CwAction::None;
+    if (action->id == QLatin1String(kCwStraightKeyActionId))
+        cwAction = CwAction::StraightKey;
+    else if (action->id == QLatin1String(kCwLeftPaddleActionId))
+        cwAction = CwAction::LeftPaddle;
+    else if (action->id == QLatin1String(kCwRightPaddleActionId))
+        cwAction = CwAction::RightPaddle;
+    else
+        return false;
+
+    const bool press = eventType == QEvent::KeyPress;
+    const bool currentlyActive =
+        cwAction == CwAction::StraightKey ? m_cwStraightKeyActive :
+        cwAction == CwAction::LeftPaddle ? m_cwLeftPaddleActive :
+                                           m_cwRightPaddleActive;
+
+    if (press && (!m_keyboardShortcutsEnabled || shortcutInputCaptured()))
+        return false;
+    if (!press && !currentlyActive)
+        return m_keyboardShortcutsEnabled && !shortcutInputCaptured();
+
+    const quint64 sourceMs = cwTraceNowMs();
+    const quint64 traceId = nextCwTraceId();
+    const bool down = press;
+
+    switch (cwAction) {
+    case CwAction::StraightKey:
+        setCwStraightKeyState(down, QStringLiteral("keyboard:cwkey"), traceId, sourceMs);
+        break;
+    case CwAction::LeftPaddle:
+        setCwLeftPaddleState(down, QStringLiteral("keyboard:cwdit"), traceId, sourceMs);
+        break;
+    case CwAction::RightPaddle:
+        setCwRightPaddleState(down, QStringLiteral("keyboard:cwdah"), traceId, sourceMs);
+        break;
+    case CwAction::None:
+        break;
+    }
+
+    return true;
+}
+
 void MainWindow::showNetworkDiagnosticsDialog()
 {
     if (!m_networkDiagnosticsDialog) {
@@ -4767,6 +4964,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
             }
             return true;
         }
+
+        if (handleCwMomentaryShortcut(ke, event->type()))
+            return true;
+
         if (ke->key() == Qt::Key_Space && !ke->isAutoRepeat()
             && !shortcutInputCaptured()
             && m_radioModel.isConnected()) {
@@ -4928,6 +5129,12 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
     if (obj == m_pgxlIndicator && event->type() == QEvent::MouseButtonPress) {
         // Simple toggle: OPERATE ↔ STANDBY (PGXL has no BYPASS)
         m_radioModel.setAmpOperate(!m_radioModel.ampOperate());
+        return true;
+    }
+    if (obj == m_txIndicator && event->type() == QEvent::MouseButtonPress) {
+        auto* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton)
+            cancelTransmitFromIndicator();
         return true;
     }
     if (obj == m_panelToggle && event->type() == QEvent::MouseButtonPress) {
@@ -7013,6 +7220,11 @@ void MainWindow::buildUI()
     m_txIndicator = new QLabel("TX");
     m_txIndicator->setFixedSize(36, 36);
     m_txIndicator->setAlignment(Qt::AlignCenter);
+    m_txIndicator->setCursor(Qt::PointingHandCursor);
+    m_txIndicator->setToolTip("Click to cancel TX");
+    m_txIndicator->setAccessibleName("Cancel transmit");
+    m_txIndicator->setAccessibleDescription("Click to send key up, PTT off, Tune off, and MOX off.");
+    m_txIndicator->installEventFilter(this);
     m_txIndicator->setStyleSheet("QLabel { color: rgba(255,255,255,128); font-weight: bold; font-size: 21px; }");
     hbox->addWidget(m_txIndicator);
 
@@ -10489,6 +10701,14 @@ void MainWindow::registerShortcutActions()
             auto& tx = m_radioModel.transmitModel();
             tx.setCwBreakIn(!tx.cwBreakIn());
         });
+    // Momentary CW actions are handled by the app-level event filter so
+    // key release edges reach the netCW path too.
+    m_shortcutManager.registerAction(kCwStraightKeyActionId, kCwStraightKeyActionName, "CW",
+        QKeySequence(), nullptr);
+    m_shortcutManager.registerAction(kCwLeftPaddleActionId, kCwLeftPaddleActionName, "CW",
+        QKeySequence(), nullptr);
+    m_shortcutManager.registerAction(kCwRightPaddleActionId, kCwRightPaddleActionName, "CW",
+        QKeySequence(), nullptr);
 
     // ── EQ ──────────────────────────────────────────────────────────────
     m_shortcutManager.registerAction("tx_eq_toggle", "TX EQ Toggle", "EQ",
@@ -12458,69 +12678,32 @@ void MainWindow::registerMidiParams()
         [this](float v) { m_radioModel.transmitModel().setCwBreakIn(v > 0.5f); },
         [this]() -> float { return m_radioModel.transmitModel().cwBreakIn() ? 1 : 0; });
 
-    reg("cw.key", "CW Key (straight)", "Phone/CW", P::Gate, 0, 1,
+    reg(kCwStraightKeyActionId, kCwStraightKeyActionName, "Phone/CW", P::Gate, 0, 1,
         [this](float v) {
-            const bool down = v > 0.5f;
-            if (lcCw().isDebugEnabled()) {
-                const quint64 now = cwTraceNowMs();
-                qCDebug(lcCw).noquote().nospace()
-                    << "CW MIDI straight-key trace=" << m_currentMidiTrace.traceId
-                    << " t=" << now << "ms"
-                    << " sinceMidiMs=" << (m_currentMidiTrace.callbackMs
-                        ? static_cast<qint64>(now - m_currentMidiTrace.callbackMs) : -1)
-                    << " down=" << down;
-            }
-            m_radioModel.sendCwKey(down, QStringLiteral("midi:cw.key"),
-                                   m_currentMidiTrace.traceId,
-                                   m_currentMidiTrace.callbackMs);
+            setCwStraightKeyState(v > 0.5f, QStringLiteral("midi:cwkey"),
+                                  m_currentMidiTrace.traceId,
+                                  m_currentMidiTrace.callbackMs);
         });
 
-    // Iambic paddle: dit and dah are separate MIDI notes.
+    // Iambic paddle: left and right are separate momentary actions.
     // When the local iambic keyer is running, paddle states feed into it
     // (drives sidetone with sub-5 ms latency, then forwards to radio).
     // Otherwise pass straight to the radio's RF iambic engine.
-    {
-        auto dit = std::make_shared<bool>(false);
-        auto dah = std::make_shared<bool>(false);
+    reg(kCwLeftPaddleActionId, kCwLeftPaddleActionName, "Phone/CW", P::Gate, 0, 1,
+        [this](float v) {
+            setCwLeftPaddleState(v > 0.5f, QStringLiteral("midi:cwdit"),
+                                 m_currentMidiTrace.traceId,
+                                 m_currentMidiTrace.callbackMs);
+        },
+        [this]() -> float { return m_cwLeftPaddleActive ? 1.0f : 0.0f; });
 
-        auto pushPaddle = [this, dit, dah]() {
-            m_lastCwMidiTraceId.store(m_currentMidiTrace.traceId, std::memory_order_relaxed);
-            m_lastCwMidiSourceMs.store(m_currentMidiTrace.callbackMs, std::memory_order_relaxed);
-            if (lcCw().isDebugEnabled()) {
-                const quint64 now = cwTraceNowMs();
-                qCDebug(lcCw).noquote().nospace()
-                    << "CW MIDI paddle trace=" << m_currentMidiTrace.traceId
-                    << " t=" << now << "ms"
-                    << " param=" << m_currentMidiTrace.paramId
-                    << " sinceMidiMs=" << (m_currentMidiTrace.callbackMs
-                        ? static_cast<qint64>(now - m_currentMidiTrace.callbackMs) : -1)
-                    << " dit=" << *dit
-                    << " dah=" << *dah
-                    << " localIambic=" << (m_iambicKeyer && m_iambicKeyer->isRunning());
-            }
-            if (m_iambicKeyer && m_iambicKeyer->isRunning()) {
-                m_iambicKeyer->setPaddleState(*dit, *dah);
-            } else {
-                m_radioModel.sendCwPaddle(*dit, *dah, QStringLiteral("midi:cw.paddle"),
-                                          m_currentMidiTrace.traceId,
-                                          m_currentMidiTrace.callbackMs);
-            }
-        };
-
-        reg("cw.dit", "CW Paddle Dit", "Phone/CW", P::Gate, 0, 1,
-            [dit, pushPaddle](float v) {
-                *dit = (v > 0.5f);
-                pushPaddle();
-            },
-            [dit]() -> float { return *dit ? 1.0f : 0.0f; });
-
-        reg("cw.dah", "CW Paddle Dah", "Phone/CW", P::Gate, 0, 1,
-            [dah, pushPaddle](float v) {
-                *dah = (v > 0.5f);
-                pushPaddle();
-            },
-            [dah]() -> float { return *dah ? 1.0f : 0.0f; });
-    }
+    reg(kCwRightPaddleActionId, kCwRightPaddleActionName, "Phone/CW", P::Gate, 0, 1,
+        [this](float v) {
+            setCwRightPaddleState(v > 0.5f, QStringLiteral("midi:cwdah"),
+                                  m_currentMidiTrace.traceId,
+                                  m_currentMidiTrace.callbackMs);
+        },
+        [this]() -> float { return m_cwRightPaddleActive ? 1.0f : 0.0f; });
 
     reg("cw.ptt", "PTT (hold)", "Phone/CW", P::Gate, 0, 1,
         [this](float v) {
@@ -12530,7 +12713,7 @@ void MainWindow::registerMidiParams()
                 qCDebug(lcCw).noquote().nospace()
                     << "CW MIDI ptt trace=" << m_currentMidiTrace.traceId
                     << " t=" << now << "ms"
-                    << " sinceMidiMs=" << (m_currentMidiTrace.callbackMs
+                    << " sinceSourceMs=" << (m_currentMidiTrace.callbackMs
                         ? static_cast<qint64>(now - m_currentMidiTrace.callbackMs) : -1)
                     << " mox=" << on;
             }

@@ -52,6 +52,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QTimer>
+#include <QEvent>
 #include <atomic>
 
 class QAbstractSlider;
@@ -247,6 +248,15 @@ private:
     void clearSwrSweepForBandChange(int sliceId, const QString& panId,
                                     const QString& newBandName);
     SliceModel* swrSweepTargetSlice(int requestedSliceId = -1) const;
+    void setCwStraightKeyState(bool down, const QString& source = {},
+                               quint64 traceId = 0, quint64 sourceMs = 0);
+    void setCwLeftPaddleState(bool down, const QString& source = {},
+                              quint64 traceId = 0, quint64 sourceMs = 0);
+    void setCwRightPaddleState(bool down, const QString& source = {},
+                               quint64 traceId = 0, quint64 sourceMs = 0);
+    void pushCwPaddleState(const QString& source = {},
+                           quint64 traceId = 0, quint64 sourceMs = 0);
+    bool handleCwMomentaryShortcut(QKeyEvent* keyEvent, QEvent::Type eventType);
 
     // Core objects
     RadioDiscovery    m_discovery;
@@ -321,8 +331,6 @@ private:
         quint64 dispatchMs{0};
     };
     MidiActionTrace m_currentMidiTrace;
-    std::atomic<quint64> m_lastCwMidiTraceId{0};
-    std::atomic<quint64> m_lastCwMidiSourceMs{0};
     // MIDI param setters indexed by ID — called on main thread from
     // paramAction signal (worker thread cannot call them directly). (#502)
     QHash<QString, std::function<void(float)>> m_midiSetters;
@@ -417,6 +425,7 @@ private:
     float m_lastPaTempC{0.0f};
     bool m_userDisconnected{false};  // true after explicit disconnect, blocks auto-connect
     QDialog* m_reconnectDlg{nullptr}; // shown on unexpected disconnect, dismissed on reconnect
+    void cancelTransmitFromIndicator();
     class ClientEqEditor* m_clientEqEditor{nullptr}; // lazy — created on first Edit… click
     // Lazy-construct the floating EQ editor on first access, with all
     // bypass-toggled wiring set up once.  Used from every site that
@@ -455,9 +464,14 @@ private:
     QTimer* m_agManualConnectTimer{nullptr}; // deferred AG manual connect — cancelled on disconnect
     class CwxLocalKeyer* m_cwxLocalKeyer{nullptr};  // local Morse keyer for CWX sidetone
     std::unique_ptr<class IambicKeyer> m_iambicKeyer;  // local iambic state machine for paddle sidetone
+    std::atomic<quint64> m_lastCwPaddleTraceId{0};
+    std::atomic<quint64> m_lastCwPaddleSourceMs{0};
     qint64 m_bsConnectGraceUntilMs{0};   // suppress auto-save right after connect
     bool m_keyboardShortcutsEnabled{false}; // global enable for keyboard shortcuts (View menu)
     bool m_spacePttActive{false};          // true while Space is held for PTT
+    bool m_cwStraightKeyActive{false};
+    bool m_cwLeftPaddleActive{false};
+    bool m_cwRightPaddleActive{false};
     QPointer<QAbstractSlider> m_sliderShortcutLease;
     QTimer m_sliderShortcutLeaseTimer;
     struct SwrSweepSample {

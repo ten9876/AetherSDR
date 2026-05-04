@@ -24,6 +24,16 @@ QString midiMsgTypeName(MidiBinding::MsgType type)
     return QStringLiteral("Unknown");
 }
 
+bool isCwMomentaryParamId(const QString& paramId)
+{
+    return paramId == QLatin1String("cwkey")
+        || paramId == QLatin1String("cwdit")
+        || paramId == QLatin1String("cwdah")
+        || paramId == QLatin1String("cw.key")
+        || paramId == QLatin1String("cw.dit")
+        || paramId == QLatin1String("cw.dah");
+}
+
 } // namespace
 
 // ── MidiBinding helpers ─────────────────────────────────────────────────────
@@ -327,7 +337,7 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2,
     if (it == m_bindingIndex.end()) return;
 
     const auto& binding = m_bindings[it.value()];
-    const bool cwBinding = binding.paramId.startsWith(QStringLiteral("cw."));
+    const bool cwBinding = isCwMomentaryParamId(binding.paramId);
 
     // ── Relative knob mode: decode delta and accumulate ────────────────
     if (binding.relative && msgType == MidiBinding::CC) {

@@ -60,7 +60,21 @@ int main(int argc, char** argv)
     tuneKnob.number = -1;
     tuneKnob.paramId = "rx.tuneKnob";
 
-    QVector<MidiBinding> saved{afGain, tuneKnob};
+    MidiBinding cwDitLegacy;
+    cwDitLegacy.channel = 0;
+    cwDitLegacy.msgType = MidiBinding::NoteOn;
+    cwDitLegacy.number = 60;
+    cwDitLegacy.paramId = "cw.dit";
+
+    MidiBinding cwDah;
+    cwDah.channel = 0;
+    cwDah.msgType = MidiBinding::NoteOn;
+    cwDah.number = 61;
+    cwDah.paramId = "cwdah";
+
+    QVector<MidiBinding> saved{afGain, tuneKnob, cwDitLegacy, cwDah};
+    QVector<MidiBinding> expected = saved;
+    expected[2].paramId = "cwdit";
 
     auto& settings = MidiSettings::instance();
     settings.setLastDevice("Initial Controller");
@@ -75,12 +89,24 @@ int main(int argc, char** argv)
     bool ok = true;
     ok &= expect(loaded.size() == saved.size(),
                  "preference-only save preserves binding count");
-    if (loaded.size() == saved.size()) {
-        ok &= expect(sameBinding(loaded[0], saved[0]),
-                     "preference-only save preserves first binding");
-        ok &= expect(sameBinding(loaded[1], saved[1]),
-                     "preference-only save preserves second binding");
+    if (loaded.size() == expected.size()) {
+        for (int i = 0; i < expected.size(); ++i) {
+            ok &= expect(sameBinding(loaded[i], expected[i]),
+                         "preference-only save preserves normalized binding");
+        }
     }
+
+    QFile midiFile(configRoot + "/AetherSDR/midi.settings");
+    ok &= expect(midiFile.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "MIDI settings file is written");
+    const QString xml = midiFile.isOpen() ? QString::fromUtf8(midiFile.readAll()) : QString();
+    midiFile.close();
+    ok &= expect(xml.contains(QStringLiteral("param=\"cwdit\"")),
+                 "legacy CW dit MIDI binding saves as cwdit");
+    ok &= expect(xml.contains(QStringLiteral("param=\"cwdah\"")),
+                 "CW dah MIDI binding saves as cwdah");
+    ok &= expect(!xml.contains(QStringLiteral("param=\"cw.dit\"")),
+                 "MIDI settings do not save dotted CW dit ID");
 
     settings.load();
     ok &= expect(settings.lastDevice() == "Renamed Controller",

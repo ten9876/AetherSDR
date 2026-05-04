@@ -1215,6 +1215,15 @@ target_link_libraries(radio_status_ownership_test PRIVATE Qt6::Core)
 enable_testing()
 add_test(NAME radio_status_ownership_test COMMAND radio_status_ownership_test)
 
+add_executable(shortcut_manager_test
+    tests/shortcut_manager_test.cpp
+    src/core/ShortcutManager.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(shortcut_manager_test PRIVATE src)
+target_link_libraries(shortcut_manager_test PRIVATE Qt6::Core Qt6::Widgets)
+add_test(NAME shortcut_manager_test COMMAND shortcut_manager_test)
+
 add_executable(cw_sidetone_test
     tests/cw_sidetone_test.cpp
     src/core/CwSidetoneGenerator.cpp
@@ -1286,6 +1295,7 @@ add_executable(midi_settings_test
 target_compile_definitions(midi_settings_test PRIVATE HAVE_MIDI)
 target_include_directories(midi_settings_test PRIVATE src third_party/rtmidi)
 target_link_libraries(midi_settings_test PRIVATE Qt6::Core)
+add_test(NAME midi_settings_test COMMAND midi_settings_test)
 
 add_executable(transmit_model_test
     tests/transmit_model_test.cpp

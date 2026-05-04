@@ -66,7 +66,7 @@ void ShortcutManager::loadBindings()
 {
     auto& s = AppSettings::instance();
     for (auto& a : m_actions) {
-        QString key = QString("Shortcut_%1").arg(a.id);
+        const QString key = QStringLiteral("Shortcut_%1").arg(a.id);
         QString val = s.value(key).toString();
         if (!val.isNull())
             a.currentKey = QKeySequence(val);
@@ -112,8 +112,10 @@ void ShortcutManager::loadBindings()
 void ShortcutManager::saveBindings()
 {
     auto& s = AppSettings::instance();
-    for (const auto& a : m_actions)
-        s.setValue(QString("Shortcut_%1").arg(a.id), a.currentKey.toString());
+    for (const auto& a : m_actions) {
+        const QString key = QStringLiteral("Shortcut_%1").arg(a.id);
+        s.setValue(key, a.currentKey.toString());
+    }
     s.save();
 }
 
