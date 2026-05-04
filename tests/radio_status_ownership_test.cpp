@@ -213,6 +213,26 @@ void testDaxTxPolicy()
     };
     check(evaluateDaxTxPolicy(linuxNoBridgeTci).allowed,
           "Linux without hosted DAX still creates its own dax_tx stream for TCI (#2276)");
+
+    // RadeModemTx — regression guard for #2343.  RADE sends VITA-49 modem
+    // audio directly (never touches Windows audio devices), so it must be
+    // allowed to register its own dax_tx stream slot even when SmartSDR DAX2
+    // owns the Windows audio-device layer (ExternalDax2 mode).
+    DaxTxPolicyContext windowsRade = windowsExternalRoute;
+    windowsRade.reason = DaxTxRequestReason::RadeModemTx;
+    check(evaluateDaxTxPolicy(windowsRade).allowed,
+          "Windows ExternalDax2 RadeModemTx policy creates its own dax_tx stream (#2343)");
+
+    // Linux without hosted DAX — RadeModemTx must also be unconditionally allowed.
+    DaxTxPolicyContext linuxNoBridgeRade{
+        DaxTxRequestReason::RadeModemTx,
+        DaxTxPlatform::Linux,
+        DaxTxMode::None,
+        false,
+        false
+    };
+    check(evaluateDaxTxPolicy(linuxNoBridgeRade).allowed,
+          "Linux without hosted DAX still creates its own dax_tx stream for RadeModemTx (#2343)");
 }
 
 void testUdpRegistrationPolicy()

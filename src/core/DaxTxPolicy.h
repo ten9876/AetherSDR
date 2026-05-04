@@ -125,7 +125,7 @@ inline DaxTxPolicyDecision evaluateDaxTxPolicy(const DaxTxPolicyContext& context
             return {true, QStringLiteral("hosted_dax_available")};
         }
         if (context.mode == DaxTxMode::ExternalDax2) {
-            return {false, QStringLiteral("windows_dax_conflict")};
+            return {false, QStringLiteral("SmartSDR_DAX2_owns_windows_dax")};
         }
         return {false, QStringLiteral("hosted_dax_unavailable")};
 
@@ -148,7 +148,7 @@ inline DaxTxPolicyDecision evaluateDaxTxPolicy(const DaxTxPolicyContext& context
 
     case DaxTxRequestReason::ExternalDaxRouteOnly:
         if (context.mode == DaxTxMode::ExternalDax2) {
-            return {false, QStringLiteral("windows_dax_conflict")};
+            return {false, QStringLiteral("SmartSDR_DAX2_owns_windows_dax")};
         }
         return {false, QStringLiteral("route_only_does_not_require_local_stream")};
 
