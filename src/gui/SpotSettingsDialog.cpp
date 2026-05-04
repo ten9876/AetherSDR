@@ -276,7 +276,7 @@ SpotSettingsDialog::SpotSettingsDialog(RadioModel* model, QWidget* parent)
     m_spotLinesToggle->setCheckable(true);
     m_spotLinesToggle->setChecked(m_spotShowLines);
     m_spotLinesToggle->setFixedWidth(80);
-    m_spotLinesToggle->setToolTip("Show vertical lines from the spectrum up to each spot label");
+    m_spotLinesToggle->setToolTip("Show vertical lines from the spectrum up to each spot label.\nDisable during contests to reduce clutter.");
     m_spotLinesToggle->setStyleSheet(
         "QPushButton { background: #206030; color: white; border: 1px solid #305040; padding: 3px; }"
         "QPushButton:!checked { background: #603020; }");
