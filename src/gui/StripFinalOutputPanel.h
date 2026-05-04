@@ -33,6 +33,12 @@ public:
     void showForTx();
     void syncControlsFromEngine();
 
+    // Signal-driven QUIN chip flash (#2262).  MainWindow connects this
+    // slot to TransmitModel::quindarActiveChanged so the chip lights
+    // bright the moment a Quindar tone starts and dims when it ends —
+    // no polling.  `active` true == chip flashes; false == idle styling.
+    void setQuindarActive(bool active);
+
 private:
     void applyEnable(bool on);
     void applyCeiling(float db);
@@ -42,12 +48,16 @@ private:
     void applyTestToneFreq(float hz);
     void applyTestToneLevel(float db);
     void showToneEditor();
+    void applyQuindarEnabled(bool on);
+    void showQuindarEditor();
     void tickMeters();
 
     AudioEngine*    m_audio{nullptr};
     QPushButton*    m_enable{nullptr};
     QPushButton*    m_dcBtn{nullptr};
     QPushButton*    m_toneBtn{nullptr};
+    QPushButton*    m_quinBtn{nullptr};   // Quindar tones (#2262)
+    bool            m_quinActive{false};  // signal-driven flash state
     ClientCompKnob* m_trim{nullptr};
     QWidget*        m_meter{nullptr};
     QLabel*         m_pkValue{nullptr};

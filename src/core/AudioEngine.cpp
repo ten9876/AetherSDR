@@ -10,6 +10,8 @@
 #include "ClientReverb.h"
 #include "ClientFinalLimiter.h"
 #include "ClientTxTestTone.h"
+#include "ClientQuindarTone.h"
+#include "QuindarLocalSink.h"
 #include "CwSidetoneGenerator.h"
 #include "CwSidetoneQAudioSink.h"
 #include "CwSidetoneSinkBackend.h"
@@ -208,6 +210,7 @@ AudioEngine::AudioEngine(QObject* parent)
     , m_clientFinalLimiterTx(std::make_unique<ClientFinalLimiter>())
     , m_clientTxTestTone(std::make_unique<ClientTxTestTone>())
     , m_cwSidetone(std::make_unique<CwSidetoneGenerator>(48000))
+    , m_clientQuindarTone(std::make_unique<ClientQuindarTone>())
 {
     // Prepare client DSP at the native 24 kHz rate. Sink resampling is
     // handled separately after EQ — EQ always runs at radio-native rate.
@@ -225,6 +228,7 @@ AudioEngine::AudioEngine(QObject* parent)
     m_clientReverbTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientFinalLimiterTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientTxTestTone->prepare(DEFAULT_SAMPLE_RATE);
+    m_clientQuindarTone->prepare(DEFAULT_SAMPLE_RATE);
     loadClientEqSettings();      // restore persisted bands before first audio
     loadClientCompSettings();    // restore persisted comp params + chain order
     loadClientGateSettings();    // restore persisted gate params
@@ -237,6 +241,7 @@ AudioEngine::AudioEngine(QObject* parent)
     loadClientPuduSettings();    // restore persisted PUDU params
     loadClientReverbSettings();  // restore persisted reverb params
     loadClientFinalLimiterSettings();  // restore persisted final-limiter params
+    loadClientQuindarSettings();       // restore persisted Quindar tone params
     loadClientRxChainOrder();    // restore persisted RX chain order (Phase 0+)
 
     // Restore saved audio device selections
@@ -670,6 +675,7 @@ bool AudioEngine::startRxStream()
     // sidetone is disabled — the timer fires but writes silence to a tiny
     // primed buffer; no audible output, no extra CPU on the operator side.
     startSidetoneStream();
+    startQuindarLocalSink();
     emit rxStarted();
     return true;
 }
@@ -677,6 +683,7 @@ bool AudioEngine::startRxStream()
 void AudioEngine::stopRxStream()
 {
     stopSidetoneStream();
+    stopQuindarLocalSink();
     m_rxBuffer.clear();
     m_rxBufferBytes.store(0);
     m_rxBufferSampleRate.store(DEFAULT_SAMPLE_RATE);
@@ -781,6 +788,37 @@ void AudioEngine::stopSidetoneStream()
         m_sidetoneSink.reset();
     }
     if (m_cwSidetone) m_cwSidetone->reset();
+}
+
+bool AudioEngine::startQuindarLocalSink()
+{
+    if (m_quindarLocalSink && m_quindarLocalSink->isRunning()) return true;
+    if (!m_clientQuindarTone) return false;
+
+    QAudioDevice dev = QMediaDevices::defaultAudioOutput();
+    if (!m_outputDevice.isNull()) {
+        const auto outputs = QMediaDevices::audioOutputs();
+        for (const auto& d : outputs) {
+            if (d.id() == m_outputDevice.id()) { dev = m_outputDevice; break; }
+        }
+    }
+
+    if (!m_quindarLocalSink) {
+        m_quindarLocalSink = std::make_unique<QuindarLocalSink>(this);
+    }
+    if (!m_quindarLocalSink->start(dev, m_clientQuindarTone.get())) {
+        m_quindarLocalSink.reset();
+        return false;
+    }
+    return true;
+}
+
+void AudioEngine::stopQuindarLocalSink()
+{
+    if (m_quindarLocalSink) {
+        m_quindarLocalSink->stop();
+        m_quindarLocalSink.reset();
+    }
 }
 
 void AudioEngine::setRxPan(int v)
@@ -2466,6 +2504,53 @@ void AudioEngine::saveClientFinalLimiterSettings() const
         m_clientFinalLimiterTx->dcBlockEnabled() ? QString("True") : QString("False"));
 }
 
+void AudioEngine::loadClientQuindarSettings()
+{
+    if (!m_clientQuindarTone) return;
+    auto& s = AppSettings::instance();
+    m_clientQuindarTone->setEnabled(
+        s.value("QuindarEnabled", "False").toString() == "True");
+    const QString styleStr = s.value("QuindarStyle", "Tone").toString();
+    m_clientQuindarTone->setStyle(styleStr == "Morse"
+        ? ClientQuindarTone::Style::Morse
+        : ClientQuindarTone::Style::Tone);
+    m_clientQuindarTone->setLevelDb(
+        s.value("QuindarLevelDb", "-6.0").toFloat());
+    m_clientQuindarTone->setIntroFreqHz(
+        s.value("QuindarIntroFreqHz", "2525.0").toFloat());
+    m_clientQuindarTone->setOutroFreqHz(
+        s.value("QuindarOutroFreqHz", "2475.0").toFloat());
+    m_clientQuindarTone->setDurationMs(
+        s.value("QuindarDurationMs", "250").toInt());
+    m_clientQuindarTone->setMorseWpm(
+        s.value("QuindarMorseWpm", "45").toInt());
+    m_clientQuindarTone->setMorsePitchHz(
+        s.value("QuindarMorsePitchHz", "750.0").toFloat());
+}
+
+void AudioEngine::saveClientQuindarSettings() const
+{
+    if (!m_clientQuindarTone) return;
+    auto& s = AppSettings::instance();
+    s.setValue("QuindarEnabled",
+        m_clientQuindarTone->isEnabled() ? QString("True") : QString("False"));
+    s.setValue("QuindarStyle",
+        m_clientQuindarTone->style() == ClientQuindarTone::Style::Morse
+            ? QString("Morse") : QString("Tone"));
+    s.setValue("QuindarLevelDb",
+        QString::number(m_clientQuindarTone->levelDb()));
+    s.setValue("QuindarIntroFreqHz",
+        QString::number(m_clientQuindarTone->introFreqHz()));
+    s.setValue("QuindarOutroFreqHz",
+        QString::number(m_clientQuindarTone->outroFreqHz()));
+    s.setValue("QuindarDurationMs",
+        QString::number(m_clientQuindarTone->durationMs()));
+    s.setValue("QuindarMorseWpm",
+        QString::number(m_clientQuindarTone->morseWpm()));
+    s.setValue("QuindarMorsePitchHz",
+        QString::number(m_clientQuindarTone->morsePitchHz()));
+}
+
 static QString wisdomDir()
 {
 #ifdef _WIN32
@@ -3371,6 +3456,19 @@ void AudioEngine::onTxAudioReady()
         for (int i = 0; i < sampleCount; ++i)
             pcm[i] = static_cast<int16_t>(std::clamp(
                 static_cast<int>(pcm[i] * gain), -32768, 32767));
+    }
+
+    // ── Quindar tones (#2262) ───────────────────────────────────────────
+    // Sits AFTER the user DSP chain and PC mic gain but BEFORE the final
+    // brickwall limiter, so the generated tone is unprocessed by Comp/EQ
+    // (no comp pumping, no EQ tilt) but is still bounded by the configured
+    // ceiling.  Driven by TransmitModel's PTT coordinator on phone modes;
+    // the stage replaces samples wholesale during Engaging/Disengaging
+    // phases and is a no-op the rest of the time.
+    if (m_clientQuindarTone) {
+        const int frames = data.size() / static_cast<int>(sizeof(int16_t) * 2);
+        m_clientQuindarTone->process(
+            reinterpret_cast<int16_t*>(data.data()), frames, 2);
     }
 
     // ── Final brickwall limiter (TX tail) ───────────────────────────────

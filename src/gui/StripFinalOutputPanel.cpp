@@ -4,6 +4,7 @@
 #include "EditorFramelessTitleBar.h"
 #include "core/AudioEngine.h"
 #include "core/ClientFinalLimiter.h"
+#include "core/ClientQuindarTone.h"
 #include "core/ClientTxTestTone.h"
 
 #include <QDateTime>
@@ -20,6 +21,7 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSlider>
+#include <QSpinBox>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -437,6 +439,24 @@ StripFinalOutputPanel::StripFinalOutputPanel(AudioEngine* engine, QWidget* paren
                 this, [this](const QPoint&) { showToneEditor(); });
         col->addWidget(m_toneBtn);
 
+        // Quindar tones (#2262) — Apollo-era K / BK or 2525/2475 Hz
+        // sine on PTT engage/disengage.  Same red-checked styling as
+        // TONE since both make audible sound.  Right-click opens the
+        // style/freq/WPM editor.
+        m_quinBtn = new QPushButton("QUIN", this);
+        m_quinBtn->setCheckable(true);
+        m_quinBtn->setFixedSize(56, 18);
+        m_quinBtn->setStyleSheet(redCheckStyle);
+        m_quinBtn->setToolTip(tr("Quindar tones on PTT engage/disengage. "
+                                 "Right-click for the style/freq/WPM "
+                                 "editor."));
+        connect(m_quinBtn, &QPushButton::toggled,
+                this, &StripFinalOutputPanel::applyQuindarEnabled);
+        m_quinBtn->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_quinBtn, &QPushButton::customContextMenuRequested,
+                this, [this](const QPoint&) { showQuindarEditor(); });
+        col->addWidget(m_quinBtn);
+
         // Drop the trailing stretch — the OVR/LIMIT/% column on the
         // far right doesn't have one, so its three chips distribute
         // through the row's full height with extra space between them.
@@ -632,6 +652,12 @@ void StripFinalOutputPanel::syncControlsFromEngine()
             m_toneBtn->setChecked(tone->isEnabled());
         }
     }
+    if (m_quinBtn) {
+        if (auto* q = m_audio->clientQuindarTone()) {
+            QSignalBlocker b(m_quinBtn);
+            m_quinBtn->setChecked(q->isEnabled());
+        }
+    }
     // Seed the clip-count baseline so we don't latch OVR from
     // historical clips on startup or after preset reload.
     m_lastClipCount = lim->clipPreLimiterCount();
@@ -777,6 +803,223 @@ void StripFinalOutputPanel::showToneEditor()
     dlg->show();
 }
 
+void StripFinalOutputPanel::applyQuindarEnabled(bool on)
+{
+    if (!m_audio) return;
+    if (auto* q = m_audio->clientQuindarTone()) {
+        q->setEnabled(on);
+        m_audio->saveClientQuindarSettings();
+    }
+}
+
+void StripFinalOutputPanel::showQuindarEditor()
+{
+    if (!m_audio) return;
+    auto* q = m_audio->clientQuindarTone();
+    if (!q) return;
+
+    auto* dlg = new QDialog(this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowTitle(tr("Quindar Tones"));
+    dlg->setStyleSheet(
+        "QDialog { background: #08121d; }"
+        "QLabel  { color: #c8d8e8; font-size: 11px; }"
+        "QPushButton { background: #1a2230; color: #c8d8e8;"
+        " border: 1px solid #2a3744; border-radius: 3px;"
+        " padding: 4px 12px; font-size: 11px; }"
+        "QPushButton:hover { background: #243042; color: #f2c14e; }"
+        "QPushButton:checked { background: #3a2a0e; color: #f2c14e;"
+        " border: 1px solid #f2c14e; }"
+        "QSlider::groove:horizontal { height: 4px; background: #203040;"
+        " border-radius: 2px; }"
+        "QSlider::sub-page:horizontal { background: #f2c14e;"
+        " border-radius: 2px; }"
+        "QSlider::handle:horizontal { width: 12px; height: 12px;"
+        " margin: -4px 0; background: #c8d8e8; border: 1px solid #f2c14e;"
+        " border-radius: 6px; }"
+        "QSpinBox { background: #1a2230; color: #c8d8e8;"
+        " border: 1px solid #2a3744; border-radius: 2px;"
+        " padding: 1px 4px; font-size: 11px; }");
+
+    auto* outer = new QVBoxLayout(dlg);
+    outer->setContentsMargins(12, 12, 12, 12);
+    outer->setSpacing(10);
+
+    // ── Style segmented control ──
+    auto* styleRow = new QHBoxLayout;
+    styleRow->setSpacing(0);
+    auto* styleLbl = new QLabel(tr("Style"), dlg);
+    styleLbl->setMinimumWidth(48);
+    auto* toneStyleBtn  = new QPushButton(tr("Tone"),  dlg);
+    auto* morseStyleBtn = new QPushButton(tr("Morse"), dlg);
+    toneStyleBtn->setCheckable(true);
+    morseStyleBtn->setCheckable(true);
+    const bool startMorse = (q->style() == ClientQuindarTone::Style::Morse);
+    toneStyleBtn->setChecked(!startMorse);
+    morseStyleBtn->setChecked(startMorse);
+    styleRow->addWidget(styleLbl);
+    styleRow->addWidget(toneStyleBtn);
+    styleRow->addWidget(morseStyleBtn);
+    styleRow->addStretch();
+    outer->addLayout(styleRow);
+
+    auto* form = new QFormLayout;
+    form->setContentsMargins(0, 0, 0, 0);
+    form->setSpacing(8);
+
+    // Level
+    auto* lvlSlider = new QSlider(Qt::Horizontal, dlg);
+    lvlSlider->setRange(-20, 0);
+    lvlSlider->setValue(static_cast<int>(std::round(q->levelDb())));
+    auto* lvlLbl = new QLabel(dlg);
+    lvlLbl->setMinimumWidth(72);
+    lvlLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    lvlLbl->setText(QString::number(q->levelDb(), 'f', 0) + " dBFS");
+    connect(lvlSlider, &QSlider::valueChanged, dlg,
+            [this, lvlLbl](int v) {
+        if (auto* qt = m_audio->clientQuindarTone()) {
+            qt->setLevelDb(static_cast<float>(v));
+            m_audio->saveClientQuindarSettings();
+        }
+        lvlLbl->setText(QString::number(v) + " dBFS");
+    });
+    auto* lvlRow = new QHBoxLayout;
+    lvlRow->addWidget(lvlSlider, 1);
+    lvlRow->addWidget(lvlLbl);
+    form->addRow(tr("Level"), lvlRow);
+
+    // ── Tone fields ──
+    auto* toneIntroSpin  = new QSpinBox(dlg);
+    toneIntroSpin->setRange(2400, 2700);
+    toneIntroSpin->setSuffix(" Hz");
+    toneIntroSpin->setValue(static_cast<int>(std::round(q->introFreqHz())));
+    auto* toneOutroSpin  = new QSpinBox(dlg);
+    toneOutroSpin->setRange(2400, 2700);
+    toneOutroSpin->setSuffix(" Hz");
+    toneOutroSpin->setValue(static_cast<int>(std::round(q->outroFreqHz())));
+    auto* toneDurSpin    = new QSpinBox(dlg);
+    toneDurSpin->setRange(100, 500);
+    toneDurSpin->setSuffix(" ms");
+    toneDurSpin->setValue(q->durationMs());
+    form->addRow(tr("Intro"),    toneIntroSpin);
+    form->addRow(tr("Outro"),    toneOutroSpin);
+    form->addRow(tr("Duration"), toneDurSpin);
+
+    // ── Morse fields ──
+    auto* morseWpmSpin = new QSpinBox(dlg);
+    morseWpmSpin->setRange(20, 60);
+    morseWpmSpin->setSuffix(" WPM");
+    morseWpmSpin->setValue(q->morseWpm());
+    auto* morsePitchSlider = new QSlider(Qt::Horizontal, dlg);
+    morsePitchSlider->setRange(400, 1200);
+    morsePitchSlider->setValue(static_cast<int>(std::round(q->morsePitchHz())));
+    auto* morsePitchLbl = new QLabel(dlg);
+    morsePitchLbl->setMinimumWidth(72);
+    morsePitchLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    morsePitchLbl->setText(QString::number(q->morsePitchHz(), 'f', 0) + " Hz");
+    auto* morsePitchRow = new QHBoxLayout;
+    morsePitchRow->addWidget(morsePitchSlider, 1);
+    morsePitchRow->addWidget(morsePitchLbl);
+    form->addRow(tr("WPM"),   morseWpmSpin);
+    form->addRow(tr("Pitch"), morsePitchRow);
+
+    outer->addLayout(form);
+
+    // ── Test buttons ──
+    auto* testRow = new QHBoxLayout;
+    auto* testIntroBtn = new QPushButton(tr("▶ Test intro"), dlg);
+    auto* testOutroBtn = new QPushButton(tr("▶ Test outro"), dlg);
+    testRow->addWidget(testIntroBtn);
+    testRow->addWidget(testOutroBtn);
+    testRow->addStretch();
+    outer->addLayout(testRow);
+
+    auto* doneBtn = new QPushButton(tr("Done"), dlg);
+    doneBtn->setDefault(true);
+    auto* btnRow = new QHBoxLayout;
+    btnRow->addStretch();
+    btnRow->addWidget(doneBtn);
+    outer->addLayout(btnRow);
+
+    auto refreshFieldsForStyle = [=]() {
+        const bool morse = morseStyleBtn->isChecked();
+        toneIntroSpin->setEnabled(!morse);
+        toneOutroSpin->setEnabled(!morse);
+        toneDurSpin->setEnabled(!morse);
+        morseWpmSpin->setEnabled(morse);
+        morsePitchSlider->setEnabled(morse);
+        morsePitchLbl->setEnabled(morse);
+    };
+    refreshFieldsForStyle();
+
+    auto setStyle = [=](bool morse) {
+        toneStyleBtn->setChecked(!morse);
+        morseStyleBtn->setChecked(morse);
+        if (auto* qt = m_audio->clientQuindarTone()) {
+            qt->setStyle(morse ? ClientQuindarTone::Style::Morse
+                               : ClientQuindarTone::Style::Tone);
+            m_audio->saveClientQuindarSettings();
+        }
+        refreshFieldsForStyle();
+    };
+    connect(toneStyleBtn,  &QPushButton::clicked, dlg, [=]() { setStyle(false); });
+    connect(morseStyleBtn, &QPushButton::clicked, dlg, [=]() { setStyle(true);  });
+
+    connect(toneIntroSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            dlg, [this](int v) {
+        if (auto* qt = m_audio->clientQuindarTone()) {
+            qt->setIntroFreqHz(static_cast<float>(v));
+            m_audio->saveClientQuindarSettings();
+        }
+    });
+    connect(toneOutroSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            dlg, [this](int v) {
+        if (auto* qt = m_audio->clientQuindarTone()) {
+            qt->setOutroFreqHz(static_cast<float>(v));
+            m_audio->saveClientQuindarSettings();
+        }
+    });
+    connect(toneDurSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            dlg, [this](int v) {
+        if (auto* qt = m_audio->clientQuindarTone()) {
+            qt->setDurationMs(v);
+            m_audio->saveClientQuindarSettings();
+        }
+    });
+    connect(morseWpmSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            dlg, [this](int v) {
+        if (auto* qt = m_audio->clientQuindarTone()) {
+            qt->setMorseWpm(v);
+            m_audio->saveClientQuindarSettings();
+        }
+    });
+    connect(morsePitchSlider, &QSlider::valueChanged, dlg,
+            [this, morsePitchLbl](int v) {
+        if (auto* qt = m_audio->clientQuindarTone()) {
+            qt->setMorsePitchHz(static_cast<float>(v));
+            m_audio->saveClientQuindarSettings();
+        }
+        morsePitchLbl->setText(QString::number(v) + " Hz");
+    });
+
+    // Test buttons drive the DSP module directly without flipping
+    // MOX, so the user can audition the configured tone.  The
+    // dedicated QuindarLocalSink runs on the operator's audio output
+    // device whenever the engine has an RX stream open, so the
+    // audition is audible immediately regardless of TX state.
+    connect(testIntroBtn, &QPushButton::clicked, dlg, [this]() {
+        if (auto* qt = m_audio->clientQuindarTone()) qt->startIntro();
+    });
+    connect(testOutroBtn, &QPushButton::clicked, dlg, [this]() {
+        if (auto* qt = m_audio->clientQuindarTone()) qt->startOutro();
+    });
+
+    connect(doneBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+
+    dlg->resize(380, 280);
+    dlg->show();
+}
+
 void StripFinalOutputPanel::tickMeters()
 {
     if (!m_audio) return;
@@ -881,6 +1124,36 @@ void StripFinalOutputPanel::tickMeters()
                   " font-weight: bold; padding: 1px; }";
         m_limitLed->setStyleSheet(css);
     }
+}
+
+void StripFinalOutputPanel::setQuindarActive(bool active)
+{
+    if (m_quinActive == active) return;
+    m_quinActive = active;
+    if (!m_quinBtn) return;
+
+    // Signal-driven flash — only re-applies the stylesheet when the
+    // active state actually changes (twice per PTT: start of intro,
+    // end of intro = start of Live; same for outro).  No polling.
+    const QString css = active
+        ? "QPushButton {"
+          "  background: #ff3030; color: #ffffff;"
+          "  border: 1px solid #ff8080;"
+          "  border-radius: 3px; font-size: 10px;"
+          "  font-weight: bold; padding: 1px;"
+          "}"
+        : "QPushButton {"
+          "  background: #1a2230; border: 1px solid #2a3744;"
+          "  border-radius: 3px; color: #506070;"
+          "  font-size: 10px; font-weight: bold; padding: 1px;"
+          "}"
+          "QPushButton:hover { color: #c8d8e8; }"
+          "QPushButton:checked {"
+          "  background: #4a1818; color: #ff8080;"
+          "  border: 1px solid #ff4040;"
+          "}"
+          "QPushButton:checked:hover { background: #5a2828; }";
+    m_quinBtn->setStyleSheet(css);
 }
 
 } // namespace AetherSDR
