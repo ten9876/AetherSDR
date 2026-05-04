@@ -11740,6 +11740,13 @@ void MainWindow::activateRADE(int sliceId)
         return;
     }
 
+    // RADE sends VITA-49 modem audio directly (like TCI), so it needs its own
+    // dax_tx stream regardless of platform.  On Windows the ExternalDaxRouteOnly
+    // path used by updateDaxTxMode() is intentionally blocked by policy (SmartSDR
+    // DAX2 owns the audio-device layer), but that policy doesn't apply here —
+    // RADE never touches Windows audio devices.  RadeModemTx is always allowed.
+    m_radioModel.ensureDaxTxStream(DaxTxRequestReason::RadeModemTx);
+
     // Only route mic→RADE when the RADE slice IS the TX slice.
     // If another slice is TX (e.g. USB voice), leave its audio path alone.
     m_audio->setRadeMode(s->isTxSlice());

@@ -8,6 +8,7 @@ namespace AetherSDR {
 enum class DaxTxRequestReason {
     HostedDaxBridge,
     TciTxAudio,
+    RadeModemTx,
     ExternalDaxRouteOnly,
     GenericAudioRecreate
 };
@@ -43,6 +44,7 @@ inline QString daxTxRequestReasonName(DaxTxRequestReason reason)
     switch (reason) {
     case DaxTxRequestReason::HostedDaxBridge:     return QStringLiteral("hosted_dax_bridge");
     case DaxTxRequestReason::TciTxAudio:          return QStringLiteral("tci_tx_audio");
+    case DaxTxRequestReason::RadeModemTx:         return QStringLiteral("rade_modem_tx");
     case DaxTxRequestReason::ExternalDaxRouteOnly:return QStringLiteral("external_dax_route_only");
     case DaxTxRequestReason::GenericAudioRecreate:return QStringLiteral("generic_audio_recreate");
     }
@@ -119,10 +121,12 @@ inline DaxTxPolicyDecision evaluateDaxTxPolicy(const DaxTxPolicyContext& context
 {
     switch (context.reason) {
     case DaxTxRequestReason::HostedDaxBridge:
-        if (context.mode == DaxTxMode::HostedDax && context.hostedDaxAvailable)
+        if (context.mode == DaxTxMode::HostedDax && context.hostedDaxAvailable) {
             return {true, QStringLiteral("hosted_dax_available")};
-        if (context.mode == DaxTxMode::ExternalDax2)
-            return {false, QStringLiteral("SmartSDR_DAX2_owns_windows_dax")};
+        }
+        if (context.mode == DaxTxMode::ExternalDax2) {
+            return {false, QStringLiteral("windows_dax_conflict")};
+        }
         return {false, QStringLiteral("hosted_dax_unavailable")};
 
     case DaxTxRequestReason::TciTxAudio:
@@ -134,9 +138,18 @@ inline DaxTxPolicyDecision evaluateDaxTxPolicy(const DaxTxPolicyContext& context
         // Always allow regardless of platform / hosted-DAX availability. (#2276)
         return {true, QStringLiteral("tci_creates_own_dax_tx_stream")};
 
+    case DaxTxRequestReason::RadeModemTx:
+        // RADE encodes the mic waveform itself and sends VITA-49 packets
+        // directly via sendModemTxAudio() — exactly like TCI, it never
+        // touches Windows audio devices.  SmartSDR DAX2 owning the audio
+        // device layer is irrelevant: the radio's dax_tx stream slot is
+        // independent and AetherSDR must register its own.
+        return {true, QStringLiteral("rade_sends_vita49_directly")};
+
     case DaxTxRequestReason::ExternalDaxRouteOnly:
-        if (context.mode == DaxTxMode::ExternalDax2)
-            return {false, QStringLiteral("SmartSDR_DAX2_owns_windows_dax")};
+        if (context.mode == DaxTxMode::ExternalDax2) {
+            return {false, QStringLiteral("windows_dax_conflict")};
+        }
         return {false, QStringLiteral("route_only_does_not_require_local_stream")};
 
     case DaxTxRequestReason::GenericAudioRecreate:

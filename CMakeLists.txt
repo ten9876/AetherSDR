@@ -1206,6 +1206,13 @@ add_executable(xvtr_policy_test
 target_include_directories(xvtr_policy_test PRIVATE src)
 target_link_libraries(xvtr_policy_test PRIVATE Qt6::Core)
 
+add_executable(dax_tx_policy_test
+    tests/dax_tx_policy_test.cpp
+    src/core/DaxTxPolicy.h
+)
+target_include_directories(dax_tx_policy_test PRIVATE src)
+target_link_libraries(dax_tx_policy_test PRIVATE Qt6::Core)
+
 add_executable(radio_status_ownership_test
     tests/radio_status_ownership_test.cpp
     src/core/CommandParser.cpp
