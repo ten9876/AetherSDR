@@ -40,6 +40,7 @@ private:
     QPushButton* m_bgColorPickerBtn;
     QSlider*     m_bgOpacitySlider;
     QLabel*      m_bgOpacityValue;
+    QPushButton* m_spotLinesToggle;
     QLabel*      m_totalSpotsLabel;
 
     bool   m_spotsEnabled{true};
@@ -47,6 +48,7 @@ private:
     bool   m_overrideColors{false};
     bool   m_overrideBg{true};
     bool   m_overrideBgAutoMode{true};
+    bool   m_spotLines{true};
     QColor m_spotColor{Qt::yellow};
     QColor m_bgColor{Qt::black};
     int    m_bgOpacity{48};
