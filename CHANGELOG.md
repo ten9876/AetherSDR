@@ -3,6 +3,155 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.9.6] — 2026-05-04
+
+### Aetherial Audio Channel Strip + AetherSweep Phase 2
+
+Headline additions: a unified **Aetherial Audio Channel Strip** that brings
+every TX DSP stage (gate, EQ, compressor, de-esser, tube, AetherVoice,
+reverb, and a brand-new Final Output Stage with brickwall limiter) into a
+single editable window with a savable preset library — and **AetherSweep
+Phase 2**, a polish pass on the in-panadapter SWR analyzer with log scale,
+threshold-band shading, interpolated bandwidth at SWR ≤ 1.5 / 2.0, a
+resonance caret, and band-change-aware auto-stop.  Network Diagnostics
+gained trend graphs and per-series gutter hints.  RADE finally ships in
+the official Windows installer.
+
+Big thanks to **@jensenpat** (oscillator reference fix, AetherSweep
+Phase 2, Connect-by-IP recents, minimal mode polish, Windows installer
+packaging), **@NF0T** (RADE on Windows CI/installer, RADE mic meter
+fix), **@rfoust** (Network Diagnostics trend graphs), and
+**@AetherClaude** (stderr non-draining-pipe deadlock) for landing the
+bulk of this release.
+
+### New features
+
+**Aetherial Audio Channel Strip (#2307, #2326)**
+- New unified TX DSP window covering every stage in the chain: gate, EQ,
+  compressor, de-esser, tube, AetherVoice (the exciter formerly known as
+  PooDoo), Freeverb, plus a brand-new Final Output Stage with brickwall
+  limiter, output trim, DC block, and a 1 kHz test tone.
+- Savable preset library at `~/.config/AetherSDR/ChannelStrip.settings`
+  (separate from `AetherSDR.settings`).  Captures every TX DSP knob, the
+  user's chain order, and final-limiter parameters.  Save / Delete /
+  Export Preset / Export Library buttons in the strip's preset row.
+- Master/Aux BYPASS button stays in lock-step between the docked Chain
+  applet and the strip via a shared engine-level snapshot — flipping it
+  in either place updates both.
+- Two new 4th-row panels: **Aetherial Waveform — TX** (1–20 s scope window
+  with SCOPE/ENVELOPE/HISTORY modes) and **Final Output Stage** (peak-hold
+  meter with GR overlay + draggable amber ceiling triangle, mouse-wheel
+  ±0.1 dB).
+- Logo / title rebrand: PooDoo™ exciter → **AetherVoice™** "Aetherial
+  Voice Processor" with Body / Clarity emphasis controls.  Docked tile
+  (`PUDU`) renamed to `EVO` on the chain widget; container button
+  renamed `VUDU`.
+- Double-click any TX chain tile launches the Channel Strip — replaces
+  the legacy easter-egg launch nub on the Chain applet and the
+  per-stage TX floating editors (`ClientDeEssEditor`,
+  `ClientReverbEditor`, etc.).
+- FreeVerb tile in the docked applet panel now shows the same
+  decay-tail viz as the Channel Strip's reverb panel, signal-driven by
+  a new `AudioEngine::clientReverbStateChanged` signal (no polling).
+
+**AetherSweep Phase 2 (#2320, jensenpat)**
+- Logarithmic SWR scale for cleaner low-ratio detail; threshold-band
+  shading for SWR 1.0–1.5 (green), 1.5–2.0 (amber), and >2.0 (red).
+- Resonance caret + dot at the best measured SWR point; visual
+  start/end notches mark sweep endpoints.
+- Interpolated bandwidth brackets at SWR ≤ 1.5 and ≤ 2.0, with a
+  concise BW readout in the corner label.
+- Resonant frequency display trimmed to kHz precision; corner readout
+  switched from "latest sample" to best SWR + resonance frequency.
+- Cleared sweep plots when the swept TX slice changes bands; if a band
+  change happens while a sweep is running, the sweep stops and clears
+  without restoring the old freq/pan range so cleanup doesn't fight
+  the user's new band.
+
+**Network Diagnostics trend graphs (#2309, rfoust; #2316)**
+- Per-metric trend plots with Timeframe selector (1 min / 5 min /
+  15 min / 1 h / 1 d / 1 w).
+- Logarithmic Y-axis on the Rates tab — 0 / 1 / 10 / 100 / 1k kbps
+  decades all visible at once instead of being squashed at the
+  baseline.
+- Per-series last-sample hints in the left gutter — small
+  color-coded values that always show the latest reading for each
+  visible stream, with a 6 px-tall solid centerline alpha gradient
+  to keep the labels legible against the trace.
+- Frameless chrome with draggable title bar + 8-axis resize matching
+  the rest of AetherSDR's floating windows.
+
+**RADE in the official Windows installer (#2324, NF0T)**
+- `ENABLE_RADE=ON` for both the Windows CI job and the official
+  installer workflow.  Vendored RADE-prepared Opus + neural-net
+  weights are statically linked, so no new DLLs ship — `AetherSDR.exe`
+  grows ~8–12 MB to match the AppImage.
+- New `Build Opus (RADE dependency)` CI step provides clean failure
+  attribution and matches the AppImage workflow's pattern.  Closes
+  reports of "RADE absent from Windows installer".
+
+**Connect by IP recents dropdown (#2296, jensenpat)**
+- Connect-by-IP field is now a combo box pre-populated with the last
+  five addresses (stored as `RecentDirectIpAddresses`).  Successful
+  connect promotes the address to the top of the list.
+
+**Black slider auto-offset (#2328)**
+- Spectrum Overlay menu's Black slider now drives a noise-floor target
+  offset while AUTO is engaged: 50 = at the noise floor (today's
+  behaviour); lower = darker (push threshold above the floor); higher
+  = lighter.  Manual mode keeps existing semantics.  Both stored
+  values persist independently so toggling AUTO swaps the slider
+  position without losing either preference.
+
+**Minimal mode polish (#2290, jensenpat; #2299)**
+- Title bar drag now reaches the gutter and other previously-dead
+  zones via sub-pixel hit testing.  Exit paths from minimal mode
+  consolidated; layout stops fighting on toggle.
+
+**Aetherial Noise Reduction docked applet (#2297)**
+- Client-side NR controls live in their own docked applet under
+  PooDoo Audio (RX); the redundant DSP sub-panel was removed from
+  the Spectrum Overlay menu for a cleaner DSP surface.
+
+### Bug fixes
+
+**Oscillator reference status no longer goes stale (#2329, jensenpat)**
+- New `RadioModel::oscillatorChanged()` signal drives the status-bar
+  reference label and Radio Setup combo immediately from oscillator
+  state, instead of relying on event ordering with GPS status.
+  Eliminates the case where the status bar got stuck on the previous
+  reference if a GPS update never arrived after the oscillator
+  transition.
+- Radio Setup dropdown preserves currently-selected/actual options
+  during presence transitions, so transient flag blips no longer
+  drop the active option from the combo.  Renamed `External` →
+  `External 10 MHz` to match the FlexLib API description.
+- Status-bar tooltips now show desired setting, actual source, lock
+  state, and GPS/external details.
+
+**RADE mic level meter + gain slider (#2292, NF0T)**
+- The RADE TX mic level meter now updates while the modem is active,
+  and the gain slider is enabled instead of stuck at zero.  Fixes
+  "no apparent way to set RADE mic level" reports.
+
+**Stderr non-draining pipe deadlock (#2300, AetherClaude)**
+- When stdout/stderr was redirected to a pipe with no reader, the
+  audio worker thread could deadlock writing log lines.  Replaced
+  blocking writes with a non-blocking path that drops on the floor
+  rather than stalling the thread.
+
+**Windows installer runtime packaging (#2303, jensenpat)**
+- Tightened Windows runtime-DLL bundling for a smaller installer and
+  fewer "missing DLL" reports on first launch.
+
+### Infrastructure
+
+**v0.9.5.1 release-notes expansion (#2288, #2289)**
+- The CHANGELOG entry for v0.9.5.1 was expanded post-release to
+  cover all post-v0.9.5 fixes (#2113 reachability sweep, the four
+  rfoust polish PRs, NR2 audio-thread + Qt-log hotfixes) with full
+  contributor shoutouts.
+
 ## [v0.9.5.1] — 2026-05-02
 
 ### Stability & polish hotfix sweep
