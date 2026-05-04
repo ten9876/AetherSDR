@@ -174,8 +174,8 @@ QString ShortcutManager::conflictCheck(const QKeySequence& key,
 
 QStringList ShortcutManager::categories()
 {
-    return {"Frequency", "Band", "Mode", "TX", "Audio", "Slice",
-            "Filter", "Tuning", "DSP", "AGC", "Display", "RIT/XIT"};
+    return {"Frequency", "Band", "Mode", "TX", "CW", "Audio", "Slice",
+            "Filter", "Tuning", "DSP", "AGC", "EQ", "Display", "RIT/XIT"};
 }
 
 } // namespace AetherSDR

@@ -23,6 +23,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QTimer>
+#include <QWindow>
 #include <QVBoxLayout>
 
 #include <functional>
@@ -820,6 +821,10 @@ void StripFinalOutputPanel::showQuindarEditor()
 
     auto* dlg = new QDialog(this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
+    // Frameless chrome with the same draggable title bar the rest of
+    // the strip's editors use.  Fixed-size dialog — no resize grip
+    // needed since all controls fit at a single layout.
+    dlg->setWindowFlags(dlg->windowFlags() | Qt::FramelessWindowHint);
     dlg->setWindowTitle(tr("Quindar Tones"));
     dlg->setStyleSheet(
         "QDialog { background: #08121d; }"
@@ -841,9 +846,79 @@ void StripFinalOutputPanel::showQuindarEditor()
         " border: 1px solid #2a3744; border-radius: 2px;"
         " padding: 1px 4px; font-size: 11px; }");
 
-    auto* outer = new QVBoxLayout(dlg);
+    auto* dlgRoot = new QVBoxLayout(dlg);
+    dlgRoot->setContentsMargins(0, 0, 0, 0);
+    dlgRoot->setSpacing(0);
+
+    // Title bar — matches the AppletPanel ContainerTitleBar look used
+    // by TX Controls / RX Controls / etc. so the strip's editors
+    // visually align with the rest of the docked applet stack.
+    // Inline rather than reusing ContainerTitleBar directly because
+    // ContainerTitleBar has float/close signals tied to
+    // ContainerWidget lifecycle that don't apply to a modal dialog.
+    auto* titleBar = new QWidget(dlg);
+    titleBar->setFixedHeight(18);
+    titleBar->setAttribute(Qt::WA_StyledBackground, true);
+    titleBar->setStyleSheet(
+        "QWidget { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+        "stop:0 #5a7494, stop:0.5 #384e68, stop:1 #1e2e3e); "
+        "border-bottom: 1px solid #0a1a28; }");
+    titleBar->setCursor(Qt::OpenHandCursor);
+    auto* tbLayout = new QHBoxLayout(titleBar);
+    tbLayout->setContentsMargins(6, 0, 2, 0);
+    tbLayout->setSpacing(4);
+    auto* tbTitle = new QLabel(tr("Quindar Tones"), titleBar);
+    tbTitle->setStyleSheet(
+        "QLabel { background: transparent; color: #e0ecf4;"
+        " font-size: 10px; font-weight: bold; }");
+    tbLayout->addWidget(tbTitle);
+    tbLayout->addStretch();
+    auto* tbCloseBtn = new QPushButton(QString::fromUtf8("\xc3\x97"), titleBar);
+    tbCloseBtn->setFixedSize(16, 16);
+    tbCloseBtn->setStyleSheet(
+        "QPushButton { background: transparent; border: none;"
+        " color: #c8d8e8; font-size: 11px; font-weight: bold;"
+        " padding: 0px 4px; }"
+        "QPushButton:hover { color: #ffffff; }");
+    tbCloseBtn->setCursor(Qt::ArrowCursor);
+    tbCloseBtn->setToolTip(tr("Close"));
+    connect(tbCloseBtn, &QPushButton::clicked, dlg, &QDialog::accept);
+    tbLayout->addWidget(tbCloseBtn);
+
+    // Drag-to-move via QWindow::startSystemMove() — same pattern as
+    // EditorFramelessTitleBar elsewhere in the strip.  Single inline
+    // event filter installed on the bar + label so a left-press
+    // anywhere on the title (not the close button) starts a
+    // compositor-managed window move.
+    struct MoveFilter : public QObject {
+        QWidget* host;
+        explicit MoveFilter(QWidget* h) : QObject(h), host(h) {}
+        bool eventFilter(QObject* /*o*/, QEvent* ev) override {
+            if (ev->type() == QEvent::MouseButtonPress) {
+                auto* me = static_cast<QMouseEvent*>(ev);
+                if (me->button() == Qt::LeftButton && host && host->window()) {
+                    if (auto* w = host->window()->windowHandle())
+                        w->startSystemMove();
+                    return true;
+                }
+            }
+            return false;
+        }
+    };
+    auto* mf = new MoveFilter(titleBar);
+    titleBar->installEventFilter(mf);
+    tbTitle->installEventFilter(mf);
+
+    dlgRoot->addWidget(titleBar);
+
+    // Body host — all the editor controls below use `outer` so the
+    // existing layout code keeps working unchanged once this widget
+    // owns the QVBoxLayout that was previously on the dialog itself.
+    auto* bodyHost = new QWidget(dlg);
+    auto* outer = new QVBoxLayout(bodyHost);
     outer->setContentsMargins(12, 12, 12, 12);
     outer->setSpacing(10);
+    dlgRoot->addWidget(bodyHost);
 
     // ── Style segmented control ──
     auto* styleRow = new QHBoxLayout;
@@ -925,21 +1000,18 @@ void StripFinalOutputPanel::showQuindarEditor()
 
     outer->addLayout(form);
 
-    // ── Test buttons ──
+    // ── Test + Done row ──
     auto* testRow = new QHBoxLayout;
     auto* testIntroBtn = new QPushButton(tr("▶ Test intro"), dlg);
     auto* testOutroBtn = new QPushButton(tr("▶ Test outro"), dlg);
+    auto* doneBtn      = new QPushButton(tr("Done"),         dlg);
+    doneBtn->setDefault(true);
     testRow->addWidget(testIntroBtn);
     testRow->addWidget(testOutroBtn);
     testRow->addStretch();
+    testRow->addWidget(doneBtn);
     outer->addLayout(testRow);
 
-    auto* doneBtn = new QPushButton(tr("Done"), dlg);
-    doneBtn->setDefault(true);
-    auto* btnRow = new QHBoxLayout;
-    btnRow->addStretch();
-    btnRow->addWidget(doneBtn);
-    outer->addLayout(btnRow);
 
     auto refreshFieldsForStyle = [=]() {
         const bool morse = morseStyleBtn->isChecked();

@@ -10167,6 +10167,24 @@ void MainWindow::registerShortcutActions()
             auto& tx = m_radioModel.transmitModel();
             tx.setVoxEnable(!tx.voxEnable());
         });
+    m_shortcutManager.registerAction("speech_proc_toggle", "Speech Processor Toggle", "TX",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setSpeechProcessorEnable(!tx.companderOn());
+        });
+    m_shortcutManager.registerAction("dax_toggle", "DAX TX Toggle", "TX",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setDax(!tx.daxOn());
+        });
+    m_shortcutManager.registerAction("tx_monitor_toggle", "TX Monitor Toggle", "TX",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setSbMonitor(!tx.sbMonitor());
+        });
 
     // ── Audio ───────────────────────────────────────────────────────────
     m_shortcutManager.registerAction("af_gain_up", "AF Gain Up", "Audio",
@@ -10183,6 +10201,15 @@ void MainWindow::registerShortcutActions()
         QKeySequence(Qt::Key_M), [this]() {
             auto* s = activeSlice();
             if (s) s->setAudioMute(!s->audioMute());
+        });
+    m_shortcutManager.registerAction("master_mute_toggle", "Master Mute Toggle", "Audio",
+        QKeySequence(), [this]() {
+            m_audio->setMuted(!m_audio->isMuted());
+        });
+    m_shortcutManager.registerAction("squelch_toggle", "Squelch Toggle", "Audio",
+        QKeySequence(), [this]() {
+            auto* s = activeSlice();
+            if (s) s->setSquelch(!s->squelchOn(), s->squelchLevel());
         });
 
     // ── Slice ───────────────────────────────────────────────────────────
@@ -10293,6 +10320,37 @@ void MainWindow::registerShortcutActions()
             auto* s = activeSlice();
             if (s) s->setNb(!s->nbOn());
         });
+    m_shortcutManager.registerAction("nr2_toggle", "NR2 Toggle", "DSP",
+        QKeySequence(), [this]() {
+            QMetaObject::invokeMethod(m_audio, [this]() {
+                m_audio->setNr2Enabled(!m_audio->nr2Enabled());
+            });
+        });
+    m_shortcutManager.registerAction("rn2_toggle", "RN2 (RNNoise) Toggle", "DSP",
+        QKeySequence(), [this]() {
+            QMetaObject::invokeMethod(m_audio, [this]() {
+                m_audio->setRn2Enabled(!m_audio->rn2Enabled());
+            });
+        });
+    m_shortcutManager.registerAction("nr4_toggle", "NR4 Toggle", "DSP",
+        QKeySequence(), [this]() {
+            QMetaObject::invokeMethod(m_audio, [this]() {
+                m_audio->setNr4Enabled(!m_audio->nr4Enabled());
+            });
+        });
+    m_shortcutManager.registerAction("dfnr_toggle", "DFNR Toggle", "DSP",
+        QKeySequence(), [this]() {
+            QMetaObject::invokeMethod(m_audio, [this]() {
+                m_audio->setDfnrEnabled(!m_audio->dfnrEnabled());
+            });
+        });
+    m_shortcutManager.registerAction("tnf_toggle", "TNF Global Toggle", "DSP",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            const bool wasOn = m_radioModel.tnfModel().globalEnabled();
+            m_radioModel.sendCommand(
+                QString("radio set tnf_enabled=%1").arg(wasOn ? 0 : 1));
+        });
     m_shortcutManager.registerAction("nr_cycle", "NR Cycle (Off/NR/NR2/NR4/DFNR)", "DSP",
         QKeySequence(), [this]() {
             auto* s = activeSlice();
@@ -10334,6 +10392,70 @@ void MainWindow::registerShortcutActions()
             for (int i = 0; i < 4; ++i)
                 if (cur == modes[i]) { idx = i; break; }
             s->setAgcMode(modes[(idx + 1) % 4]);
+        });
+
+    // ── CW ──────────────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("cw_speed_up", "CW Speed Up (+5 WPM)", "CW",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setCwSpeed(std::min(100, tx.cwSpeed() + 5));
+        });
+    m_shortcutManager.registerAction("cw_speed_down", "CW Speed Down (-5 WPM)", "CW",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setCwSpeed(std::max(5, tx.cwSpeed() - 5));
+        });
+    m_shortcutManager.registerAction("cw_sidetone_toggle", "CW Sidetone Toggle", "CW",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setCwSidetone(!tx.cwSidetone());
+        });
+    m_shortcutManager.registerAction("cw_iambic_toggle", "CW Iambic Toggle", "CW",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setCwIambic(!tx.cwIambic());
+        });
+    m_shortcutManager.registerAction("cw_iambic_mode_toggle", "CW Iambic Mode Toggle (A/B)", "CW",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setCwIambicMode(tx.cwIambicMode() == 0 ? 1 : 0);
+        });
+    m_shortcutManager.registerAction("cw_swap_paddles_toggle", "CW Swap Paddles Toggle", "CW",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setCwSwapPaddles(!tx.cwSwapPaddles());
+        });
+    m_shortcutManager.registerAction("cwl_toggle", "CWL Frequency Offset Toggle", "CW",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setCwlEnabled(!tx.cwlEnabled());
+        });
+    m_shortcutManager.registerAction("cw_breakin_toggle", "CW Break-In (QSK) Toggle", "CW",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& tx = m_radioModel.transmitModel();
+            tx.setCwBreakIn(!tx.cwBreakIn());
+        });
+
+    // ── EQ ──────────────────────────────────────────────────────────────
+    m_shortcutManager.registerAction("tx_eq_toggle", "TX EQ Toggle", "EQ",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& eq = m_radioModel.equalizerModel();
+            eq.setTxEnabled(!eq.txEnabled());
+        });
+    m_shortcutManager.registerAction("rx_eq_toggle", "RX EQ Toggle", "EQ",
+        QKeySequence(), [this]() {
+            if (!m_radioModel.isConnected()) return;
+            auto& eq = m_radioModel.equalizerModel();
+            eq.setRxEnabled(!eq.rxEnabled());
         });
 
     // ── Display ─────────────────────────────────────────────────────────
@@ -12262,6 +12384,34 @@ void MainWindow::registerMidiParams()
         [this](float v) { m_radioModel.transmitModel().setCwSpeed(static_cast<int>(v)); },
         [this]() -> float { return m_radioModel.transmitModel().cwSpeed(); });
 
+    reg("cw.delayMs", "CW Break-In Delay", "Phone/CW", P::Slider, 0, 2000,
+        [this](float v) { m_radioModel.transmitModel().setCwDelay(static_cast<int>(v)); },
+        [this]() -> float { return m_radioModel.transmitModel().cwDelay(); });
+
+    reg("cw.sidetoneEnable", "CW Sidetone", "Phone/CW", P::Toggle, 0, 1,
+        [this](float v) { m_radioModel.transmitModel().setCwSidetone(v > 0.5f); },
+        [this]() -> float { return m_radioModel.transmitModel().cwSidetone() ? 1 : 0; });
+
+    reg("cw.iambicEnable", "CW Iambic", "Phone/CW", P::Toggle, 0, 1,
+        [this](float v) { m_radioModel.transmitModel().setCwIambic(v > 0.5f); },
+        [this]() -> float { return m_radioModel.transmitModel().cwIambic() ? 1 : 0; });
+
+    reg("cw.iambicMode", "CW Iambic Mode (0=A, 1=B)", "Phone/CW", P::Toggle, 0, 1,
+        [this](float v) { m_radioModel.transmitModel().setCwIambicMode(v > 0.5f ? 1 : 0); },
+        [this]() -> float { return m_radioModel.transmitModel().cwIambicMode() ? 1 : 0; });
+
+    reg("cw.swapPaddles", "CW Swap Paddles", "Phone/CW", P::Toggle, 0, 1,
+        [this](float v) { m_radioModel.transmitModel().setCwSwapPaddles(v > 0.5f); },
+        [this]() -> float { return m_radioModel.transmitModel().cwSwapPaddles() ? 1 : 0; });
+
+    reg("cw.cwlEnable", "CWL Frequency Offset", "Phone/CW", P::Toggle, 0, 1,
+        [this](float v) { m_radioModel.transmitModel().setCwlEnabled(v > 0.5f); },
+        [this]() -> float { return m_radioModel.transmitModel().cwlEnabled() ? 1 : 0; });
+
+    reg("cw.breakInEnable", "CW Break-In (QSK)", "Phone/CW", P::Toggle, 0, 1,
+        [this](float v) { m_radioModel.transmitModel().setCwBreakIn(v > 0.5f); },
+        [this]() -> float { return m_radioModel.transmitModel().cwBreakIn() ? 1 : 0; });
+
     reg("cw.key", "CW Key (straight)", "Phone/CW", P::Gate, 0, 1,
         [this](float v) { m_radioModel.sendCwKey(v > 0.5f); });
 
@@ -12343,16 +12493,111 @@ void MainWindow::registerMidiParams()
     reg("global.tnfEnable", "TNF Global", "Global", P::Toggle, 0, 1,
         [this](float v) { m_radioModel.sendCommand(QString("radio set tnf_enabled=%1").arg(v > 0.5f ? 1 : 0)); });
 
-    reg("global.bandUp", "Band Up", "Global", P::Trigger, 0, 1,
-        [this](float) {
-            // Placeholder — band cycling requires overlay menu integration
-            qDebug() << "MIDI: Band Up triggered";
-        });
+    // Helper — reuse keyboard-shortcut handlers so MIDI bindings don't
+    // duplicate any logic.  Each MIDI Trigger/Toggle that mirrors a
+    // shortcut just looks up the action by id and fires its handler.
+    auto fireShortcut = [this](const char* shortcutId) {
+        if (auto* a = m_shortcutManager.action(shortcutId)) {
+            if (a->handler) a->handler();
+        }
+    };
 
+    // ── Mode triggers (mirror Mode/* keyboard shortcuts) ───────────────
+    static const char* kModes[] = {"USB", "LSB", "CW", "CWL",
+                                    "AM", "SAM", "FM", "NFM",
+                                    "DFM", "DIGU", "DIGL", "RTTY"};
+    for (const char* m : kModes) {
+        const QString idShort = QString("mode_%1").arg(QString(m).toLower());
+        const QString idMidi  = QString("global.mode%1").arg(m);
+        const QString name    = QString("Mode %1").arg(m);
+        reg(idMidi.toUtf8().constData(),
+            name.toUtf8().constData(),
+            "Mode", P::Trigger, 0, 1,
+            [fireShortcut, idShort](float) {
+                fireShortcut(idShort.toUtf8().constData());
+            });
+    }
+
+    // ── Band triggers (mirror Band/* keyboard shortcuts) ───────────────
+    struct MidiBand { const char* idMidi; const char* idShort; const char* label; };
+    static const MidiBand kMidiBands[] = {
+        {"global.band160m","band_160m","Band 160m"},
+        {"global.band80m", "band_80m", "Band 80m"},
+        {"global.band60m", "band_60m", "Band 60m"},
+        {"global.band40m", "band_40m", "Band 40m"},
+        {"global.band30m", "band_30m", "Band 30m"},
+        {"global.band20m", "band_20m", "Band 20m"},
+        {"global.band17m", "band_17m", "Band 17m"},
+        {"global.band15m", "band_15m", "Band 15m"},
+        {"global.band12m", "band_12m", "Band 12m"},
+        {"global.band10m", "band_10m", "Band 10m"},
+        {"global.band6m",  "band_6m",  "Band 6m"},
+        {"global.band2m",  "band_2m",  "Band 2m"},
+    };
+    for (const auto& b : kMidiBands) {
+        reg(b.idMidi, b.label, "Band", P::Trigger, 0, 1,
+            [fireShortcut, idShort = QString(b.idShort)](float) {
+                fireShortcut(idShort.toUtf8().constData());
+            });
+    }
+
+    // ── Band Up / Down (cycle through the band list above) ────────────
+    // Replaces the earlier placeholders that only logged a debug line.
+    static constexpr int kBandCount =
+        static_cast<int>(sizeof(kMidiBands) / sizeof(MidiBand));
+    auto cycleBand = [this, fireShortcut](int direction) {
+        // Find the current band by matching the active slice's frequency
+        // against canonical band centres.  If no slice or no match,
+        // start at index 0 / -1 so the first cycle still does something.
+        static const double freqs[kBandCount] = {
+            1.900, 3.800, 5.357, 7.200, 10.125, 14.225,
+            18.118, 21.300, 24.940, 28.400, 50.125, 146.000
+        };
+        int currentIdx = -1;
+        if (auto* s = activeSlice()) {
+            const double fMhz = s->frequency();
+            double bestDelta = 1e9;
+            for (int i = 0; i < kBandCount; ++i) {
+                const double d = std::abs(fMhz - freqs[i]);
+                if (d < bestDelta) { bestDelta = d; currentIdx = i; }
+            }
+        }
+        const int next = ((currentIdx < 0 ? 0 : currentIdx) + direction
+                          + kBandCount) % kBandCount;
+        fireShortcut(kMidiBands[next].idShort);
+    };
+    reg("global.bandUp", "Band Up", "Global", P::Trigger, 0, 1,
+        [cycleBand](float) { cycleBand(+1); });
     reg("global.bandDown", "Band Down", "Global", P::Trigger, 0, 1,
-        [this](float) {
-            qDebug() << "MIDI: Band Down triggered";
-        });
+        [cycleBand](float) { cycleBand(-1); });
+
+    // ── Slice / display / filter / DSP triggers (mirror keyboard) ──────
+    reg("global.splitToggle", "Split Toggle", "Slice", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("split_toggle"); });
+    reg("global.filterWiden", "Filter Widen", "Filter", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("filter_widen"); });
+    reg("global.filterNarrow", "Filter Narrow", "Filter", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("filter_narrow"); });
+    reg("global.tuneUp1mhz", "Tune Up 1 MHz", "Frequency", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("tune_up_1mhz"); });
+    reg("global.tuneDown1mhz", "Tune Down 1 MHz", "Frequency", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("tune_down_1mhz"); });
+    reg("global.bandZoom", "Band Zoom", "Display", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("band_zoom"); });
+    reg("global.segmentZoom", "Segment Zoom", "Display", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("segment_zoom"); });
+    reg("global.panZoomIn", "Panadapter Zoom In", "Display", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("pan_zoom_in"); });
+    reg("global.panZoomOut", "Panadapter Zoom Out", "Display", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("pan_zoom_out"); });
+    reg("global.openMemories", "Open Memories", "Display", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("open_memories"); });
+    reg("global.nrCycle", "NR Cycle", "RX", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("nr_cycle"); });
+    reg("global.agcCycle", "AGC Cycle", "RX", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("agc_cycle"); });
+    reg("global.twoToneTune", "Two-Tone Tune", "TX", P::Trigger, 0, 1,
+        [fireShortcut](float) { fireShortcut("two_tone_tune"); });
 
     reg("global.nextSlice", "Next Slice", "Global", P::Trigger, 0, 1,
         [this](float) {
