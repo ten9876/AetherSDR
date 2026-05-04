@@ -475,6 +475,8 @@ private:
     // NetCW stream — VITA-49 UDP delivery for low-latency CW keying
     quint32  m_netCwStreamId{0};
     int      m_netCwIndex{1};           // sequential dedup index
+    QElapsedTimer m_netCwClock;          // 16-bit relative ms clock for time=0x....
+    qint64   m_netCwLastSendMs{-1};
     void sendNetCwCommand(const QString& cmd);
     QByteArray buildNetCwPacket(const QByteArray& payload);
 

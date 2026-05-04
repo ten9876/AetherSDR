@@ -115,6 +115,7 @@ int main()
         CwSidetoneGenerator gen(48000);
         gen.setEnabled(true);
         gen.setVolume(1.0f);
+        gen.setPan(0.0f);        // test reads L channel only
         gen.setShapingMs(5.0f);  // 5 ms ramp
         gen.setKeyDown(true);
         auto mono = runFrames(gen, 480);  // 10 ms total — first 5 ms is ramp

@@ -775,16 +775,13 @@ void RadioModel::sendCwKeyEdge(bool down)
 
 QByteArray RadioModel::buildNetCwPacket(const QByteArray& payload)
 {
-    // VITA-49 header (28 bytes) + raw ASCII command payload, no trailing
-    // padding.  FlexLib's NetCWStream.AddTXData ships the payload buffer at
-    // its exact tx_data.Length — so a 57-byte command goes out in an 85-byte
-    // datagram even though packet_size rounds up to a 4-byte boundary.  The
-    // radio uses recv()'s datagram length, not packet_size, to delimit the
-    // command string; trailing zero bytes cause the parser to reject the
-    // packet (no key/PTT change observed and silent error 0x50001000 on TCP).
+    // VITA-49 header (28 bytes) + ASCII command payload.  Working Maestro
+    // captures show the payload null-padded to a 32-bit word boundary; keep
+    // the datagram length consistent with the VRT packet_size field.
     const int payloadBytes = payload.size();
+    const int paddedPayloadBytes = (payloadBytes + 3) & ~3;
     const int packetWords = static_cast<int>(std::ceil(payloadBytes / 4.0) + 7); // 7 header words
-    const int packetBytes = 28 + payloadBytes;  // header + payload, NO padding
+    const int packetBytes = 28 + paddedPayloadBytes;
 
     QByteArray pkt(packetBytes, '\0');
     auto* w = reinterpret_cast<quint32*>(pkt.data());
@@ -821,16 +818,32 @@ void RadioModel::sendNetCwCommand(const QString& baseCmd)
     }
 
     // Build the full command with timing metadata and dedup index
-    // FlexLib format: "cw key 1 time=0x<hex_ms> index=<N> client_handle=0x<handle>"
-    quint64 timeMs = static_cast<quint64>(
-        QDateTime::currentMSecsSinceEpoch() & 0xFFFFFFFF);
+    // FlexLib format: "cw key 1 time=0x<hex_ms> index=<N> client_handle=0x<handle>".
+    // The time value is a 16-bit relative millisecond counter, not an epoch
+    // timestamp.  Flex clients reset it after a short idle gap; the radio
+    // accepts 0x0000 as a timing resync marker.
+    constexpr qint64 kNetCwIdleResetMs = 3000;
+    quint16 timeMs = 0;
+    if (!m_netCwClock.isValid()
+        || m_netCwLastSendMs < 0
+        || (m_netCwClock.elapsed() - m_netCwLastSendMs) > kNetCwIdleResetMs) {
+        if (m_netCwClock.isValid())
+            m_netCwClock.restart();
+        else
+            m_netCwClock.start();
+        m_netCwLastSendMs = 0;
+    } else {
+        const qint64 elapsed = m_netCwClock.elapsed();
+        timeMs = static_cast<quint16>(elapsed & 0xFFFF);
+        m_netCwLastSendMs = elapsed;
+    }
     int index = m_netCwIndex++;
 
     // FlexLib formats hex values UPPERCASE (C# ToString("X")), and the
     // radio's status messages do too (e.g. `S23A59BDF|...`) — the netcw
     // parser appears to be case-sensitive on `client_handle`.  Match that
     // by formatting both hex values uppercase explicitly.
-    const QString tsHex = QString("%1").arg(timeMs, 8, 16, QChar('0')).toUpper();
+    const QString tsHex = QString("%1").arg(timeMs, 4, 16, QChar('0')).toUpper();
     const QString chHex = QString("%1").arg(clientHandle(), 0, 16).toUpper();
     QString fullCmd = QString("%1 time=0x%2 index=%3 client_handle=0x%4")
         .arg(baseCmd, tsHex, QString::number(index), chHex);
@@ -868,14 +881,10 @@ void RadioModel::sendNetCwCommand(const QString& baseCmd)
         }, Qt::QueuedConnection);
     });
 
-    // No TCP fallback when netcw is up.  Radio v4.1.5 rejects every CW
-    // command sent over TCP with 0x50001000 ("command syntax error") —
-    // both the netcw form and `cw key immediate` form — so the fallback
-    // was producing log noise without doing useful work.  The four
-    // redundant UDP sends above are the reliability mechanism.  If
-    // netcw stream creation failed at startup, the early-return path
-    // above falls back to `cw key immediate` over TCP for that case
-    // (no-netcw firmware), which is a separate scenario.
+    // FlexLib sends the same decorated netcw command over TCP after the UDP
+    // copies.  With the 16-bit timestamp format above, the radio can dedupe
+    // by index=N and the TCP path provides a reliable delivery backstop.
+    sendCmd(fullCmd);
 }
 
 void RadioModel::cwAutoTune(int sliceId, bool intermittent)
@@ -1530,6 +1539,8 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                                 if (code == 0) {
                                     m_netCwStreamId = body.trimmed().toUInt(nullptr, 16);
                                     m_netCwIndex = 1;
+                                    m_netCwClock.invalidate();
+                                    m_netCwLastSendMs = -1;
                                     qCDebug(lcProtocol) << "RadioModel: netcw stream created, id:"
                                              << Qt::hex << m_netCwStreamId;
                                 } else {
@@ -1732,6 +1743,8 @@ void RadioModel::onDisconnected()
     m_rxAudio = {};
     m_netCwStreamId = 0;
     m_netCwIndex = 1;
+    m_netCwClock.invalidate();
+    m_netCwLastSendMs = -1;
     m_lineoutGain = 50;
     m_headphoneGain = 50;
 
