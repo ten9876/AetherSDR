@@ -52,6 +52,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QTimer>
+#include <atomic>
 
 class QAbstractSlider;
 
@@ -313,6 +314,15 @@ private:
 #ifdef HAVE_MIDI
     MidiControlManager*  m_midiControl{nullptr};
     void registerMidiParams();
+    struct MidiActionTrace {
+        QString paramId;
+        quint64 traceId{0};
+        quint64 callbackMs{0};
+        quint64 dispatchMs{0};
+    };
+    MidiActionTrace m_currentMidiTrace;
+    std::atomic<quint64> m_lastCwMidiTraceId{0};
+    std::atomic<quint64> m_lastCwMidiSourceMs{0};
     // MIDI param setters indexed by ID — called on main thread from
     // paramAction signal (worker thread cannot call them directly). (#502)
     QHash<QString, std::function<void(float)>> m_midiSetters;

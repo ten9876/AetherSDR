@@ -52,6 +52,7 @@
 #include "core/ClientTube.h"
 #include "core/ClientPudu.h"
 #include "core/ClientReverb.h"
+#include "core/CwTrace.h"
 #include "core/CwSidetoneGenerator.h"
 #include "core/CwxLocalKeyer.h"
 #include "core/IambicKeyer.h"
@@ -1884,8 +1885,21 @@ MainWindow::MainWindow(QWidget* parent)
             // would have produced from a hardware paddle.
             if (m_audio && m_audio->cwSidetone())
                 m_audio->cwSidetone()->setKeyDown(down);
+            const quint64 traceId = m_lastCwMidiTraceId.load(std::memory_order_relaxed);
+            const quint64 sourceMs = m_lastCwMidiSourceMs.load(std::memory_order_relaxed);
+            if (lcCw().isDebugEnabled()) {
+                const quint64 now = cwTraceNowMs();
+                qCDebug(lcCw).noquote().nospace()
+                    << "CW iambic key-edge trace=" << traceId
+                    << " t=" << now << "ms"
+                    << " sinceMidiMs=" << (sourceMs ? static_cast<qint64>(now - sourceMs) : -1)
+                    << " down=" << down;
+            }
             QMetaObject::invokeMethod(this, [this, down]() {
-                m_radioModel.sendCwKeyEdge(down);
+                const quint64 traceId = m_lastCwMidiTraceId.load(std::memory_order_relaxed);
+                const quint64 sourceMs = m_lastCwMidiSourceMs.load(std::memory_order_relaxed);
+                m_radioModel.sendCwKeyEdge(down, QStringLiteral("midi:iambic-keyer"),
+                                           traceId, sourceMs);
             }, Qt::QueuedConnection);
         });
         m_iambicKeyer->setOnPaddleEvent([this](bool dit, bool dah) {
@@ -1893,8 +1907,23 @@ MainWindow::MainWindow(QWidget* parent)
             // press/release, not one per element, so the radio doesn't
             // thrash through TX/RX gates between dits.
             const bool active = dit || dah;
+            const quint64 traceId = m_lastCwMidiTraceId.load(std::memory_order_relaxed);
+            const quint64 sourceMs = m_lastCwMidiSourceMs.load(std::memory_order_relaxed);
+            if (lcCw().isDebugEnabled()) {
+                const quint64 now = cwTraceNowMs();
+                qCDebug(lcCw).noquote().nospace()
+                    << "CW iambic paddle-event trace=" << traceId
+                    << " t=" << now << "ms"
+                    << " sinceMidiMs=" << (sourceMs ? static_cast<qint64>(now - sourceMs) : -1)
+                    << " dit=" << dit
+                    << " dah=" << dah
+                    << " ptt=" << active;
+            }
             QMetaObject::invokeMethod(this, [this, active]() {
-                m_radioModel.sendCwPtt(active);
+                const quint64 traceId = m_lastCwMidiTraceId.load(std::memory_order_relaxed);
+                const quint64 sourceMs = m_lastCwMidiSourceMs.load(std::memory_order_relaxed);
+                m_radioModel.sendCwPtt(active, QStringLiteral("midi:iambic-keyer"),
+                                       traceId, sourceMs);
             }, Qt::QueuedConnection);
         });
         // Mode/WPM/start are driven by the radio's iambic state — see
@@ -2804,6 +2833,8 @@ MainWindow::MainWindow(QWidget* parent)
     });
     connect(m_serialPort, &SerialPortController::cwPaddleChanged,
             this, [this](bool dit, bool dah) {
+        m_lastCwMidiTraceId.store(0, std::memory_order_relaxed);
+        m_lastCwMidiSourceMs.store(0, std::memory_order_relaxed);
         // When the local iambic keyer is running, feed it the raw paddle
         // state — it forwards to the radio AND drives the sidetone gate
         // directly.  Otherwise pass straight through to the radio (radio's
@@ -2950,11 +2981,25 @@ MainWindow::MainWindow(QWidget* parent)
     // main-thread dispatch. Param metadata still registered on the manager.
     registerMidiParams();
 
-    // MIDI paramAction signal: dispatches setter on main thread (#502)
-    connect(m_midiControl, &MidiControlManager::paramAction,
-            this, [this](const QString& paramId, float scaledValue) {
+    // MIDI paramActionTrace signal: dispatches setter on main thread (#502)
+    // and carries timing metadata for CW/netCW diagnostics.
+    connect(m_midiControl, &MidiControlManager::paramActionTrace,
+            this, [this](const QString& paramId, float scaledValue,
+                         quint64 traceId, quint64 midiCallbackMs,
+                         quint64 midiDispatchMs) {
         auto it = m_midiSetters.find(paramId);
         if (it == m_midiSetters.end()) return;
+        const quint64 mainMs = cwTraceNowMs();
+        if (paramId.startsWith(QStringLiteral("cw.")) && lcCw().isDebugEnabled()) {
+            qCDebug(lcCw).noquote().nospace()
+                << "CW MIDI main trace=" << traceId
+                << " t=" << mainMs << "ms"
+                << " param=" << paramId
+                << " callbackToMainMs=" << static_cast<qint64>(mainMs - midiCallbackMs)
+                << " dispatchToMainMs=" << static_cast<qint64>(mainMs - midiDispatchMs)
+                << " scaled=" << QString::number(scaledValue, 'f', 3);
+        }
+        m_currentMidiTrace = {paramId, traceId, midiCallbackMs, midiDispatchMs};
         if (scaledValue == -1.0f) {
             // Toggle sentinel: read getter, flip, call setter
             auto git = m_midiGetters.find(paramId);
@@ -2963,6 +3008,7 @@ MainWindow::MainWindow(QWidget* parent)
         } else {
             it.value()(scaledValue);
         }
+        m_currentMidiTrace = {};
     });
 
     // MIDI relativeAction signal: coalesced step-based tuning with acceleration
@@ -12413,7 +12459,21 @@ void MainWindow::registerMidiParams()
         [this]() -> float { return m_radioModel.transmitModel().cwBreakIn() ? 1 : 0; });
 
     reg("cw.key", "CW Key (straight)", "Phone/CW", P::Gate, 0, 1,
-        [this](float v) { m_radioModel.sendCwKey(v > 0.5f); });
+        [this](float v) {
+            const bool down = v > 0.5f;
+            if (lcCw().isDebugEnabled()) {
+                const quint64 now = cwTraceNowMs();
+                qCDebug(lcCw).noquote().nospace()
+                    << "CW MIDI straight-key trace=" << m_currentMidiTrace.traceId
+                    << " t=" << now << "ms"
+                    << " sinceMidiMs=" << (m_currentMidiTrace.callbackMs
+                        ? static_cast<qint64>(now - m_currentMidiTrace.callbackMs) : -1)
+                    << " down=" << down;
+            }
+            m_radioModel.sendCwKey(down, QStringLiteral("midi:cw.key"),
+                                   m_currentMidiTrace.traceId,
+                                   m_currentMidiTrace.callbackMs);
+        });
 
     // Iambic paddle: dit and dah are separate MIDI notes.
     // When the local iambic keyer is running, paddle states feed into it
@@ -12424,10 +12484,26 @@ void MainWindow::registerMidiParams()
         auto dah = std::make_shared<bool>(false);
 
         auto pushPaddle = [this, dit, dah]() {
+            m_lastCwMidiTraceId.store(m_currentMidiTrace.traceId, std::memory_order_relaxed);
+            m_lastCwMidiSourceMs.store(m_currentMidiTrace.callbackMs, std::memory_order_relaxed);
+            if (lcCw().isDebugEnabled()) {
+                const quint64 now = cwTraceNowMs();
+                qCDebug(lcCw).noquote().nospace()
+                    << "CW MIDI paddle trace=" << m_currentMidiTrace.traceId
+                    << " t=" << now << "ms"
+                    << " param=" << m_currentMidiTrace.paramId
+                    << " sinceMidiMs=" << (m_currentMidiTrace.callbackMs
+                        ? static_cast<qint64>(now - m_currentMidiTrace.callbackMs) : -1)
+                    << " dit=" << *dit
+                    << " dah=" << *dah
+                    << " localIambic=" << (m_iambicKeyer && m_iambicKeyer->isRunning());
+            }
             if (m_iambicKeyer && m_iambicKeyer->isRunning()) {
                 m_iambicKeyer->setPaddleState(*dit, *dah);
             } else {
-                m_radioModel.sendCwPaddle(*dit, *dah);
+                m_radioModel.sendCwPaddle(*dit, *dah, QStringLiteral("midi:cw.paddle"),
+                                          m_currentMidiTrace.traceId,
+                                          m_currentMidiTrace.callbackMs);
             }
         };
 
@@ -12447,7 +12523,19 @@ void MainWindow::registerMidiParams()
     }
 
     reg("cw.ptt", "PTT (hold)", "Phone/CW", P::Gate, 0, 1,
-        [this](float v) { m_radioModel.setTransmit(v > 0.5f); });
+        [this](float v) {
+            const bool on = v > 0.5f;
+            if (lcCw().isDebugEnabled()) {
+                const quint64 now = cwTraceNowMs();
+                qCDebug(lcCw).noquote().nospace()
+                    << "CW MIDI ptt trace=" << m_currentMidiTrace.traceId
+                    << " t=" << now << "ms"
+                    << " sinceMidiMs=" << (m_currentMidiTrace.callbackMs
+                        ? static_cast<qint64>(now - m_currentMidiTrace.callbackMs) : -1)
+                    << " mox=" << on;
+            }
+            m_radioModel.setTransmit(on);
+        });
 
     // ── EQ ──────────────────────────────────────────────────────────────
     reg("eq.txEnable", "TX EQ Enable", "EQ", P::Toggle, 0, 1,

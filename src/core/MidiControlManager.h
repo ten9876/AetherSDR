@@ -98,6 +98,9 @@ signals:
     // Emitted with the final scaled value for MainWindow to dispatch
     // the setter on the main thread. (#502)
     void paramAction(const QString& paramId, float scaledValue);
+    void paramActionTrace(const QString& paramId, float scaledValue,
+                          quint64 traceId, quint64 midiCallbackMs,
+                          quint64 midiDispatchMs);
     // Emitted for relative knobs: accumulated steps with acceleration.
     // Positive = clockwise, negative = counter-clockwise.
     void relativeAction(const QString& paramId, int steps);
@@ -108,7 +111,9 @@ private:
     static void rtmidiCallback(double deltatime,
                                std::vector<unsigned char>* message,
                                void* userData);
-    void onMidiMessage(int status, int data1, int data2);
+    void onMidiMessage(int status, int data1, int data2,
+                       quint64 traceId, quint64 midiCallbackMs,
+                       double rtDeltaSeconds);
 
     std::unique_ptr<RtMidiIn> m_midiIn;
     QString m_portName;

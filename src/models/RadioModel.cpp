@@ -1,6 +1,7 @@
 #include "RadioModel.h"
 #include "core/CommandParser.h"
 #include "core/AppSettings.h"
+#include "core/CwTrace.h"
 #include "core/LogManager.h"
 #include "core/StreamStatus.h"
 #include "core/UdpRegistrationPolicy.h"
@@ -729,7 +730,8 @@ QString RadioModel::audioCompressionParam() const
     return isWan() ? "opus" : "none";
 }
 
-void RadioModel::sendCwKey(bool down)
+void RadioModel::sendCwKey(bool down, const QString& debugSource,
+                           quint64 debugTraceId, quint64 debugSourceMs)
 {
     const bool prev = m_cwKeyActive;
     m_cwKeyActive = down;
@@ -738,14 +740,18 @@ void RadioModel::sendCwKey(bool down)
     // `cw ptt 1` the radio queues key events but doesn't transmit when
     // break_in=0 (the default on most user setups).  Pairing PTT with
     // KEY keys reliably regardless of break-in mode.
-    if (down && !prev) sendNetCwCommand(QStringLiteral("cw ptt 1"));
-    sendNetCwCommand(QString("cw key %1").arg(down ? 1 : 0));
-    if (!down && prev) sendNetCwCommand(QStringLiteral("cw ptt 0"));
+    if (down && !prev)
+        sendNetCwCommand(QStringLiteral("cw ptt 1"), debugSource, debugTraceId, debugSourceMs);
+    sendNetCwCommand(QString("cw key %1").arg(down ? 1 : 0),
+                     debugSource, debugTraceId, debugSourceMs);
+    if (!down && prev)
+        sendNetCwCommand(QStringLiteral("cw ptt 0"), debugSource, debugTraceId, debugSourceMs);
     if (prev != down)
         emit cwKeyDownChanged(down);
 }
 
-void RadioModel::sendCwPaddle(bool dit, bool dah)
+void RadioModel::sendCwPaddle(bool dit, bool dah, const QString& debugSource,
+                              quint64 debugTraceId, quint64 debugSourceMs)
 {
     // The radio's CW protocol does NOT accept a 2-arg paddle form like
     // `cw key dit dah` — FlexLib only ever sends `cw key 1` or `cw key 0`
@@ -754,19 +760,23 @@ void RadioModel::sendCwPaddle(bool dit, bool dah)
     // works when the local iambic keyer is disabled.  When the keyer IS
     // running it intercepts upstream and uses sendCwPtt + sendCwKeyEdge
     // directly, bypassing this method.
-    sendCwKey(dit || dah);
+    sendCwKey(dit || dah, debugSource, debugTraceId, debugSourceMs);
 }
 
-void RadioModel::sendCwPtt(bool on)
+void RadioModel::sendCwPtt(bool on, const QString& debugSource,
+                           quint64 debugTraceId, quint64 debugSourceMs)
 {
-    sendNetCwCommand(on ? QStringLiteral("cw ptt 1") : QStringLiteral("cw ptt 0"));
+    sendNetCwCommand(on ? QStringLiteral("cw ptt 1") : QStringLiteral("cw ptt 0"),
+                     debugSource, debugTraceId, debugSourceMs);
 }
 
-void RadioModel::sendCwKeyEdge(bool down)
+void RadioModel::sendCwKeyEdge(bool down, const QString& debugSource,
+                               quint64 debugTraceId, quint64 debugSourceMs)
 {
     const bool prev = m_cwKeyActive;
     m_cwKeyActive = down;
-    sendNetCwCommand(QString("cw key %1").arg(down ? 1 : 0));
+    sendNetCwCommand(QString("cw key %1").arg(down ? 1 : 0),
+                     debugSource, debugTraceId, debugSourceMs);
     if (prev != down)
         emit cwKeyDownChanged(down);
 }
@@ -808,12 +818,24 @@ QByteArray RadioModel::buildNetCwPacket(const QByteArray& payload)
     return pkt;
 }
 
-void RadioModel::sendNetCwCommand(const QString& baseCmd)
+void RadioModel::sendNetCwCommand(const QString& baseCmd, const QString& debugSource,
+                                  quint64 debugTraceId, quint64 debugSourceMs)
 {
     if (m_netCwStreamId == 0) {
         // No netcw stream — fall back to TCP immediate
-        sendCmd(baseCmd.contains("cw key") ?
-            QString(baseCmd).replace("cw key", "cw key immediate") : baseCmd);
+        const QString fallbackCmd = baseCmd.contains("cw key")
+            ? QString(baseCmd).replace("cw key", "cw key immediate")
+            : baseCmd;
+        if (lcCw().isDebugEnabled()) {
+            const quint64 now = cwTraceNowMs();
+            qCDebug(lcCw).noquote().nospace()
+                << "CW netcw fallback trace=" << debugTraceId
+                << " t=" << now << "ms"
+                << " sinceSourceMs=" << (debugSourceMs ? static_cast<qint64>(now - debugSourceMs) : -1)
+                << " source=" << (debugSource.isEmpty() ? QStringLiteral("unknown") : debugSource)
+                << " cmd=\"" << fallbackCmd << "\"";
+        }
+        sendCmd(fallbackCmd);
         return;
     }
 
@@ -860,23 +882,59 @@ void RadioModel::sendNetCwCommand(const QString& baseCmd)
     QByteArray packet1 = buildNetCwPacket(payload);
     QByteArray packet2 = buildNetCwPacket(payload);
     QByteArray packet3 = buildNetCwPacket(payload);
+    const quint64 scheduledMs = cwTraceNowMs();
+    const QString source = debugSource.isEmpty() ? QStringLiteral("unknown") : debugSource;
 
-    QMetaObject::invokeMethod(m_panStream, [this, packet0]() {
+    if (lcCw().isDebugEnabled()) {
+        qCDebug(lcCw).noquote().nospace()
+            << "CW netcw schedule trace=" << debugTraceId
+            << " t=" << scheduledMs << "ms"
+            << " sinceSourceMs=" << (debugSourceMs ? static_cast<qint64>(scheduledMs - debugSourceMs) : -1)
+            << " source=" << source
+            << " stream=0x" << QString::number(m_netCwStreamId, 16).toUpper()
+            << " index=" << index
+            << " time=0x" << tsHex
+            << " cmd=\"" << baseCmd << "\""
+            << " payloadBytes=" << payload.size()
+            << " packetBytes=" << packet0.size()
+            << " udpCopies=4 tcpBackstop=1";
+    }
+
+    auto logUdpSend = [debugTraceId, scheduledMs, source](int copy, int delayMs, int bytes) {
+        if (!lcCw().isDebugEnabled())
+            return;
+        const quint64 now = cwTraceNowMs();
+        qCDebug(lcCw).noquote().nospace()
+            << "CW netcw udp-send trace=" << debugTraceId
+            << " t=" << now << "ms"
+            << " source=" << source
+            << " copy=" << copy
+            << " delayMs=" << delayMs
+            << " actualDelayMs=" << static_cast<qint64>(now - scheduledMs)
+            << " timerSlipMs=" << (static_cast<qint64>(now - scheduledMs) - delayMs)
+            << " bytes=" << bytes;
+    };
+
+    QMetaObject::invokeMethod(m_panStream, [this, packet0, logUdpSend]() {
+        logUdpSend(0, 0, packet0.size());
         m_panStream->sendToRadio(packet0);
     }, Qt::QueuedConnection);
 
-    QTimer::singleShot(5, this, [this, packet1]() {
-        QMetaObject::invokeMethod(m_panStream, [this, packet1]() {
+    QTimer::singleShot(5, this, [this, packet1, logUdpSend]() {
+        QMetaObject::invokeMethod(m_panStream, [this, packet1, logUdpSend]() {
+            logUdpSend(1, 5, packet1.size());
             m_panStream->sendToRadio(packet1);
         }, Qt::QueuedConnection);
     });
-    QTimer::singleShot(10, this, [this, packet2]() {
-        QMetaObject::invokeMethod(m_panStream, [this, packet2]() {
+    QTimer::singleShot(10, this, [this, packet2, logUdpSend]() {
+        QMetaObject::invokeMethod(m_panStream, [this, packet2, logUdpSend]() {
+            logUdpSend(2, 10, packet2.size());
             m_panStream->sendToRadio(packet2);
         }, Qt::QueuedConnection);
     });
-    QTimer::singleShot(15, this, [this, packet3]() {
-        QMetaObject::invokeMethod(m_panStream, [this, packet3]() {
+    QTimer::singleShot(15, this, [this, packet3, logUdpSend]() {
+        QMetaObject::invokeMethod(m_panStream, [this, packet3, logUdpSend]() {
+            logUdpSend(3, 15, packet3.size());
             m_panStream->sendToRadio(packet3);
         }, Qt::QueuedConnection);
     });

@@ -1,6 +1,7 @@
 #ifdef HAVE_MIDI
 
 #include "MidiControlManager.h"
+#include "CwTrace.h"
 #include "LogManager.h"
 
 #include <RtMidi.h>
@@ -9,6 +10,21 @@
 #include <cmath>
 
 namespace AetherSDR {
+
+namespace {
+
+QString midiMsgTypeName(MidiBinding::MsgType type)
+{
+    switch (type) {
+    case MidiBinding::CC:        return QStringLiteral("CC");
+    case MidiBinding::NoteOn:    return QStringLiteral("NoteOn");
+    case MidiBinding::NoteOff:   return QStringLiteral("NoteOff");
+    case MidiBinding::PitchBend: return QStringLiteral("PitchBend");
+    }
+    return QStringLiteral("Unknown");
+}
+
+} // namespace
 
 // ── MidiBinding helpers ─────────────────────────────────────────────────────
 
@@ -193,7 +209,7 @@ void MidiControlManager::cancelLearn()
 
 // ── RtMidi callback → Qt main thread ────────────────────────────────────────
 
-void MidiControlManager::rtmidiCallback(double /*deltatime*/,
+void MidiControlManager::rtmidiCallback(double deltatime,
                                          std::vector<unsigned char>* message,
                                          void* userData)
 {
@@ -202,15 +218,31 @@ void MidiControlManager::rtmidiCallback(double /*deltatime*/,
     int status = (*message)[0];
     int data1 = (*message)[1];
     int data2 = message->size() > 2 ? (*message)[2] : 0;
+    const quint64 traceId = nextCwTraceId();
+    const quint64 callbackMs = cwTraceNowMs();
+
+    if (lcCw().isDebugEnabled()) {
+        qCDebug(lcCw).noquote().nospace()
+            << "CW MIDI raw trace=" << traceId
+            << " t=" << callbackMs << "ms"
+            << " status=0x" << QString("%1").arg(status, 2, 16, QChar('0')).toUpper()
+            << " data1=" << data1
+            << " data2=" << data2
+            << " rtDeltaMs=" << QString::number(deltatime * 1000.0, 'f', 3);
+    }
 
     // Bridge to Qt main thread
-    QMetaObject::invokeMethod(self, [self, status, data1, data2]() {
-        self->onMidiMessage(status, data1, data2);
+    QMetaObject::invokeMethod(self, [self, status, data1, data2,
+                                     traceId, callbackMs, deltatime]() {
+        self->onMidiMessage(status, data1, data2, traceId, callbackMs, deltatime);
     }, Qt::QueuedConnection);
 }
 
-void MidiControlManager::onMidiMessage(int status, int data1, int data2)
+void MidiControlManager::onMidiMessage(int status, int data1, int data2,
+                                       quint64 traceId, quint64 midiCallbackMs,
+                                       double rtDeltaSeconds)
 {
+    const quint64 dispatchMs = cwTraceNowMs();
     int channel = status & 0x0F;
     int type = status & 0xF0;
 
@@ -234,6 +266,18 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2)
         normValue = (data1 | (data2 << 7)) / 16383.0f;
     } else {
         return; // ignore other message types
+    }
+
+    if (lcCw().isDebugEnabled()) {
+        qCDebug(lcCw).noquote().nospace()
+            << "CW MIDI dispatch trace=" << traceId
+            << " t=" << dispatchMs << "ms"
+            << " queueLagMs=" << static_cast<qint64>(dispatchMs - midiCallbackMs)
+            << " ch=" << (channel + 1)
+            << " type=" << midiMsgTypeName(msgType)
+            << " number=" << number
+            << " norm=" << QString::number(normValue, 'f', 3)
+            << " rtDeltaMs=" << QString::number(rtDeltaSeconds * 1000.0, 'f', 3);
     }
 
     emit midiActivity(channel, static_cast<int>(msgType), number,
@@ -283,6 +327,7 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2)
     if (it == m_bindingIndex.end()) return;
 
     const auto& binding = m_bindings[it.value()];
+    const bool cwBinding = binding.paramId.startsWith(QStringLiteral("cw."));
 
     // ── Relative knob mode: decode delta and accumulate ────────────────
     if (binding.relative && msgType == MidiBinding::CC) {
@@ -330,9 +375,21 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2)
             scaled = normValue > 0.0f ? 1.0f : 0.0f;
         }
 
+        if (cwBinding && lcCw().isDebugEnabled()) {
+            qCDebug(lcCw).noquote().nospace()
+                << "CW MIDI binding trace=" << traceId
+                << " t=" << cwTraceNowMs() << "ms"
+                << " param=" << binding.paramId
+                << " source=\"" << binding.sourceDisplayName() << "\""
+                << " value=" << QString::number(value, 'f', 3)
+                << " scaled=" << QString::number(scaled, 'f', 3)
+                << " callbackLagMs=" << static_cast<qint64>(cwTraceNowMs() - midiCallbackMs);
+        }
+
         // Don't call setter directly — may be on a worker thread while
         // setters access main-thread objects. Emit signal instead. (#502)
         emit paramAction(binding.paramId, scaled);
+        emit paramActionTrace(binding.paramId, scaled, traceId, midiCallbackMs, dispatchMs);
     }
 
     emit paramValueChanged(binding.paramId, value);
