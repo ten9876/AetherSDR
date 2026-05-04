@@ -1,6 +1,6 @@
 #pragma once
 
-#include <atomic>
+#include <mutex>
 
 struct pw_context;
 struct pw_core;
@@ -45,7 +45,14 @@ private:
     pw_thread_loop* m_loop{nullptr};
     pw_context*     m_context{nullptr};
     pw_core*        m_core{nullptr};
-    std::atomic<int> m_refCount{0};
+
+    // Serializes init/teardown so concurrent acquire()/release() callers
+    // never observe a half-initialised context.  Today the lifecycle is
+    // driven from the main thread, but the documented contract on these
+    // methods is "safe to call from any thread" — the mutex makes that
+    // contract real instead of incidentally true.
+    std::mutex m_initMutex;
+    int        m_refCount{0};
 };
 
 } // namespace AetherSDR

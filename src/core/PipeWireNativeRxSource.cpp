@@ -22,11 +22,26 @@ namespace {
 constexpr uint32_t kSampleRate = 48000;
 constexpr uint32_t kChannels   = 1;
 
+// Trampoline so we can register a callback whose signature exactly matches
+// libpipewire's pw_stream_events::state_changed (which uses enum pw_stream_state)
+// without UB.  PipeWireNativeRxSource::onStateChanged keeps an int signature so
+// the header can stay free of <pipewire/stream.h>.
+void onStateChangedTrampoline(void* userdata,
+                              enum pw_stream_state old_state,
+                              enum pw_stream_state state,
+                              const char* error)
+{
+    PipeWireNativeRxSource::onStateChanged(
+        userdata,
+        static_cast<int>(old_state),
+        static_cast<int>(state),
+        error);
+}
+
 const pw_stream_events kStreamEvents = {
     .version       = PW_VERSION_STREAM_EVENTS,
     .destroy       = nullptr,
-    .state_changed = reinterpret_cast<void(*)(void*, enum pw_stream_state, enum pw_stream_state, const char*)>(
-                         &PipeWireNativeRxSource::onStateChanged),
+    .state_changed = &onStateChangedTrampoline,
     .control_info  = nullptr,
     .io_changed    = nullptr,
     .param_changed = nullptr,
@@ -121,7 +136,7 @@ bool PipeWireNativeRxSource::open()
         return false;
     }
 
-    pw_stream_add_listener(m_stream, /*listener=*/new spa_hook{}, &kStreamEvents, this);
+    pw_stream_add_listener(m_stream, &m_listenerHook, &kStreamEvents, this);
 
     spa_audio_info_raw info{};
     info.format   = SPA_AUDIO_FORMAT_F32_LE;
@@ -186,19 +201,17 @@ void PipeWireNativeRxSource::feedAudio(const float* samples, uint32_t count)
     const uint32_t pending  = writeIdx - readIdx;
     const uint32_t space    = RING_SIZE - pending;
 
-    // If incoming chunk would overflow the ring, advance the read index to
-    // drop the oldest samples — bounds backlog at ring size and prevents
-    // runaway latency on consumer stalls.
-    uint32_t toCopy = count;
-    if (toCopy > RING_SIZE) {
-        // Chunk itself is bigger than the ring (shouldn't happen at our
-        // packet sizes).  Keep the most recent RING_SIZE samples.
-        samples += (toCopy - RING_SIZE);
-        toCopy   = RING_SIZE;
-    }
-    if (toCopy > space) {
-        const uint32_t drop = toCopy - space;
-        m_readIdx.fetch_add(drop, std::memory_order_release);
+    // SPSC invariant: only the producer touches m_writeIdx, only the consumer
+    // touches m_readIdx.  On overflow, drop the *newest* incoming samples that
+    // wouldn't fit rather than evicting from the consumer side — evicting via
+    // the producer would race the consumer's in-flight memcpy when wraparound
+    // exposes a slot it had already claimed.  Latency is still capped at the
+    // ring size; only the choice of which dropouts you take changes.  In
+    // practice the consumer (PipeWire RT loop) only stalls under extreme
+    // system load, so the steady-state behaviour is unaffected.
+    const uint32_t toCopy = std::min(count, space);
+    if (toCopy == 0) {
+        return;
     }
 
     // Copy in up to two contiguous spans (handles wraparound).

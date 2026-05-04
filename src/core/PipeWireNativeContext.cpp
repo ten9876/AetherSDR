@@ -32,7 +32,8 @@ PipeWireNativeContext::~PipeWireNativeContext()
 
 bool PipeWireNativeContext::acquire()
 {
-    if (m_refCount.fetch_add(1) > 0) {
+    std::lock_guard<std::mutex> lock(m_initMutex);
+    if (++m_refCount > 1) {
         return m_loop != nullptr;
     }
 
@@ -42,7 +43,7 @@ bool PipeWireNativeContext::acquire()
     m_loop = pw_thread_loop_new("aethersdr-dax", nullptr);
     if (!m_loop) {
         qCWarning(lcDax) << "PipeWireNativeContext: pw_thread_loop_new failed";
-        m_refCount.store(0);
+        m_refCount = 0;
         return false;
     }
 
@@ -51,7 +52,7 @@ bool PipeWireNativeContext::acquire()
         qCWarning(lcDax) << "PipeWireNativeContext: pw_context_new failed";
         pw_thread_loop_destroy(m_loop);
         m_loop = nullptr;
-        m_refCount.store(0);
+        m_refCount = 0;
         return false;
     }
 
@@ -61,7 +62,7 @@ bool PipeWireNativeContext::acquire()
         m_context = nullptr;
         pw_thread_loop_destroy(m_loop);
         m_loop = nullptr;
-        m_refCount.store(0);
+        m_refCount = 0;
         return false;
     }
 
@@ -78,7 +79,7 @@ bool PipeWireNativeContext::acquire()
         m_context = nullptr;
         pw_thread_loop_destroy(m_loop);
         m_loop = nullptr;
-        m_refCount.store(0);
+        m_refCount = 0;
         return false;
     }
 
@@ -88,7 +89,8 @@ bool PipeWireNativeContext::acquire()
 
 void PipeWireNativeContext::release()
 {
-    if (m_refCount.fetch_sub(1) > 1) {
+    std::lock_guard<std::mutex> lock(m_initMutex);
+    if (m_refCount > 0 && --m_refCount > 0) {
         return;
     }
 

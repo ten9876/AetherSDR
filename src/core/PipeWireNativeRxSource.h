@@ -1,5 +1,7 @@
 #pragma once
 
+#include <spa/utils/hook.h>
+
 #include <atomic>
 #include <cstdint>
 
@@ -36,9 +38,11 @@ public:
     void close();
 
     // Push 48 kHz mono float32 samples into the ring buffer.  Drops the
-    // oldest pending samples if the consumer (PipeWire) is too slow —
-    // this caps backlog at the ring size (~170 ms) so latency cannot
-    // grow unboundedly even under stalls.
+    // newest incoming samples that wouldn't fit if the consumer (PipeWire)
+    // is too slow — this caps backlog at the ring size (~42 ms) so latency
+    // cannot grow unboundedly even under stalls, and it keeps the SPSC
+    // invariant intact (only the producer touches m_writeIdx, only the
+    // consumer touches m_readIdx).
     void feedAudio(const float* samples, uint32_t count);
 
     // PipeWire C callbacks — public so the kStreamEvents POD in the .cpp can
@@ -60,6 +64,11 @@ private:
     int        m_channel;
     pw_stream* m_stream{nullptr};
     bool       m_contextAcquired{false};
+
+    // PipeWire stream-event listener.  Owned by-value so the underlying
+    // spa_hook lives exactly as long as this RxSource — no raw new/delete
+    // and no leak across re-open() calls.
+    spa_hook m_listenerHook{};
 
     // SPSC ring.  Producer (Qt thread) writes m_writeIdx; consumer
     // (PipeWire thread) writes m_readIdx.  Indices are free-running and
