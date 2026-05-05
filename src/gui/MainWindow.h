@@ -324,7 +324,7 @@ private:
     std::atomic<quint64> m_lastCwMidiTraceId{0};
     std::atomic<quint64> m_lastCwMidiSourceMs{0};
     // MIDI param setters indexed by ID — called on main thread from
-    // paramAction signal (worker thread cannot call them directly). (#502)
+    // paramActionTrace signal (worker thread cannot call them directly). (#502)
     QHash<QString, std::function<void(float)>> m_midiSetters;
     QHash<QString, std::function<float()>>     m_midiGetters;
 #endif

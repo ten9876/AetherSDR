@@ -388,7 +388,6 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2,
 
         // Don't call setter directly — may be on a worker thread while
         // setters access main-thread objects. Emit signal instead. (#502)
-        emit paramAction(binding.paramId, scaled);
         emit paramActionTrace(binding.paramId, scaled, traceId, midiCallbackMs, dispatchMs);
     }
 

@@ -95,9 +95,9 @@ signals:
     void portError(const QString& error);
     void midiActivity(int channel, int msgType, int number, int value);
     void paramValueChanged(const QString& paramId, float normalizedValue);
-    // Emitted with the final scaled value for MainWindow to dispatch
-    // the setter on the main thread. (#502)
-    void paramAction(const QString& paramId, float scaledValue);
+    // Emitted with the final scaled value plus trace metadata for
+    // MainWindow to dispatch the setter on the main thread (#502) and
+    // correlate the event for the CW/netCW diagnostic trail (#2336).
     void paramActionTrace(const QString& paramId, float scaledValue,
                           quint64 traceId, quint64 midiCallbackMs,
                           quint64 midiDispatchMs);
