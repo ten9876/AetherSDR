@@ -41,8 +41,8 @@ QString DxClusterClient::logFilePath() const
 
 void DxClusterClient::connectToCluster(const QString& host, quint16 port, const QString& callsign)
 {
-    if (m_connected) {
-        qCWarning(lcDxCluster) << "DxClusterClient: already connected";
+    if (m_connected || m_socket->state() == QAbstractSocket::ConnectingState) {
+        qCWarning(lcDxCluster) << "DxClusterClient: connect attempt already in progress";
         return;
     }
 
@@ -56,12 +56,16 @@ void DxClusterClient::connectToCluster(const QString& host, quint16 port, const 
     qCDebug(lcDxCluster) << "DxClusterClient: connecting to" << host << ":" << port;
     m_socket->connectToHost(host, port);
 
-    // Connection timeout
-    QTimer::singleShot(ConnectTimeoutMs, this, [this] {
+    // Connection timeout — capture epoch so a stale timeout from attempt N cannot
+    // abort a later attempt that has already succeeded (#2380).
+    const int epoch = ++m_connectEpoch;
+    QTimer::singleShot(ConnectTimeoutMs, this, [this, epoch] {
+        if (m_connectEpoch != epoch) return;  // superseded by a later attempt
         if (!m_connected && m_socket->state() != QAbstractSocket::ConnectedState) {
             qCWarning(lcDxCluster) << "DxClusterClient: connection timeout";
             m_socket->abort();
             emit connectionError("Connection timeout");
+            scheduleReconnect();
         }
     });
 }
@@ -121,13 +125,7 @@ void DxClusterClient::onDisconnected()
     if (wasConnected)
         emit disconnected();
 
-    if (!m_intentionalDisconnect) {
-        int delay = std::min(InitialReconnectDelayMs * (1 << m_reconnectAttempts),
-                             MaxReconnectDelayMs);
-        qCDebug(lcDxCluster) << "DxClusterClient: reconnecting in" << delay << "ms";
-        m_reconnectTimer->start(delay);
-        m_reconnectAttempts++;
-    }
+    scheduleReconnect();
 }
 
 void DxClusterClient::onSocketError(QAbstractSocket::SocketError /*err*/)
@@ -135,6 +133,24 @@ void DxClusterClient::onSocketError(QAbstractSocket::SocketError /*err*/)
     QString msg = m_socket->errorString();
     qCWarning(lcDxCluster) << "DxClusterClient: socket error:" << msg;
     emit connectionError(msg);
+    // When a connection attempt fails (ConnectingState → error), Qt does NOT emit
+    // disconnected(), so onDisconnected() never fires. Arm the reconnect timer
+    // here so the chain continues after a failed attempt (#2380).
+    if (!m_connected) {
+        scheduleReconnect();
+    }
+}
+
+void DxClusterClient::scheduleReconnect()
+{
+    if (m_intentionalDisconnect) return;
+    if (m_reconnectTimer->isActive()) return;  // already scheduled — don't compound backoff
+    int delay = std::min(InitialReconnectDelayMs * (1 << m_reconnectAttempts),
+                         MaxReconnectDelayMs);
+    qCDebug(lcDxCluster) << "DxClusterClient: reconnecting in" << delay
+                         << "ms (attempt" << m_reconnectAttempts + 1 << ")";
+    m_reconnectTimer->start(delay);
+    m_reconnectAttempts++;
 }
 
 void DxClusterClient::onReconnectTimer()

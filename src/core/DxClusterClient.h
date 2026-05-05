@@ -62,6 +62,10 @@ private:
     bool isLoginPrompt(const QString& line) const;
     void handleLine(const QString& line);
     void stripTelnetIAC();
+    // Arm the exponential-backoff reconnect timer. Guards against double-scheduling
+    // (errorOccurred + timeout can both fire for one failed attempt). No-op when
+    // m_intentionalDisconnect is set or the timer is already active (#2380).
+    void scheduleReconnect();
 
     QTcpSocket* m_socket;
     QByteArray  m_readBuffer;
@@ -76,6 +80,7 @@ private:
     bool    m_loggedIn{false};
     bool    m_intentionalDisconnect{false};
     int     m_reconnectAttempts{0};
+    int     m_connectEpoch{0};  // incremented each connectToCluster(); guards stale timeouts
 
     static constexpr int MaxReconnectDelayMs    = 60000;
     static constexpr int InitialReconnectDelayMs = 5000;
