@@ -48,7 +48,6 @@ public:
     void addSpots(const QVector<DxSpot>& spots);
     void clear();
     void setMaxSpots(int max) { m_maxSpots = max; }
-    double freqAtRow(int row) const;
     const DxSpot* spotAt(int row) const;
 
 private:

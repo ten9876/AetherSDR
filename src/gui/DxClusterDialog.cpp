@@ -166,13 +166,6 @@ void SpotTableModel::addSpots(const QVector<DxSpot>& spots)
     }
 }
 
-double SpotTableModel::freqAtRow(int row) const
-{
-    if (row >= 0 && row < m_spots.size())
-        return m_spots[row].freqMhz;
-    return 0.0;
-}
-
 const DxSpot* SpotTableModel::spotAt(int row) const
 {
     if (row >= 0 && row < m_spots.size())
