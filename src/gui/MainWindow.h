@@ -503,6 +503,7 @@ private:
     QTimer m_swrSweepTimer;
     bool m_minimalMode{false};             // true when spectrum is hidden (#208)
     bool m_exitingMinimalMode{false};      // re-entry guard for changeEvent → toggleMinimalMode(false)
+    bool m_enteringMinimalMode{false};     // suppress changeEvent during enter (macOS deferred WindowStateChange, #2365)
     QAction* m_minimalModeAction{nullptr};
     bool m_panadapterConnectionAnimationVisible{false};
     bool m_waitingForFirstPanadapterFrame{false};

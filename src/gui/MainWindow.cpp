@@ -4198,7 +4198,8 @@ void MainWindow::changeEvent(QEvent* event)
 
     if (event->type() != QEvent::WindowStateChange
         || !m_minimalMode
-        || m_exitingMinimalMode) {
+        || m_exitingMinimalMode
+        || m_enteringMinimalMode) {
         return;
     }
 
@@ -9849,8 +9850,21 @@ void MainWindow::toggleMinimalMode(bool on)
     auto& s = AppSettings::instance();
 
     if (on) {
-        // Save full-mode geometry
+        // macOS delivers WindowStateChange asynchronously, so the Maximized /
+        // FullScreen bit can survive setFixedWidth(260) below and trigger the
+        // changeEvent exit path before we've finished entering.  Guard the
+        // enter window against re-entry from a deferred WindowStateChange.
+        m_enteringMinimalMode = true;
+
+        // Save full-mode geometry (preserves the Maximized/FullScreen bit so
+        // exit can restore the user's pre-minimal window).
         s.setValue("FullModeGeometry", saveGeometry().toBase64());
+
+        // Drop maximized/fullscreen state before forcing the applet width.
+        // Without this, macOS keeps the bit set through setFixedWidth(260)
+        // and changeEvent schedules a spurious toggleMinimalMode(false).
+        if (windowState() & (Qt::WindowMaximized | Qt::WindowFullScreen))
+            showNormal();
 
         // Save splitter sizes for restore
         s.setValue("MinimalModeSplitterSizes",
@@ -9884,6 +9898,11 @@ void MainWindow::toggleMinimalMode(bool on)
             s.value("MinimalModeGeometry", "").toByteArray());
         if (!geom.isEmpty())
             restoreGeometry(geom);
+
+        // Defer clearing the guard so any AppKit-deferred WindowStateChange
+        // queued by the showNormal() / setFixedWidth() calls above is drained
+        // through changeEvent's early-return before the guard drops.
+        QTimer::singleShot(0, this, [this]() { m_enteringMinimalMode = false; });
 
     } else {
         // Sync the View-menu action so non-action entry points (the
