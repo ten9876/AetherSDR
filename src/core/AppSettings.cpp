@@ -295,6 +295,7 @@ void AppSettings::migrateFromQSettings()
         // No old settings — first launch. Set defaults.
         setValue("ApplicationVersion", QCoreApplication::applicationVersion());
         setValue("AutoConnect", "True");
+        setValue("AutoConnectToLastRadio", "True");
         setValue("StationName", "");
         setValue("GUIClientID", QUuid::createUuid().toString(QUuid::WithoutBraces));
         setValue("IsSingleClickTuneEnabled", "False");
@@ -349,6 +350,8 @@ void AppSettings::migrateFromQSettings()
     // Set defaults for new keys
     setValue("ApplicationVersion", QCoreApplication::applicationVersion());
     setValue("AutoConnect", "True");
+    if (!contains("AutoConnectToLastRadio"))
+        setValue("AutoConnectToLastRadio", "True");
     setValue("StationName", "");
     setValue("GUIClientID", QUuid::createUuid().toString(QUuid::WithoutBraces));
     if (!contains("IsSingleClickTuneEnabled"))

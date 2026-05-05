@@ -1155,6 +1155,8 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_discovery, &RadioDiscovery::radioDiscovered,
             this, [this](const RadioInfo& info) {
         if (m_userDisconnected) return;
+        if (AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() != "True")
+            return;
         const QString lastSerial = AppSettings::instance()
             .value("LastConnectedRadioSerial").toString();
         if (!lastSerial.isEmpty() && info.serial == lastSerial
@@ -3787,17 +3789,23 @@ MainWindow::MainWindow(QWidget* parent)
     if (m_titleBar) m_titleBar->setDiscovering(true);
     m_discovery.startListening();
 
+    const bool autoConnectToLastRadio =
+        AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() == "True";
     const QString startupLastSerial =
         AppSettings::instance().value("LastConnectedRadioSerial").toString();
-    if (!startupLastSerial.isEmpty()) {
+    if (!startupLastSerial.isEmpty() && autoConnectToLastRadio) {
         m_connPanel->setStatusText("Looking for your radio…");
         setPanadapterConnectionAnimation(true, "Looking for your radio…");
+    } else if (!autoConnectToLastRadio) {
+        QTimer::singleShot(0, this, &MainWindow::toggleConnectionDialog);
     }
 
     // Auto-connect to routed radios (probed, not broadcast-discovered)
     connect(m_connPanel, &ConnectionPanel::routedRadioFound,
             this, [this](const RadioInfo& info) {
         if (m_userDisconnected || m_radioModel.isConnected()) return;
+        if (AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() != "True")
+            return;
         const QString lastSerial = AppSettings::instance()
             .value("LastConnectedRadioSerial").toString();
         if (!lastSerial.isEmpty() && info.serial == lastSerial) {
@@ -3820,7 +3828,7 @@ MainWindow::MainWindow(QWidget* parent)
     {
         auto& s = AppSettings::instance();
         const QString routedIp = s.value("LastRoutedRadioIp").toString();
-        if (!routedIp.isEmpty() && !m_userDisconnected) {
+        if (!routedIp.isEmpty() && !m_userDisconnected && autoConnectToLastRadio) {
             m_connPanel->setStatusText("Looking for your radio…");
             setPanadapterConnectionAnimation(true, "Looking for your radio…");
             QTimer::singleShot(500, this, [this, routedIp] {

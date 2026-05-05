@@ -130,6 +130,8 @@ private:
     QString      m_manualProfileIp;
     bool         m_manualConnectPending{false};
 
+    QCheckBox*   m_autoConnectCheck{nullptr};
+
     QWidget*     m_linkOptionsWidget{nullptr};
     QLabel*      m_lowBwHintLabel{nullptr};
     QCheckBox*   m_lowBwCheck{nullptr};

@@ -530,6 +530,17 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     optionsLayout->addWidget(m_lowBwCheck);
     root->addWidget(m_linkOptionsWidget);
 
+    m_autoConnectCheck = new QCheckBox("Connect to last radio on start up", this);
+    m_autoConnectCheck->setChecked(
+        AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() == "True");
+    m_autoConnectCheck->setStyleSheet(lowBandwidthCheckStyle);
+    connect(m_autoConnectCheck, &QCheckBox::toggled, this, [](bool on) {
+        auto& s = AppSettings::instance();
+        s.setValue("AutoConnectToLastRadio", on ? "True" : "False");
+        s.save();
+    });
+    root->addWidget(m_autoConnectCheck);
+
     // ── Footer ────────────────────────────────────────────────────────────
     auto* footerRow = new QHBoxLayout;
     footerRow->setSpacing(8);
