@@ -394,9 +394,17 @@ void RxApplet::buildUI()
 #ifdef HAVE_RADE
             if (mode == "RADE") {
                 emit radeActivated(true, m_slice ? m_slice->sliceId() : -1);
+                m_radeActive = true;
                 return;
             }
-            emit radeActivated(false, m_slice ? m_slice->sliceId() : -1);
+            // Same guard pattern as VfoWidget (#2026): only emit deactivate
+            // if THIS applet had previously emitted activate. Otherwise a
+            // user swapping USB->LSB on a non-RADE slice would fire a
+            // radeActivated(false) and tear down RADE on a different pan.
+            if (m_radeActive) {
+                emit radeActivated(false, m_slice ? m_slice->sliceId() : -1);
+                m_radeActive = false;
+            }
 #endif
             if (m_slice) m_slice->setMode(mode);
         });
