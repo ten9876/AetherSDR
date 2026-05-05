@@ -1961,6 +1961,9 @@ MainWindow::MainWindow(QWidget* parent)
         // S-Meter: use raw interlock state so Level/Compression modes work
         // during VOX/hardware CW without the effectiveTx power threshold (#877)
         m_appletPanel->sMeterWidget()->setTransmitting(tx);
+        if (!tx) {
+            m_appletPanel->phoneCwApplet()->updateCompression(0.0f);
+        }
         if (tx) {
             m_txIndicator->setStyleSheet(
                 "QLabel { color: white; background: #c03030; font-weight: bold; "
@@ -3077,7 +3080,7 @@ MainWindow::MainWindow(QWidget* parent)
     // ── P/CW applet: mic meters + ALC meter + model ────────────────────────
     // Suppress radio CODEC meters when mic_selection=PC (they just show noise).
     // Client-side metering handles PC mic display below.
-    // Compression gauge: full 20fps meter rate, gated on speech_processor_enable.
+    // Compression gauge: full 20fps meter rate, gated on actual radio TX + PROC.
     {
         connect(&m_radioModel.meterModel(), &MeterModel::micMetersChanged,
                 this, [this](float micLevel, float compLevel, float micPeak, float compPeak) {
@@ -3085,10 +3088,14 @@ MainWindow::MainWindow(QWidget* parent)
             if (m_radioModel.transmitModel().micSelection() != "PC")
                 m_appletPanel->phoneCwApplet()->updateMeters(micLevel, compLevel, micPeak, 0.0f);
 
-            // Compression gauge: full rate (20fps from radio), gated on PROC
+            // Compression has no useful meaning in RX; FLEX-8000 radios can
+            // publish quiescent TX-chain meters there that look fully pegged.
             {
-                float comp = m_radioModel.transmitModel().speechProcessorEnable() ? compPeak : 0.0f;
-                m_appletPanel->phoneCwApplet()->updateCompression(comp);
+                const auto& tx = m_radioModel.transmitModel();
+                const bool showCompression =
+                    m_radioModel.isRadioTransmitting() && tx.speechProcessorEnable();
+                m_appletPanel->phoneCwApplet()->updateCompression(
+                    showCompression ? compPeak : 0.0f);
             }
         });
     }

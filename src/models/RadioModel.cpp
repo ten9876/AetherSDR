@@ -1702,6 +1702,8 @@ void RadioModel::onDisconnected()
         m_txAudioGate = false;
         emit txAudioGateChanged(false);
     }
+    m_radioTransmitting = false;
+    emit radioTransmittingChanged(false);
     m_transmitModel.setTransmitting(false);
     m_transmitModel.resetState();
     m_meterModel.clear();
@@ -3306,6 +3308,7 @@ void RadioModel::onStatusReceived(const QString& object,
             // Emit raw radio TX state regardless of ownership — used by DAX
             // passthrough when an external app triggers PTT (#752).
             const bool radioTx = (state == "TRANSMITTING");
+            m_radioTransmitting = radioTx;
             emit radioTransmittingChanged(radioTx);
 
             if (!m_txOwnedByUs || (!m_txRequested && !m_cwKeyActive && !m_cwxActive && !m_transmitModel.isTuning())) {

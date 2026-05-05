@@ -83,6 +83,7 @@ public:
     void setAmpOperate(bool on);
     float paTemp()    const { return m_paTemp; }
     float txPower()   const { return m_txPower; }
+    bool  isRadioTransmitting() const { return m_radioTransmitting; }
     QStringList antennaList() const { return m_antList; }
     QString serial()       const;
     QString chassisSerial() const { return m_chassisSerial; }
@@ -533,6 +534,7 @@ private:
     bool        m_cwKeyActive{false}; // true while CW key/paddle is held (#1379)
     bool        m_cwxActive{false};   // true while CWX send is in flight (#2047, #2097)
     bool        m_txAudioGate{false}; // actual TX audio gate state
+    bool        m_radioTransmitting{false}; // raw interlock TX state, any owner
     QStringList m_antList;
 
     QMap<QString, PanadapterModel*> m_panadapters;  // panId → model
