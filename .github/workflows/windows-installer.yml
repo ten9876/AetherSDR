@@ -87,6 +87,8 @@ jobs:
 
       - name: Create portable ZIP
         run: |
+          # Keep portable ZIP app-local runtime behavior aligned with the installer.
+          Copy-Item -Path installer-runtime\*.dll -Destination deploy\ -Force
           Compress-Archive -Path deploy\* -DestinationPath "AetherSDR-${{ github.ref_name }}-Windows-x64-portable.zip"
 
       - name: Create installer (Inno Setup)
