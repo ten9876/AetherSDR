@@ -9024,7 +9024,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         }
 
         if (!isPassiveLocalSpotId(spotIndex))
-            m_radioModel.sendCommand(QString("spot trigger %1").arg(spotIndex));
+            m_radioModel.sendCommand(
+                QString("spot trigger %1 pan=%2").arg(spotIndex).arg(applet->panId()));
 
         // Auto-switch mode from spot metadata (#424). Default flipped to True
         // in #1846 since spots now ship with trigger_action=none — the radio
