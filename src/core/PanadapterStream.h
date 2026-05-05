@@ -199,6 +199,7 @@ private:
     QUdpSocket*     m_socket{nullptr};
     quint16         m_localPort{0};
     QMap<quint32, QPair<float,float>> m_dbmRanges;  // streamId → (min, max)
+    QSet<quint32>   m_decodeRangeInitialized;       // streams whose decode range is locked (#2384)
     QMap<quint32, int> m_yPixels;  // streamId → ypixels for FFT bin scaling
     RadioConnection* m_conn{nullptr};
     QMap<quint32, FrameAssembler> m_frames;  // per-stream FFT frame assembly

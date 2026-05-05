@@ -388,6 +388,7 @@ void PanadapterStream::unregisterPanStream(quint32 streamId)
     m_knownPanStreams.remove(streamId);
     m_frames.remove(streamId);
     m_dbmRanges.remove(streamId);
+    m_decodeRangeInitialized.remove(streamId);
 }
 
 void PanadapterStream::unregisterWfStream(quint32 streamId)
@@ -405,6 +406,7 @@ void PanadapterStream::clearRegisteredStreams()
     m_frames.clear();
     m_wfFrames.clear();
     m_dbmRanges.clear();
+    m_decodeRangeInitialized.clear();
     m_daxStreamIds.clear();
     m_iqStreamIds.clear();
     m_loggedDaxPacketStreams.clear();
@@ -415,9 +417,22 @@ void PanadapterStream::clearRegisteredStreams()
 void PanadapterStream::setDbmRange(quint32 streamId, float minDbm, float maxDbm)
 {
     QMutexLocker lock(&m_streamMutex);
+    // Lock the decode range to the first value the radio reports for this stream.
+    // The radio encodes FFT bins as fractional pixel positions within its own
+    // internal range — adjusting the display viewport (min_dbm/max_dbm) does NOT
+    // cause the radio to re-encode subsequent frames. Updating the decode range on
+    // every viewport echo therefore causes a permanent dBm shift matching the
+    // viewport offset (#2384). The display path (PanadapterModel::levelChanged →
+    // SpectrumWidget::setDbmRange) handles the viewport independently.
+    if (m_decodeRangeInitialized.contains(streamId)) {
+        qCDebug(lcVita49) << "PanadapterStream: dBm decode range already locked for 0x"
+                          + QString::number(streamId, 16) << "— ignoring viewport echo";
+        return;
+    }
+    m_decodeRangeInitialized.insert(streamId);
     m_dbmRanges[streamId] = {minDbm, maxDbm};
-    qCDebug(lcVita49) << "PanadapterStream: dBm range for 0x" + QString::number(streamId, 16)
-             << minDbm << "->" << maxDbm;
+    qCDebug(lcVita49) << "PanadapterStream: dBm decode range locked for 0x"
+                      + QString::number(streamId, 16) << minDbm << "->" << maxDbm;
 }
 
 void PanadapterStream::setYPixels(quint32 streamId, int yPixels)
