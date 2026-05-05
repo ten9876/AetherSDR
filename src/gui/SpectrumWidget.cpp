@@ -4737,8 +4737,10 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
         }
 
         // Draw vertical tick line from bottom of spectrum up to the label
-        p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 120), 1, Qt::DotLine));
-        p.drawLine(x, specRect.bottom(), x, labelRect.bottom());
+        if (m_spotShowLines) {
+            p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 120), 1, Qt::DotLine));
+            p.drawLine(x, specRect.bottom(), x, labelRect.bottom());
+        }
 
         placed.append(labelRect);
         int mIdx = static_cast<int>(&spot - &m_spotMarkers[0]);

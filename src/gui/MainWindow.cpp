@@ -5390,6 +5390,7 @@ void MainWindow::buildMenuBar()
                 sw->setSpotColor(spotColor);
                 sw->setSpotBgColor(bgColor);
                 sw->setSpotBgOpacity(bgOpacity);
+                sw->setSpotShowLines(s.value("IsSpotsLinesEnabled", "True").toString() == "True");
             }
             // Rebuild markers so source-level visibility changes, such as the
             // Memories feed toggle, apply immediately without mutating the cache.
@@ -8757,6 +8758,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setSpotColor(QColor(s.value("SpotsOverrideColor", "#FFFF00").toString()));
         sw->setSpotBgColor(QColor(s.value("SpotsOverrideBgColor", "#000000").toString()));
         sw->setSpotBgOpacity(s.value("SpotsBackgroundOpacity", 48).toInt());
+        sw->setSpotShowLines(s.value("IsSpotsLinesEnabled", "True").toString() == "True");
     }
 
     // ── Per-pan display controls (client-side) ───────────────────────────

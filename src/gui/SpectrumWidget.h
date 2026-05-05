@@ -323,6 +323,8 @@ public:
     void setSpotStartPct(int pct) { m_spotStartPct = pct; update(); }
     void setSpotOverrideColors(bool on) { m_spotOverrideColors = on; update(); }
     void setSpotOverrideBg(bool on) { m_spotOverrideBg = on; update(); }
+    void setSpotShowLines(bool on) { m_spotShowLines = on; update(); }
+    bool spotShowLines() const { return m_spotShowLines; }
     void setSpotColor(const QColor& c) { m_spotColor = c; update(); }
     void setSpotBgColor(const QColor& c) { m_spotBgColor = c; update(); }
     void setSpotBgOpacity(int pct) { m_spotBgOpacity = pct; update(); }
@@ -691,6 +693,7 @@ private:
     int  m_spotStartPct{50};      // % down from top of spectrum
     bool   m_spotOverrideColors{false};
     bool   m_spotOverrideBg{true};
+    bool   m_spotShowLines{true};
     QColor m_spotColor{Qt::yellow};
     QColor m_spotBgColor{Qt::black};
     int    m_spotBgOpacity{48};

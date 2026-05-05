@@ -1899,6 +1899,7 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
     bool overrideColors   = s.value("IsSpotsOverrideColorsEnabled", "False").toString() == "True";
     bool overrideBg       = s.value("IsSpotsOverrideBackgroundColorsEnabled", "True").toString() == "True";
     bool overrideBgAuto   = s.value("IsSpotsOverrideToAutoBackgroundColorEnabled", "True").toString() == "True";
+    bool spotLines        = s.value("IsSpotsLinesEnabled", "True").toString() == "True";
     int levels            = s.value("SpotsMaxLevel", 3).toInt();
     int position          = s.value("SpotsStartingHeightPercentage", 50).toInt();
     int fontSize          = s.value("SpotFontSize", 16).toInt();
@@ -2167,6 +2168,22 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
         save("SpotsBackgroundOpacity", QString::number(v));
     });
     grid->addLayout(opacRow, row++, 1);
+
+    // ── Spot Lines ──────────────────────────────────────────────────────
+    grid->addWidget(new QLabel("Spot Lines:"), row, 0);
+    auto* spotLinesBtn = new QPushButton(spotLines ? "Enabled" : "Disabled");
+    spotLinesBtn->setCheckable(true);
+    spotLinesBtn->setChecked(spotLines);
+    spotLinesBtn->setFixedWidth(80);
+    spotLinesBtn->setToolTip("Show vertical lines from the spectrum up to each spot label.\nDisable during contests to reduce clutter.");
+    spotLinesBtn->setStyleSheet(
+        "QPushButton { background: #206030; color: white; border: 1px solid #305040; padding: 3px; }"
+        "QPushButton:!checked { background: #603020; }");
+    connect(spotLinesBtn, &QPushButton::toggled, this, [spotLinesBtn, save](bool on) {
+        spotLinesBtn->setText(on ? "Enabled" : "Disabled");
+        save("IsSpotsLinesEnabled", on ? "True" : "False");
+    });
+    grid->addWidget(spotLinesBtn, row++, 1, Qt::AlignLeft);
 
     // ── Total Spots ─────────────────────────────────────────────────────
     grid->addWidget(new QLabel("Total Spots:"), row, 0);
