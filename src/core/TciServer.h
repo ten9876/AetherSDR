@@ -2,6 +2,7 @@
 #ifdef HAVE_WEBSOCKETS
 
 #include <QObject>
+#include <QPointer>
 #include <QElapsedTimer>
 #include <QHash>
 #include <QList>
@@ -126,7 +127,7 @@ private:
     void ensureDaxForTci();
     void releaseDaxForTci();
 
-    RadioModel*       m_model;
+    QPointer<RadioModel> m_model;  // QPointer auto-clears when RadioModel is destroyed (#2385)
     AudioEngine*      m_audio{nullptr};
     QWebSocketServer* m_server{nullptr};
     QList<ClientState> m_clients;
