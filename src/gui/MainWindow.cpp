@@ -1901,17 +1901,9 @@ MainWindow::MainWindow(QWidget* parent)
         // syncLocalKeyerToRadio below.
     }
 
-    // TX/RX transition → waterfall tile source switching
+    // TX/RX transition → audio source switching
     connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
             this, [this](bool tx) {
-        // Set transmitting on ALL spectrums (multi-pan aware).
-        // Each spectrum's m_hasTxSlice flag determines whether it freezes.
-        for (auto* pan : m_radioModel.panadapters()) {
-            if (auto* sw = m_panStack ? m_panStack->spectrum(pan->panId()) : nullptr)
-                sw->setTransmitting(tx);
-        }
-        if (!m_panStack && m_panApplet)
-            m_panApplet->spectrumWidget()->setTransmitting(tx);
         // Keep TX audio source strictly aligned with the local MOX edge for all
         // modes (SSB + DAX). Waiting for interlock introduces audible lag.
         m_audio->setTransmitting(tx);
@@ -1920,10 +1912,6 @@ MainWindow::MainWindow(QWidget* parent)
             m_daxBridge->setTransmitting(tx);
 #endif
 
-        // TX indicator is driven by radioTransmittingChanged (see below) so that
-        // it lights up for external PTT and Multi-Flex TX, not just local MOX.
-        // On RX resume, native tiles will restart and m_hasNativeWaterfall
-        // will be set again by the first arriving tile.
 #ifdef HAVE_RADE
         if (m_radeSliceId >= 0 && m_radeEngine && m_radeEngine->isActive()) {
             m_audio->setRadeMode(tx);
@@ -1958,6 +1946,19 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel, &RadioModel::radioTransmittingChanged,
             this, [this](bool tx) {
         m_audio->setRadioTransmitting(tx);
+        // Waterfall freeze/unfreeze: gate on the actual interlock TRANSMITTING
+        // state, not the MOX edge. moxChanged fires the instant the user releases
+        // PTT, but the radio keeps streaming TX-contaminated tiles/FFT for the
+        // UNKEY_REQUESTED window — those rows then take 10–23s to scroll off
+        // the visible waterfall (#1927). Driving from radioTransmittingChanged
+        // also fixes Multi-Flex: the freeze now triggers when any client TXes,
+        // not just when this client owns MOX.
+        for (auto* pan : m_radioModel.panadapters()) {
+            if (auto* sw = m_panStack ? m_panStack->spectrum(pan->panId()) : nullptr)
+                sw->setTransmitting(tx);
+        }
+        if (!m_panStack && m_panApplet)
+            m_panApplet->spectrumWidget()->setTransmitting(tx);
         // S-Meter: use raw interlock state so Level/Compression modes work
         // during VOX/hardware CW without the effectiveTx power threshold (#877)
         m_appletPanel->sMeterWidget()->setTransmitting(tx);
