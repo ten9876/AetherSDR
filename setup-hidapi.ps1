@@ -60,7 +60,8 @@ Write-Host "Building hidapi from source with MSVC..." -ForegroundColor Cyan
 $buildDir = "$($srcDir.FullName)\build"
 cmake -B $buildDir -S $srcDir.FullName -G "Ninja" `
     -DCMAKE_BUILD_TYPE=Release `
-    -DBUILD_SHARED_LIBS=ON
+    -DBUILD_SHARED_LIBS=ON `
+    "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
 
 cmake --build $buildDir --config Release -j $env:NUMBER_OF_PROCESSORS
 

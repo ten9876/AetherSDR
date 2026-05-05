@@ -9,9 +9,11 @@
 #include <QLabel>
 #include <QComboBox>
 #include <QCheckBox>
+#include <QFrame>
 #include <QLineEdit>
 #include <QButtonGroup>
 #include <QCommandLinkButton>
+#include <QRadioButton>
 #include <QStackedWidget>
 #include <QToolButton>
 
@@ -129,6 +131,8 @@ private:
     QPushButton* m_manualConnectBtn{nullptr};
     QString      m_manualProfileIp;
     bool         m_manualConnectPending{false};
+
+    QCheckBox*   m_autoConnectCheck{nullptr};
 
     QWidget*     m_linkOptionsWidget{nullptr};
     QLabel*      m_lowBwHintLabel{nullptr};

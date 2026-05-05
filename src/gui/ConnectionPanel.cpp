@@ -505,7 +505,6 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     manualLayout->addStretch();
 
     m_modeStack->addWidget(manualPage);
-
     // ── Contextual options ────────────────────────────────────────────────
     m_linkOptionsWidget = new QFrame(this);
     m_linkOptionsWidget->setObjectName("connectionCallout");
@@ -529,6 +528,23 @@ ConnectionPanel::ConnectionPanel(QWidget* parent)
     m_lowBwCheck->setStyleSheet(lowBandwidthCheckStyle);
     optionsLayout->addWidget(m_lowBwCheck);
     root->addWidget(m_linkOptionsWidget);
+
+    m_autoConnectCheck = new QCheckBox("Connect to last radio on start up", this);
+    const bool autoConnectEnabled =
+        AppSettings::instance().value("AutoConnectToLastRadio", "True").toString() == "True";
+    m_autoConnectCheck->setChecked(autoConnectEnabled);
+    m_autoConnectCheck->setStyleSheet(
+        "QCheckBox { color: #d7e4f2; spacing: 8px; padding: 2px 0; background: transparent; }"
+        "QCheckBox::indicator { width: 16px; height: 16px; border: 2px solid #5d748d; border-radius: 3px; background: #0b1520; }"
+        "QCheckBox::indicator:hover { border-color: #81abd9; background: #142130; }"
+        "QCheckBox::indicator:checked { border: 2px solid #8cc8ff; background: #2f71b6; }"
+    );
+    connect(m_autoConnectCheck, &QCheckBox::toggled, this, [this](bool on) {
+        auto& settings = AppSettings::instance();
+        settings.setValue("AutoConnectToLastRadio", on ? "True" : "False");
+        settings.save();
+    });
+    root->addWidget(m_autoConnectCheck);
 
     // ── Footer ────────────────────────────────────────────────────────────
     auto* footerRow = new QHBoxLayout;
