@@ -50,6 +50,12 @@ public:
         });
     }
 
+    void setLabel(const QString& label) {
+        if (m_label == label) return;
+        m_label = label;
+        update();
+    }
+
     void setValue(float v) {
         if (qFuzzyCompare(m_value, v)) return;
         m_value = v;
