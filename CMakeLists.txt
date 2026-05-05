@@ -440,6 +440,7 @@ set(CORE_SOURCES
     src/core/PotaClient.cpp
     src/core/PropForecastClient.cpp
     src/core/SpotCommandPolicy.cpp
+    src/core/SpotModeResolver.cpp
     src/core/RigctlServer.cpp
     src/core/TciServer.cpp
     src/core/TciProtocol.cpp
@@ -1199,6 +1200,14 @@ add_executable(passive_spots_policy_test
 )
 target_include_directories(passive_spots_policy_test PRIVATE src)
 target_link_libraries(passive_spots_policy_test PRIVATE Qt6::Core)
+
+add_executable(spot_mode_resolver_test
+    tests/spot_mode_resolver_test.cpp
+    src/core/SpotModeResolver.cpp
+)
+target_include_directories(spot_mode_resolver_test PRIVATE src)
+target_link_libraries(spot_mode_resolver_test PRIVATE Qt6::Core)
+add_test(NAME spot_mode_resolver_test COMMAND spot_mode_resolver_test)
 
 add_executable(navtex_model_test
     tests/navtex_model_test.cpp

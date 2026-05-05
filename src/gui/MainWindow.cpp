@@ -154,6 +154,7 @@
 #include <QToolTip>
 #include "core/AppSettings.h"
 #include "core/SpotCommandPolicy.h"
+#include "core/SpotModeResolver.h"
 #ifdef HAVE_RADE
 #include "core/RADEEngine.h"
 #endif
@@ -5450,9 +5451,18 @@ void MainWindow::buildMenuBar()
             m_radioModel.spotModel().clear();
         });
         connect(dlg, &DxClusterDialog::tuneRequested,
-                this, [this](double freqMhz) {
-            if (auto* sl = activeSlice())
-                applyTuneRequest(sl, freqMhz, TuneIntent::AbsoluteJump, "dx-cluster");
+                this, [this](double freqMhz, const QString& spotMode, const QString& comment) {
+            auto* sl = activeSlice();
+            if (!sl) return;
+            applyTuneRequest(sl, freqMhz, TuneIntent::AbsoluteJump, "dx-cluster");
+            // #2298: also auto-switch mode (e.g. SSB→CW) the same way panadapter
+            // spot clicks already do, gated by SpotAutoSwitchMode.
+            if (AppSettings::instance().value("SpotAutoSwitchMode", "True").toString() != "True")
+                return;
+            const QString radioMode = SpotModeResolver::resolveSpotRadioMode(
+                spotMode, comment, freqMhz);
+            if (!radioMode.isEmpty() && radioMode != sl->mode())
+                sl->setMode(radioMode);
         });
         connect(dlg, &QDialog::finished, this, refreshSpots);  // refresh on close
         dlg->show();
@@ -9036,67 +9046,6 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         auto* s = activeSlice();
         if (!s) return;
 
-        // Extract mode: prefer explicit mode field, fall back to comment text
-        QString spotMode = it->mode.toUpper().trimmed();
-        if (spotMode.isEmpty() && !it->comment.isEmpty()) {
-            // RBN: mode is first word ("CW  6 dB 28 WPM CQ")
-            // POTA/Cluster: mode is often last word ("JP-1277 Higashimurayama CW")
-            static const QSet<QString> knownModes = {
-                "CW", "SSB", "USB", "LSB", "AM", "FM", "FT8", "FT4",
-                "JS8", "RTTY", "PSK31", "PSK63", "PSK", "OLIVIA",
-                "JT65", "JT9", "SAM", "NFM", "DIGU", "DIGL"
-            };
-            QStringList words = it->comment.split(' ', Qt::SkipEmptyParts);
-            // Check first word (RBN format)
-            if (!words.isEmpty() && knownModes.contains(words.first().toUpper()))
-                spotMode = words.first().toUpper();
-            // Check last word (POTA/Cluster format)
-            else if (!words.isEmpty() && knownModes.contains(words.last().toUpper()))
-                spotMode = words.last().toUpper();
-        }
-        // Fallback: infer mode from frequency using band plan
-        if (spotMode.isEmpty()) {
-            double f = it->rxFreqMhz;
-            // CW sub-bands (bottom of each HF band)
-            if ((f >= 1.800 && f < 1.850) || (f >= 3.500 && f < 3.600) ||
-                (f >= 7.000 && f < 7.050) || (f >= 10.100 && f < 10.140) ||
-                (f >= 14.000 && f < 14.070) || (f >= 18.068 && f < 18.095) ||
-                (f >= 21.000 && f < 21.070) || (f >= 24.890 && f < 24.920) ||
-                (f >= 28.000 && f < 28.070) || (f >= 50.000 && f < 50.100))
-                spotMode = "CW";
-            // Digital sub-bands
-            else if ((f >= 1.840 && f < 1.850) || (f >= 3.570 && f < 3.600) ||
-                     (f >= 7.040 && f < 7.050) || (f >= 10.130 && f < 10.150) ||
-                     (f >= 14.070 && f < 14.100) || (f >= 18.095 && f < 18.110) ||
-                     (f >= 21.070 && f < 21.100) || (f >= 24.915 && f < 24.930) ||
-                     (f >= 28.070 && f < 28.150))
-                spotMode = "DIGU";
-            // Phone — default by convention
-            else if (f >= 10.0)
-                spotMode = "USB";
-            else if (f >= 1.8)
-                spotMode = "LSB";
-        }
-        if (spotMode.isEmpty()) return;
-
-        // Map spot mode string → radio mode
-        static const QMap<QString, QString> modeMap = {
-            {"CW", "CW"}, {"CWL", "CW"}, {"CWU", "CW"},
-            {"USB", "USB"}, {"LSB", "LSB"},
-            {"FT8", "DIGU"}, {"FT4", "DIGU"}, {"JS8", "DIGU"},
-            {"PSK31", "DIGU"}, {"PSK63", "DIGU"}, {"PSK", "DIGU"},
-            {"OLIVIA", "DIGU"}, {"JT65", "DIGU"}, {"JT9", "DIGU"},
-            {"RTTY", "DIGL"},
-            {"AM", "AM"}, {"SAM", "SAM"},
-            {"FM", "FM"}, {"NFM", "NFM"},
-        };
-        QString radioMode;
-        if (modeMap.contains(spotMode)) {
-            radioMode = modeMap[spotMode];
-        } else if (spotMode == "SSB") {
-            // SSB without sideband: ≥10 MHz → USB, <10 MHz → LSB
-            radioMode = (it->rxFreqMhz >= 10.0) ? "USB" : "LSB";
-        }
         // FreeDV spots imply RADE — activate the RADE engine on this slice
         // (sets DIGU/DIGL by band convention + starts the OFDM modem) rather
         // than landing on a plain digital mode. Without HAVE_RADE the build
@@ -9107,6 +9056,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             return;
         }
 #endif
+        const QString radioMode = SpotModeResolver::resolveSpotRadioMode(
+            it->mode, it->comment, it->rxFreqMhz);
         if (!radioMode.isEmpty() && radioMode != s->mode())
             s->setMode(radioMode);
     });

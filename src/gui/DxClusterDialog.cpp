@@ -3,6 +3,7 @@
 #include "core/DxClusterClient.h"
 #include "core/AppSettings.h"
 #include "core/SpotCommandPolicy.h"
+#include "core/SpotModeResolver.h"
 #include "models/RadioModel.h"
 
 #include <QVBoxLayout>
@@ -77,17 +78,7 @@ static QStringList tailFile(const QString& path, int maxLines = 500)
 
 QString SpotTableModel::extractMode(const QString& comment)
 {
-    static const QSet<QString> known = {
-        "CW", "SSB", "USB", "LSB", "AM", "FM", "FT8", "FT4",
-        "JS8", "RTTY", "PSK31", "PSK63", "PSK", "OLIVIA",
-        "JT65", "JT9", "SAM", "NFM", "DIGU", "DIGL"
-    };
-    QStringList words = comment.split(' ', Qt::SkipEmptyParts);
-    if (!words.isEmpty() && known.contains(words.first().toUpper()))
-        return words.first().toUpper();
-    if (!words.isEmpty() && known.contains(words.last().toUpper()))
-        return words.last().toUpper();
-    return {};
+    return SpotModeResolver::extractSpotModeFromComment(comment);
 }
 
 QVariant SpotTableModel::data(const QModelIndex& index, int role) const
@@ -180,6 +171,13 @@ double SpotTableModel::freqAtRow(int row) const
     if (row >= 0 && row < m_spots.size())
         return m_spots[row].freqMhz;
     return 0.0;
+}
+
+const DxSpot* SpotTableModel::spotAt(int row) const
+{
+    if (row >= 0 && row < m_spots.size())
+        return &m_spots[row];
+    return nullptr;
 }
 
 void SpotTableModel::clear()
@@ -1853,12 +1851,15 @@ void DxClusterDialog::buildSpotListTab(QTabWidget* tabs)
     // No default sort — insertion order is newest-first
     m_spotTable->horizontalHeader()->setSortIndicatorShown(false);
 
-    // Double-click to tune
+    // Double-click to tune (#2298: also forward mode hints so the receiver
+    // switches CW/SSB to match the spot rather than only changing frequency).
     connect(m_spotTable, &QTableView::doubleClicked, this, [this](const QModelIndex& idx) {
         auto srcIdx = m_proxyModel->mapToSource(idx);
-        double freq = m_spotModel->freqAtRow(srcIdx.row());
-        if (freq > 0.0)
-            emit tuneRequested(freq);
+        const DxSpot* spot = m_spotModel->spotAt(srcIdx.row());
+        if (!spot || spot->freqMhz <= 0.0) return;
+        emit tuneRequested(spot->freqMhz,
+                           SpotTableModel::extractMode(spot->comment),
+                           spot->comment);
     });
 
     layout->addWidget(m_spotTable, 1);
