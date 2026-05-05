@@ -162,7 +162,7 @@ private:
 
 AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 {
-    setFixedWidth(260);
+    setFixedWidth(kWidth);
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
@@ -393,7 +393,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     auto* container = new QWidget;
     m_stack = new QVBoxLayout(container);
     m_stack->setContentsMargins(0, 0, 0, 0);
-    m_stack->setSpacing(0);
+    m_stack->setSpacing(6);
     m_stack->addStretch();
     m_scrollArea->setWidget(container);
     root->addWidget(m_scrollArea, 1);

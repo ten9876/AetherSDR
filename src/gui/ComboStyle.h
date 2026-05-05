@@ -9,12 +9,14 @@
 #include <QFile>
 #include <QPixmap>
 #include <QPainter>
+#include "DesignTokens.h"
 
 namespace AetherSDR {
 
 // Generate a small down-arrow PNG (cached in temp dir, created once).
 inline QString comboArrowPath()
 {
+    using namespace DesignTokens;
     static QString path;
     if (!path.isEmpty()) return path;
     path = QDir::temp().filePath("aethersdr_combo_arrow.png");
@@ -24,7 +26,8 @@ inline QString comboArrowPath()
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(0x8a, 0xa8, 0xc0));
+    // Arrow fill uses the secondary text color
+    p.setBrush(QColor(kTextSecondary.data()));
     const QPointF tri[] = {{0, 0}, {8, 0}, {4, 6}};
     p.drawPolygon(tri, 3);
     p.end();
@@ -35,14 +38,15 @@ inline QString comboArrowPath()
 // Standard combo box stylesheet matching the dark theme with painted arrow.
 inline QString comboStyleSheet()
 {
-    return QString(
-        "QComboBox { background: #1a2a3a; color: #c8d8e8; border: 1px solid #304050;"
-        " padding: 2px 2px 2px 4px; border-radius: 2px; }"
-        "QComboBox::drop-down { border: none; width: 14px; }"
-        "QComboBox::down-arrow { image: url(%1); width: 8px; height: 6px; }"
-        "QComboBox QAbstractItemView { background: #1a2a3a; color: #c8d8e8;"
-        " selection-background-color: #00b4d8; }")
-        .arg(comboArrowPath());
+    using namespace DesignTokens;
+    auto sheet = QStringLiteral("QComboBox { background: #1a2a3a; color: ") + kTextPrimary
+        + QStringLiteral("; border: 1px solid ") + kBorderControl
+        + QStringLiteral("; padding: 2px 2px 2px 4px; border-radius: 2px; }"
+                         "QComboBox::drop-down { border: none; width: 14px; }"
+                         "QComboBox::down-arrow { image: url(%1); width: 8px; height: 6px; }"
+                         "QComboBox QAbstractItemView { background: #1a2a3a; color: ") + kTextPrimary
+        + QStringLiteral("; selection-background-color: ") + kColorAccent + QStringLiteral("; }");
+    return sheet.arg(comboArrowPath());
 }
 
 // Apply the standard style to a combo box.

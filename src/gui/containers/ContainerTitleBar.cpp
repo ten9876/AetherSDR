@@ -1,4 +1,5 @@
 #include "ContainerTitleBar.h"
+#include "gui/DesignTokens.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -9,18 +10,17 @@ namespace AetherSDR {
 
 namespace {
 
-constexpr const char* kBarStyle =
-    "QWidget { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-    "stop:0 #5a7494, stop:0.5 #384e68, stop:1 #1e2e3e); "
-    "border-bottom: 1px solid #0a1a28; }";
+static const QString kBarStyle =
+    "QWidget { background: " + DesignTokens::kSurfaceOverlay + "; "
+    "border-bottom: 1px solid " + DesignTokens::kBorderSubtle + "; }";
 
-constexpr const char* kTitleStyle =
-    "QLabel { background: transparent; color: #e0ecf4; "
+static const QString kTitleStyle =
+    "QLabel { background: transparent; color: " + DesignTokens::kTextPrimary + "; "
     "font-size: 10px; font-weight: bold; }";
 
-constexpr const char* kBtnStyle =
+static const QString kBtnStyle =
     "QPushButton { background: transparent; border: none; "
-    "color: #c8d8e8; font-size: 11px; font-weight: bold; "
+    "color: " + DesignTokens::kTextPrimary + "; font-size: 11px; font-weight: bold; "
     "padding: 0px 4px; } "
     "QPushButton:hover { color: #ffffff; }";
 

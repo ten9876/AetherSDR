@@ -3875,9 +3875,9 @@ MainWindow::MainWindow(QWidget* parent)
         restoreState(QByteArray::fromBase64(stateB64.toLatin1()));
     // Clear stale splitter state — layout has changed across versions.
     s.remove("SplitterState");
-    // Force 4-pane sizing: CWX=0, DVK=0 (hidden), center=stretch, applet=260px
+    // Force 4-pane sizing: CWX=0, DVK=0 (hidden), center=stretch, applet=panel width
     QTimer::singleShot(0, this, [this]() {
-        m_splitter->setSizes({0, 0, width() - 260, 260});
+        m_splitter->setSizes({0, 0, width() - AppletPanel::kWidth, AppletPanel::kWidth});
     });
 
     // Auto-popup connection dialog if no saved radio
@@ -5590,7 +5590,7 @@ void MainWindow::buildMenuBar()
         m_midiDialog = dlg;
         dlg->show();
     });
-#endif
+#endif  // HAVE_MIDI
 #ifdef HAVE_HIDAPI
 #endif
     auto* spotsAction = settingsMenu->addAction("SpotHub...");
@@ -10137,7 +10137,7 @@ void MainWindow::toggleMinimalMode(bool on)
 
         // Force window to applet width
         setMinimumSize(0, 0);
-        setFixedWidth(260);
+        setFixedWidth(AppletPanel::kWidth);
 
         QByteArray geom = QByteArray::fromBase64(
             s.value("MinimalModeGeometry", "").toByteArray());
@@ -12980,16 +12980,16 @@ void MainWindow::dockAppletPanel()
     m_appletPanel->show();
 
     // Re-apply the canonical 4-slot layout the app uses at startup:
-    // CWX=0, DVK=0, center=stretch, applet=260px.  Using fixed sizes
+    // CWX=0, DVK=0, center=stretch, applet=panel width.  Using fixed sizes
     // instead of saveState()/restoreState() because the saved state
     // is unreliable in the launch-with-float case — saveState() fires
     // at a QTimer::singleShot(0) turn before the splitter has fully
     // laid out, producing captured sizes that don't match the
     // post-show window width.  The splitter isn't user-draggable for
-    // applet width anyway (startup always forces 260), so recomputing
-    // is both simpler and deterministic.
-    const int centerWidth = std::max(400, m_splitter->width() - 260);
-    m_splitter->setSizes({0, 0, centerWidth, 260});
+    // applet width anyway (startup always forces panel width), so
+    // recomputing is both simpler and deterministic.
+    const int centerWidth = std::max(400, m_splitter->width() - AppletPanel::kWidth);
+    m_splitter->setSizes({0, 0, centerWidth, AppletPanel::kWidth});
 
     m_appletPanelFloatWindow->removeEventFilter(this);
     m_appletPanelFloatWindow->deleteLater();

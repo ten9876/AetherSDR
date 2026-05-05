@@ -56,6 +56,10 @@ class AppletPanel : public QWidget {
     Q_OBJECT
 
 public:
+    // Total sidebar width.  Extra space beyond 260px content is natural
+    // clearance from the vertical scrollbar (12px) + padding.
+    static constexpr int kWidth = 280;
+
     explicit AppletPanel(QWidget* parent = nullptr);
 
     void setSlice(SliceModel* slice);
