@@ -48,6 +48,7 @@ void MeterApplet::setMeterModel(MeterModel* model)
             this, [this](float paTemp, float supplyV) {
         m_paTempGauge->setValue(paTemp);
         m_supplyGauge->setValue(supplyV);
+        m_supplyGauge->setLabel(QString("+%1V").arg(supplyV, 0, 'f', 2));
     });
 
     connect(model, &MeterModel::meterUpdated,
