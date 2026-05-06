@@ -1,4 +1,5 @@
 #include "RxApplet.h"
+#include "DesignTokens.h"
 #include "FilterPassbandWidget.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
@@ -101,23 +102,23 @@ namespace AetherSDR {
 
 // ── Style constants (matching STYLEGUIDE.md) ────────────────────────────────
 
-static constexpr const char* kButtonBase =
-    "QPushButton { background: #1a2a3a; border: 1px solid #205070; "
-    "border-radius: 3px; color: #c8d8e8; font-size: 10px; font-weight: bold; "
+static const QString kButtonBase =
+    "QPushButton { background: #1a2a3a; border: 1px solid " + DesignTokens::kBorderInteractive + "; "
+    "border-radius: 3px; color: " + DesignTokens::kTextPrimary + "; font-size: 10px; font-weight: bold; "
     "padding: 1px 2px; }"
     "QPushButton:hover { background: #204060; }";
 
-static constexpr const char* kSliderStyle =
-    "QSlider::groove:horizontal { height: 4px; background: #203040; border-radius: 2px; }"
+static const QString kSliderStyle =
+    "QSlider::groove:horizontal { height: 4px; background: " + DesignTokens::kBorderControl + "; border-radius: 2px; }"
     "QSlider::handle:horizontal { width: 10px; height: 10px; margin: -3px 0;"
-    "background: #00b4d8; border-radius: 5px; }";
+    "background: " + DesignTokens::kColorAccent + "; border-radius: 5px; }";
 
-static constexpr const char* kDimLabelStyle =
-    "QLabel { color: #8090a0; font-size: 11px; }";
+static const QString kDimLabelStyle =
+    "QLabel { color: " + DesignTokens::kTextSecondary + "; font-size: 11px; }";
 
-static constexpr const char* kInsetValueStyle =
-    "QLabel { font-size: 10px; background: #0a0a18; border: 1px solid #1e2e3e; "
-    "border-radius: 3px; padding: 1px 2px; color: #c8d8e8; }";
+static const QString kInsetValueStyle =
+    "QLabel { font-size: 10px; background: " + DesignTokens::kSurfaceSunken + "; border: 1px solid " + DesignTokens::kBorderSubtle + "; "
+    "border-radius: 3px; padding: 1px 2px; color: " + DesignTokens::kTextPrimary + "; }";
 
 static const QString kBlueActive =
     "QPushButton:checked { background-color: #0070c0; color: #ffffff; "

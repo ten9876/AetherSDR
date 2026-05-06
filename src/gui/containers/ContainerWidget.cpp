@@ -1,9 +1,12 @@
 #include "ContainerWidget.h"
 #include "ContainerTitleBar.h"
+#include "gui/DesignTokens.h"
 
 #include <QDrag>
 #include <QMimeData>
+#include <QPainter>
 #include <QPixmap>
+#include <QStyleOption>
 #include <QVBoxLayout>
 #include <QWindow>
 
@@ -14,8 +17,13 @@ ContainerWidget::ContainerWidget(const QString& id, const QString& title,
     : QWidget(parent)
     , m_id(id)
 {
+    setAttribute(Qt::WA_StyledBackground, true);
     auto* outer = new QVBoxLayout(this);
-    outer->setContentsMargins(0, 0, 0, 0);
+    // 1px margins reveal the card background + border painted in paintEvent
+    // below the opaque children (TitleBar + Body).  Without this gap the
+    // global QWidget { background-color } from Theme.h makes the body widget
+    // opaque, covering the border entirely.
+    outer->setContentsMargins(1, 1, 1, 1);
     outer->setSpacing(0);
 
     m_titleBar = new ContainerTitleBar(title, this);
@@ -23,7 +31,7 @@ ContainerWidget::ContainerWidget(const QString& id, const QString& title,
 
     m_body = new QWidget(this);
     m_bodyLayout = new QVBoxLayout(m_body);
-    m_bodyLayout->setContentsMargins(0, 0, 0, 0);
+    m_bodyLayout->setContentsMargins(2, 2, 2, 2);
     m_bodyLayout->setSpacing(0);
     outer->addWidget(m_body, 1);
 
@@ -36,6 +44,16 @@ ContainerWidget::ContainerWidget(const QString& id, const QString& title,
 }
 
 ContainerWidget::~ContainerWidget() = default;
+
+void ContainerWidget::paintEvent(QPaintEvent* /*event*/)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    // Card background + border (use fromString to avoid setNamedColor deprecation)
+    p.setBrush(QColor::fromString(DesignTokens::kSurfacePanel));
+    p.setPen(QPen(QColor::fromString(DesignTokens::kBorderControl), 1));
+    p.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 2, 2);
+}
 
 void ContainerWidget::setTitle(const QString& title)
 {

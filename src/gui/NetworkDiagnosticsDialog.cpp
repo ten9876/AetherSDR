@@ -1,4 +1,5 @@
 #include "NetworkDiagnosticsDialog.h"
+#include "DesignTokens.h"
 #include "core/AudioEngine.h"
 #include "core/LogManager.h"
 #include "models/RadioModel.h"
@@ -17,7 +18,6 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QCheckBox>
-#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPlainTextEdit>
@@ -32,11 +32,6 @@
 #include <QTabWidget>
 #include <QTextCharFormat>
 #include <QVBoxLayout>
-#include <QWindow>
-
-namespace {
-constexpr int kResizeMargin = 6;
-}
 
 namespace AetherSDR {
 
@@ -586,109 +581,23 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     : QDialog(parent), m_model(model), m_audio(audio), m_history(history)
 {
     setWindowTitle("Network Diagnostics");
-    setWindowFlag(Qt::FramelessWindowHint, true);
     setMinimumSize(920, 680);
     resize(980, 760);
-    // Track mouse without buttons pressed so the resize cursor updates
-    // while hovering the bare margin around the dialog body.
-    setMouseTracking(true);
     setStyleSheet(
-        "QDialog { background: #050710; }"
-        "QTabWidget::pane { border: 1px solid #203040; border-radius: 4px; top: -1px; }"
-        "QTabBar::tab { background: #0a0a14; border: 1px solid #203040; "
-        "border-bottom: none; color: #8aa8c0; padding: 7px 12px; }"
-        "QTabBar::tab:selected { color: #c8d8e8; background: #111120; }"
-        "QTabBar::tab:hover { color: #c8d8e8; }"
-        "QGroupBox { border: 1px solid #203040; border-radius: 4px; "
-        "color: #c8d8e8; font-weight: bold; margin-top: 12px; padding-top: 8px; }"
+        "QTabWidget::pane { border: 1px solid " + DesignTokens::kBorderControl + "; border-radius: 4px; top: -1px; }"
+        "QTabBar::tab { background: " + DesignTokens::kSurfaceSunken + "; border: 1px solid " + DesignTokens::kBorderControl + "; "
+        "border-bottom: none; color: " + DesignTokens::kTextSecondary + "; padding: 7px 12px; }"
+        "QTabBar::tab:selected { color: " + DesignTokens::kTextPrimary + "; background: " + DesignTokens::kSurfacePanel + "; }"
+        "QTabBar::tab:hover { color: " + DesignTokens::kTextPrimary + "; }"
+        "QGroupBox { border: 1px solid " + DesignTokens::kBorderControl + "; border-radius: 4px; "
+        "color: " + DesignTokens::kTextPrimary + "; font-weight: bold; margin-top: 12px; padding-top: 8px; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
-        "QLabel { color: #8aa8c0; }"
+        "QLabel { color: " + DesignTokens::kTextSecondary + "; }"
         "QScrollArea { background: transparent; border: none; }"
         "QScrollArea > QWidget > QWidget { background: transparent; }");
 
-    // Outer layout: zero-margin so the title bar runs edge-to-edge.  The
-    // 8 px resize hit zone lives on the bare gap around the inner content
-    // widget (which carries its own padding).
+    // Content area
     auto* root = new QVBoxLayout(this);
-    root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(0);
-
-    // ── Custom title bar ─────────────────────────────────────────────
-    // Same chrome family as AetherialAudioStrip / ContainerTitleBar:
-    // 18 px tall, blue-gradient background, 10 px bold title, trio of
-    // window-control buttons at the right.  Built inline so the
-    // gradient + grip glyphs match exactly.
-    {
-        m_titleBar = new QWidget(this);
-        m_titleBar->setFixedHeight(18);
-        m_titleBar->setAttribute(Qt::WA_StyledBackground, true);
-        m_titleBar->setStyleSheet(
-            "QWidget { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-            "stop:0 #5a7494, stop:0.5 #384e68, stop:1 #1e2e3e); "
-            "border-bottom: 1px solid #0a1a28; }");
-        m_titleBar->installEventFilter(this);
-
-        auto* tbRow = new QHBoxLayout(m_titleBar);
-        tbRow->setContentsMargins(6, 0, 2, 0);
-        tbRow->setSpacing(4);
-
-        auto* grip = new QLabel(QString::fromUtf8("\xe2\x8b\xae\xe2\x8b\xae"),
-                                m_titleBar);
-        grip->setStyleSheet(
-            "QLabel { background: transparent; color: #a0b4c8;"
-            " font-size: 10px; }");
-        tbRow->addWidget(grip);
-
-        auto* tbTitle = new QLabel("Network Diagnostics", m_titleBar);
-        tbTitle->setStyleSheet(
-            "QLabel { background: transparent; color: #e0ecf4;"
-            " font-size: 10px; font-weight: bold; }");
-        tbRow->addWidget(tbTitle);
-        tbRow->addStretch();
-
-        const QString btnStyle =
-            "QPushButton { background: transparent; border: none;"
-            " color: #c8d8e8; font-size: 11px; font-weight: bold;"
-            " padding: 0px 4px; }"
-            "QPushButton:hover { color: #ffffff; }";
-        const QString closeBtnStyle =
-            "QPushButton { background: transparent; border: none;"
-            " color: #c8d8e8; font-size: 11px; font-weight: bold;"
-            " padding: 0px 4px; }"
-            "QPushButton:hover { color: #ffffff; background: #cc2030; }";
-
-        auto* minBtn = new QPushButton(QString::fromUtf8("\xe2\x80\x94"), m_titleBar);
-        minBtn->setFixedSize(16, 16);
-        minBtn->setCursor(Qt::ArrowCursor);
-        minBtn->setStyleSheet(btnStyle);
-        minBtn->setToolTip("Minimize");
-        connect(minBtn, &QPushButton::clicked, this, &QWidget::showMinimized);
-        tbRow->addWidget(minBtn);
-
-        auto* maxBtn = new QPushButton(QString::fromUtf8("\xe2\x96\xa1"), m_titleBar);
-        maxBtn->setFixedSize(16, 16);
-        maxBtn->setCursor(Qt::ArrowCursor);
-        maxBtn->setStyleSheet(btnStyle);
-        maxBtn->setToolTip("Maximize");
-        connect(maxBtn, &QPushButton::clicked, this, [this]() {
-            if (isMaximized()) showNormal(); else showMaximized();
-        });
-        tbRow->addWidget(maxBtn);
-
-        auto* closeBtn = new QPushButton(QString::fromUtf8("\xc3\x97"), m_titleBar);
-        closeBtn->setFixedSize(16, 16);
-        closeBtn->setCursor(Qt::ArrowCursor);
-        closeBtn->setStyleSheet(closeBtnStyle);
-        closeBtn->setToolTip("Close");
-        connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
-        tbRow->addWidget(closeBtn);
-
-        root->addWidget(m_titleBar);
-    }
-
-    // Content area — gets its own layout with 10 px padding so the
-    // resize hit zone (bare ~8 px margin around content) is reachable
-    // on every edge.
     auto* outerContent = new QWidget(this);
     auto* body = new QVBoxLayout(outerContent);
     body->setContentsMargins(10, 8, 10, 10);
@@ -699,16 +608,16 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     // tab bar so the tabs and the dropdown share a single row, eliminating
     // the otherwise-empty band above the tabs.
     auto* rangeLabel = new QLabel("Timeframe");
-    rangeLabel->setStyleSheet("QLabel { color: #8aa8c0; }");
+    rangeLabel->setStyleSheet("QLabel { color: " + DesignTokens::kTextSecondary + "; }");
     m_rangeCombo = new QComboBox(this);
     m_rangeCombo->setFixedWidth(132);
     m_rangeCombo->setStyleSheet(
-        "QComboBox { background: #0a0a14; border: 1px solid #203040; "
-        "border-radius: 4px; color: #c8d8e8; padding: 3px 8px; }"
-        "QComboBox:hover { border-color: #00b4d8; }"
+        "QComboBox { background: " + DesignTokens::kSurfaceSunken + "; border: 1px solid " + DesignTokens::kBorderControl + "; "
+        "border-radius: 4px; color: " + DesignTokens::kTextPrimary + "; padding: 3px 8px; }"
+        "QComboBox:hover { border-color: " + DesignTokens::kColorAccent + "; }"
         "QComboBox::drop-down { border: none; width: 18px; }"
-        "QComboBox QAbstractItemView { background: #111120; color: #c8d8e8; "
-        "selection-background-color: #00b4d8; selection-color: #000; }");
+        "QComboBox QAbstractItemView { background: " + DesignTokens::kSurfacePanel + "; color: " + DesignTokens::kTextPrimary + "; "
+        "selection-background-color: " + DesignTokens::kColorAccent + "; selection-color: #000; }");
     m_rangeCombo->addItem("1 minute", 60);
     m_rangeCombo->addItem("5 minutes", 5 * 60);
     m_rangeCombo->addItem("15 minutes", 15 * 60);
@@ -764,7 +673,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
         l->setMaximumWidth(kValueColumnWidth);
         l->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
         l->setMinimumHeight(l->fontMetrics().height() + 1);
-        l->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; }");
+        l->setStyleSheet("QLabel { color: " + DesignTokens::kTextPrimary + "; font-weight: bold; }");
         return l;
     };
 
@@ -775,7 +684,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     auto makeNote = [](const QString& text) {
         auto* l = new QLabel(text);
         l->setWordWrap(true);
-        l->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; line-height: 1.2; }");
+        l->setStyleSheet("QLabel { color: " + DesignTokens::kTextSecondary + "; font-size: 11px; line-height: 1.2; }");
         return l;
     };
 
@@ -787,10 +696,10 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
         auto* value = new QLabel("--");
         value->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
         value->setMinimumHeight(value->fontMetrics().height() + 4);
-        value->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; font-size: 18px; }");
+        value->setStyleSheet("QLabel { color: " + DesignTokens::kTextPrimary + "; font-weight: bold; font-size: 18px; }");
         auto* hint = new QLabel(subtitle);
         hint->setWordWrap(true);
-        hint->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; }");
+        hint->setStyleSheet("QLabel { color: " + DesignTokens::kTextSecondary + "; font-size: 11px; }");
         layout->addWidget(value);
         layout->addWidget(hint);
         layout->addStretch();
@@ -931,7 +840,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     m_droppedLabel->setAlignment(Qt::AlignCenter);
     m_droppedLabel->setWordWrap(true);
     m_droppedLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_droppedLabel->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; }");
+    m_droppedLabel->setStyleSheet("QLabel { color: " + DesignTokens::kTextPrimary + "; font-weight: bold; }");
     dropGrid->addWidget(m_droppedLabel, row++, 0, 1, 2);
 
     // ── Audio Playback group ──────────────────────────────────────────────
@@ -1050,7 +959,7 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
     allCategories->setProperty("logCategory", QStringLiteral("default"));
     allCategories->setChecked(true);
     allCategories->setToolTip("Uncategorized Qt log output");
-    allCategories->setStyleSheet("QCheckBox { color: #c8d8e8; }");
+    allCategories->setStyleSheet("QCheckBox { color: " + DesignTokens::kTextPrimary + "; }");
     filterGrid->addWidget(allCategories, 0, 0);
     m_logCategoryCheckboxes.push_back(allCategories);
     m_visibleLogCategories.insert(QStringLiteral("default"));
@@ -1071,7 +980,7 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
         checkbox->setProperty("logCategory", category.id);
         checkbox->setChecked(true);
         checkbox->setToolTip(QString("%1\nCategory: %2").arg(category.description, category.id));
-        checkbox->setStyleSheet("QCheckBox { color: #c8d8e8; }");
+        checkbox->setStyleSheet("QCheckBox { color: " + DesignTokens::kTextPrimary + "; }");
         m_logCategoryCheckboxes.push_back(checkbox);
         m_visibleLogCategories.insert(category.id);
         filterGrid->addWidget(checkbox, index / kColumns, index % kColumns);
@@ -1106,7 +1015,7 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
     auto* infoRow = new QHBoxLayout;
     m_logPathLabel = new QLabel(page);
     m_logPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_logPathLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; }");
+    m_logPathLabel->setStyleSheet("QLabel { color: " + DesignTokens::kTextSecondary + "; font-size: 11px; }");
     infoRow->addWidget(m_logPathLabel, 1);
 
     m_logLiveToggle = new QPushButton("Live", page);
@@ -1115,9 +1024,11 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
     m_logLiveToggle->setFixedWidth(92);
     m_logLiveToggle->setToolTip("Live follows the newest log output. Turn it off to inspect older lines.");
     m_logLiveToggle->setStyleSheet(
-        "QPushButton { background: #1a2030; color: #c8d8e8; border: 1px solid #203040; "
+        "QPushButton { background: #1a2030; color: " + DesignTokens::kTextPrimary + ";"
+        " border: 1px solid " + DesignTokens::kBorderControl + "; "
         "border-radius: 4px; padding: 3px 8px; }"
-        "QPushButton:checked { background: #00607a; color: #e0f0ff; border-color: #00b4d8; }");
+        "QPushButton:checked { background: " + DesignTokens::kColorAccent + ";"
+        " color: " + DesignTokens::kTextPrimary + "; }");
     connect(m_logLiveToggle, &QPushButton::toggled, this, [this](bool live) {
         setLogFollowLive(live);
     });
@@ -1129,8 +1040,8 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
     m_logViewer->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_logViewer->setMaximumBlockCount(2500);
     m_logViewer->setStyleSheet(
-        "QPlainTextEdit { background: #0a0a14; color: #a0b0c0; "
-        "font-family: monospace; font-size: 11px; border: 1px solid #203040; }");
+        "QPlainTextEdit { background: " + DesignTokens::kSurfaceSunken + "; color: #a0b0c0; "
+        "font-family: monospace; font-size: 11px; border: 1px solid " + DesignTokens::kBorderControl + "; }");
     new LogSyntaxHighlighter(m_logViewer->document());
     layout->addWidget(m_logViewer, 1);
 
@@ -1799,103 +1710,6 @@ void NetworkDiagnosticsDialog::updateCharts()
     m_ratesGraph->setSeries(rateSeries, rangeSeconds);
     m_lossGraph->setSeries(lossSeries, rangeSeconds);
     m_audioGraph->setSeries(audioBufferSeries, rangeSeconds);
-}
-
-// ──────────────────────────────────────────────────────────────────
-// Frameless 8-axis resize + drag-to-move
-// ──────────────────────────────────────────────────────────────────
-
-Qt::Edges NetworkDiagnosticsDialog::edgesAt(const QPoint& pos) const
-{
-    if (isMaximized() || isFullScreen()) {
-        return {};
-    }
-    Qt::Edges edges;
-    if (pos.x() <= kResizeMargin) {
-        edges |= Qt::LeftEdge;
-    } else if (pos.x() >= width() - kResizeMargin) {
-        edges |= Qt::RightEdge;
-    }
-    if (pos.y() <= kResizeMargin) {
-        edges |= Qt::TopEdge;
-    } else if (pos.y() >= height() - kResizeMargin) {
-        edges |= Qt::BottomEdge;
-    }
-    return edges;
-}
-
-void NetworkDiagnosticsDialog::updateResizeCursor(const QPoint& pos)
-{
-    const Qt::Edges edges = edgesAt(pos);
-    Qt::CursorShape shape = Qt::ArrowCursor;
-    if ((edges & (Qt::LeftEdge | Qt::TopEdge))     == (Qt::LeftEdge | Qt::TopEdge)
-        || (edges & (Qt::RightEdge | Qt::BottomEdge)) == (Qt::RightEdge | Qt::BottomEdge)) {
-        shape = Qt::SizeFDiagCursor;
-    } else if ((edges & (Qt::RightEdge | Qt::TopEdge))    == (Qt::RightEdge | Qt::TopEdge)
-        ||     (edges & (Qt::LeftEdge | Qt::BottomEdge)) == (Qt::LeftEdge | Qt::BottomEdge)) {
-        shape = Qt::SizeBDiagCursor;
-    } else if (edges & (Qt::LeftEdge | Qt::RightEdge)) {
-        shape = Qt::SizeHorCursor;
-    } else if (edges & (Qt::TopEdge | Qt::BottomEdge)) {
-        shape = Qt::SizeVerCursor;
-    }
-    setCursor(shape);
-}
-
-void NetworkDiagnosticsDialog::mouseMoveEvent(QMouseEvent* ev)
-{
-    if (!(ev->buttons() & Qt::LeftButton)) {
-        updateResizeCursor(ev->pos());
-    }
-    QDialog::mouseMoveEvent(ev);
-}
-
-void NetworkDiagnosticsDialog::mousePressEvent(QMouseEvent* ev)
-{
-    if (ev->button() == Qt::LeftButton) {
-        const Qt::Edges edges = edgesAt(ev->pos());
-        if (edges) {
-            if (auto* h = windowHandle()) {
-                h->startSystemResize(edges);
-                ev->accept();
-                return;
-            }
-        }
-    }
-    QDialog::mousePressEvent(ev);
-}
-
-void NetworkDiagnosticsDialog::leaveEvent(QEvent* ev)
-{
-    setCursor(Qt::ArrowCursor);
-    QDialog::leaveEvent(ev);
-}
-
-bool NetworkDiagnosticsDialog::eventFilter(QObject* obj, QEvent* ev)
-{
-    // Drag-to-move via the custom title bar.  The trio buttons are
-    // their own QPushButtons that consume the press themselves, so
-    // this only fires on the bare title-bar background.
-    if (obj == m_titleBar && ev->type() == QEvent::MouseButtonPress) {
-        auto* me = static_cast<QMouseEvent*>(ev);
-        if (me->button() == Qt::LeftButton) {
-            if (auto* h = windowHandle()) {
-                h->startSystemMove();
-                me->accept();
-                return true;
-            }
-        }
-    }
-    if (obj == m_titleBar && ev->type() == QEvent::MouseButtonDblClick) {
-        if (isMaximized()) {
-            showNormal();
-        } else {
-            showMaximized();
-        }
-        ev->accept();
-        return true;
-    }
-    return QDialog::eventFilter(obj, ev);
 }
 
 } // namespace AetherSDR

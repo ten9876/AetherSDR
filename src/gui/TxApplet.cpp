@@ -1,4 +1,5 @@
 #include "TxApplet.h"
+#include "DesignTokens.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "HGauge.h"
@@ -23,7 +24,7 @@ namespace AetherSDR {
 static QLabel* makeIndicator(const QString& text)
 {
     auto* lbl = new QLabel(text);
-    lbl->setStyleSheet("QLabel { color: #405060; font-size: 9px; font-weight: bold; }");
+    lbl->setStyleSheet("QLabel { color: " + DesignTokens::kTextTertiary + "; font-size: 9px; font-weight: bold; }");
     lbl->setAlignment(Qt::AlignCenter);
     return lbl;
 }
@@ -34,16 +35,16 @@ static void setIndicatorActive(QLabel* lbl, bool active, const QColor& color = Q
         lbl->setStyleSheet(
             QString("QLabel { color: %1; font-size: 9px; font-weight: bold; }").arg(color.name()));
     } else {
-        lbl->setStyleSheet("QLabel { color: #405060; font-size: 9px; font-weight: bold; }");
+        lbl->setStyleSheet("QLabel { color: " + DesignTokens::kTextTertiary + "; font-size: 9px; font-weight: bold; }");
     }
 }
 
 // ── Compact slider row: "Label:  [slider] value" ────────────────────────────
 
-static constexpr const char* kSliderStyle =
-    "QSlider::groove:horizontal { height: 4px; background: #203040; border-radius: 2px; }"
+static const QString kSliderStyle =
+    "QSlider::groove:horizontal { height: 4px; background: " + DesignTokens::kBorderControl + "; border-radius: 2px; }"
     "QSlider::handle:horizontal { width: 10px; height: 10px; margin: -3px 0;"
-    "background: #00b4d8; border-radius: 5px; }";
+    "background: " + DesignTokens::kColorAccent + "; border-radius: 5px; }";
 
 // ── TxApplet ────────────────────────────────────────────────────────────────
 
@@ -88,7 +89,7 @@ void TxApplet::buildUI()
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
         auto* label = new QLabel("RF Power:");
-        label->setStyleSheet("QLabel { color: #8aa8c0; font-size: 10px; }");
+        label->setStyleSheet("QLabel { color: " + DesignTokens::kTextSecondary + "; font-size: 10px; }");
         label->setFixedWidth(62);
         row->addWidget(label);
 
@@ -100,8 +101,8 @@ void TxApplet::buildUI()
         row->addWidget(m_rfPowerSlider, 1);
 
         m_rfPowerLabel = new QLabel("100");
-        m_rfPowerLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 10px; }");
-        m_rfPowerLabel->setFixedWidth(30);
+        m_rfPowerLabel->setStyleSheet("QLabel { color: " + DesignTokens::kTextPrimary + "; font-size: 10px; }");
+        m_rfPowerLabel->setFixedWidth(22);
         m_rfPowerLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         row->addWidget(m_rfPowerLabel);
         vbox->addLayout(row);
@@ -112,7 +113,7 @@ void TxApplet::buildUI()
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
         auto* label = new QLabel("Tune Pwr:");
-        label->setStyleSheet("QLabel { color: #8aa8c0; font-size: 10px; }");
+        label->setStyleSheet("QLabel { color: " + DesignTokens::kTextSecondary + "; font-size: 10px; }");
         label->setFixedWidth(62);
         row->addWidget(label);
 
@@ -124,8 +125,8 @@ void TxApplet::buildUI()
         row->addWidget(m_tunePowerSlider, 1);
 
         m_tunePowerLabel = new QLabel("10");
-        m_tunePowerLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 10px; }");
-        m_tunePowerLabel->setFixedWidth(30);
+        m_tunePowerLabel->setStyleSheet("QLabel { color: " + DesignTokens::kTextPrimary + "; font-size: 10px; }");
+        m_tunePowerLabel->setFixedWidth(22);
         m_tunePowerLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         row->addWidget(m_tunePowerLabel);
         vbox->addLayout(row);
@@ -160,13 +161,15 @@ void TxApplet::buildUI()
         auto* row = new QHBoxLayout;
         row->setSpacing(2);
 
-        const char* btnStyle =
-            "QPushButton { background: #1a3a5a; border: 1px solid #205070; "
-            "border-radius: 3px; color: #c8d8e8; font-size: 10px; font-weight: bold; "
+        const QString btnStyle =
+            "QPushButton { background: #1a3a5a; border: 1px solid " + DesignTokens::kBorderInteractive + "; "
+            "border-radius: 3px; color: " + DesignTokens::kTextPrimary + "; font-size: 10px; font-weight: bold; "
             "padding: 2px; }"
             "QPushButton:hover { background: #204060; }"
             "QPushButton:disabled { background-color: #1a1a2a; color: #556070; "
-            "border: 1px solid #2a3040; }";
+            "border: 1px solid #2a3040; }"
+            "QPushButton[txActive=\"true\"] { background: " + DesignTokens::kColorDanger + "; "
+            "border: 1px solid #ff4444; color: #ffffff; }";
 
         m_tuneBtn = new QPushButton("TUNE");
         m_tuneBtn->setStyleSheet(btnStyle);
@@ -217,8 +220,8 @@ void TxApplet::buildUI()
         m_apdBtn->setAccessibleDescription("Toggle adaptive pre-distortion");
         m_apdBtn->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         m_apdBtn->setStyleSheet(
-            "QPushButton { background: #1a3a5a; border: 1px solid #205070; "
-            "border-radius: 3px; color: #c8d8e8; font-size: 10px; font-weight: bold; }"
+            "QPushButton { background: #1a3a5a; border: 1px solid " + DesignTokens::kBorderInteractive + "; "
+            "border-radius: 3px; color: " + DesignTokens::kTextPrimary + "; font-size: 10px; font-weight: bold; }"
             "QPushButton:checked { background: #006030; border: 1px solid #008040; color: #fff; }"
             "QPushButton:hover { background: #204060; }");
         row->addWidget(m_apdBtn, 2);  // 40%
@@ -229,7 +232,7 @@ void TxApplet::buildUI()
         inset->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         inset->setObjectName("atuInset");
         inset->setStyleSheet(
-            "#atuInset { background: #0a0a18; border: 1px solid #1e2e3e; border-radius: 3px; }"
+            "#atuInset { background: " + DesignTokens::kSurfaceSunken + "; border: 1px solid " + DesignTokens::kBorderSubtle + "; border-radius: 3px; }"
             "#atuInset QLabel { border: none; background: transparent; }");
         auto* insetLayout = new QHBoxLayout(inset);
         insetLayout->setContentsMargins(4, 0, 4, 0);
@@ -240,7 +243,7 @@ void TxApplet::buildUI()
         m_availInd  = makeIndicator("Avail");
         // Larger font for status words inside the inset
         const QString indStyle =
-            "QLabel { color: #405060; font-size: 11px; font-weight: bold; background: transparent; }";
+            "QLabel { color: " + DesignTokens::kTextTertiary + "; font-size: 11px; font-weight: bold; background: transparent; }";
         m_activeInd->setStyleSheet(indStyle);
         m_calInd->setStyleSheet(indStyle);
         m_availInd->setStyleSheet(indStyle);
@@ -337,36 +340,21 @@ void TxApplet::setTransmitModel(TransmitModel* model)
     // Transmit state changes → update sliders, tune button
     connect(m_model, &TransmitModel::stateChanged, this, &TxApplet::syncFromModel);
 
-    // Tune state → red button
+    // Tune state → red button (via dynamic property, no full stylesheet rebuild)
     connect(m_model, &TransmitModel::tuneChanged, this, [this](bool tuning) {
-        if (tuning) {
-            m_tuneBtn->setStyleSheet(
-                "QPushButton { background: #cc2222; border: 1px solid #ff4444; "
-                "border-radius: 3px; color: #ffffff; font-size: 10px; font-weight: bold; "
-                "padding: 2px; }");
-            m_tuneBtn->setText("TUNING...");
-        } else {
-            m_tuneBtn->setStyleSheet(
-                "QPushButton { background: #1a3a5a; border: 1px solid #205070; "
-                "border-radius: 3px; color: #c8d8e8; font-size: 10px; font-weight: bold; "
-                "padding: 2px; }"
-                "QPushButton:hover { background: #204060; }");
-            m_tuneBtn->setText("TUNE");
-        }
+        m_tuneBtn->setProperty("txActive", tuning);
+        m_tuneBtn->style()->unpolish(m_tuneBtn);
+        m_tuneBtn->style()->polish(m_tuneBtn);
+        m_tuneBtn->setText(tuning ? "TUNING..." : "TUNE");
     });
 
-    // MOX / transmit state → red button
+    // MOX / transmit state → red button (via dynamic property)
     connect(m_model, &TransmitModel::moxChanged, this, [this](bool tx) {
         m_updatingFromModel = true;
         m_moxBtn->setChecked(tx);
-        m_moxBtn->setStyleSheet(tx
-            ? "QPushButton { background: #cc2222; border: 1px solid #ff4444; "
-              "border-radius: 3px; color: #ffffff; font-size: 10px; font-weight: bold; "
-              "padding: 2px; }"
-            : "QPushButton { background: #1a3a5a; border: 1px solid #205070; "
-              "border-radius: 3px; color: #c8d8e8; font-size: 10px; font-weight: bold; "
-              "padding: 2px; }"
-              "QPushButton:hover { background: #204060; }");
+        m_moxBtn->setProperty("txActive", tx);
+        m_moxBtn->style()->unpolish(m_moxBtn);
+        m_moxBtn->style()->polish(m_moxBtn);
         m_updatingFromModel = false;
     });
 

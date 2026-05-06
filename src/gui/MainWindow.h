@@ -450,7 +450,7 @@ private:
     // Applet-panel pop-out support (#1713 Phase 6).  When floating,
     // the panel lives inside m_appletPanelFloatWindow and its splitter
     // slot is removed; re-dock appends a fresh slot and re-applies the
-    // canonical {0, 0, width-260, 260} sizing.
+    // canonical {0, 0, width-kWidth, kWidth} sizing.
     QWidget*    m_appletPanelFloatWindow{nullptr};
     QAction*    m_popOutSidebarAction{nullptr};
     void floatAppletPanel();

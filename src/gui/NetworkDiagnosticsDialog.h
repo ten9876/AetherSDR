@@ -74,15 +74,6 @@ public:
                                       NetworkDiagnosticsHistory* history,
                                       QWidget* parent = nullptr);
 
-protected:
-    // Frameless 8-axis resize: 4 edges + 4 corners.  Hovering the bare
-    // margin around the content updates the cursor; pressing starts a
-    // compositor-managed resize via QWindow::startSystemResize.
-    void mouseMoveEvent(QMouseEvent* ev) override;
-    void mousePressEvent(QMouseEvent* ev) override;
-    void leaveEvent(QEvent* ev) override;
-    bool eventFilter(QObject* obj, QEvent* ev) override;
-
 private:
     struct LogLine {
         QString text;
@@ -103,10 +94,6 @@ private:
     void setLogFollowLive(bool on);
     void setAllLogCategoriesVisible(bool visible);
     int selectedRangeSeconds() const;
-    Qt::Edges edgesAt(const QPoint& pos) const;
-    void updateResizeCursor(const QPoint& pos);
-
-    QWidget* m_titleBar{nullptr};
 
     RadioModel* m_model;
     AudioEngine* m_audio;

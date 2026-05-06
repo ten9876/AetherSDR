@@ -1,4 +1,5 @@
 #include "VfoWidget.h"
+#include "DesignTokens.h"
 #include "PhaseKnob.h"
 #include "ComboStyle.h"
 #include "GuardedSlider.h"
@@ -502,7 +503,7 @@ void VfoWidget::buildUI()
     m_freqLabel->setStyleSheet("QLabel { background: transparent;"
                                 " border: 1px solid rgba(255,255,255,80);"
                                 " border-radius: 3px;"
-                                " color: #c8d8e8; font-size: 26px; font-weight: bold;"
+                                " color: " + DesignTokens::kTextPrimary + "; font-size: " + QString::number(DesignTokens::kFontFreq) + "px; font-weight: bold;"
                                 " padding: 0 0 0 2px; }");
     m_freqLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_freqLabel->installEventFilter(this);
@@ -510,7 +511,7 @@ void VfoWidget::buildUI()
 
     m_freqEdit = new QLineEdit;
     m_freqEdit->setStyleSheet(
-        "QLineEdit { background: #0a0a18; border: 1px solid #00b4d8;"
+        "QLineEdit { background: " + DesignTokens::kSurfaceSunken + "; border: 1px solid " + DesignTokens::kColorAccent + ";"
         " border-radius: 3px; color: #00e5ff; font-size: 22px;"
         " font-weight: bold; padding: 0 2px 0 0; }");
     m_freqEdit->setAlignment(Qt::AlignRight);

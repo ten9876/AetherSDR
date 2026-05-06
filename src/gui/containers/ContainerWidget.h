@@ -31,6 +31,10 @@ public:
                              QWidget* parent = nullptr);
     ~ContainerWidget() override;
 
+protected:
+    void paintEvent(QPaintEvent* event) override;
+
+public:
     // Stable identifier used by the manager for path-based lookup
     // and by persistence to key each container's state.
     QString id() const { return m_id; }
