@@ -117,7 +117,24 @@ Bundled at third_party/deepfilter/
   Source:  https://github.com/Rikorose/DeepFilterNet
 
 
-11. FFTW3 — Fast Fourier Transform Library
+11. ONNX Runtime — Neural Network Inference Engine (optional)
+--------------------------------------------------------------
+Pre-built binaries at third_party/onnxruntime/ (Windows only; optional feature).
+Loaded at runtime for the S-History CNN signal classifier (S_History_v2-AI).
+Only present when setup-onnxruntime.ps1 has been run.
+
+  Copyright (c) Microsoft Corporation. All rights reserved.
+  License: MIT
+  Source:  https://github.com/microsoft/onnxruntime
+
+  Note: the tools/train_classifier.py training script requires PyTorch
+  (BSD-3-Clause, https://pytorch.org/) as a separate installation.
+  PyTorch is a build tool only — it is not linked into or distributed
+  with AetherSDR.  The trained .onnx model file produced by the script
+  is entirely the user's own work.
+
+
+12. FFTW3 — Fast Fourier Transform Library
 --------------------------------------------
 Pre-built binaries at third_party/fftw3/ (Windows only; Linux uses system pkg)
 
