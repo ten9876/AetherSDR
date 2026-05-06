@@ -7,6 +7,8 @@
 
 #include <QPushButton>
 #include <QLabel>
+#include <QLineEdit>
+#include <QIntValidator>
 #include <QSlider>
 #include <QComboBox>
 #include <QStackedWidget>
@@ -91,6 +93,11 @@ static constexpr const char* kDimLabelStyle =
 static constexpr const char* kInsetValueStyle =
     "QLabel { font-size: 10px; background: #0a0a18; border: 1px solid #1e2e3e; "
     "border-radius: 3px; padding: 1px 2px; color: #c8d8e8; }";
+
+static constexpr const char* kInsetEditStyle =
+    "QLineEdit { font-size: 10px; background: #0a0a18; border: 1px solid #1e2e3e; "
+    "border-radius: 3px; padding: 1px 2px; color: #c8d8e8; }"
+    "QLineEdit:focus { border: 1px solid #00b4d8; }";
 
 
 // ── PhoneCwApplet ────────────────────────────────────────────────────────────
@@ -385,16 +392,23 @@ void PhoneCwApplet::buildCwPanel()
         m_delaySlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_delaySlider, 1);
 
-        m_delayLabel = new QLabel("500");
-        m_delayLabel->setStyleSheet(kInsetValueStyle);
+        m_delayLabel = new QLineEdit("500");
+        m_delayLabel->setStyleSheet(kInsetEditStyle);
         m_delayLabel->setFixedWidth(kValueW);
         m_delayLabel->setAlignment(Qt::AlignCenter);
+        m_delayLabel->setValidator(new QIntValidator(0, 2000, m_delayLabel));
+        m_delayLabel->setAccessibleName("CW delay value");
         row->addWidget(m_delayLabel);
 
         connect(m_delaySlider, &QSlider::valueChanged, this, [this](int v) {
             m_delayLabel->setText(QString::number(v));
             if (!m_updatingFromModel && m_model)
                 m_model->setCwDelay(v);
+        });
+        connect(m_delayLabel, &QLineEdit::editingFinished, this, [this]() {
+            int v = qBound(0, m_delayLabel->text().toInt(), 2000);
+            m_delayLabel->setText(QString::number(v));
+            m_delaySlider->setValue(v);
         });
 
         vbox->addLayout(row);
@@ -419,16 +433,23 @@ void PhoneCwApplet::buildCwPanel()
         m_speedSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_speedSlider, 1);
 
-        m_speedLabel = new QLabel("20");
-        m_speedLabel->setStyleSheet(kInsetValueStyle);
+        m_speedLabel = new QLineEdit("20");
+        m_speedLabel->setStyleSheet(kInsetEditStyle);
         m_speedLabel->setFixedWidth(kValueW);
         m_speedLabel->setAlignment(Qt::AlignCenter);
+        m_speedLabel->setValidator(new QIntValidator(5, 100, m_speedLabel));
+        m_speedLabel->setAccessibleName("CW speed value");
         row->addWidget(m_speedLabel);
 
         connect(m_speedSlider, &QSlider::valueChanged, this, [this](int v) {
             m_speedLabel->setText(QString::number(v));
             if (!m_updatingFromModel && m_model)
                 m_model->setCwSpeed(v);
+        });
+        connect(m_speedLabel, &QLineEdit::editingFinished, this, [this]() {
+            int v = qBound(5, m_speedLabel->text().toInt(), 100);
+            m_speedLabel->setText(QString::number(v));
+            m_speedSlider->setValue(v);
         });
 
         vbox->addLayout(row);
@@ -457,10 +478,12 @@ void PhoneCwApplet::buildCwPanel()
         m_sidetoneSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_sidetoneSlider, 1);
 
-        m_sidetoneLabel = new QLabel("50");
-        m_sidetoneLabel->setStyleSheet(kInsetValueStyle);
+        m_sidetoneLabel = new QLineEdit("50");
+        m_sidetoneLabel->setStyleSheet(kInsetEditStyle);
         m_sidetoneLabel->setFixedWidth(kValueW);
         m_sidetoneLabel->setAlignment(Qt::AlignCenter);
+        m_sidetoneLabel->setValidator(new QIntValidator(0, 100, m_sidetoneLabel));
+        m_sidetoneLabel->setAccessibleName("Sidetone volume value");
         row->addWidget(m_sidetoneLabel);
 
         connect(m_sidetoneBtn, &QPushButton::toggled, this, [this](bool on) {
@@ -476,6 +499,11 @@ void PhoneCwApplet::buildCwPanel()
                 m_model->setMonGainCw(v);
             // Same volume for both radio (mon_gain_cw) and local sidetone.
             emit sidetoneVolumeChanged(v);
+        });
+        connect(m_sidetoneLabel, &QLineEdit::editingFinished, this, [this]() {
+            int v = qBound(0, m_sidetoneLabel->text().toInt(), 100);
+            m_sidetoneLabel->setText(QString::number(v));
+            m_sidetoneSlider->setValue(v);
         });
 
         vbox->addLayout(row);
@@ -545,13 +573,15 @@ void PhoneCwApplet::buildCwPanel()
         m_pitchDown->setAccessibleName("CW pitch down");
         row->addWidget(m_pitchDown);
 
-        m_pitchLabel = new QLabel("600");
+        m_pitchLabel = new QLineEdit("600");
         m_pitchLabel->setAlignment(Qt::AlignCenter);
         m_pitchLabel->setFixedWidth(48);
         m_pitchLabel->setAccessibleName("CW pitch frequency");
+        m_pitchLabel->setValidator(new QIntValidator(100, 6000, m_pitchLabel));
         m_pitchLabel->setStyleSheet(
-            "QLabel { font-size: 11px; background: #0a0a18; border: 1px solid #1e2e3e; "
-            "border-radius: 3px; padding: 1px 3px; color: #c8d8e8; }");
+            "QLineEdit { font-size: 11px; background: #0a0a18; border: 1px solid #1e2e3e; "
+            "border-radius: 3px; padding: 1px 3px; color: #c8d8e8; }"
+            "QLineEdit:focus { border: 1px solid #00b4d8; }");
         row->addWidget(m_pitchLabel);
 
         m_pitchUp = new CwTriBtn(CwTriBtn::Right);
@@ -582,6 +612,12 @@ void PhoneCwApplet::buildCwPanel()
             int hz = qBound(100, m_pitchLabel->text().toInt() + 10, 6000);
             m_model->setCwPitch(hz);
             m_pitchLabel->setText(QString::number(hz));
+        });
+        connect(m_pitchLabel, &QLineEdit::editingFinished, this, [this]() {
+            if (!m_model) return;
+            int hz = qBound(100, m_pitchLabel->text().toInt(), 6000);
+            m_pitchLabel->setText(QString::number(hz));
+            m_model->setCwPitch(hz);
         });
 
         vbox->addLayout(row);

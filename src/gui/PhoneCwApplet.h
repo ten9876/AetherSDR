@@ -4,6 +4,7 @@
 
 class QPushButton;
 class QLabel;
+class QLineEdit;
 class QSlider;
 class QComboBox;
 class QStackedWidget;
@@ -91,21 +92,21 @@ private:
     HGauge*      m_alcGauge{nullptr};
 
     QSlider*     m_delaySlider{nullptr};
-    QLabel*      m_delayLabel{nullptr};
+    QLineEdit*   m_delayLabel{nullptr};
 
     QSlider*     m_speedSlider{nullptr};
-    QLabel*      m_speedLabel{nullptr};
+    QLineEdit*   m_speedLabel{nullptr};
 
     QPushButton* m_sidetoneBtn{nullptr};
     QSlider*     m_sidetoneSlider{nullptr};
-    QLabel*      m_sidetoneLabel{nullptr};
+    QLineEdit*   m_sidetoneLabel{nullptr};
 
     QSlider*     m_cwPanSlider{nullptr};
 
     QPushButton* m_breakinBtn{nullptr};
     QPushButton* m_iambicBtn{nullptr};
 
-    QLabel*      m_pitchLabel{nullptr};
+    QLineEdit*   m_pitchLabel{nullptr};
     QPushButton* m_pitchDown{nullptr};
     QPushButton* m_pitchUp{nullptr};
 
