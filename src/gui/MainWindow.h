@@ -38,6 +38,8 @@
 #include "core/HidEncoderManager.h"
 #endif
 #include "core/ShortcutManager.h"
+#include "core/SpectrogramBuffer.h"
+#include "core/SignalClassifier.h"
 #include "core/TgxlConnection.h"
 #include "core/PgxlConnection.h"
 #include "core/DxccColorProvider.h"
@@ -312,6 +314,9 @@ private:
         bool            visible{false};
         bool            confirmedVoice{false}; // true once shown as a gold voice marker
         qint64          lastGapMs{0};          // last time a ≥1 s gap was detected (epoch ms)
+        // CNN classifier: exponential moving average of carrier probability.
+        // 0.0 = strongly voice, 1.0 = strongly carrier. 0.5 = unknown (ONNX absent).
+        float           carrierScore{0.5f};
     };
     struct SHistoryPanState {
         double centerMhz{0.0};
@@ -322,8 +327,12 @@ private:
     QHash<QString, SHistoryPanState> m_sHistoryPanState;
     QTimer* m_sHistoryExpireTimer{nullptr};
     bool    m_sHistoryEnabled{false};
+    bool    m_sHistoryQrmEnabled{false};
     void rebuildSHistoryForPan(const QString& panId);
     void expireSHistoryMarkers();
+    // Per-pan spectrogram ring buffer for CNN classification
+    QHash<QString, AetherSDR::SpectrogramBuffer> m_spectrogramBuffers;
+    AetherSDR::SignalClassifier m_signalClassifier;
 
     // Batched spot add commands (flushed 1/sec)
     QStringList m_spotCmdBatch;

@@ -324,8 +324,10 @@ public:
 
     void setShowSpots(bool on) { m_showSpots = on; update(); }
     bool showSpots() const { return m_showSpots; }
-    void setShowSHistory(bool on) { m_showSHistory = on; update(); }
-    bool showSHistory() const { return m_showSHistory; }
+    void setShowSHistory(bool on)    { m_showSHistory = on;    update(); }
+    bool showSHistory() const         { return m_showSHistory; }
+    void setShowSHistoryQrm(bool on) { m_showSHistoryQrm = on; update(); }
+    bool showSHistoryQrm() const      { return m_showSHistoryQrm; }
     void setSHistoryMarkers(const QVector<SpotMarker>& markers);
     void setSpotFontSize(int px) { m_spotFontSize = px; update(); }
     void setSpotMaxLevels(int n) { m_spotMaxLevels = n; update(); }
@@ -702,6 +704,7 @@ private:
     QVector<SpotCluster> m_spotClusters;
     bool m_showSpots{true};
     bool m_showSHistory{false};
+    bool m_showSHistoryQrm{false};
     QVector<SpotMarker> m_sHistoryMarkers;
     int  m_spotFontSize{16};
     int  m_spotMaxLevels{3};

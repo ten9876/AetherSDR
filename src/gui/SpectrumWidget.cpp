@@ -4706,14 +4706,17 @@ int SpectrumWidget::tnfAtPixel(int x, int preferredId) const
 
 void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
 {
-    // Merge DX spots (gated by m_showSpots) and S-history markers (gated by m_showSHistory).
-    // S-History markers are suppressed when a DX spot is active within 3 kHz — the spot
-    // takes priority and carries richer callsign/DXCC information.
+    // Merge DX spots, Signal History markers, and QRM History markers.
+    // Each category is gated by its own flag.  S-History markers within 3 kHz of
+    // an active DX spot are suppressed — the spot carries richer callsign/DXCC info.
     QVector<SpotMarker> allMarkers;
     if (m_showSpots) { allMarkers = m_spotMarkers; }
-    if (m_showSHistory) {
-        constexpr double kSpotOverrideMhz = 0.003;  // 3 kHz proximity threshold
+    if (m_showSHistory || m_showSHistoryQrm) {
+        constexpr double kSpotOverrideMhz = 0.003;
         for (const auto& sh : m_sHistoryMarkers) {
+            const bool isQrm = (sh.source == QStringLiteral("QRM"));
+            if (isQrm  && !m_showSHistoryQrm) { continue; }
+            if (!isQrm && !m_showSHistory)    { continue; }
             bool masked = false;
             for (const auto& sp : m_spotMarkers) {
                 if (std::abs(sh.freqMhz - sp.freqMhz) < kSpotOverrideMhz) {

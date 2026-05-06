@@ -456,6 +456,8 @@ set(CORE_SOURCES
     src/core/SpecbleachFilter.cpp
     src/core/CwDecoder.cpp
     src/core/VoiceSignalDetector.cpp
+    src/core/SpectrogramBuffer.cpp
+    src/core/SignalClassifier.cpp
     src/core/Resampler.cpp
     src/core/NvidiaBnrFilter.cpp
     src/core/DeepFilterFilter.cpp
@@ -892,6 +894,41 @@ else()
     message(STATUS "hidapi not found — USB HID encoder support disabled")
 endif()
 
+# ONNX Runtime — optional CNN signal classifier for S-History v2
+# Windows: run setup-onnxruntime.ps1 first to download prebuilt DLLs
+# Linux:   apt install libonnxruntime-dev  (or build from source)
+# macOS:   brew install onnxruntime
+if(WIN32)
+    set(ORT_ROOT "${CMAKE_SOURCE_DIR}/third_party/onnxruntime")
+    if(EXISTS "${ORT_ROOT}/include/onnxruntime_cxx_api.h")
+        set(ORT_FOUND TRUE)
+        set(ORT_INCLUDE_DIRS "${ORT_ROOT}/include")
+        set(ORT_LIBRARIES "${ORT_ROOT}/lib/onnxruntime.lib")
+        file(GLOB ORT_DLLS "${ORT_ROOT}/bin/*.dll")
+    else()
+        message(STATUS "ONNX Runtime not found — CNN signal classifier disabled. "
+                       "Run setup-onnxruntime.ps1 to enable.")
+    endif()
+else()
+    if(PkgConfig_FOUND)
+        pkg_check_modules(ORT libonnxruntime)
+    endif()
+    if(NOT ORT_FOUND)
+        find_library(ORT_LIB onnxruntime)
+        find_path(ORT_INC onnxruntime_cxx_api.h)
+        if(ORT_LIB AND ORT_INC)
+            set(ORT_FOUND TRUE)
+            set(ORT_LIBRARIES ${ORT_LIB})
+            set(ORT_INCLUDE_DIRS ${ORT_INC})
+        endif()
+    endif()
+endif()
+if(ORT_FOUND)
+    message(STATUS "ONNX Runtime found — CNN signal classifier enabled")
+else()
+    message(STATUS "ONNX Runtime not found — CNN signal classifier disabled")
+endif()
+
 if(PORTAUDIO_FOUND)
     target_sources(AetherSDR PRIVATE src/core/CwSidetonePortAudioSink.cpp)
     target_compile_definitions(AetherSDR PRIVATE HAVE_PORTAUDIO)
@@ -912,6 +949,20 @@ if(FFTW3_FOUND)
                 "${FFTW3_DLL}" "$<TARGET_FILE_DIR:AetherSDR>"
             COMMENT "Copying libfftw3-3.dll to build directory"
         )
+    endif()
+endif()
+
+if(ORT_FOUND)
+    target_compile_definitions(AetherSDR PRIVATE HAVE_ONNX)
+    target_include_directories(AetherSDR PRIVATE ${ORT_INCLUDE_DIRS})
+    target_link_libraries(AetherSDR PRIVATE ${ORT_LIBRARIES})
+    if(WIN32 AND ORT_DLLS)
+        foreach(_ort_dll IN LISTS ORT_DLLS)
+            add_custom_command(TARGET AetherSDR POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_ort_dll}" "$<TARGET_FILE_DIR:AetherSDR>"
+                COMMENT "Copying ONNX Runtime DLL to build directory")
+        endforeach()
     endif()
 endif()
 
