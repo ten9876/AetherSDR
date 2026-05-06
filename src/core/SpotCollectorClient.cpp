@@ -11,8 +11,14 @@ namespace AetherSDR {
 
 SpotCollectorClient::SpotCollectorClient(QObject* parent)
     : QObject(parent)
-    , m_socket(new QUdpSocket(this))
 {
+    // Socket is created in initialize() on the SpotClients thread (#1929).
+}
+
+void SpotCollectorClient::initialize()
+{
+    if (m_socket) return;
+    m_socket = new QUdpSocket(this);
     connect(m_socket, &QUdpSocket::readyRead, this, &SpotCollectorClient::onReadyRead);
 }
 

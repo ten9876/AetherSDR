@@ -1384,6 +1384,26 @@ MainWindow::MainWindow(QWidget* parent)
 #endif
     m_spotThread->start();
 
+    // Construct each client's sockets/timers on the SpotClients thread (#1929).
+    // On Windows, QTcpSocket / QUdpSocket / QWebSocket bind their internal
+    // QSocketNotifier to the construction thread's Win32 message loop, so
+    // creating them on the main thread before moveToThread() trips a
+    // cross-thread sendEvent assert when socket events fire on disconnect.
+    QMetaObject::invokeMethod(m_dxCluster, &DxClusterClient::initialize,
+                              Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_rbnClient, &DxClusterClient::initialize,
+                              Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_wsjtxClient, &WsjtxClient::initialize,
+                              Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_spotCollectorClient, &SpotCollectorClient::initialize,
+                              Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_potaClient, &PotaClient::initialize,
+                              Qt::QueuedConnection);
+#ifdef HAVE_WEBSOCKETS
+    QMetaObject::invokeMethod(m_freedvClient, &FreeDvClient::initialize,
+                              Qt::QueuedConnection);
+#endif
+
     // ── HF Propagation Forecast ────────────────────────────────────────────
     m_propForecast = new PropForecastClient(this);
     connect(m_propForecast, &PropForecastClient::forecastUpdated,

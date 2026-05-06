@@ -41,6 +41,10 @@ signals:
     void rawLineReceived(const QString& line);
 
 public slots:
+    // Defer QWebSocket + timer construction to the worker thread (#1929) —
+    // see DxClusterClient::initialize().
+    void initialize();
+
     // Station reporting — call from RADE activate/deactivate paths.
     // All methods are safe to call from any thread via queued connection.
     void enableReporting(const QString& callsign, const QString& grid,
@@ -86,10 +90,10 @@ private:
     void sendEvent(const QString& name, const QJsonObject& data);
     void sendInitialFreqChange();
 
-    QWebSocket*  m_ws;
-    QTimer*      m_pingTimer;
-    QTimer*      m_reconnectTimer;
-    QTimer*      m_snrTimer;
+    QWebSocket*  m_ws{nullptr};
+    QTimer*      m_pingTimer{nullptr};
+    QTimer*      m_reconnectTimer{nullptr};
+    QTimer*      m_snrTimer{nullptr};
     QFile        m_logFile;
 
     QHash<QString, StationInfo> m_stations;  // sid → station info

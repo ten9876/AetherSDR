@@ -25,6 +25,11 @@ public:
 
     QString logFilePath() const;
 
+public slots:
+    // Defer QNetworkAccessManager + timer construction to the worker thread (#1929) —
+    // see DxClusterClient::initialize().
+    void initialize();
+
 signals:
     void started();
     void stopped();
@@ -37,8 +42,8 @@ private slots:
     void onPollTimer();
 
 private:
-    QNetworkAccessManager* m_nam;
-    QTimer*     m_pollTimer;
+    QNetworkAccessManager* m_nam{nullptr};
+    QTimer*     m_pollTimer{nullptr};
     QFile       m_logFile;
     QSet<int>   m_seenSpotIds;   // track spotId to only emit new spots
     std::atomic<bool> m_polling{false};

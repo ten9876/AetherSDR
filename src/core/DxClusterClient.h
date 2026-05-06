@@ -43,6 +43,15 @@ public:
     QString logFilePath() const;
     void setLogFileName(const QString& name) { m_logFileName = name; }
 
+public slots:
+    // Defer socket + timer construction to the worker thread (#1929). On Windows,
+    // QTcpSocket creates a QSocketNotifier whose Win32 message-loop affinity is
+    // bound to the *construction* thread, not the QObject's current thread. If
+    // we new the socket on the main thread and then moveToThread() to SpotClients,
+    // socket events delivered during a disconnect cascade trip QCoreApplication's
+    // cross-thread sendEvent assert. Construct on the SpotClients thread instead.
+    void initialize();
+
 signals:
     void connected();
     void disconnected();
@@ -67,9 +76,9 @@ private:
     // m_intentionalDisconnect is set or the timer is already active (#2380).
     void scheduleReconnect();
 
-    QTcpSocket* m_socket;
+    QTcpSocket* m_socket{nullptr};
     QByteArray  m_readBuffer;
-    QTimer*     m_reconnectTimer;
+    QTimer*     m_reconnectTimer{nullptr};
     QFile       m_logFile;
 
     QString m_logFileName{"dxcluster.log"};

@@ -14,11 +14,19 @@ namespace AetherSDR {
 
 FreeDvClient::FreeDvClient(QObject* parent)
     : QObject(parent)
-    , m_ws(new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this))
-    , m_pingTimer(new QTimer(this))
-    , m_reconnectTimer(new QTimer(this))
-    , m_snrTimer(new QTimer(this))
 {
+    // WebSocket + timers are created in initialize() on the SpotClients thread (#1929).
+}
+
+void FreeDvClient::initialize()
+{
+    if (m_ws) return;
+
+    m_ws = new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
+    m_pingTimer = new QTimer(this);
+    m_reconnectTimer = new QTimer(this);
+    m_snrTimer = new QTimer(this);
+
     m_pingTimer->setSingleShot(false);
     m_reconnectTimer->setSingleShot(true);
     m_snrTimer->setSingleShot(false);
@@ -81,10 +89,10 @@ void FreeDvClient::startConnection()
 void FreeDvClient::stopConnection()
 {
     m_intentionalDisconnect = true;
-    m_pingTimer->stop();
-    m_reconnectTimer->stop();
+    if (m_pingTimer) m_pingTimer->stop();
+    if (m_reconnectTimer) m_reconnectTimer->stop();
 
-    if (m_ws->state() != QAbstractSocket::UnconnectedState)
+    if (m_ws && m_ws->state() != QAbstractSocket::UnconnectedState)
         m_ws->close();
 
     m_connected.store(false);

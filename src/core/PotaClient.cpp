@@ -15,9 +15,15 @@ namespace AetherSDR {
 
 PotaClient::PotaClient(QObject* parent)
     : QObject(parent)
-    , m_nam(new QNetworkAccessManager(this))
-    , m_pollTimer(new QTimer(this))
 {
+    // QNAM and poll timer are created in initialize() on the SpotClients thread (#1929).
+}
+
+void PotaClient::initialize()
+{
+    if (m_nam) return;
+    m_nam = new QNetworkAccessManager(this);
+    m_pollTimer = new QTimer(this);
     m_pollTimer->setSingleShot(false);
     connect(m_pollTimer, &QTimer::timeout, this, &PotaClient::onPollTimer);
 }

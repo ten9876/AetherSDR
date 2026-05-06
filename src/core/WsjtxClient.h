@@ -26,6 +26,10 @@ public:
 
     QString logFilePath() const;
 
+public slots:
+    // Defer socket construction to the worker thread (#1929) — see DxClusterClient::initialize().
+    void initialize();
+
 signals:
     void listening();
     void stopped();
@@ -48,7 +52,7 @@ private:
     void parseDecode(QDataStream& ds);
     QString extractCallsign(const QString& message) const;
 
-    QUdpSocket* m_socket;
+    QUdpSocket* m_socket{nullptr};
     QFile       m_logFile;
     QHostAddress m_bindAddr;
     bool        m_isMulticast{false};
