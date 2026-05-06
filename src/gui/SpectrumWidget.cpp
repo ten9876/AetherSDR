@@ -1356,6 +1356,34 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
     }
     m_bins = binsDbm;
 
+    // ── Live noise floor measurement (two-pass trimmed mean) ─────────────
+    // Same technique as the waterfall auto-black: compute the mean of ALL bins,
+    // then average only the bins at-or-below that mean.  Signal peaks inflate
+    // the first-pass mean and therefore exclude themselves from the second pass,
+    // leaving only the "consistently low, close-in-value" noise bins — exactly
+    // the flat green line a human eye reads as the noise floor on the scope.
+    // This is robust even on a very crowded band (40-50% bins occupied).
+    if (!binsDbm.isEmpty()) {
+        // Pass 1 — overall mean (sampled every 4th bin for speed)
+        float sum = 0.0f;
+        int   cnt = 0;
+        for (int j = 0; j < binsDbm.size(); j += 4) { sum += binsDbm[j]; ++cnt; }
+        const float mean = sum / cnt;
+
+        // Pass 2 — average only noise bins (≤ mean), which excludes signal peaks
+        float noiseSum = 0.0f;
+        int   noiseCnt = 0;
+        for (int j = 0; j < binsDbm.size(); j += 4) {
+            if (binsDbm[j] <= mean) { noiseSum += binsDbm[j]; ++noiseCnt; }
+        }
+        const float frameFloor = (noiseCnt > 0) ? noiseSum / noiseCnt : mean;
+
+        constexpr float kAlpha = 0.05f;  // ~20-frame window ≈ 0.8 s at 25 fps
+        m_measuredNoiseFloorDbm = (m_measuredNoiseFloorDbm <= -500.0f)
+            ? frameFloor
+            : m_measuredNoiseFloorDbm * (1.0f - kAlpha) + frameFloor * kAlpha;
+    }
+
     // Noise floor auto-adjust: every 10 frames, measure noise floor and
     // adjust min_dbm so it sits at the user's chosen position.
     if (m_noiseFloorEnable && !m_transmitting && !m_smoothed.isEmpty()) {
@@ -3388,7 +3416,7 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             drawFreqScale(p, QRect(0, specH + DIVIDER_H, w, FREQ_SCALE_H));
             drawTimeScale(p, wfRect);
             drawTnfMarkers(p, specRect);
-            if (m_showSpots)
+            if (m_showSpots || m_showSHistory)
                 drawSpotMarkers(p, specRect);
             drawSwrSweep(p, specRect);
             drawSliceMarkers(p, specRect, wfRect);
@@ -3931,7 +3959,7 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
         drawWaterfall(p, wfRect);
         drawTimeScale(p, wfRect);
         drawTnfMarkers(p, specRect);
-        if (m_showSpots) drawSpotMarkers(p, specRect);
+        if (m_showSpots || m_showSHistory) drawSpotMarkers(p, specRect);
         drawSwrSweep(p, specRect);
         drawSliceMarkers(p, specRect, wfRect);
         drawOffScreenSlices(p, specRect);
@@ -4461,6 +4489,12 @@ void SpectrumWidget::setSpotMarkers(const QVector<SpotMarker>& markers)
     markOverlayDirty();
 }
 
+void SpectrumWidget::setSHistoryMarkers(const QVector<SpotMarker>& markers)
+{
+    m_sHistoryMarkers = markers;
+    markOverlayDirty();
+}
+
 void SpectrumWidget::setSwrSweepPoints(const QVector<SwrSweepPoint>& points,
                                        bool running,
                                        double currentFreqMhz,
@@ -4672,7 +4706,25 @@ int SpectrumWidget::tnfAtPixel(int x, int preferredId) const
 
 void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
 {
-    if (m_spotMarkers.isEmpty()) return;
+    // Merge DX spots (gated by m_showSpots) and S-history markers (gated by m_showSHistory).
+    // S-History markers are suppressed when a DX spot is active within 3 kHz — the spot
+    // takes priority and carries richer callsign/DXCC information.
+    QVector<SpotMarker> allMarkers;
+    if (m_showSpots) { allMarkers = m_spotMarkers; }
+    if (m_showSHistory) {
+        constexpr double kSpotOverrideMhz = 0.003;  // 3 kHz proximity threshold
+        for (const auto& sh : m_sHistoryMarkers) {
+            bool masked = false;
+            for (const auto& sp : m_spotMarkers) {
+                if (std::abs(sh.freqMhz - sp.freqMhz) < kSpotOverrideMhz) {
+                    masked = true;
+                    break;
+                }
+            }
+            if (!masked) { allMarkers.append(sh); }
+        }
+    }
+    if (allMarkers.isEmpty()) return;
 
     QFont spotFont = p.font();
     spotFont.setPixelSize(m_spotFontSize);
@@ -4695,9 +4747,10 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
     QMap<int, QVector<SpotMarker>> overflowGroups;
     constexpr int ClusterBinWidth = 40;  // pixels — spots within this range cluster together
 
-    for (const auto& spot : m_spotMarkers) {
+    int mIdx = 0;
+    for (const auto& spot : allMarkers) {
         const int x = mhzToX(spot.freqMhz);
-        if (x < 0 || x > width()) continue;
+        if (x < 0 || x > width()) { ++mIdx; continue; }
 
         // Color priority: override → DXCC → spot-provided → default cyan
         QColor col(0x00, 0xb4, 0xd8);  // default cyan
@@ -4733,6 +4786,7 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
         if (labelRect.bottom() > maxBottom) {
             int bin = x / ClusterBinWidth;
             overflowGroups[bin].append(spot);
+            ++mIdx;
             continue;
         }
 
@@ -4743,8 +4797,11 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
         }
 
         placed.append(labelRect);
-        int mIdx = static_cast<int>(&spot - &m_spotMarkers[0]);
         m_spotClickRects.append({labelRect, spot.freqMhz, mIdx});
+
+        // QRM markers draw at 30% opacity (70% transparent)
+        const bool isQrm = (spot.source == QStringLiteral("QRM"));
+        if (isQrm) { p.setOpacity(0.3); }
 
         // Background pill — only draw when override background is enabled (#768)
         if (m_spotOverrideBg) {
@@ -4759,6 +4816,9 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
         // Text
         p.setPen(col);
         p.drawText(labelRect, Qt::AlignCenter, label);
+
+        if (isQrm) { p.setOpacity(1.0); }
+        ++mIdx;
     }
 
     // Draw cluster badges for overflow groups

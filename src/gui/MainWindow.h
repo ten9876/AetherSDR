@@ -293,6 +293,38 @@ private:
     };
     QHash<QString, SpotDedup> m_spotDedup;
 
+    // S History Markers — auto-detected voice signals per panadapter
+    struct SHistoryEntry {
+        double          freqMhz;
+        float           peakDbm;
+        QString         mode;
+        qint64          firstDetectedMs{0};
+        qint64          lastSeenMs;
+        double          widthHz{0.0};
+        bool            suspectQrm{false};
+        // Hit timestamps for the last 10 seconds. Used to detect both
+        // qualification streaks and QRM persistence (>90% occupancy).
+        QVector<qint64> hitTimestamps;
+        // Qualification streak: set when the entry first starts qualifying;
+        // cleared if the signal vanishes completely (no hits for >1 s).
+        // Once the streak reaches 3 s the marker becomes visible.
+        qint64          qualifyStartMs{0};
+        bool            visible{false};
+        bool            confirmedVoice{false}; // true once shown as a gold voice marker
+        qint64          lastGapMs{0};          // last time a ≥1 s gap was detected (epoch ms)
+    };
+    struct SHistoryPanState {
+        double centerMhz{0.0};
+        double bandwidthMhz{0.0};
+        qint64 suppressUntilMs{0};
+    };
+    QHash<QString, QVector<SHistoryEntry>> m_sHistoryData;  // panId → entries
+    QHash<QString, SHistoryPanState> m_sHistoryPanState;
+    QTimer* m_sHistoryExpireTimer{nullptr};
+    bool    m_sHistoryEnabled{false};
+    void rebuildSHistoryForPan(const QString& panId);
+    void expireSHistoryMarkers();
+
     // Batched spot add commands (flushed 1/sec)
     QStringList m_spotCmdBatch;
     int m_nextPassiveSpotId{-2000000};

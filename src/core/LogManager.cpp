@@ -30,6 +30,7 @@ Q_LOGGING_CATEGORY(lcRbn,        "aether.rbn",         QtWarningMsg)
 Q_LOGGING_CATEGORY(lcDevices,    "aether.devices",     QtWarningMsg)
 Q_LOGGING_CATEGORY(lcPerf,       "aether.perf",        QtWarningMsg)
 Q_LOGGING_CATEGORY(lcCw,         "aether.cw",          QtWarningMsg)
+Q_LOGGING_CATEGORY(lcSHistory,  "aether.shistory",    QtWarningMsg)
 
 LogManager::LogManager()
 {
@@ -57,6 +58,7 @@ LogManager::LogManager()
         {"aether.perf",       "Performance",  "Render timing and CPU profiling data"},
         {"aether.propforecast", "Propagation",  "Solar and propagation forecast updates"},
         {"aether.cw",         "CW / netCW",    "CW keying, MIDI paddle, iambic, and netCW timing"},
+        {"aether.shistory",   "S History",     "Past-Signals voice detection: noise floor, region width, band-plan filter"},
     };
 
     // QLoggingCategory objects are defined above via Q_LOGGING_CATEGORY macros.
