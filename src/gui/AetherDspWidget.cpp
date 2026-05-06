@@ -3,6 +3,9 @@
 #include "core/AppSettings.h"
 #include "GuardedSlider.h"
 
+#include <QRegularExpression>
+#include <QSet>
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -337,6 +340,60 @@ void AetherDspWidget::setCompactMode(bool on)
     }
     if (m_dfnrAttenLabel) m_dfnrAttenLabel->setFixedWidth(valWidth);
     if (m_dfnrBetaLabel)  m_dfnrBetaLabel->setFixedWidth(valWidth);
+}
+
+void AetherDspWidget::setDialogMode(bool on)
+{
+    if (!on) return;  // applet path is the default; one-way switch for the dialog
+
+    // Dialog-tuned toggle style — same colour palette as kToggleStyle but
+    // 13 px font + 2px 4px padding to match the VFO DSP toggle row exactly.
+    static const QString kDialogToggleStyle = QStringLiteral(
+        "QPushButton { background: #1a2a3a; border: 1px solid #205070;"
+        "  border-radius: 3px; color: #c8d8e8; font-size: 13px;"
+        "  font-weight: bold; padding: 2px 4px; margin: 0px; }"
+        "QPushButton:hover { background: #204060; }"
+        "QPushButton:checked { background: #0070c0; color: #ffffff;"
+        "  border: 1px solid #0090e0; }"
+        "QPushButton:disabled { background: #0e1822; color: #4a5868;"
+        "  border: 1px solid #1a2838; }");
+
+    // Bump every existing inline `font-size: Npx` declaration in the
+    // widget-level + label/radio/check stylesheets up to 13 px to match
+    // the toggle font.  Buttons get the explicit kDialogToggleStyle below.
+    static const QRegularExpression kFontSizeRe(
+        QStringLiteral("font-size:\\s*\\d+px"));
+    const QString kFontReplacement = QStringLiteral("font-size: 13px");
+
+    auto bumpFonts = [&](QWidget* w) {
+        QString s = w->styleSheet();
+        if (s.isEmpty()) return;
+        s.replace(kFontSizeRe, kFontReplacement);
+        w->setStyleSheet(s);
+    };
+
+    // Set of top-row DSP-selector buttons (NR2/NR4/MNR/DFNR/RN2/BNR)
+    // — they get a slightly tighter 60×24 footprint to fit six in a row
+    // without forcing the dialog to grow wider.  All other toggle buttons
+    // (Gain Method, NPE Method) take the standard 70×26.
+    QSet<QPushButton*> topRow;
+    for (auto* b : m_dspBtns) if (b) topRow.insert(b);
+
+    bumpFonts(this);
+    for (auto* btn : findChildren<QPushButton*>()) {
+        // The toggle buttons (NR2/NR4/MNR/DFNR/RN2/BNR + Gain Method +
+        // NPE Method) are all setCheckable(true).  ResetIconButton is the
+        // only non-checkable QPushButton in the widget — easy to exclude.
+        if (!btn->isCheckable()) continue;
+        btn->setStyleSheet(kDialogToggleStyle);
+        const QSize sz = topRow.contains(btn) ? QSize(60, 24) : QSize(70, 26);
+        btn->setMinimumSize(sz);
+        btn->setMaximumSize(sz);
+        btn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    }
+    for (auto* lbl : findChildren<QLabel*>())       bumpFonts(lbl);
+    for (auto* rb  : findChildren<QRadioButton*>()) bumpFonts(rb);
+    for (auto* cb  : findChildren<QCheckBox*>())    bumpFonts(cb);
 }
 
 void AetherDspWidget::setNr2Available(bool available, const QString& tooltip)

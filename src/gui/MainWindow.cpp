@@ -9823,6 +9823,27 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     });
 #endif
 
+    // AetherDSP button on the per-slice DSP tab — same entry point as the
+    // Settings menu action and the RX chain double-click; reuses the
+    // existing modeless m_dspDialog when one is already open.
+    connect(w, &VfoWidget::aetherDspRequested, this, [this] {
+        if (m_dspDialog) {
+            m_dspDialog->raise();
+            m_dspDialog->activateWindow();
+            return;
+        }
+        auto* dlg = new AetherDspDialog(m_audio, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        if (auto* dspWidget = dlg->widget()) wireAetherDspWidget(dspWidget);
+        m_dspDialog = dlg;
+        dlg->show();
+    });
+
+    // AetherVoice button on the per-slice DSP tab — toggles the Aetherial
+    // Audio Channel Strip, matching the existing menu / chain entry points.
+    connect(w, &VfoWidget::aetherVoiceRequested,
+            this, &MainWindow::toggleAetherialStrip);
+
     // Per-slice VFO marker style (#1526): push user's saved line thickness and
     // filter-edge visibility preferences to this slice's overlay whenever they
     // change. Also fires once on setSlice() below to apply loaded defaults.
