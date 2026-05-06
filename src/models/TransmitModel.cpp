@@ -651,6 +651,10 @@ void TransmitModel::setCwBreakIn(bool on)
 void TransmitModel::setCwDelay(int ms)
 {
     ms = qBound(0, ms, 2000);
+    if (m_cwDelay != ms) {
+        m_cwDelay = ms;
+        emit phoneStateChanged();
+    }
     emit commandReady(QString("cw break_in_delay %1").arg(ms));
 }
 
