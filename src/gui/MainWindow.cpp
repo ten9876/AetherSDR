@@ -3011,6 +3011,11 @@ MainWindow::MainWindow(QWidget* parent)
 #ifdef HAVE_MIDI
     m_midiControl = new MidiControlManager;
     m_midiControl->moveToThread(m_extCtrlThread);
+    m_midiTuneIdleTimer.setSingleShot(true);
+    m_midiTuneIdleTimer.setInterval(250);
+    connect(&m_midiTuneIdleTimer, &QTimer::timeout, this, [this] {
+        m_midiTuneTargetMhz = -1.0;
+    });
 
     // Register MIDI params — setters/getters stored on MainWindow for
     // main-thread dispatch. Param metadata still registered on the manager.
@@ -3046,19 +3051,36 @@ MainWindow::MainWindow(QWidget* parent)
         m_currentMidiTrace = {};
     });
 
-    // MIDI relativeAction signal: coalesced step-based tuning with acceleration
+    // MIDI relativeAction signal: coalesced step-based tuning. VFO tune knob
+    // steps are exact detents; controller-side jog speed is not multiplied here.
     connect(m_midiControl, &MidiControlManager::relativeAction,
             this, [this](const QString& paramId, int steps) {
         if (paramId == "rx.tuneKnob") {
             auto* s = activeSlice();
-            if (!s || s->isLocked()) return;
+            if (!s || s->isLocked()) {
+                m_midiTuneTargetMhz = -1.0;
+                m_midiTuneIdleTimer.stop();
+                return;
+            }
             int stepHz = s->stepHz();
             if (stepHz <= 0) return;  // radio hasn't sent step yet
-            // Snap to step grid: round current freq to nearest step, then offset
-            long long curHz = static_cast<long long>(std::round(s->frequency() * 1e6));
-            long long snapped = ((curHz + stepHz / 2) / stepHz) * stepHz;
-            double newMhz = (snapped + steps * stepHz) / 1e6;
-            applyTuneRequest(s, newMhz, TuneIntent::IncrementalTune, "midi-relative");
+            // Keep an in-flight target while the wheel is moving.  Radio
+            // RF_frequency echoes can lag behind command sends; using the echo
+            // as the next base makes rapid MIDI tuning jump backward/forward.
+            if (m_midiTuneTargetMhz < 0.0
+                || (!m_midiTuneIdleTimer.isActive()
+                    && std::abs(m_midiTuneTargetMhz - s->frequency()) > 0.001)) {
+                const long long curHz =
+                    static_cast<long long>(std::round(s->frequency() * 1e6));
+                const long long snapped =
+                    ((curHz + stepHz / 2) / stepHz) * stepHz;
+                m_midiTuneTargetMhz = snapped / 1e6;
+            }
+            m_midiTuneTargetMhz += steps * stepHz / 1e6;
+            if (spectrum()) spectrum()->setVfoFrequency(m_midiTuneTargetMhz);
+            m_midiTuneIdleTimer.start();
+            applyTuneRequest(s, m_midiTuneTargetMhz, TuneIntent::IncrementalTune,
+                             "midi-relative");
         }
     });
 
@@ -12587,8 +12609,8 @@ void MainWindow::registerMidiParams()
 
     // rx.tuneKnob: bind a relative MIDI knob for VFO tuning.
     // Set the binding to "relative" mode in MIDI Mapping dialog.
-    // Steps are coalesced every 20ms with acceleration:
-    //   Slow spin → ½ rate (fine tuning), Fast spin → 4× (band scanning)
+    // Steps are coalesced every 20ms, but each controller detent remains one
+    // radio step to avoid jumpy jog-wheel behavior.
     reg("rx.tuneKnob", "VFO Tune Knob", "RX", P::Slider, 0, 127,
         [this](float v) {
             // Absolute fallback (non-relative bindings): center=64
