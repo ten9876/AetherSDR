@@ -542,6 +542,12 @@ private:
     bool        m_cwxActive{false};   // true while CWX send is in flight (#2047, #2097)
     bool        m_txAudioGate{false}; // actual TX audio gate state
     bool        m_radioTransmitting{false}; // raw interlock TX state, any owner
+    QString     m_lastInterlockSource;   // last seen interlock source= (#2373)
+                                         // SW/MIC/ACC/RCA/TUNE per FlexLib
+                                         // v4.2.18 ParsePTTSource. Persists
+                                         // across status updates that omit
+                                         // the field; cleared on non-TX
+                                         // interlock states and on disconnect.
     QStringList m_antList;
 
     QMap<QString, PanadapterModel*> m_panadapters;  // panId → model

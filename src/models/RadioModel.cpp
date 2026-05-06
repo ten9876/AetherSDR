@@ -1764,6 +1764,7 @@ void RadioModel::onDisconnected()
     m_txRequested = false;
     m_cwKeyActive = false;
     m_cwxActive = false;
+    m_lastInterlockSource.clear();
     if (m_txAudioGate) {
         m_txAudioGate = false;
         emit txAudioGateChanged(false);
@@ -3370,6 +3371,15 @@ void RadioModel::onStatusReceived(const QString& object,
         // Parse interlock timing fields into TransmitModel (#498)
         m_transmitModel.applyInterlockStatus(kvs);
 
+        // Track PTT source (#2373). The radio reports source=SW for software
+        // MOX/CAT/xmit, and source=MIC|ACC|RCA for hardware-keyed PTT (mic
+        // PTT line, footswitch via ACC, RCA TXREQ). Field is not always
+        // present on every interlock status update, so persist the last
+        // seen value. Matches FlexLib v4.2.18 ParsePTTSource (Radio.cs:7932).
+        if (kvs.contains("source")) {
+            m_lastInterlockSource = kvs["source"].toUpper();
+        }
+
         if (kvs.contains("state")) {
             const QString state = kvs["state"].toUpper();
 
@@ -3379,7 +3389,21 @@ void RadioModel::onStatusReceived(const QString& object,
             m_radioTransmitting = radioTx;
             emit radioTransmittingChanged(radioTx);
 
-            if (!m_txOwnedByUs || (!m_txRequested && !m_cwKeyActive && !m_cwxActive && !m_transmitModel.isTuning())) {
+            // Hardware PTT into the radio (mic PTT line, ACC footswitch, RCA
+            // TXREQ) keys the radio without us calling setTransmit(), so
+            // m_txRequested stays false. Treat hardware sources as a
+            // legitimate "we own this TX" path alongside CW key, CWX, and
+            // tune. SW source still requires m_txRequested so the optimistic
+            // local-unkey behaviour from the TX_SYNC_FIX_REPORT is preserved
+            // (a stale state=TRANSMITTING after setTransmit(false) on SW
+            // source still falls through to the force-off branch).
+            const bool hardwarePtt = (m_lastInterlockSource == "MIC"
+                                      || m_lastInterlockSource == "ACC"
+                                      || m_lastInterlockSource == "RCA");
+
+            if (!m_txOwnedByUs ||
+                (!m_txRequested && !m_cwKeyActive && !m_cwxActive
+                 && !m_transmitModel.isTuning() && !hardwarePtt)) {
                 // Another client owns TX, or local unkey requested:
                 // force local TX/audio gate off through all interlock states.
                 m_transmitModel.setTransmitting(false);
@@ -3408,6 +3432,15 @@ void RadioModel::onStatusReceived(const QString& object,
                     m_txAudioGate = false;
                     emit txAudioGateChanged(false);
                 }
+            }
+
+            // Clear persisted PTT source once interlock confirms we're fully
+            // out of TX, so a stale hardware-PTT source can't outlive the
+            // actual key release if a later status update omits source=.
+            // (#2373)
+            if (state != "TRANSMITTING" && !state.contains("REQUESTED")
+                && !state.contains("DELAY")) {
+                m_lastInterlockSource.clear();
             }
         }
         // Emit TX ownership state for title bar indicator
