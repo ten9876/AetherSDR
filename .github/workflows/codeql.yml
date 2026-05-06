@@ -3,6 +3,15 @@ name: CodeQL
 on:
   pull_request:
     branches: [main]
+    # Skip CodeQL on doc-only PRs — analyzing C++ requires building the
+    # whole project (~23 min wall clock).  The weekly cron below gives
+    # us a periodic full scan regardless of PR activity.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.github/**'
   schedule:
     - cron: '0 6 * * 1'  # weekly Monday 06:00 UTC
 

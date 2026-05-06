@@ -3,6 +3,203 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.9.7] — 2026-05-05
+
+### CW keying overhaul + reliability sweep
+
+A focused follow-up to v0.9.6 with two themes: a substantial CW operator
+upgrade — keyboard and MIDI-mapped straight key + iambic paddles, full
+break-in / QSK respect on both paths, netCW timing fixes, and Apollo-era
+Quindar tones on PTT engage/disengage — and a reliability sweep covering
+SpotHub auto-reconnect, a TCI crash on quit, the long-standing waterfall
+TX trail, hardware PTT regressions, and DAX RX latency.
+
+Big thanks to **@jensenpat** (CW keyboard / MIDI controls, compression
+meter gating, Windows MSVC runtime), **@M7HNF-Ian** (Spot Lines,
+HiDPI gauge clipping, TCI crash on quit, SpotHub auto-reconnect),
+**@filemakers** (connect-to-last-radio opt-out checkbox), **@NF0T**
+(RADE TX policy naming + tests), **@chibondking** (live voltage gauge),
+plus issue reporters **@VU2CPL** (TCI crash with full call stack),
+**@luigiverdicchio1-prog** (SpotHub failed-reconnect repro), **@LU5DX**
+and **@rnash2** (spectrum amplitude scale issue — under investigation).
+
+### New features
+
+**CW keyboard + MIDI controls (#2361, #2391, jensenpat)**
+- Three new shared shortcut + MIDI actions: `Trigger straight key`,
+  `Trigger CW Left Paddle`, `Trigger CW Right Paddle`. Same action IDs
+  and display names for keyboard shortcuts and MIDI mappings (`cwkey` /
+  `cwdit` / `cwdah`); `MidiSettings` migrates legacy dotted IDs
+  (`cw.key` / `cw.dit` / `cw.dah`) on read.
+- Straight key is a true momentary control: keyboard press + MIDI gate-on
+  assert the netCW key path, release + gate-off release it. Paddles feed
+  the local iambic keyer when running so sidetone and on-air timing stay
+  aligned with WPM; falls back to a held-key path otherwise.
+- Both paths now honor the radio's `break_in` setting fully — with
+  `break_in=1` (QSK), key edges trigger TX and `break_in_delay` holds
+  the relay between elements; with `break_in=0`, keys are queued and the
+  operator engages PTT manually (Space PTT, MOX, hardware PTT). The
+  previous auto-PTT envelope masked break-in OFF and killed QSK hang
+  time on release.
+- New clickable red TX status badge in the status bar acts as an
+  emergency transmit cancel — checks Multi-Flex ownership, clears all
+  local CW state, forces sidetone key-up, and sends `cw key 0` /
+  `cw ptt 0` / `transmit tune 0` / `xmit 0`.
+- Slider focus lease no longer blocks momentary CW shortcuts or Space
+  PTT — clicking the CW delay slider previously froze J/K/L paddle
+  keying and Space PTT for 2+ seconds while the lease's arrow-key
+  capture timer expired.
+- Pre-existing typo fix: J tile in the on-screen keyboard widget was
+  bound to `Qt::Key_I`, so binding a shortcut to J in the editor
+  selected I.
+
+**Quindar tones — Apollo-era K/BK on PTT (#2334, fixes #2262)**
+- Optional 2525 Hz "K" / 2475 Hz "BK" tones on PTT engage / disengage,
+  modeled after Apollo CapCom audio. Lock-free DSP module wired between
+  PC mic gain and the final TX limiter so tones are mixed into the
+  outgoing audio. Local sidetone via a dedicated 48 kHz `QAudioSink`
+  (mutually exclusive with CW mode at the mode level — Quindar and CW
+  share the same sidetone bus).
+- Added as the QUIN chip in the Final Output Stage panel of the
+  Aetherial Audio Channel Strip with a frameless editor dialog
+  (test-tone buttons + Done in the same row as the title bar).
+- Disabled by default; opt-in via the chip toggle.
+
+**netCW keying fix + trace logging (#2336, fixes a long-tail of issues)**
+- Fixes netCW timing for both straight-key and iambic CW. Adds detailed
+  `aether.cw` trace category logging across MIDI / keyboard input,
+  netCW UDP scheduling, VITA stream/index details, and TCP fallback /
+  backstop paths so future timing regressions are diagnosable from logs.
+
+**Spot Lines toggle in SpotHub (#2349, M7HNF-Ian)**
+- New "Spot Lines" toggle in the SpotHub Display settings draws vertical
+  lines from the spectrum up to each spot label. Off during contests to
+  reduce visual clutter; on for casual ops to keep label-to-frequency
+  mapping legible at a glance.
+
+**Network Diagnostics live logs tab (#2333)**
+- New tab in the Network Diagnostics dialog with live tail of the same
+  logs the diagnostics report references, scoped to the diagnostic
+  categories (`aether.connection`, `aether.dxcluster`, `aether.cw`,
+  etc.). Lets users diff what they're seeing against what was logged
+  without leaving the dialog.
+
+**Connect-to-last-radio opt-out checkbox (#2390, filemakers)**
+- New "Connect to last radio on start up" checkbox on the connection
+  dialog; defaults to ON so existing users keep current behavior. When
+  unchecked, AetherSDR no longer auto-connects on startup, on
+  broadcast-discovery, or on routed-radio probe — useful for operators
+  who want to pick a radio manually each session. The dialog
+  auto-launches at startup when opt-out is enabled so the user has a
+  clear path to pick a radio.
+
+### Bug fixes
+
+**SpotHub auto-reconnect after failed connection attempt (#2394, M7HNF-Ian, fixes #2380)**
+- SpotHub (DX cluster / RBN) didn't automatically reconnect after a
+  Wi-Fi drop or any failed connection attempt — Qt's `QAbstractSocket`
+  only emits `disconnected()` on Connected → Unconnected transitions,
+  so when the socket failed during `ConnectingState` (host blocked,
+  refused, or timed out), the reconnect timer was never armed. Extracts
+  a `scheduleReconnect()` helper called from all three failure paths
+  (live drop, socket error, connect timeout) with guards against
+  double-scheduling. A per-call epoch counter prevents stale timeouts
+  from a previous attempt aborting a later successful one. Backoff
+  sequence unchanged: 5 s → 10 s → 20 s → 40 s → 60 s.
+
+**TCI crash on quit when TciServer outlives RadioModel (#2386, M7HNF-Ian, fixes #2385)**
+- `TciServer` was constructed as a `QObject` child of `MainWindow`, so
+  Qt deleted it during `~QWidget::deleteChildren()` — which runs *after*
+  `MainWindow`'s value members (including `m_radioModel`) have already
+  destructed. `~TciServer()` → `stop()` → `releaseDaxForTci()` then
+  dereferenced freed memory. EXC_BAD_ACCESS @ `0x38`, 100% reproducible
+  on quit when a radio was connected. Reported by VU2CPL with full call
+  stack. Fixed by explicitly tearing down `m_tciServer` in
+  `~MainWindow()` after the audio thread is stopped but while
+  `m_radioModel` is still alive, plus a belt-and-braces
+  `QPointer<RadioModel>` so the existing null guards in
+  `releaseDaxForTci()` catch any future regression automatically.
+
+**Waterfall unfreezes on radio interlock state, not MOX edge (#2368, fixes #1927)**
+- Waterfall freeze/unfreeze previously gated on the local MOX edge,
+  which fired the instant the user released PTT — the radio kept
+  streaming TX-contaminated tiles for the `UNKEY_REQUESTED` window, and
+  those rows then took 10–23 s to scroll off the visible waterfall.
+  Now driven by `RadioModel::radioTransmittingChanged` (interlock
+  `state=TRANSMITTING`), so the freeze is held until the radio
+  actually leaves TX. Multi-Flex bonus: any client TXing now triggers
+  the freeze, not just our client.
+
+**Honor cw break_in for keyboard CW keying (#2391)**
+- `RadioModel::sendCwKey` and the iambic keyer's `onPaddleEvent` both
+  unconditionally wrapped each key/squeeze in a `cw ptt 1`...`cw ptt 0`
+  envelope. Made break-in OFF a no-op (auto-PTT forced TX anyway) and
+  killed the radio's break_in_delay hang time with break-in ON
+  (force-dropped PTT after every element). Stripped the auto-PTT in
+  both paths so the radio's break-in setting decides TX behavior,
+  matching SmartSDR semantics.
+
+**Spot list double-click switches mode (#2372, fixes #2298)**
+- Double-clicking a spot in the Spot List now switches the radio's
+  mode along with the frequency. Previously only the frequency moved,
+  leaving the user in the wrong mode for the spotted signal.
+
+**Spot trigger includes pan= for external CAT clients (#2369, fixes #2366)**
+- The spot click protocol now includes `pan=<panId>` so external CAT
+  clients (N1MM Logger, etc.) consuming AetherSDR's spot triggers can
+  route the click to the correct panadapter in multi-pan setups.
+
+**Compression meter gates on radio TX state (#2363, jensenpat)**
+- The TX compression meter now displays only while the radio reports
+  `state=TRANSMITTING`. Previously it could read live during RX from
+  stale interlock state, confusing operators about what compression
+  was actually applied to their signal.
+
+**Voltage gauge label shows live radio voltage (#2362, chibondking)**
+- The voltage gauge label now reflects the live voltage value reported
+  by the radio instead of the static "VOLTS" placeholder.
+
+**Minimal mode revert on macOS when entered while maximized (#2367, fixes #2365)**
+- Entering minimal mode while the window was already maximized on
+  macOS would revert to a non-minimal layout immediately on toggle.
+  Layout / state ordering corrected so the entry sticks regardless of
+  the prior maximized state.
+
+**MidiControlManager: drop dead paramAction signal (#2370)**
+- Cleanup follow-up after #2336 introduced `paramActionTrace` —
+  `paramAction` was still emitted but had zero connectors. Removed
+  the orphan signal + matching declaration.
+
+### Infrastructure
+
+**DAX RX native pw_stream source on Linux (#2312, fixes #1008)**
+- DAX RX latency on Linux drops from ~400 ms → ~200 ms via a native
+  PipeWire `pw_stream` source path, replacing the previous PulseAudio
+  client. Brings DAX RX latency in line with macOS / Windows.
+
+**RADE TX policy naming + tests (#2353, NF0T, fixes #2343)**
+- Renames the RADE TX policy enum to align with the issue tracking
+  language (`HostedDaxBridge` etc.) and adds unit tests covering each
+  `(reason, platform, mode) → (allowed, note)` decision row.
+
+**HiDPI gauge clipping (#2346, M7HNF-Ian)**
+- HGauge tick labels and TxApplet value labels were clipping on HiDPI
+  displays. Layout / paint regions updated to honor device-pixel ratio.
+
+**Windows portable ZIP includes MSVC runtime (#2364, jensenpat)**
+- Windows portable ZIP now bundles the MSVC runtime DLLs so the
+  portable build runs on systems without Visual C++ Redistributable
+  installed — matches the experience of the installer build.
+
+**Connection-panel slider focus lease split**
+- `shortcutInputCaptured()` was conflating "slider has focus and
+  arrow-key lease is active" with "user is typing in a text field",
+  blocking momentary CW shortcuts and Space PTT during slider drags.
+  Now split into `textInputCaptured()` (text widgets only) and
+  `shortcutInputCaptured()` (text + slider lease) so QShortcut
+  dispatch keeps the arrow-key behaviour while momentary actions
+  bypass the lease. Bundled with #2391.
+
 ## [v0.9.6] — 2026-05-04
 
 ### Aetherial Audio Channel Strip + AetherSweep Phase 2

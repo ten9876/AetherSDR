@@ -10,7 +10,7 @@
 
 AetherSDR brings FlexRadio operation to Linux without Wine or virtual machines. Built from the ground up with Qt6 and C++20, it speaks the SmartSDR protocol natively and aims to replicate the full SmartSDR experience.
 
-**Current version: 0.9.6** | [Download](https://github.com/ten9876/AetherSDR/releases/latest) | [Discussions](https://github.com/ten9876/AetherSDR/discussions) | [What's New](https://github.com/ten9876/AetherSDR/releases)
+**Current version: 0.9.7** | [Download](https://github.com/ten9876/AetherSDR/releases/latest) | [Discussions](https://github.com/ten9876/AetherSDR/discussions) | [What's New](https://github.com/ten9876/AetherSDR/releases)
 
 > **Cross-platform downloads available:** Linux AppImage, macOS universal DMG, Windows installer and portable ZIP.
 > Linux is the primary supported platform. macOS and Windows builds are provided as a courtesy.
@@ -25,12 +25,16 @@ AetherSDR brings FlexRadio operation to Linux without Wine or virtual machines. 
 
 - **GPU-accelerated rendering** — QRhi waterfall + FFT spectrum on GPU (OpenGL/Metal/D3D11), 71% CPU reduction, heat map FFT display
 - **Multi-slice operation** — color-coded VFO overlays, independent TX assignment, diversity mode with ESC beamforming
-- **Multi-panadapter** — up to 4 pans with 6 layout options, per-pan display controls, native VITA-49 waterfall tiles
-- **Full RX/TX controls** — filter presets, AGC, DSP, EQ, mic/compression gauges, TX profiles, ATU, TUNE/MOX
+- **Multi-panadapter** — up to 8 pans (FLEX-6700) with 6 layout options, detachable pop-out windows, per-pan display controls, native VITA-49 waterfall tiles
+- **Full RX/TX controls** — filter presets, custom filter edges, AGC, DSP, EQ, mic/compression gauges, ATU, TUNE/MOX
+- **Aetherial Audio Channel Strip** — unified TX DSP suite (gate, EQ, compressor, de-esser, tube, AetherVoice exciter, Freeverb, brickwall limiter) with savable preset library
 - **Client-side noise reduction** — NR2 (spectral), RN2 (RNNoise neural), BNR (NVIDIA GPU AI denoiser)
-- **CW decoder** — real-time Morse decode with auto pitch/speed detection and confidence coloring
-- **SpotHub** — DX Cluster, RBN, WSJT-X, POTA, and FreeDV Reporter spots with density badges and auto-mode switch
-- **DAX virtual audio** — 4 RX + 1 TX channels for WSJT-X, fldigi, VARA, JS8Call (Linux PulseAudio/PipeWire, macOS CoreAudio)
+- **AetherSweep** — in-panadapter SWR analyzer with log scale, threshold-band shading, interpolated bandwidth at SWR ≤ 1.5 / 2.0
+- **Network Diagnostics** — per-metric trend graphs, packet loss / RTT / jitter metrics, live log tail
+- **Memory channels + profiles** — memory bank with quick-recall, global / mic / TX profile management synced with the radio
+- **CW operator suite** — real-time Morse decoder with auto pitch/speed detection, keyboard + MIDI-mapped straight key and iambic paddles with full break-in / QSK respect, optional Apollo-era Quindar tones on PTT
+- **SpotHub** — DX Cluster, RBN, WSJT-X, POTA, and FreeDV Reporter spots with density badges, auto-mode switch, and auto-reconnect
+- **DAX virtual audio** — 4 RX + 1 TX channels for WSJT-X, fldigi, VARA, JS8Call (Linux PipeWire native / PulseAudio, macOS CoreAudio; Windows via TCI / external bridges)
 - **DAX IQ streaming** — raw I/Q to SDR apps at 24/48/96/192 kHz
 - **SmartLink remote operation** — Auth0 login, TLS command channel, WAN UDP streaming with credential persistence
 - **TCI server** — full TCI v2.0 protocol over WebSocket: CAT + audio + IQ + CW + spots in one connection
@@ -47,7 +51,7 @@ AetherSDR brings FlexRadio operation to Linux without Wine or virtual machines. 
 
 ## Supported Radios
 
-Works with any FlexRadio transceiver running SmartSDR firmware v3.x or v4.x: FLEX-6400, 6400M, 6600, 6600M, 6700, 8400, 8400M, 8600, 8600M, and Aurora (AU-510, AU-520) series.
+Works with any FlexRadio transceiver: FLEX-6300, 6400, 6400M, 6500, 6600, 6600M, 6700, 8400, 8400M, 8600, 8600M, Aurora (AU-510, AU-520), and ML- / CL- / RT-series. Active test target is FLEX-8600 firmware 4.1.5 (SmartSDR protocol v1.4.0.0); v3.x firmware likely works but is not tested.
 
 ---
 
@@ -107,7 +111,7 @@ brew install qt@6 ninja cmake pkgconf autoconf automake libtool \
 | qt6-serialport-dev | FlexControl, serial PTT/CW, MIDI controllers |
 | libfftw3-dev | NR2 spectral noise reduction |
 | portaudio19-dev | PortAudio audio backend |
-| libhidapi-dev | StreamDeck, USB HID encoders (RC-28, PowerMate) |
+| libhidapi-dev | USB HID encoders (RC-28, PowerMate, FlexControl) |
 | qtkeychain-qt6-dev | SmartLink credential persistence |
 
 </details>
@@ -138,11 +142,9 @@ sudo cmake --install build
 
 ## Roadmap
 
-- [ ] GPU-accelerated spectrum/waterfall via QRhi (#391)
-- [ ] TCI WebSocket server for single-connection integration (#528)
-- [ ] DAX audio channels on Windows (#87)
 - [ ] CW ultimatic keyer mode (#416)
-- [ ] Detachable/pop-out panadapter windows (#246)
+- [ ] Native DAX audio channels on Windows
+- [ ] Stream Deck plugin (in development)
 
 See the full [issue tracker](https://github.com/ten9876/AetherSDR/issues) for all planned features.
 
@@ -164,7 +166,7 @@ Linux and Windows binaries are GPG-signed. macOS artifacts are Apple notarized. 
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/ten9876/AetherSDR/main/docs/RELEASE-SIGNING-KEY.pub.asc | gpg --import
-gpg --verify AetherSDR-v1.0.0-x86_64.AppImage.asc AetherSDR-v1.0.0-x86_64.AppImage
+gpg --verify AetherSDR-vX.Y.Z-x86_64.AppImage.asc AetherSDR-vX.Y.Z-x86_64.AppImage
 ```
 
 See [docs/VERIFYING-RELEASES.md](docs/VERIFYING-RELEASES.md) for full instructions.
