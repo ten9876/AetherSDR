@@ -38,16 +38,28 @@ jobs:
             brew install fftw portaudio hidapi
           fi
 
-      - name: Restore Qt cache (Intel only)
+      - name: Download pre-built Qt (Intel only)
         if: matrix.label == 'intel'
-        id: qt-cache
-        uses: actions/cache@v5
-        with:
-          path: qt-install
-          key: qt-6.7.3-macos-intel-deploy13
+        id: qt-download
+        run: |
+          # Pull the pinned Qt tarball produced by build-macos-qt.yml.
+          # GitHub's release CDN doesn't evict, so this hits reliably
+          # regardless of how long since the last release build.  If the
+          # tarball is missing (Qt version bumped without re-running the
+          # builder workflow), fall back to from-source.
+          URL="https://github.com/${{ github.repository }}/releases/download/deps-qt-6.7.3-macos-intel/qt-6.7.3-macos-intel-deploy13.0.tar.gz"
+          if curl -sL --fail -o qt-install.tar.gz "$URL"; then
+            tar -xzf qt-install.tar.gz
+            rm qt-install.tar.gz
+            echo "downloaded=true" >> "$GITHUB_OUTPUT"
+            echo "Pre-built Qt downloaded ($(du -sh qt-install | cut -f1))"
+          else
+            echo "downloaded=false" >> "$GITHUB_OUTPUT"
+            echo "Pre-built Qt not available at $URL — falling back to from-source build (~27 min).  Run the Build macOS Qt (Intel deps) workflow to populate this asset."
+          fi
 
-      - name: Build Qt from source (Intel only, cache miss)
-        if: matrix.label == 'intel' && steps.qt-cache.outputs.cache-hit != 'true'
+      - name: Build Qt from source (Intel only, fallback)
+        if: matrix.label == 'intel' && steps.qt-download.outputs.downloaded != 'true'
         run: |
           git clone --depth 1 --branch v6.7.3 https://code.qt.io/qt/qt5.git qt-src
           cd qt-src
@@ -80,6 +92,12 @@ jobs:
       - name: Setup DeepFilterNet3 (DFNR)
         run: bash setup-deepfilter.sh
 
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ccache-macos-${{ matrix.label }}
+          max-size: 500M
+
       - name: Configure
         run: |
           if [ "${{ matrix.label }}" = "intel" ]; then
@@ -97,6 +115,8 @@ jobs:
           fi
           cmake -B build -G "Unix Makefiles" \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY_TARGET" \
             -DCMAKE_PREFIX_PATH="$QT_PREFIX;$(brew --prefix)" \
             -DMQTT_TLS=OFF \
