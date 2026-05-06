@@ -398,6 +398,7 @@ void PhoneCwApplet::buildCwPanel()
         m_delayEdit->setAlignment(Qt::AlignCenter);
         m_delayEdit->setValidator(new QIntValidator(0, 2000, m_delayEdit));
         m_delayEdit->setAccessibleName("CW delay value");
+        m_delayEdit->setAccessibleDescription("CW break-in delay in milliseconds, 0 to 2000");
         row->addWidget(m_delayEdit);
 
         connect(m_delaySlider, &QSlider::valueChanged, this, [this](int v) {
@@ -440,6 +441,7 @@ void PhoneCwApplet::buildCwPanel()
         m_speedEdit->setAlignment(Qt::AlignCenter);
         m_speedEdit->setValidator(new QIntValidator(5, 100, m_speedEdit));
         m_speedEdit->setAccessibleName("CW speed value");
+        m_speedEdit->setAccessibleDescription("CW keying speed in words per minute, 5 to 100");
         row->addWidget(m_speedEdit);
 
         connect(m_speedSlider, &QSlider::valueChanged, this, [this](int v) {
@@ -486,6 +488,7 @@ void PhoneCwApplet::buildCwPanel()
         m_sidetoneEdit->setAlignment(Qt::AlignCenter);
         m_sidetoneEdit->setValidator(new QIntValidator(0, 100, m_sidetoneEdit));
         m_sidetoneEdit->setAccessibleName("Sidetone volume value");
+        m_sidetoneEdit->setAccessibleDescription("CW sidetone monitor volume, 0 to 100");
         row->addWidget(m_sidetoneEdit);
 
         connect(m_sidetoneBtn, &QPushButton::toggled, this, [this](bool on) {
@@ -580,6 +583,7 @@ void PhoneCwApplet::buildCwPanel()
         m_pitchEdit->setAlignment(Qt::AlignCenter);
         m_pitchEdit->setFixedWidth(48);
         m_pitchEdit->setAccessibleName("CW pitch frequency");
+        m_pitchEdit->setAccessibleDescription("CW sidetone pitch in Hz, 100 to 6000");
         m_pitchEdit->setValidator(new QIntValidator(100, 6000, m_pitchEdit));
         m_pitchEdit->setStyleSheet(
             "QLineEdit { font-size: 11px; background: #0a0a18; border: 1px solid #1e2e3e; "
