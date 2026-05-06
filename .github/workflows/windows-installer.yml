@@ -30,16 +30,52 @@ jobs:
       - name: Install Ninja, Inno Setup, and LLVM
         run: choco install ninja innosetup llvm -y
 
+      # Each third-party dep is cached against the hash of its setup
+      # script (which pins the version), so cache invalidates the moment
+      # we bump a version.  Skips the upstream download + build entirely
+      # on cache hit.
+      - name: Cache Opus
+        uses: actions/cache@v4
+        id: cache-opus
+        with:
+          path: third_party/opus
+          key: opus-${{ runner.os }}-${{ hashFiles('setup-opus.ps1') }}
+
       - name: Setup Opus (SmartLink audio codec)
+        if: steps.cache-opus.outputs.cache-hit != 'true'
         run: .\setup-opus.ps1
 
+      - name: Cache FFTW3
+        uses: actions/cache@v4
+        id: cache-fftw
+        with:
+          path: third_party/fftw3
+          key: fftw-${{ runner.os }}-${{ hashFiles('setup-fftw.ps1') }}
+
       - name: Setup FFTW3 float (NR4 dependency)
+        if: steps.cache-fftw.outputs.cache-hit != 'true'
         run: .\setup-fftw.ps1
 
+      - name: Cache hidapi
+        uses: actions/cache@v4
+        id: cache-hidapi
+        with:
+          path: third_party/hidapi
+          key: hidapi-${{ runner.os }}-${{ hashFiles('setup-hidapi.ps1') }}
+
       - name: Setup hidapi (USB HID device support)
+        if: steps.cache-hidapi.outputs.cache-hit != 'true'
         run: .\setup-hidapi.ps1
 
+      - name: Cache DeepFilterNet3
+        uses: actions/cache@v4
+        id: cache-deepfilter
+        with:
+          path: third_party/deepfilter
+          key: deepfilter-${{ runner.os }}-${{ hashFiles('setup-deepfilter.ps1') }}
+
       - name: Setup DeepFilterNet3 (DFNR)
+        if: steps.cache-deepfilter.outputs.cache-hit != 'true'
         run: .\setup-deepfilter.ps1
 
       - name: Configure
