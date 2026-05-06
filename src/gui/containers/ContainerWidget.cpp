@@ -49,14 +49,9 @@ void ContainerWidget::paintEvent(QPaintEvent* /*event*/)
 {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-    // Card background
-    QColor bg;
-    bg.setNamedColor(DesignTokens::kSurfacePanel);
-    p.setBrush(bg);
-    // Card border
-    QColor border;
-    border.setNamedColor(DesignTokens::kBorderControl);
-    p.setPen(QPen(border, 1));
+    // Card background + border (use fromString to avoid setNamedColor deprecation)
+    p.setBrush(QColor::fromString(DesignTokens::kSurfacePanel));
+    p.setPen(QPen(QColor::fromString(DesignTokens::kBorderControl), 1));
     p.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 2, 2);
 }
 

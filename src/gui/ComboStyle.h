@@ -27,7 +27,7 @@ inline QString comboArrowPath()
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(Qt::NoPen);
     // Arrow fill uses the secondary text color
-    p.setBrush(QColor(kTextSecondary.data()));
+    p.setBrush(QColor::fromString(kTextSecondary));
     const QPointF tri[] = {{0, 0}, {8, 0}, {4, 6}};
     p.drawPolygon(tri, 3);
     p.end();

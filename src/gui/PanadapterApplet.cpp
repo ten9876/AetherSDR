@@ -26,10 +26,6 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
-    setStyleSheet(
-        "PanadapterApplet { border: 1px solid " + DesignTokens::kBorderControl + "; "
-        "border-radius: 4px; }");
-
     // ── Title bar ─────────────────────────────────────────────────────────
     m_titleBar = new QWidget;
     m_titleBar->setFixedHeight(16);
