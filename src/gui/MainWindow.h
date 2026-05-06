@@ -400,7 +400,9 @@ private:
     QLabel* m_supplyVoltLabel{nullptr};
     QLabel* m_networkLabel{nullptr};
     QTimer m_networkTooltipRefreshTimer;
+    QLabel* m_tgxlSeparator{nullptr};
     QLabel* m_tgxlIndicator{nullptr};
+    QLabel* m_pgxlSeparator{nullptr};
     QLabel* m_pgxlIndicator{nullptr};
     QLabel* m_txIndicator{nullptr};
     QLabel* m_gpsDateLabel{nullptr};

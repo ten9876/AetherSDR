@@ -2678,6 +2678,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel.tunerModel(), &TunerModel::presenceChanged,
             this, [this](bool present) {
         m_tgxlIndicator->setVisible(present);
+        m_tgxlSeparator->setVisible(present);
         // Auto-connect/disconnect direct TGXL connection for manual relay control (#469)
         if (present) {
             QString ip = m_radioModel.tunerModel().tgxlIp();
@@ -2807,6 +2808,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(&m_radioModel, &RadioModel::amplifierChanged, this, [this, updatePgxlStyle](bool present) {
         m_pgxlIndicator->setVisible(present);
+        m_pgxlSeparator->setVisible(present);
         m_appletPanel->setAmpVisible(present);
         if (present) updatePgxlStyle();
     });
@@ -6940,10 +6942,11 @@ void MainWindow::buildUI()
     hbox->setContentsMargins(6, 0, 6, 0);
     hbox->setSpacing(6);
 
-    auto addSep = [&]() {
+    auto addSep = [&]() -> QLabel* {
         auto* sep = new QLabel(" · ");
         sep->setStyleSheet(sepStyle);
         hbox->addWidget(sep);
+        return sep;
     };
 
     // Hidden connection state label (used by connect/disconnect logic)
@@ -7238,7 +7241,8 @@ void MainWindow::buildUI()
     netVbox->addWidget(m_networkLabel);
     hbox->addWidget(netStack);
 
-    addSep();
+    m_tgxlSeparator = addSep();
+    m_tgxlSeparator->setVisible(false);
 
     m_tgxlIndicator = new QLabel;
     m_tgxlIndicator->setTextFormat(Qt::RichText);
@@ -7249,7 +7253,8 @@ void MainWindow::buildUI()
     m_tgxlIndicator->setVisible(false);
     hbox->addWidget(m_tgxlIndicator);
 
-    addSep();
+    m_pgxlSeparator = addSep();
+    m_pgxlSeparator->setVisible(false);
 
     m_pgxlIndicator = new QLabel;
     m_pgxlIndicator->setTextFormat(Qt::RichText);
@@ -7605,9 +7610,11 @@ void MainWindow::onConnectionStateChanged(bool connected)
         refreshMemoryBrowsePanel();
         updateBandStackIndicator();
         m_tgxlIndicator->setVisible(false);
+        m_tgxlSeparator->setVisible(false);
         m_tgxlConn.disconnect();
         m_pgxlConn.disconnect();
         m_pgxlIndicator->setVisible(false);
+        m_pgxlSeparator->setVisible(false);
         m_txIndicator->setStyleSheet("QLabel { color: rgba(255,255,255,128); font-weight: bold; font-size: 21px; }");
         m_txIndicator->setText("TX");
         m_connPanel->setStatusText("Not connected");
