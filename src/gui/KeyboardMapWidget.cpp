@@ -131,7 +131,7 @@ void KeyboardMapWidget::buildLayout()
     m_keys.append({4.75f, y3, 1, 1, Qt::Key_F, "F", {}});
     m_keys.append({5.75f, y3, 1, 1, Qt::Key_G, "G", {}});
     m_keys.append({6.75f, y3, 1, 1, Qt::Key_H, "H", {}});
-    m_keys.append({7.75f, y3, 1, 1, Qt::Key_I, "J", {}});
+    m_keys.append({7.75f, y3, 1, 1, Qt::Key_J, "J", {}});
     m_keys.append({8.75f, y3, 1, 1, Qt::Key_K, "K", {}});
     m_keys.append({9.75f, y3, 1, 1, Qt::Key_L, "L", {}});
     m_keys.append({10.75f, y3, 1, 1, Qt::Key_Semicolon, ";", ":"});

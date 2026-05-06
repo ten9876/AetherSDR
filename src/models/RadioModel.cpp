@@ -735,17 +735,14 @@ void RadioModel::sendCwKey(bool down, const QString& debugSource,
 {
     const bool prev = m_cwKeyActive;
     m_cwKeyActive = down;
-    // PTT-then-Key on press, Key-then-unPTT on release.  Per FlexLib's
-    // CWPTT + CWKey pair (Radio.cs:8890–8965): without an explicit
-    // `cw ptt 1` the radio queues key events but doesn't transmit when
-    // break_in=0 (the default on most user setups).  Pairing PTT with
-    // KEY keys reliably regardless of break-in mode.
-    if (down && !prev)
-        sendNetCwCommand(QStringLiteral("cw ptt 1"), debugSource, debugTraceId, debugSourceMs);
+    // Send only the key edge — the radio's break-in setting decides whether
+    // it transmits.  With break_in=1 (QSK), `cw key 1` triggers TX and
+    // break_in_delay holds the relay between elements.  With break_in=0,
+    // the radio queues the key but doesn't transmit until the operator
+    // explicitly asserts CW PTT (Space PTT, MOX, or hardware PTT) — the
+    // standard semi-break-in workflow per FlexLib Radio.cs:8890–8965.
     sendNetCwCommand(QString("cw key %1").arg(down ? 1 : 0),
                      debugSource, debugTraceId, debugSourceMs);
-    if (!down && prev)
-        sendNetCwCommand(QStringLiteral("cw ptt 0"), debugSource, debugTraceId, debugSourceMs);
     if (prev != down)
         emit cwKeyDownChanged(down);
 }

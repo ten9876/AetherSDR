@@ -11,6 +11,21 @@
 
 namespace AetherSDR {
 
+namespace {
+
+QString normalizedMidiParamId(const QString& paramId)
+{
+    if (paramId == QLatin1String("cw.key"))
+        return QStringLiteral("cwkey");
+    if (paramId == QLatin1String("cw.dit"))
+        return QStringLiteral("cwdit");
+    if (paramId == QLatin1String("cw.dah"))
+        return QStringLiteral("cwdah");
+    return paramId;
+}
+
+} // namespace
+
 MidiSettings& MidiSettings::instance()
 {
     static MidiSettings s;
@@ -73,7 +88,7 @@ void MidiSettings::save()
     xml.writeStartElement("Bindings");
     for (const auto& b : bindings) {
         xml.writeStartElement("Binding");
-        xml.writeAttribute("param", b.paramId);
+        xml.writeAttribute("param", normalizedMidiParamId(b.paramId));
         xml.writeAttribute("channel", QString::number(b.channel));
         xml.writeAttribute("type", QString::number(static_cast<int>(b.msgType)));
         xml.writeAttribute("number", QString::number(b.number));
@@ -114,7 +129,7 @@ void MidiSettings::saveBindings(const QVector<MidiBinding>& bindings)
     xml.writeStartElement("Bindings");
     for (const auto& b : bindings) {
         xml.writeStartElement("Binding");
-        xml.writeAttribute("param", b.paramId);
+        xml.writeAttribute("param", normalizedMidiParamId(b.paramId));
         xml.writeAttribute("channel", QString::number(b.channel));
         xml.writeAttribute("type", QString::number(static_cast<int>(b.msgType)));
         xml.writeAttribute("number", QString::number(b.number));
@@ -139,7 +154,7 @@ QVector<MidiBinding> MidiSettings::parseBindingsFromXml(const QString& filePath)
         xml.readNext();
         if (xml.isStartElement() && xml.name() == u"Binding") {
             MidiBinding b;
-            b.paramId  = xml.attributes().value("param").toString();
+            b.paramId  = normalizedMidiParamId(xml.attributes().value("param").toString());
             b.channel  = xml.attributes().value("channel").toInt();
             b.msgType  = static_cast<MidiBinding::MsgType>(
                              xml.attributes().value("type").toInt());
@@ -166,7 +181,7 @@ void MidiSettings::writeBindingsToXml(const QString& filePath,
     xml.writeStartElement("MidiProfile");
     for (const auto& b : bindings) {
         xml.writeStartElement("Binding");
-        xml.writeAttribute("param", b.paramId);
+        xml.writeAttribute("param", normalizedMidiParamId(b.paramId));
         xml.writeAttribute("channel", QString::number(b.channel));
         xml.writeAttribute("type", QString::number(static_cast<int>(b.msgType)));
         xml.writeAttribute("number", QString::number(b.number));
