@@ -47,7 +47,7 @@ jobs:
           # regardless of how long since the last release build.  If the
           # tarball is missing (Qt version bumped without re-running the
           # builder workflow), fall back to from-source.
-          URL="https://github.com/${{ github.repository }}/releases/download/deps-qt-6.7.3-macos-intel/qt-6.7.3-macos-intel-deploy13.0.tar.gz"
+          URL="https://github.com/${{ github.repository }}/releases/download/deps-qt-6.8.3-macos-intel/qt-6.8.3-macos-intel-deploy13.0.tar.gz"
           if curl -sL --fail -o qt-install.tar.gz "$URL"; then
             tar -xzf qt-install.tar.gz
             rm qt-install.tar.gz
@@ -61,7 +61,7 @@ jobs:
       - name: Build Qt from source (Intel only, fallback)
         if: matrix.label == 'intel' && steps.qt-download.outputs.downloaded != 'true'
         run: |
-          git clone --depth 1 --branch v6.7.3 https://code.qt.io/qt/qt5.git qt-src
+          git clone --depth 1 --branch v6.8.3 https://code.qt.io/qt/qt5.git qt-src
           cd qt-src
           perl init-repository --module-subset=qtbase,qtmultimedia,qtwebsockets,qtserialport,qtshadertools
           cd ..

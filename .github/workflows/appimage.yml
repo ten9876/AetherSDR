@@ -48,17 +48,17 @@ jobs:
             qt6-shader-baker qt6-shadertools-dev \
             libhidapi-dev portaudio19-dev libfftw3-dev
 
-      - name: Install Qt 6.7 via aqtinstall (x86_64)
+      - name: Install Qt 6.8 LTS via aqtinstall (x86_64)
         if: matrix.use_aqt == true
         run: |
           pip3 install aqtinstall
-          aqt install-qt linux desktop 6.7.3 linux_gcc_64 \
+          aqt install-qt linux desktop 6.8.3 linux_gcc_64 \
             -m qtmultimedia qtwebsockets qtserialport qtshadertools \
             --outputdir ${{ github.workspace }}/Qt
-          echo "Qt6_DIR=${{ github.workspace }}/Qt/6.7.3/gcc_64/lib/cmake/Qt6" >> $GITHUB_ENV
-          echo "CMAKE_PREFIX_PATH=${{ github.workspace }}/Qt/6.7.3/gcc_64" >> $GITHUB_ENV
-          echo "PATH=${{ github.workspace }}/Qt/6.7.3/gcc_64/bin:$PATH" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=${{ github.workspace }}/Qt/6.7.3/gcc_64/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "Qt6_DIR=${{ github.workspace }}/Qt/6.8.3/gcc_64/lib/cmake/Qt6" >> $GITHUB_ENV
+          echo "CMAKE_PREFIX_PATH=${{ github.workspace }}/Qt/6.8.3/gcc_64" >> $GITHUB_ENV
+          echo "PATH=${{ github.workspace }}/Qt/6.8.3/gcc_64/bin:$PATH" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=${{ github.workspace }}/Qt/6.8.3/gcc_64/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
       - name: Setup DeepFilterNet3 (DFNR)
         run: bash setup-deepfilter.sh
@@ -67,7 +67,7 @@ jobs:
         run: |
           CMAKE_EXTRA=""
           if [ "${{ matrix.use_aqt }}" = "true" ]; then
-            CMAKE_EXTRA="-DCMAKE_PREFIX_PATH=${{ github.workspace }}/Qt/6.7.3/gcc_64"
+            CMAKE_EXTRA="-DCMAKE_PREFIX_PATH=${{ github.workspace }}/Qt/6.8.3/gcc_64"
           fi
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -97,7 +97,7 @@ jobs:
 
           # Bundle Qt6 multimedia backend plugin
           if [ "${{ matrix.use_aqt }}" = "true" ]; then
-            QT_PLUGIN_PATH=${{ github.workspace }}/Qt/6.7.3/gcc_64/plugins
+            QT_PLUGIN_PATH=${{ github.workspace }}/Qt/6.8.3/gcc_64/plugins
           else
             QT_PLUGIN_PATH=$(qmake6 -query QT_INSTALL_PLUGINS 2>/dev/null || echo "/usr/lib/$(uname -m)-linux-gnu/qt6/plugins")
           fi
@@ -125,7 +125,7 @@ jobs:
           EXTRA_QT_PLUGINS: multimedia
         run: |
           if [ "${{ matrix.use_aqt }}" = "true" ]; then
-            export QMAKE=${{ github.workspace }}/Qt/6.7.3/gcc_64/bin/qmake
+            export QMAKE=${{ github.workspace }}/Qt/6.8.3/gcc_64/bin/qmake
           else
             export QMAKE=$(which qmake6 2>/dev/null || which qmake)
           fi

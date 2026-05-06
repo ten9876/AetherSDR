@@ -15,9 +15,9 @@ on:
   workflow_dispatch:
     inputs:
       qt_version:
-        description: 'Qt version (e.g. 6.7.3)'
+        description: 'Qt version (e.g. 6.8.3)'
         required: true
-        default: '6.7.3'
+        default: '6.8.3'
       deploy_target:
         description: 'macOS deployment target (e.g. 13.0)'
         required: true
