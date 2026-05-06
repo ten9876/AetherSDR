@@ -15,9 +15,16 @@
 
 $ErrorActionPreference = "Stop"
 
-# Opus 1.5.2 prebuilt from xiph.org (Windows x64 MSVC)
+# Opus 1.5.2 source.  Primary mirror is GitHub Releases (Microsoft CDN,
+# essentially never down); xiph.org is the official upstream and serves
+# the same tarball but has been intermittently unreachable from GitHub-
+# hosted Windows runners.  Try GitHub first, fall back to xiph, retry
+# each with backoff before failing the build.
 $OpusVersion = "1.5.2"
-$OpusSrcUrl  = "https://downloads.xiph.org/releases/opus/opus-${OpusVersion}.tar.gz"
+$OpusSrcUrls = @(
+    "https://github.com/xiph/opus/releases/download/v${OpusVersion}/opus-${OpusVersion}.tar.gz",
+    "https://downloads.xiph.org/releases/opus/opus-${OpusVersion}.tar.gz"
+)
 $OutDir      = "third_party\opus"
 $TarFile     = "third_party\opus-${OpusVersion}.tar.gz"
 $VsVars      = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
@@ -41,8 +48,27 @@ New-Item -ItemType Directory -Force -Path "$OutDir\bin" | Out-Null
 
 # ── Download source for headers ──────────────────────────────────────────
 if (-not (Test-Path $TarFile)) {
-    Write-Host "Downloading Opus ${OpusVersion} source..." -ForegroundColor Cyan
-    Invoke-WebRequest -Uri $OpusSrcUrl -OutFile $TarFile
+    $downloaded = $false
+    foreach ($url in $OpusSrcUrls) {
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            Write-Host "Downloading Opus ${OpusVersion} from $url (attempt $attempt/3)..." -ForegroundColor Cyan
+            try {
+                Invoke-WebRequest -Uri $url -OutFile $TarFile -TimeoutSec 60
+                $downloaded = $true
+                break
+            } catch {
+                Write-Warning "Download failed: $_"
+                if ($attempt -lt 3) {
+                    Start-Sleep -Seconds (5 * $attempt)
+                }
+            }
+        }
+        if ($downloaded) { break }
+    }
+    if (-not $downloaded) {
+        Write-Error "All Opus download attempts failed (tried $($OpusSrcUrls.Count) mirrors x 3 retries)"
+        exit 1
+    }
 }
 
 # ── Extract headers ──────────────────────────────────────────────────────
