@@ -2116,6 +2116,13 @@ MainWindow::MainWindow(QWidget* parent)
                             e.peakDbm = sig.peakDbm;
                             e.freqMhz = sig.freqMhz;
                         }
+                        // Voice over QRM: if this entry is already QRM-classified
+                        // and the current detection is voice-width, flag for double
+                        // marking so both a red QRM and a gold voice marker appear.
+                        if (e.suspectQrm
+                                && sig.widthHz >= 1800.0 && sig.widthHz <= 8000.0) {
+                            e.voiceOverQrmLastMs = now;
+                        }
                         found = true;
                         break;
                     }
@@ -13018,6 +13025,7 @@ void MainWindow::rebuildSHistoryForPan(const QString& panId)
     constexpr qint64 kNarrowQrmGateMs   = 6000;  // narrow/wideband: show QRM after 6 s
     constexpr int    kNarrowQrmHitsNeeded = 105; // ~70% of 25 fps × 6 s = 150 frames
     constexpr qint64 kVoiceToQrmMs      = 120000;
+    constexpr qint64 kHideAfterMs       = 30000; // past-signals history window
 
     const qint64 now           = QDateTime::currentMSecsSinceEpoch();
     auto&        entries       = m_sHistoryData[panId];
@@ -13074,7 +13082,6 @@ void MainWindow::rebuildSHistoryForPan(const QString& panId)
         e.suspectQrm = currentlyActive && qrmQualified && !hasVoiceGap;
 
         // Hide visible markers absent for 30 seconds (the "past signals" history window).
-        constexpr qint64 kHideAfterMs = 30000;
         if (e.visible && !currentlyActive && (now - e.lastSeenMs) > kHideAfterMs) {
             e.visible = false;
             e.qualifyStartMs = 0;
@@ -13127,6 +13134,25 @@ void MainWindow::rebuildSHistoryForPan(const QString& panId)
             comment,
             e.lastSeenMs
         });
+
+        // Double mark: voice operator detected on top of a QRM-classified entry.
+        // Emit an additional gold voice marker so the operator can see both the
+        // interference AND the person trying to work through it simultaneously.
+        // The voice marker ages out independently (30 s after last voice-width hit).
+        if (isQrm && (now - e.voiceOverQrmLastMs) < kHideAfterMs) {
+            markers.append({
+                -1,
+                AetherSDR::sLabel(e.peakDbm),
+                roundToHundredHz(e.freqMhz),
+                QStringLiteral("#FFFF00"),
+                e.mode,
+                QColor(255, 200, 0),
+                QStringLiteral("SHistory"),
+                {},
+                QStringLiteral("Voice on QRM ch, width=%1 Hz").arg(e.widthHz, 0, 'f', 0),
+                e.voiceOverQrmLastMs
+            });
+        }
     }
     sw->setSHistoryMarkers(markers);
 }

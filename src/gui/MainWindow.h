@@ -317,6 +317,10 @@ private:
         // CNN classifier: exponential moving average of carrier probability.
         // 0.0 = strongly voice, 1.0 = strongly carrier. 0.5 = unknown (ONNX absent).
         float           carrierScore{0.5f};
+        // Last time a voice-width (1.8–8 kHz) signal was detected while this
+        // entry was already QRM-classified.  Drives the "voice over QRM"
+        // double-marker — shows both a red QRM marker and a gold voice marker.
+        qint64          voiceOverQrmLastMs{0};
     };
     struct SHistoryPanState {
         double centerMhz{0.0};
