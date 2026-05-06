@@ -92,21 +92,21 @@ private:
     HGauge*      m_alcGauge{nullptr};
 
     QSlider*     m_delaySlider{nullptr};
-    QLineEdit*   m_delayLabel{nullptr};
+    QLineEdit*   m_delayEdit{nullptr};
 
     QSlider*     m_speedSlider{nullptr};
-    QLineEdit*   m_speedLabel{nullptr};
+    QLineEdit*   m_speedEdit{nullptr};
 
     QPushButton* m_sidetoneBtn{nullptr};
     QSlider*     m_sidetoneSlider{nullptr};
-    QLineEdit*   m_sidetoneLabel{nullptr};
+    QLineEdit*   m_sidetoneEdit{nullptr};
 
     QSlider*     m_cwPanSlider{nullptr};
 
     QPushButton* m_breakinBtn{nullptr};
     QPushButton* m_iambicBtn{nullptr};
 
-    QLineEdit*   m_pitchLabel{nullptr};
+    QLineEdit*   m_pitchEdit{nullptr};
     QPushButton* m_pitchDown{nullptr};
     QPushButton* m_pitchUp{nullptr};
 
