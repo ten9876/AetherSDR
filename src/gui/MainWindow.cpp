@@ -10079,7 +10079,11 @@ void MainWindow::applyUiScale(int pct)
         d.cdUp();  // .../Contents
         d.cdUp();  // .../Foo.app  (or plain build dir in dev)
         if (d.dirName().endsWith(".app")) {
-            QProcess::startDetached("open", {"-n", d.absolutePath()});
+            QStringList openArgs = {"-n", d.absolutePath()};
+            const QStringList childArgs = QCoreApplication::arguments().mid(1);
+            if (!childArgs.isEmpty())
+                openArgs << "--args" << childArgs;
+            QProcess::startDetached("open", openArgs);
         } else {
             QProcess::startDetached(QCoreApplication::applicationFilePath(),
                                     QCoreApplication::arguments().mid(1));
