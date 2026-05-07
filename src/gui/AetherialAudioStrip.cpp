@@ -1,5 +1,8 @@
 #include "AetherialAudioStrip.h"
 
+#include <QGuiApplication>
+#include <QScreen>
+
 #include "AetherDspWidget.h"
 #include "StripChainWidget.h"
 #include "StripRxChainWidget.h"
@@ -78,7 +81,17 @@ AetherialAudioStrip::AetherialAudioStrip(AudioEngine* engine, QWidget* parent)
     // panel grid below the chain row scrolls vertically when the
     // window is shorter than the natural content height.
     setMinimumSize(1140, 900);
-    resize(1140, 1620);
+    // The strip's natural content is ~1620 px tall and assumes a 4K
+    // (or larger) display.  On 1080p / 1440p, opening at 1620 puts the
+    // bottom edge offscreen with the resize grip unreachable.  Cap to
+    // 960 on anything below ~4K so the bottom stays grabbable; users
+    // can grow the window manually after open.
+    int initialHeight = 1620;
+    if (auto* screen = QGuiApplication::primaryScreen()) {
+        if (screen->availableGeometry().height() < 2000)
+            initialHeight = 960;
+    }
+    resize(1140, initialHeight);
 
     // Track mouse without buttons pressed so the resize cursor updates
     // while hovering the bare margin around the embedded grid.
