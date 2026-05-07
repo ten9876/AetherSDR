@@ -137,6 +137,7 @@ private:
     };
     QHash<QString, RelativeAccum> m_relativeAccum; // paramId → accum
     QTimer* m_relativeTimer{nullptr};
+    void accumulateRelativeStep(const QString& paramId, int delta);
     void flushRelativeAccum();
 };
 

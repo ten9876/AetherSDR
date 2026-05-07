@@ -34,6 +34,21 @@ bool isCwMomentaryParamId(const QString& paramId)
         || paramId == QLatin1String("cw.dah");
 }
 
+bool isVfoTuneKnobParamId(const QString& paramId)
+{
+    return paramId == QLatin1String("rx.tuneKnob");
+}
+
+bool isUnitRelativeCcPulse(int value)
+{
+    return value == 1 || value == 127;
+}
+
+int relativeCcDelta(int value)
+{
+    return (value < 64) ? value : (value - 128);
+}
+
 } // namespace
 
 // ── MidiBinding helpers ─────────────────────────────────────────────────────
@@ -67,7 +82,9 @@ MidiControlManager::MidiControlManager(QObject* parent)
         openPortByName(m_portName);
     });
 
-    // Coalesce relative knob events every 20ms with acceleration
+    // Coalesce relative knob events every 20ms. Some generic relative controls
+    // use density-based acceleration below, but VFO tune pulses are passed
+    // through exactly so controller detents map to radio step increments.
     m_relativeTimer->setInterval(20);
     connect(m_relativeTimer, &QTimer::timeout, this, &MidiControlManager::flushRelativeAccum);
 }
@@ -296,6 +313,16 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2,
     // MIDI Learn mode — capture this message as a binding
     if (m_learning) {
         if (msgType == MidiBinding::NoteOff) return; // ignore NoteOff during learn
+        const MidiParam* learnParam = findParam(m_learnParamId);
+        if (learnParam
+            && learnParam->type == MidiParamType::Slider
+            && msgType != MidiBinding::CC
+            && msgType != MidiBinding::PitchBend) {
+            // Touch-sensitive sliders/knobs can emit a NoteOn before their
+            // movement CC.  Slider targets need continuous input, so wait for
+            // the actual movement message instead of binding the touch sensor.
+            return;
+        }
 
         MidiBinding binding;
         binding.channel = channel;
@@ -303,6 +330,8 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2,
         binding.number = (msgType == MidiBinding::PitchBend) ? -1 : data1;
         binding.paramId = m_learnParamId;
         binding.inverted = false;
+        binding.relative = isVfoTuneKnobParamId(binding.paramId)
+                           && msgType == MidiBinding::CC;
 
         addBinding(binding);
         m_learning = false;
@@ -339,22 +368,37 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2,
     const auto& binding = m_bindings[it.value()];
     const bool cwBinding = isCwMomentaryParamId(binding.paramId);
 
+    if (isVfoTuneKnobParamId(binding.paramId)
+        && msgType != MidiBinding::CC
+        && msgType != MidiBinding::PitchBend) {
+        return;
+    }
+
     // ── Relative knob mode: decode delta and accumulate ────────────────
     if (binding.relative && msgType == MidiBinding::CC) {
         // Relative CC encoding (two's complement style):
         // 1-63 = clockwise (1=slow, 63=fast)
         // 65-127 = counter-clockwise (127=-1, 126=-2)
-        int delta = (data2 < 64) ? data2 : (data2 - 128);
+        int delta = relativeCcDelta(data2);
         if (binding.inverted) delta = -delta;
 
-        auto& accum = m_relativeAccum[binding.paramId];
-        accum.steps += delta;
-        accum.eventCount++;
-        accum.lastEventMs = QDateTime::currentMSecsSinceEpoch();
+        accumulateRelativeStep(binding.paramId, delta);
 
-        if (!m_relativeTimer->isActive())
-            m_relativeTimer->start();
+        emit paramValueChanged(binding.paramId, delta > 0 ? 1.0f : 0.0f);
+        return;
+    }
 
+    // Existing VFO tune bindings learned before relative mode could treat
+    // common endless-encoder pulses (1 / 127) as absolute endpoints, turning a
+    // single detent into roughly +/-63 tuning steps.  Decode those unit pulses
+    // as relative even if the saved binding did not mark the control relative.
+    if (!binding.relative
+        && isVfoTuneKnobParamId(binding.paramId)
+        && msgType == MidiBinding::CC
+        && isUnitRelativeCcPulse(data2)) {
+        int delta = relativeCcDelta(data2);
+        if (binding.inverted) delta = -delta;
+        accumulateRelativeStep(binding.paramId, delta);
         emit paramValueChanged(binding.paramId, delta > 0 ? 1.0f : 0.0f);
         return;
     }
@@ -404,11 +448,23 @@ void MidiControlManager::onMidiMessage(int status, int data1, int data2,
     emit paramValueChanged(binding.paramId, value);
 }
 
-// ── Relative knob coalescing with acceleration ─────────────────────────────
-// Called every 20ms. Batches accumulated steps and applies acceleration:
-//   Slow  (≤2 events/window): ÷2 rate — halve steps for fine tuning
+// ── Relative knob coalescing ───────────────────────────────────────────────
+// Called every 20ms. VFO tuning is emitted as exact accumulated detents.
+// Other relative controls keep the legacy density-based acceleration:
+//   Slow  (≤2 events/window): ÷2 rate — halve steps for fine control
 //   Medium (3-6):              1:1 — normal rate
-//   Fast   (>6):               4× — multiply steps for rapid band scanning
+//   Fast   (>6):               4× — multiply steps for rapid changes
+
+void MidiControlManager::accumulateRelativeStep(const QString& paramId, int delta)
+{
+    auto& accum = m_relativeAccum[paramId];
+    accum.steps += delta;
+    accum.eventCount++;
+    accum.lastEventMs = QDateTime::currentMSecsSinceEpoch();
+
+    if (!m_relativeTimer->isActive())
+        m_relativeTimer->start();
+}
 
 void MidiControlManager::flushRelativeAccum()
 {
@@ -422,16 +478,18 @@ void MidiControlManager::flushRelativeAccum()
         if (a.steps != 0) {
             int steps = a.steps;
 
-            // Apply acceleration based on event density in this 20ms window
-            if (a.eventCount <= 2) {
-                // Slow: halve steps (skip if only 1 step and alternating)
-                if (steps == 1 || steps == -1) {
-                    static int slowDivider = 0;
-                    if (++slowDivider % 2 == 0) steps = 0;
+            if (!isVfoTuneKnobParamId(it.key())) {
+                // Apply acceleration based on event density in this 20ms window
+                if (a.eventCount <= 2) {
+                    // Slow: halve steps (skip if only 1 step and alternating)
+                    if (steps == 1 || steps == -1) {
+                        static int slowDivider = 0;
+                        if (++slowDivider % 2 == 0) steps = 0;
+                    }
+                } else if (a.eventCount > 6) {
+                    // Fast: 4× acceleration
+                    steps *= 4;
                 }
-            } else if (a.eventCount > 6) {
-                // Fast: 4× acceleration
-                steps *= 4;
             }
             // Medium (3-6 events): 1:1, no change
 

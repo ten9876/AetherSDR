@@ -323,6 +323,8 @@ private:
 #endif
 #ifdef HAVE_MIDI
     MidiControlManager*  m_midiControl{nullptr};
+    QTimer               m_midiTuneIdleTimer;
+    double               m_midiTuneTargetMhz{-1.0};
     void registerMidiParams();
     struct MidiActionTrace {
         QString paramId;

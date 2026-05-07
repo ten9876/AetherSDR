@@ -400,6 +400,12 @@ Examples include:
 
 For endless rotary encoders, turn on the **Relative** checkbox for that binding. This is especially useful for the `VFO Tune Knob` target.
 
+When you use **Learn** on `VFO Tune Knob` with a MIDI CC control, AetherSDR enables relative mode automatically. Older bindings still work if they were saved before this behavior was added.
+
+For `VFO Tune Knob`, each relative encoder pulse maps to one selected radio step. Use the radio step-size control for coarse or fine tuning.
+
+For slider and knob targets, Learn ignores touch-only NoteOn messages and waits for movement data.
+
 For sliders, leave **Relative** off and use normal absolute mode.
 
 Use **Invert** if the control moves the opposite way from what feels natural.
