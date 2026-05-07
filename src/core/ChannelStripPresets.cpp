@@ -11,6 +11,7 @@
 #include "ClientTube.h"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -206,6 +207,7 @@ ChannelStripPresets::ChannelStripPresets(AudioEngine* engine,
     : QObject(parent)
     , m_engine(engine)
 {
+    migratePresetsPath();
     if (!loadFromDisk()) {
         m_root = QJsonObject{
             {"version", kSchemaVersion},
@@ -216,11 +218,36 @@ ChannelStripPresets::ChannelStripPresets(AudioEngine* engine,
 
 QString ChannelStripPresets::filePath() const
 {
-    // Sibling of AetherSDR.settings under XDG_CONFIG_HOME.
+    // Sibling of AetherSDR.settings, matching AppSettings' use of
+    // GenericConfigLocation + "/AetherSDR". AppConfigLocation can't be used
+    // here because Qt 6 nests it under <Org>/<App> on Windows (and macOS),
+    // producing a nested path that drifts away from the AetherSDR.settings dir.
     const QString dir = QStandardPaths::writableLocation(
-        QStandardPaths::AppConfigLocation);
+        QStandardPaths::GenericConfigLocation) + "/AetherSDR";
     QDir().mkpath(dir);
     return dir + "/ChannelStrip.settings";
+}
+
+void ChannelStripPresets::migratePresetsPath()
+{
+    const QString newPath = filePath();
+    if (QFile::exists(newPath))
+        return;
+
+#if defined(Q_OS_WIN) || defined(Q_OS_MAC)
+    // On Windows and macOS, Qt 6's AppConfigLocation nests under <Org>/<App>
+    // (e.g. %LOCALAPPDATA%/AetherSDR/AetherSDR), so the old code wrote
+    // ChannelStrip.settings into the nested directory. Move it to the
+    // GenericConfigLocation path that AppSettings now uses.
+    const QString oldPath = QStandardPaths::writableLocation(
+        QStandardPaths::AppConfigLocation) + "/ChannelStrip.settings";
+    if (QFile::exists(oldPath)) {
+        if (QFile::rename(oldPath, newPath))
+            qDebug() << "ChannelStripPresets: migrated from" << oldPath << "to" << newPath;
+        else
+            qWarning() << "ChannelStripPresets: failed to migrate from" << oldPath << "to" << newPath;
+    }
+#endif
 }
 
 bool ChannelStripPresets::loadFromDisk()

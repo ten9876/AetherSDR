@@ -12,6 +12,8 @@
 #include <QStandardPaths>
 #include <QUrl>
 
+#include <atomic>
+
 namespace AetherSDR {
 
 FirmwareStager::FirmwareStager(QObject* parent)
@@ -21,8 +23,32 @@ FirmwareStager::FirmwareStager(QObject* parent)
 
 QString FirmwareStager::stagingDir()
 {
+    // Sibling of AetherSDR.settings under GenericConfigLocation + "/AetherSDR",
+    // matching AppSettings. AppConfigLocation can't be used because Qt 6 nests
+    // it under <Org>/<App> on Windows and macOS.
     const QString dir = QStandardPaths::writableLocation(
-        QStandardPaths::AppConfigLocation) + "/firmware";
+        QStandardPaths::GenericConfigLocation) + "/AetherSDR/firmware";
+
+#if defined(Q_OS_WIN) || defined(Q_OS_MAC)
+    // One-time migration from the old AppConfigLocation path that nested
+    // under <Org>/<App>. Run once per process — cheap to re-check, but the
+    // guard avoids spurious log messages on every call.
+    static std::atomic<bool> migrated{false};
+    if (!migrated.exchange(true)) {
+        const QString oldDir = QStandardPaths::writableLocation(
+            QStandardPaths::AppConfigLocation) + "/firmware";
+        if (oldDir != dir && QDir(oldDir).exists() && !QDir(dir).exists()) {
+            QDir().mkpath(QFileInfo(dir).path());
+            if (QDir().rename(oldDir, dir))
+                qCDebug(lcFirmware) << "FirmwareStager: migrated staging dir from"
+                                    << oldDir << "to" << dir;
+            else
+                qCWarning(lcFirmware) << "FirmwareStager: failed to migrate staging dir from"
+                                      << oldDir << "to" << dir;
+        }
+    }
+#endif
+
     QDir().mkpath(dir);
     return dir;
 }

@@ -88,6 +88,10 @@ private:
     QString     filePath() const;
     bool        loadFromDisk();
     bool        saveToDisk() const;
+    // One-time path migration: on Windows/macOS, Qt 6's AppConfigLocation
+    // produced a nested path. Move ChannelStrip.settings to the
+    // GenericConfigLocation path that AppSettings now uses.
+    void        migratePresetsPath();
     QJsonObject capturePresetJson() const;
     void        applyPresetJson(const QJsonObject& preset);
 
