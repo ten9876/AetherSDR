@@ -202,9 +202,10 @@ int main(int argc, char* argv[])
 #ifdef Q_OS_MAC
         QString settingsPath = QDir::homePath() + "/Library/Preferences/AetherSDR/AetherSDR.settings";
 #elif defined(Q_OS_WIN)
-        // On Windows, QStandardPaths::ConfigLocation maps to %APPDATA% — match that here
-        // since QStandardPaths isn't available before QApplication.
-        QString settingsPath = QDir::fromNativeSeparators(qEnvironmentVariable("APPDATA"))
+        // AppSettings uses GenericConfigLocation (%LOCALAPPDATA%) + "/AetherSDR".
+        // QStandardPaths isn't available before QApplication, so we reproduce
+        // the path manually using the LOCALAPPDATA env var.
+        QString settingsPath = QDir::fromNativeSeparators(qEnvironmentVariable("LOCALAPPDATA"))
                                + "/AetherSDR/AetherSDR.settings";
 #else
         QString settingsPath = QDir::homePath() + "/.config/AetherSDR/AetherSDR.settings";
