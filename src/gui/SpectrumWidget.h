@@ -94,8 +94,16 @@ public:
     void setDbmRange(float minDbm, float maxDbm);
 
     // Noise floor auto-adjust: position (0=top, 100=bottom), enable on/off.
-    void setNoiseFloorPosition(int pos) { m_noiseFloorPosition = pos; }
-    void setNoiseFloorEnable(bool on)   { m_noiseFloorEnable = on; }
+    // Persisted to AppSettings; call setNoiseFloorEnable(true) to activate.
+    void setNoiseFloorPosition(int pos);
+    void setNoiseFloorEnable(bool on);
+
+    // Squelch threshold overlay line.  Call setSquelchLine(true, level) to show
+    // a solid yellow line at the radio squelch level (0-100 → full dBm range).
+    void setSquelchLine(bool visible, int level);
+    // When enabled, emits autoSquelchLevelSuggested() each measurement cycle
+    // with a level 0.5 dBm above the 95th-percentile smoothed noise.
+    void setAutoSquelchEnable(bool on);
 
     // (getters for display settings are below with their members)
 
@@ -388,6 +396,8 @@ signals:
                           const QString& comment, int lifetimeSec,
                           bool forwardToCluster);
     void spotRemoveRequested(int spotIndex);
+    // Auto-squelch computed a new suggested level (0-100 radio units).
+    void autoSquelchLevelSuggested(int level);
 
 protected:
 #ifdef AETHER_GPU_SPECTRUM
@@ -482,10 +492,17 @@ private:
     float m_refLevel{-50.0f};       // top of display (dBm)
     float m_dynamicRange{100.0f};   // dB range shown in spectrum (-50 to -150)
 
-    // Noise floor auto-adjust
+    // Noise floor overlay line
     bool  m_noiseFloorEnable{false};
-    int   m_noiseFloorPosition{75};  // 0=top, 100=bottom
+    int   m_noiseFloorPosition{85};  // reserved for future squelch-offset use
     int   m_noiseFloorFrameCount{0};
+    float m_noiseFloorDbm{-999.0f};     // EWMA 20th-percentile; -999 = unmeasured
+    float m_noiseFloorPeakDbm{-999.0f}; // EWMA 95th-percentile for auto-squelch
+
+    // Squelch threshold overlay line
+    bool  m_squelchLineVisible{false};
+    int   m_squelchLevel{0};          // 0-100 radio squelch units
+    bool  m_autoSquelchEnabled{false};
 
     // Tuning step size for click-snap and wheel scroll (Hz)
     int m_stepHz{100};

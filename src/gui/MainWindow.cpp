@@ -8078,6 +8078,13 @@ void MainWindow::onSliceAdded(SliceModel* s)
         sw->setShowTxInWaterfall(
             m_radioModel.transmitModel().showTxInWaterfall());
 
+    // Squelch state → squelch line on the spectrum owning this slice
+    connect(s, &SliceModel::squelchChanged, this, [this, s](bool on, int level) {
+        if (s->sliceId() != m_activeSliceId) return;
+        if (auto* sw = spectrumForSlice(s))
+            sw->setSquelchLine(on, level);
+    });
+
     // Connect slice state changes → spectrum overlay updates
     connect(s, &SliceModel::frequencyChanged, this, [this, s](double mhz) {
         // Don't snap overlay back to stale radio-confirmed freq during active
@@ -8669,6 +8676,9 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
 
         sw->overlayMenu()->setSlice(s);
 
+        // Sync squelch threshold line to the newly active slice
+        sw->setSquelchLine(s->squelchOn(), s->squelchLevel());
+
         // Sync step size from the new active slice
         if (s->stepHz() > 0) {
             sw->setStepSize(s->stepHz());
@@ -9115,6 +9125,29 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             sw, &SpectrumWidget::setNoiseFloorPosition);
     connect(menu, &SpectrumOverlayMenu::noiseFloorEnableChanged,
             sw, &SpectrumWidget::setNoiseFloorEnable);
+
+    // Squelch overlay: menu → radio squelch + visual line on spectrum
+    connect(menu, &SpectrumOverlayMenu::squelchEnableChanged, this, [this, sw](bool on) {
+        auto* s = activeSlice();
+        if (!s) return;
+        s->setSquelch(on, s->squelchLevel());
+        sw->setSquelchLine(on, s->squelchLevel());
+    });
+    connect(menu, &SpectrumOverlayMenu::squelchLevelChanged, this, [this, sw](int level) {
+        auto* s = activeSlice();
+        if (!s) return;
+        s->setSquelch(s->squelchOn(), level);
+        sw->setSquelchLine(s->squelchOn(), level);
+    });
+    connect(menu, &SpectrumOverlayMenu::squelchAutoChanged,
+            sw, &SpectrumWidget::setAutoSquelchEnable);
+    // Auto-squelch suggestion: apply to radio and update visual line
+    connect(sw, &SpectrumWidget::autoSquelchLevelSuggested, this, [this, sw](int level) {
+        auto* s = activeSlice();
+        if (!s) return;
+        s->setSquelch(s->squelchOn(), level);
+        sw->setSquelchLine(s->squelchOn(), level);
+    });
 
     // Pop out / dock panadapter
     connect(sw, &SpectrumWidget::popOutRequested, this, [this, applet](bool popOut) {

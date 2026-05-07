@@ -313,6 +313,9 @@ void SpectrumWidget::loadSettings()
     m_wfColorScheme  = static_cast<WfColorScheme>(
         std::clamp(s.value(settingsKey("DisplayWfColorScheme"), "0").toInt(),
                    0, static_cast<int>(WfColorScheme::Count) - 1));
+    m_noiseFloorPosition = std::clamp(
+        s.value(settingsKey("DisplayNoiseFloorPosition"), "85").toInt(), 0, 100);
+    m_noiseFloorEnable   = s.value(settingsKey("DisplayNoiseFloorEnable"), "False").toString() == "True";
     m_singleClickTune = s.value("SingleClickTune", "False").toString() == "True";
     m_showTuneGuides  = s.value("ShowTuneGuides", "False").toString() == "True";
     m_extendedFrequencyLine = s.value("ExtendedFrequencyLine", "False").toString() == "True";
@@ -329,7 +332,8 @@ void SpectrumWidget::loadSettings()
             static_cast<int>(m_fftFillAlpha * 100), m_fftWeightedAvg, m_fftFillColor,
             m_wfColorGain, m_wfBlackLevel, m_wfAutoBlack, m_wfAutoBlackOffset,
             m_wfLineDuration,
-            75, false, m_fftHeatMap, static_cast<int>(m_wfColorScheme), m_showGrid,
+            m_noiseFloorPosition, m_noiseFloorEnable,
+            m_fftHeatMap, static_cast<int>(m_wfColorScheme), m_showGrid,
             m_fftLineWidth);
         m_overlayMenu->syncExtraDisplaySettings(m_wfBlankerEnabled,
             m_wfBlankerThreshold, m_bgOpacity, m_freqGridSpacingKhz);
@@ -521,6 +525,41 @@ void SpectrumWidget::setWfLineDuration(int ms) {
     s.save();
     // Re-calibrate the time scale for the new rate
     resetWfTimeScale();
+}
+
+void SpectrumWidget::setNoiseFloorPosition(int pos)
+{
+    m_noiseFloorPosition = std::clamp(pos, 0, 100);
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("DisplayNoiseFloorPosition"), QString::number(m_noiseFloorPosition));
+    s.save();
+}
+void SpectrumWidget::setNoiseFloorEnable(bool on)
+{
+    m_noiseFloorEnable = on;
+    auto& s = AppSettings::instance();
+    s.setValue(settingsKey("DisplayNoiseFloorEnable"), on ? "True" : "False");
+    s.save();
+    if (!on) {
+        m_noiseFloorFrameCount = 0;
+        m_noiseFloorDbm      = -999.0f;  // reset so next enable starts fresh
+        m_noiseFloorPeakDbm  = -999.0f;
+    }
+    markOverlayDirty();
+}
+
+void SpectrumWidget::setSquelchLine(bool visible, int level)
+{
+    m_squelchLineVisible = visible;
+    m_squelchLevel = qBound(0, level, 100);
+    markOverlayDirty();
+}
+
+void SpectrumWidget::setAutoSquelchEnable(bool on)
+{
+    m_autoSquelchEnabled = on;
+    if (!on)
+        m_noiseFloorPeakDbm = -999.0f;
 }
 
 void SpectrumWidget::setWfColorScheme(int scheme) {
@@ -1356,40 +1395,40 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
     }
     m_bins = binsDbm;
 
-    // Noise floor auto-adjust: every 10 frames, measure noise floor and
-    // adjust min_dbm so it sits at the user's chosen position.
+    // Noise floor line: every 10 frames sample percentile bins from the smoothed
+    // spectrum, EWMA-smooth to keep the overlay stable.  Display range unchanged.
     if (m_noiseFloorEnable && !m_transmitting && !m_smoothed.isEmpty()) {
         if (++m_noiseFloorFrameCount >= 10) {
             m_noiseFloorFrameCount = 0;
 
-            // Compute noise floor as 20th percentile of smoothed bins
             QVector<float> sorted = m_smoothed;
             std::sort(sorted.begin(), sorted.end());
-            int idx = sorted.size() / 5;  // 20th percentile
-            float noiseFloor = sorted[idx];
+            const int n = sorted.size();
+            float sample     = sorted[n / 5];              // 20th percentile — floor ref
+            float peakSample = sorted[std::min(n * 19 / 20, n - 1)]; // 95th percentile — for auto-SQL
 
-            // Position: 0 = noise at top, 100 = noise at bottom
-            // noiseFloor should appear at (position/100) of the way down
-            float frac = m_noiseFloorPosition / 100.0f;
-            // noiseFloor maps to frac in the display:
-            //   frac = (refLevel - noiseFloor) / dynamicRange
-            //   => dynamicRange = (refLevel - noiseFloor) / frac
-            // Keep refLevel (max_dbm) fixed, adjust min_dbm
-            if (frac > 0.05f && frac < 0.95f) {
-                float newRange = (m_refLevel - noiseFloor) / frac;
-                newRange = std::clamp(newRange, 20.0f, 150.0f);
-                float newMin = m_refLevel - newRange;
-                // Only adjust if change is significant (> 1 dB)
-                float currentMin = m_refLevel - m_dynamicRange;
-                if (std::abs(newMin - currentMin) > 1.0f) {
-                    // Optimistic update: suppress re-firing on subsequent FFT frames
-                    // while waiting for the radio to confirm and echo the new range.
-                    // Without this, every FFT frame would re-emit until the echo-back
-                    // arrives, producing a burst of identical display pan set commands.
-                    m_dynamicRange = newRange;
-                    emit dbmRangeChangeRequested(newMin, m_refLevel);
-                }
+            // Heavy EWMA (α=0.05 ≈ 20-sample window) prevents jumping.
+            if (m_noiseFloorDbm <= -200.0f)
+                m_noiseFloorDbm = sample;
+            else
+                m_noiseFloorDbm = 0.05f * sample + 0.95f * m_noiseFloorDbm;
+
+            if (m_noiseFloorPeakDbm <= -200.0f)
+                m_noiseFloorPeakDbm = peakSample;
+            else
+                m_noiseFloorPeakDbm = 0.05f * peakSample + 0.95f * m_noiseFloorPeakDbm;
+
+            // Auto-squelch: suggest a radio level 0.5 dBm above the peak floor.
+            if (m_autoSquelchEnabled && m_noiseFloorPeakDbm > -200.0f) {
+                const float minDbm    = m_refLevel - m_dynamicRange;
+                const float targetDbm = m_noiseFloorPeakDbm + 0.5f;
+                const int level = std::clamp(
+                    static_cast<int>((targetDbm - minDbm) / m_dynamicRange * 100.0f + 0.5f),
+                    1, 100);
+                emit autoSquelchLevelSuggested(level);
             }
+
+            markOverlayDirty();
         }
     }
 
@@ -5361,6 +5400,50 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
         if (!so.isActive) drawOne(so);
     for (const auto& so : m_sliceOverlays)
         if (so.isActive) drawOne(so);
+
+    // ── Noise floor overlay line (dashed amber reference) ────────────────
+    if (m_noiseFloorEnable && m_noiseFloorDbm > -500.0f) {
+        const float norm = (m_refLevel - m_noiseFloorDbm) / m_dynamicRange;
+        const int y = specRect.top()
+                      + static_cast<int>(std::clamp(norm, 0.0f, 1.0f) * specRect.height());
+
+        QPen floorPen(QColor(0xFF, 0xA0, 0x20, 200), 1, Qt::DashLine);
+        floorPen.setDashPattern({6, 4});
+        p.setPen(floorPen);
+        p.drawLine(specRect.left(), y, specRect.right(), y);
+
+        QFont f = p.font();
+        f.setPixelSize(9);
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(QColor(0xFF, 0xA0, 0x20, 220));
+        const QString lbl = QString("Floor %1 dBm").arg(static_cast<int>(m_noiseFloorDbm));
+        const int lblW = p.fontMetrics().horizontalAdvance(lbl);
+        p.drawText(specRect.right() - lblW - 4, y - 2, lbl);
+    }
+
+    // ── Squelch threshold overlay line (solid yellow) ─────────────────────
+    // Position maps radio squelch 0-100 linearly across the display dBm range.
+    if (m_squelchLineVisible && m_squelchLevel > 0) {
+        const float minDbm     = m_refLevel - m_dynamicRange;
+        const float squelchDbm = minDbm + (m_squelchLevel / 100.0f) * m_dynamicRange;
+        const float norm       = (m_refLevel - squelchDbm) / m_dynamicRange;
+        const int sy = specRect.top()
+                       + static_cast<int>(std::clamp(norm, 0.0f, 1.0f) * specRect.height());
+
+        p.setPen(QPen(QColor(0xFF, 0xFF, 0x00, 200), 1.5f, Qt::SolidLine));
+        p.drawLine(specRect.left(), sy, specRect.right(), sy);
+
+        QFont sf = p.font();
+        sf.setPixelSize(9);
+        sf.setBold(true);
+        p.setFont(sf);
+        p.setPen(QColor(0xFF, 0xFF, 0x00, 220));
+        const QString slbl = QString("SQL %1").arg(m_squelchLevel);
+        const int slblW = p.fontMetrics().horizontalAdvance(slbl);
+        p.drawText(specRect.left() + 4, sy - 2, slbl);
+        (void)slblW;
+    }
 }
 
 // ─── Frequency scale bar ──────────────────────────────────────────────────────

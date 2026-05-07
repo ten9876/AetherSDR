@@ -477,8 +477,17 @@ void SpectrumOverlayMenu::setSlice(SliceModel* slice)
     // AetherDSP applet (client-side) — those widgets own their own slice
     // bindings.
 
+    connect(m_slice, &SliceModel::squelchChanged, this, [this](bool on, int level) {
+        syncSquelchState(on, level, m_sqlAutoBtn ? m_sqlAutoBtn->isChecked() : false);
+    });
+
     syncAntPanel();
     syncDaxPanel();
+
+    // Sync current squelch state from the new slice
+    if (m_sqlEnableBtn && m_floorSlider)
+        syncSquelchState(m_slice->squelchOn(), m_slice->squelchLevel(),
+                         m_sqlAutoBtn ? m_sqlAutoBtn->isChecked() : false);
 }
 
 void SpectrumOverlayMenu::syncAntPanel()
@@ -905,6 +914,64 @@ void SpectrumOverlayMenu::buildDisplayPanel()
             emit wfAutoBlackOffsetChanged(m_blackAutoOffsetValue);
     });
 
+    // ── Floor / Squelch rows ──────────────────────────────────────────────
+    // Row 1 — Floor enable + squelch level slider (slider 0-100 = radio squelch).
+    //   Slider zero corresponds visually to the measured noise floor line on screen.
+    makeRowWithBtn("Floor:", 0, 100, 0, m_floorSlider, m_floorLabel,
+                   m_floorEnableBtn, "Off");
+    m_floorEnableBtn->setToolTip(
+        "Show noise floor reference line on the spectrum.\n"
+        "The line represents the averaged noise floor; slider 0 = at the floor.");
+    m_floorSlider->setToolTip("Squelch threshold — 0 = at noise floor, raise to gate above it.");
+    m_floorSlider->setEnabled(false);
+    connect(m_floorEnableBtn, &QPushButton::toggled, this, [this](bool on) {
+        m_floorEnableBtn->setText(on ? "On" : "Off");
+        if (m_floorSlider)    m_floorSlider->setEnabled(on);
+        if (m_sqlEnableBtn)   m_sqlEnableBtn->setEnabled(on);
+        if (m_sqlAutoBtn)     m_sqlAutoBtn->setEnabled(on);
+        emit noiseFloorEnableChanged(on);
+    });
+    connect(m_floorSlider, &QSlider::valueChanged, this, [this](int v) {
+        m_floorLabel->setText(QString::number(v));
+        emit squelchLevelChanged(v);
+    });
+
+    // Row 2 — SQL enable + Auto buttons (no slider, sits under row 1).
+    {
+        ++row;  // blank label col
+        auto* sqlLbl = new QLabel("SQL:");
+        sqlLbl->setStyleSheet(labelStyle);
+        grid->addWidget(sqlLbl, row, 0);
+
+        m_sqlEnableBtn = new QPushButton("Off");
+        m_sqlEnableBtn->setCheckable(true);
+        m_sqlEnableBtn->setFixedSize(36, 18);
+        m_sqlEnableBtn->setStyleSheet(btnStyle);
+        m_sqlEnableBtn->setToolTip("Enable squelch on the active slice at the floor threshold.");
+        m_sqlEnableBtn->setEnabled(false);
+        grid->addWidget(m_sqlEnableBtn, row, 1);
+
+        m_sqlAutoBtn = new QPushButton("Auto");
+        m_sqlAutoBtn->setCheckable(true);
+        m_sqlAutoBtn->setFixedSize(36, 18);
+        m_sqlAutoBtn->setStyleSheet(btnStyle);
+        m_sqlAutoBtn->setToolTip(
+            "Auto-squelch: continuously sets the threshold to 0.5 dB above the\n"
+            "peak noise floor. Disable to lock the threshold manually.");
+        m_sqlAutoBtn->setEnabled(false);
+        grid->addWidget(m_sqlAutoBtn, row, 2);
+
+        ++row;
+
+        connect(m_sqlEnableBtn, &QPushButton::toggled, this, [this](bool on) {
+            m_sqlEnableBtn->setText(on ? "On" : "Off");
+            emit squelchEnableChanged(on);
+        });
+        connect(m_sqlAutoBtn, &QPushButton::toggled, this, [this](bool on) {
+            emit squelchAutoChanged(on);
+        });
+    }
+
     // NB Blank + Off/On
     makeRowWithBtn("NB Blank:", 5, 95, 15, m_wfBlankerThreshSlider, m_wfBlankerThreshLabel,
                    m_wfBlankerBtn, "Off");
@@ -1162,6 +1229,23 @@ void SpectrumOverlayMenu::syncExtraDisplaySettings(bool blankerOn, float blanker
         m_bgOpacitySlider->setValue(bgOpacity);
         if (m_bgOpacityLabel)
             m_bgOpacityLabel->setText(QString::number(bgOpacity));
+    }
+}
+
+void SpectrumOverlayMenu::syncSquelchState(bool enabled, int level, bool autoMode)
+{
+    if (!m_sqlEnableBtn || !m_floorSlider) return;
+    {
+        QSignalBlocker b1(*m_sqlEnableBtn), b2(*m_floorSlider);
+        m_sqlEnableBtn->setChecked(enabled);
+        m_sqlEnableBtn->setText(enabled ? "On" : "Off");
+        m_floorLabel->setText(QString::number(level));
+        if (m_floorSlider->isEnabled())
+            m_floorSlider->setValue(level);
+    }
+    if (m_sqlAutoBtn) {
+        QSignalBlocker b(*m_sqlAutoBtn);
+        m_sqlAutoBtn->setChecked(autoMode);
     }
 }
 

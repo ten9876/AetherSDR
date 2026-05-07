@@ -52,6 +52,8 @@ public:
     void syncExtraDisplaySettings(bool blankerOn, float blankerThresh,
                                   int bgOpacity,
                                   int freqGridSpacingKhz = 0);
+    // Sync squelch state from an external source (sidebar, model change).
+    void syncSquelchState(bool enabled, int level, bool autoMode);
 
     // Set the panadapter ID this overlay belongs to (for +RX routing).
     void setPanId(const QString& id) { m_panId = id; }
@@ -114,6 +116,10 @@ signals:
     void wfColorSchemeChanged(int scheme);
     void noiseFloorPositionChanged(int pos);
     void noiseFloorEnableChanged(bool on);
+    // Squelch controls mirrored from the floor panel
+    void squelchEnableChanged(bool on);
+    void squelchLevelChanged(int level);   // 0-100 radio units
+    void squelchAutoChanged(bool on);
     // Emitted when user selects a band from the sub-panel.
     void bandSelected(const QString& bandName, double freqMhz, const QString& mode);
     // Emitted when user clicks XVTR button to open Radio Setup XVTR tab.
@@ -232,7 +238,9 @@ private:
     QLabel*      m_wfBlankerThreshLabel{nullptr};
     QSlider*     m_floorSlider{nullptr};
     QLabel*      m_floorLabel{nullptr};
-    QPushButton* m_floorEnableBtn{nullptr};
+    QPushButton* m_floorEnableBtn{nullptr};   // enables noise floor measurement
+    QPushButton* m_sqlEnableBtn{nullptr};     // enables radio squelch
+    QPushButton* m_sqlAutoBtn{nullptr};       // enables auto-squelch
 
     QComboBox*   m_freqGridSpacingCmb{nullptr};
     QSlider*     m_bgOpacitySlider{nullptr};
