@@ -10632,17 +10632,16 @@ void MainWindow::registerShortcutActions()
         });
 
     // ── Filter ──────────────────────────────────────────────────────────
+    // Step through the per-mode preset list via RxApplet so LSB/CWL/DIGL/RTTY
+    // get the correct edge moved (issue #2208 — naive +/-100 Hz on the upper
+    // edge collapsed the passband on lower-sideband modes).
     m_shortcutManager.registerAction("filter_widen", "Filter Widen", "Filter",
         QKeySequence(), [this]() {
-            auto* s = activeSlice();
-            if (!s) return;
-            s->setFilterWidth(s->filterLow(), s->filterHigh() + 100);
+            if (auto* rx = m_appletPanel->rxApplet()) rx->stepFilterWidth(+1);
         });
     m_shortcutManager.registerAction("filter_narrow", "Filter Narrow", "Filter",
         QKeySequence(), [this]() {
-            auto* s = activeSlice();
-            if (!s) return;
-            s->setFilterWidth(s->filterLow(), std::max(s->filterLow() + 50, s->filterHigh() - 100));
+            if (auto* rx = m_appletPanel->rxApplet()) rx->stepFilterWidth(-1);
         });
 
     // ── Tuning ──────────────────────────────────────────────────────────

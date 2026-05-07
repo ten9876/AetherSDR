@@ -47,6 +47,11 @@ public:
     void cycleStepUp();
     void cycleStepDown();
 
+    // Step the active slice's RX passband through the per-mode filter preset
+    // list. direction = +1 widens, -1 narrows. Routes through applyFilterPreset
+    // so all modes (LSB/CWL/DIGL/RTTY/AM/CW/USB) get mode-correct edge geometry.
+    void stepFilterWidth(int direction);
+
     // Connect to transmit model for QSK (break_in) indicator.
     void setTransmitModel(class TransmitModel* txModel);
 

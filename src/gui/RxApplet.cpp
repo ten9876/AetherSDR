@@ -29,7 +29,9 @@
 #include <QKeyEvent>
 #include <QDoubleSpinBox>
 #include <QDir>
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 // Slider that resets to a default value on double-click.
 // Extends GuardedSlider for controls-lock support (#745).
@@ -1539,6 +1541,23 @@ void RxApplet::applyFilterPreset(int widthHz)
     }
 
     m_slice->setFilterWidth(lo, hi);
+}
+
+void RxApplet::stepFilterWidth(int direction)
+{
+    if (!m_slice || m_filterWidths.isEmpty() || direction == 0) return;
+
+    const int currentWidth = m_slice->filterHigh() - m_slice->filterLow();
+    int idx = 0;
+    int bestDist = std::numeric_limits<int>::max();
+    for (int i = 0; i < m_filterWidths.size(); ++i) {
+        const int dist = std::abs(currentWidth - m_filterWidths[i]);
+        if (dist < bestDist) { bestDist = dist; idx = i; }
+    }
+    const int next = std::clamp(idx + (direction > 0 ? 1 : -1),
+                                0, static_cast<int>(m_filterWidths.size()) - 1);
+    if (next == idx && bestDist == 0) return;
+    applyFilterPreset(m_filterWidths[next]);
 }
 
 void RxApplet::updateFilterButtons()
