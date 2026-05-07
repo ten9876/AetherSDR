@@ -43,9 +43,10 @@ void AppSettings::migrateSettingsPath()
     if (QFile::exists(m_filePath))
         return;  // already at the correct location
 
-#ifdef Q_OS_WIN
-    // Before this fix, ConfigLocation on Windows Qt 6 resolved to
-    // %LOCALAPPDATA%/AetherSDR/AetherSDR (OrgName/AppName), so appending
+#if defined(Q_OS_WIN) || defined(Q_OS_MAC)
+    // On Windows and macOS, Qt 6's ConfigLocation resolves to AppConfigLocation
+    // (%LOCALAPPDATA%/AetherSDR/AetherSDR on Windows,
+    //  ~/Library/Preferences/AetherSDR/AetherSDR on macOS), so appending
     // "/AetherSDR" produced a triple-nested path. Move the file if found there.
     const QString oldPath =
         QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
