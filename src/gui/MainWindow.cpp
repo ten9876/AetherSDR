@@ -2043,139 +2043,7 @@ MainWindow::MainWindow(QWidget* parent)
     });
     // ── S History Markers — tap into FFT frames for voice signal detection ──
     connect(m_radioModel.panStream(), &PanadapterStream::spectrumReady,
-            this, [this](quint32 streamId, const QVector<float>& bins) {
-        if (!m_sHistoryEnabled && !m_sHistoryQrmEnabled) return;
-        // Build voice-only frequency ranges from the active band plan once per frame
-        QVector<QPair<double, double>> voiceRanges;
-        if (m_bandPlanMgr) {
-            for (const auto& seg : m_bandPlanMgr->segments()) {
-                if (AetherSDR::isVoiceSegmentLabel(seg.label))
-                    voiceRanges.append({seg.lowMhz, seg.highMhz});
-            }
-        }
-        const qint64 now = QDateTime::currentMSecsSinceEpoch();
-        for (auto* pan : m_radioModel.panadapters()) {
-            if (pan->panStreamId() != streamId) continue;
-
-            const QString panId = pan->panId();
-            auto& state = m_sHistoryPanState[panId];
-            // Only reset on a genuine band change (centre shifts by >500 kHz).
-            // Zoom (bandwidth change) must NOT clear markers — the operator
-            // zooms in to inspect signals that are already marked.
-            const bool bandChanged =
-                std::abs(state.centerMhz - pan->centerMhz()) > 0.5;
-            state.centerMhz    = pan->centerMhz();
-            state.bandwidthMhz = pan->bandwidthMhz();
-            if (bandChanged) {
-                state.suppressUntilMs = now + 10000;
-                m_sHistoryData.remove(panId);
-                m_spectrogramBuffers.remove(panId);  // old frames are for a different band
-            }
-
-            // Read the noise floor that the spectrum widget has already measured
-            // from this pan's live FFT stream — no hardcoded dBm, adapts to the
-            // current band, antenna, and preamp setup automatically.
-            SpectrumWidget* sw = m_panStack->spectrum(pan->panId());
-            const float noiseFloor = sw ? sw->noiseFloorDbm() : -1000.0f;
-
-            // Use the active slice mode so USB pans only show USB markers and
-            // LSB pans only show LSB markers — no more double-marking one signal.
-            QString sliceMode;
-            for (auto* slice : m_radioModel.slices()) {
-                if (slice && slice->panId() == pan->panId()) {
-                    sliceMode = slice->mode();
-                    break;
-                }
-            }
-
-            // Push this frame into the spectrogram buffer for CNN classification.
-            m_spectrogramBuffers[panId].push(bins, pan->centerMhz(), pan->bandwidthMhz());
-
-            const auto detected =
-                AetherSDR::detectVoiceSignals(bins, pan->centerMhz(), pan->bandwidthMhz(),
-                                              voiceRanges, noiseFloor, sliceMode);
-            auto& entries = m_sHistoryData[panId];
-            for (const auto& sig : detected) {
-                bool found = false;
-                for (auto& e : entries) {
-                    // Merge window: 2 kHz for voice signals — large enough to absorb
-                    // frame-to-frame edge jitter (bin quantisation + ±400 Hz gap-fill
-                    // ≈ up to ~700 Hz shift), small enough to stay below the minimum
-                    // SSB channel spacing of 2.7 kHz so adjacent stations get their
-                    // own entries.  Half the signal width for wideband QRM so
-                    // frame-to-frame centre drift doesn't create duplicates.
-                    const double mergeHz = (sig.widthHz > 8000.0)
-                        ? sig.widthHz / 2.0 : 2000.0;
-                    if (std::abs(e.freqMhz - sig.freqMhz) < mergeHz / 1e6) {
-                        e.lastSeenMs = now;
-                        e.hitTimestamps.append(now);
-                        // Track widest detection: a signal can look narrow when weak
-                        // but wider at peak — the widest seen determines classification.
-                        e.widthHz = std::max(e.widthHz, sig.widthHz);
-                        if (sig.peakDbm > e.peakDbm) {
-                            e.peakDbm = sig.peakDbm;
-                            e.freqMhz = sig.freqMhz;
-                        }
-                        // Voice over QRM: if this entry is already QRM-classified
-                        // and the current detection is voice-width, flag for double
-                        // marking so both a red QRM and a gold voice marker appear.
-                        if (e.suspectQrm
-                                && sig.widthHz >= 1800.0 && sig.widthHz <= 8000.0) {
-                            e.voiceOverQrmLastMs = now;
-                        }
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    SHistoryEntry newEntry;
-                    newEntry.freqMhz       = sig.freqMhz;
-                    newEntry.peakDbm       = sig.peakDbm;
-                    newEntry.mode          = sig.mode;
-                    newEntry.firstDetectedMs = now;
-                    newEntry.lastSeenMs    = now;
-                    newEntry.widthHz       = sig.widthHz;
-                    newEntry.hitTimestamps = {now};
-                    newEntry.lastGapMs     = now;  // treat appearance as a gap reset
-                    entries.append(std::move(newEntry));
-                }
-            }
-            // CNN classification for borderline-width entries (1800–2500 Hz).
-            // Runs only when the model is loaded; gracefully skipped otherwise.
-            if (m_signalClassifier.isLoaded()) {
-                auto& buf = m_spectrogramBuffers[panId];
-                if (buf.frameCount() >= AetherSDR::SpectrogramBuffer::kMaxFrames) {
-                    for (auto& e : entries) {
-                        if (e.widthHz >= 1800.0 && e.widthHz <= 2500.0) {
-                            // Extract a 2× signal-width patch centred on this entry
-                            const double patchWidthMhz = e.widthHz * 2.0 / 1.0e6;
-                            const QVector<float> patch =
-                                buf.extractPatch(e.freqMhz, patchWidthMhz);
-                            if (!patch.isEmpty()) {
-                                const AetherSDR::ClassifierResult res =
-                                    m_signalClassifier.classify(
-                                        patch,
-                                        AetherSDR::SpectrogramBuffer::kMaxFrames,
-                                        AetherSDR::SpectrogramBuffer::kPatchFreqBins);
-                                if (res.valid) {
-                                    // EMA α = 0.15 — gradual update, resilient to
-                                    // single-frame misclassification
-                                    constexpr float kAlpha = 0.15f;
-                                    e.carrierScore = e.carrierScore * (1.0f - kAlpha)
-                                                   + res.carrierProb * kAlpha;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Always rebuild so hit-window expiry hides markers promptly
-            // even when nothing was detected this frame.
-            rebuildSHistoryForPan(panId);
-            break;
-        }
-    });
+            this, &MainWindow::onSpectrumReadyForSHistory);
 
     connect(m_radioModel.panStream(), &PanadapterStream::waterfallRowReady,
             this, [this](quint32 streamId, const QVector<float>& bins,
@@ -2479,6 +2347,9 @@ MainWindow::MainWindow(QWidget* parent)
             }
         }
         m_panStack->removePanadapter(panId);
+        m_sHistoryData.remove(panId);
+        m_sHistoryPanState.remove(panId);
+        m_spectrogramBuffers.remove(panId);
         qDebug() << "MainWindow: removed panadapter applet for" << panId;
 
         // Rearrange remaining pans to a sensible layout
@@ -13023,7 +12894,11 @@ void MainWindow::rebuildSHistoryForPan(const QString& panId)
     constexpr int    kMinHits           = 1;
     constexpr qint64 kQualifyMs         = 3000;  // 3-second streak before showing
     constexpr qint64 kNarrowQrmGateMs   = 6000;  // narrow/wideband: show QRM after 6 s
-    constexpr int    kNarrowQrmHitsNeeded = 105; // ~70% of 25 fps × 6 s = 150 frames
+    // Require 70% frame occupancy over 6 s, derived from observed fps rather than
+    // the old hard-coded 105 (which assumed 25 fps and broke at 10 fps or 60 fps).
+    const float observedFps = m_sHistoryPanState.value(panId).fpsEwma;
+    const int   kNarrowQrmHitsNeeded = static_cast<int>(
+        std::clamp(observedFps * (kNarrowQrmGateMs / 1000.0f) * 0.70f, 30.0f, 500.0f));
     constexpr qint64 kVoiceToQrmMs      = 120000;
     constexpr qint64 kHideAfterMs       = 30000; // past-signals history window
 
@@ -13176,6 +13051,157 @@ void MainWindow::expireSHistoryMarkers()
         if (!entries.isEmpty()) {
             rebuildSHistoryForPan(it.key());
         }
+    }
+}
+
+void MainWindow::onSpectrumReadyForSHistory(quint32 streamId, const QVector<float>& bins)
+{
+    if (!m_sHistoryEnabled && !m_sHistoryQrmEnabled) return;
+
+    // Build voice-only frequency ranges from the active band plan once per frame
+    QVector<QPair<double, double>> voiceRanges;
+    if (m_bandPlanMgr) {
+        for (const auto& seg : m_bandPlanMgr->segments()) {
+            if (AetherSDR::isVoiceSegmentLabel(seg.label))
+                voiceRanges.append({seg.lowMhz, seg.highMhz});
+        }
+    }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (auto* pan : m_radioModel.panadapters()) {
+        if (pan->panStreamId() != streamId) continue;
+
+        const QString panId = pan->panId();
+        auto& state = m_sHistoryPanState[panId];
+        // Only reset on a genuine band change (centre shifts by >500 kHz).
+        // Zoom (bandwidth change) must NOT clear markers — the operator
+        // zooms in to inspect signals that are already marked.
+        const bool bandChanged =
+            std::abs(state.centerMhz - pan->centerMhz()) > 0.5;
+        state.centerMhz    = pan->centerMhz();
+        state.bandwidthMhz = pan->bandwidthMhz();
+        // Track observed frame rate (EWMA) so QRM hit thresholds adapt to
+        // actual pan fps rather than assuming 25 fps.
+        if (state.lastFrameMs > 0) {
+            const float dtSec = static_cast<float>(now - state.lastFrameMs) / 1000.0f;
+            if (dtSec > 0.0f && dtSec < 1.0f) {  // ignore stale gaps (pan was paused)
+                constexpr float kFpsAlpha = 0.05f;
+                state.fpsEwma = state.fpsEwma * (1.0f - kFpsAlpha)
+                              + (1.0f / dtSec) * kFpsAlpha;
+            }
+        }
+        state.lastFrameMs = now;
+        if (bandChanged) {
+            state.suppressUntilMs = now + 10000;
+            m_sHistoryData.remove(panId);
+            m_spectrogramBuffers.remove(panId);  // old frames are for a different band
+        }
+
+        // Read the noise floor that the spectrum widget has already measured
+        // from this pan's live FFT stream — no hardcoded dBm, adapts to the
+        // current band, antenna, and preamp setup automatically.
+        SpectrumWidget* sw = m_panStack->spectrum(pan->panId());
+        const float noiseFloor = sw ? sw->noiseFloorDbm() : -1000.0f;
+
+        // Use the active slice mode so USB pans only show USB markers and
+        // LSB pans only show LSB markers — no more double-marking one signal.
+        QString sliceMode;
+        for (auto* slice : m_radioModel.slices()) {
+            if (slice && slice->panId() == pan->panId()) {
+                sliceMode = slice->mode();
+                break;
+            }
+        }
+
+        // Push this frame into the spectrogram buffer for CNN classification.
+        auto& bufPtr = m_spectrogramBuffers[panId];
+        if (!bufPtr) { bufPtr = std::make_shared<AetherSDR::SpectrogramBuffer>(); }
+        bufPtr->push(bins, pan->centerMhz(), pan->bandwidthMhz());
+
+        const auto detected =
+            AetherSDR::detectVoiceSignals(bins, pan->centerMhz(), pan->bandwidthMhz(),
+                                          voiceRanges, noiseFloor, sliceMode);
+        auto& entries = m_sHistoryData[panId];
+        for (const auto& sig : detected) {
+            bool found = false;
+            for (auto& e : entries) {
+                // Merge window: 2 kHz for voice signals — large enough to absorb
+                // frame-to-frame edge jitter (bin quantisation + ±400 Hz gap-fill
+                // ≈ up to ~700 Hz shift), small enough to stay below the minimum
+                // SSB channel spacing of 2.7 kHz so adjacent stations get their
+                // own entries.  Half the signal width for wideband QRM so
+                // frame-to-frame centre drift doesn't create duplicates.
+                const double mergeHz = (sig.widthHz > 8000.0)
+                    ? sig.widthHz / 2.0 : 2000.0;
+                if (std::abs(e.freqMhz - sig.freqMhz) < mergeHz / 1e6) {
+                    e.lastSeenMs = now;
+                    e.hitTimestamps.append(now);
+                    // Track widest detection: a signal can look narrow when weak
+                    // but wider at peak — the widest seen determines classification.
+                    e.widthHz = std::max(e.widthHz, sig.widthHz);
+                    if (sig.peakDbm > e.peakDbm) {
+                        e.peakDbm = sig.peakDbm;
+                        e.freqMhz = sig.freqMhz;
+                    }
+                    // Voice over QRM: if this entry is already QRM-classified
+                    // and the current detection is voice-width, flag for double
+                    // marking so both a red QRM and a gold voice marker appear.
+                    if (e.suspectQrm
+                            && sig.widthHz >= 1800.0 && sig.widthHz <= 8000.0) {
+                        e.voiceOverQrmLastMs = now;
+                    }
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                SHistoryEntry newEntry;
+                newEntry.freqMhz         = sig.freqMhz;
+                newEntry.peakDbm         = sig.peakDbm;
+                newEntry.mode            = sig.mode;
+                newEntry.firstDetectedMs = now;
+                newEntry.lastSeenMs      = now;
+                newEntry.widthHz         = sig.widthHz;
+                newEntry.hitTimestamps   = {now};
+                newEntry.lastGapMs       = now;  // treat appearance as a gap reset
+                entries.append(std::move(newEntry));
+            }
+        }
+        // CNN classification for borderline-width entries (1800–2500 Hz).
+        // Runs only when the model is loaded; gracefully skipped otherwise.
+        if (m_signalClassifier.isLoaded()) {
+            const auto cit = m_spectrogramBuffers.constFind(panId);
+            AetherSDR::SpectrogramBuffer* buf = (cit != m_spectrogramBuffers.constEnd()) ? cit->get() : nullptr;
+            if (buf != nullptr) {
+                if (buf->frameCount() >= AetherSDR::SpectrogramBuffer::kMaxFrames) {
+                    for (auto& e : entries) {
+                        if (e.widthHz >= 1800.0 && e.widthHz <= 2500.0) {
+                            const double patchWidthMhz = e.widthHz * 2.0 / 1.0e6;
+                            const QVector<float> patch =
+                                buf->extractPatch(e.freqMhz, patchWidthMhz);
+                            if (!patch.isEmpty()) {
+                                const AetherSDR::ClassifierResult res =
+                                    m_signalClassifier.classify(
+                                        patch,
+                                        AetherSDR::SpectrogramBuffer::kMaxFrames,
+                                        AetherSDR::SpectrogramBuffer::kPatchFreqBins);
+                                if (res.valid) {
+                                    // EMA α = 0.15 — gradual update, resilient to
+                                    // single-frame misclassification
+                                    constexpr float kAlpha = 0.15f;
+                                    e.carrierScore = e.carrierScore * (1.0f - kAlpha)
+                                                   + res.carrierProb * kAlpha;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Always rebuild so hit-window expiry hides markers promptly
+        // even when nothing was detected this frame.
+        rebuildSHistoryForPan(panId);
+        break;
     }
 }
 

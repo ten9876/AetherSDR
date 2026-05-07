@@ -301,7 +301,7 @@ private:
         float           peakDbm;
         QString         mode;
         qint64          firstDetectedMs{0};
-        qint64          lastSeenMs;
+        qint64          lastSeenMs{0};
         double          widthHz{0.0};
         bool            suspectQrm{false};
         // Hit timestamps for the last 10 seconds. Used to detect both
@@ -326,6 +326,8 @@ private:
         double centerMhz{0.0};
         double bandwidthMhz{0.0};
         qint64 suppressUntilMs{0};
+        qint64 lastFrameMs{0};
+        float  fpsEwma{25.0f};  // EWMA of observed frames/sec; starts at 25 fps
     };
     QHash<QString, QVector<SHistoryEntry>> m_sHistoryData;  // panId → entries
     QHash<QString, SHistoryPanState> m_sHistoryPanState;
@@ -334,8 +336,11 @@ private:
     bool    m_sHistoryQrmEnabled{false};
     void rebuildSHistoryForPan(const QString& panId);
     void expireSHistoryMarkers();
-    // Per-pan spectrogram ring buffer for CNN classification
-    QHash<QString, AetherSDR::SpectrogramBuffer> m_spectrogramBuffers;
+    void onSpectrumReadyForSHistory(quint32 streamId, const QVector<float>& bins);
+    // Per-pan spectrogram ring buffer for CNN classification.
+    // shared_ptr so QHash COW can copy the pointer on detach without deep-copying
+    // the 32-frame ring buffer (unique_ptr is non-copyable, which breaks QHash::operator[]).
+    QHash<QString, std::shared_ptr<AetherSDR::SpectrogramBuffer>> m_spectrogramBuffers;
     AetherSDR::SignalClassifier m_signalClassifier;
 
     // Batched spot add commands (flushed 1/sec)
