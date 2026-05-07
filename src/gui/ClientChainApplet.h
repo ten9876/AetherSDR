@@ -133,8 +133,6 @@ private:
     bool               m_monHasRecording{false};
     bool               m_micReady{false};
     ChainMode          m_mode{ChainMode::Tx};
-    QVector<AudioEngine::TxChainStage> m_bypassSnapshot;     // TX stages that were on before BYPASS
-    QVector<AudioEngine::RxChainStage> m_rxBypassSnapshot;   // RX stages that were on before BYPASS
 };
 
 } // namespace AetherSDR

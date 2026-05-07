@@ -2550,8 +2550,13 @@ MainWindow::MainWindow(QWidget* parent)
     // SPEAK tile = AudioEngine output unmuted.
     if (auto* chain = m_appletPanel->clientChainApplet()) {
         // RADIO — driven by the existing PC Audio toggle in TitleBar.
-        connect(m_titleBar, &TitleBar::pcAudioToggled,
-                chain, &ClientChainApplet::setRxPcAudioEnabled);
+        // Also forward to the strip's RX chain so its RADIO tile
+        // tracks the same state.
+        connect(m_titleBar, &TitleBar::pcAudioToggled, this,
+                [this, chain](bool on) {
+            chain->setRxPcAudioEnabled(on);
+            if (m_aetherialStrip) m_aetherialStrip->setRxPcAudioEnabled(on);
+        });
 
         // DSP — aggregate of every client-side NR module.  These are
         // mutually exclusive in AudioEngine::processRx (chained
@@ -2566,7 +2571,7 @@ MainWindow::MainWindow(QWidget* parent)
                  dfnr{false}, mnr{false}, bnr{false};
         };
         auto dspState = std::make_shared<DspState>();
-        auto pushDsp = [chain, dspState]() {
+        auto pushDsp = [this, chain, dspState]() {
             // Priority order picks the most "specific" / most-recent
             // module if more than one is somehow on at once.  Same
             // order as the audio-thread dispatcher so the displayed
@@ -2580,6 +2585,8 @@ MainWindow::MainWindow(QWidget* parent)
             else if (dspState->nr2)  label = "NR2";
             const bool anyOn = !label.isEmpty();
             chain->setRxClientDspActive(anyOn, label);
+            if (m_aetherialStrip)
+                m_aetherialStrip->setRxClientDspActive(anyOn, label);
         };
         connect(m_audio, &AudioEngine::nr2EnabledChanged, chain,
                 [dspState, pushDsp](bool on) { dspState->nr2 = on; pushDsp(); });
@@ -2595,8 +2602,11 @@ MainWindow::MainWindow(QWidget* parent)
                 [dspState, pushDsp](bool on) { dspState->bnr = on; pushDsp(); });
 
         // SPEAK — AudioEngine emits mutedChanged on every setMuted() flip.
-        connect(m_audio, &AudioEngine::mutedChanged, chain,
-                [chain](bool muted) { chain->setRxOutputUnmuted(!muted); });
+        connect(m_audio, &AudioEngine::mutedChanged, this,
+                [this, chain](bool muted) {
+            chain->setRxOutputUnmuted(!muted);
+            if (m_aetherialStrip) m_aetherialStrip->setRxOutputUnmuted(!muted);
+        });
 
         // Seed initial state — settings and engine values are already
         // loaded by the time we reach this wiring code.  We pull from
@@ -2605,6 +2615,7 @@ MainWindow::MainWindow(QWidget* parent)
         const bool pcOn = AppSettings::instance()
             .value("PcAudioEnabled", "True").toString() == "True";
         chain->setRxPcAudioEnabled(pcOn);
+        if (m_aetherialStrip) m_aetherialStrip->setRxPcAudioEnabled(pcOn);
         dspState->nr2  = m_audio->nr2Enabled();
         dspState->rn2  = m_audio->rn2Enabled();
         dspState->nr4  = m_audio->nr4Enabled();
@@ -2613,6 +2624,8 @@ MainWindow::MainWindow(QWidget* parent)
         dspState->bnr  = m_audio->bnrEnabled();
         pushDsp();
         chain->setRxOutputUnmuted(!m_audio->isMuted());
+        if (m_aetherialStrip)
+            m_aetherialStrip->setRxOutputUnmuted(!m_audio->isMuted());
     }
     connect(m_titleBar, &TitleBar::headphoneMuteChanged, this, [this](bool muted) {
         m_radioModel.sendCommand(QString("mixer headphone mute %1").arg(muted ? 1 : 0));
@@ -9823,6 +9836,27 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     });
 #endif
 
+    // AetherDSP button on the per-slice DSP tab — same entry point as the
+    // Settings menu action and the RX chain double-click; reuses the
+    // existing modeless m_dspDialog when one is already open.
+    connect(w, &VfoWidget::aetherDspRequested, this, [this] {
+        if (m_dspDialog) {
+            m_dspDialog->raise();
+            m_dspDialog->activateWindow();
+            return;
+        }
+        auto* dlg = new AetherDspDialog(m_audio, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        if (auto* dspWidget = dlg->widget()) wireAetherDspWidget(dspWidget);
+        m_dspDialog = dlg;
+        dlg->show();
+    });
+
+    // AetherVoice button on the per-slice DSP tab — toggles the Aetherial
+    // Audio Channel Strip, matching the existing menu / chain entry points.
+    connect(w, &VfoWidget::aetherVoiceRequested,
+            this, &MainWindow::toggleAetherialStrip);
+
     // Per-slice VFO marker style (#1526): push user's saved line thickness and
     // filter-edge visibility preferences to this slice's overlay whenever they
     // change. Also fires once on setSlice() below to apply loaded defaults.
@@ -10049,11 +10083,93 @@ void MainWindow::toggleAetherialStrip()
         // writes the same TX filter command to the radio.
         connect(m_aetherialStrip, &AetherialAudioStrip::cutoffsDragRequested,
                 this, &MainWindow::onEqCutoffsDragRequested);
+        // Wire the strip's RX ADSP widget through the same parameter-
+        // change handlers the Settings dialog and docked applet use.
+        // Without this, NR2/NR4/DFNR/BNR/MNR controls in the strip
+        // emit signals that nothing receives.
+        if (auto* adsp = m_aetherialStrip->adspWidget())
+            wireAetherDspWidget(adsp);
         // Stage bypass via the strip's chain tiles → same handler the
         // docked Chain applet's signal connects to, so both chain
         // widgets repaint and the matching applet refreshes.
         connect(m_aetherialStrip, &AetherialAudioStrip::stageEnabledChanged,
                 this, &MainWindow::onTxChainStageEnabledChanged);
+
+        // RX chain wiring — sibling of the TX hookups above (#2425).
+        // Stage bypass on an RX tile fans out to: docked chain applet
+        // (so its painted tile repaints), and per-stage RX applets so
+        // their Enable toggles stay aligned with the engine state.
+        connect(m_aetherialStrip, &AetherialAudioStrip::rxStageEnabledChanged,
+                this, [this](AudioEngine::RxChainStage stage, bool /*enabled*/) {
+            if (auto* dockedChain = m_appletPanel
+                    ? m_appletPanel->clientChainApplet() : nullptr) {
+                dockedChain->refreshFromEngine();
+            }
+            if (!m_appletPanel) return;
+            switch (stage) {
+                case AudioEngine::RxChainStage::Eq:
+                    if (m_appletPanel->clientEqRxApplet())
+                        m_appletPanel->clientEqRxApplet()->refreshEnableFromEngine();
+                    break;
+                case AudioEngine::RxChainStage::Gate:
+                    if (m_appletPanel->clientGateRxApplet())
+                        m_appletPanel->clientGateRxApplet()->refreshEnableFromEngine();
+                    break;
+                case AudioEngine::RxChainStage::Comp:
+                    if (m_appletPanel->clientCompRxApplet())
+                        m_appletPanel->clientCompRxApplet()->refreshEnableFromEngine();
+                    break;
+                case AudioEngine::RxChainStage::Tube:
+                    if (m_appletPanel->clientTubeRxApplet())
+                        m_appletPanel->clientTubeRxApplet()->refreshEnableFromEngine();
+                    break;
+                case AudioEngine::RxChainStage::Pudu:
+                    if (m_appletPanel->clientPuduRxApplet())
+                        m_appletPanel->clientPuduRxApplet()->refreshEnableFromEngine();
+                    break;
+                default:
+                    break;
+            }
+        });
+        // RX stage double-click → open the RX-side floating editor for
+        // that stage.  Mirrors the docked applet's rxEditRequested hook.
+        connect(m_aetherialStrip, &AetherialAudioStrip::rxStageEditRequested,
+                this, [this](AudioEngine::RxChainStage stage) {
+            switch (stage) {
+                case AudioEngine::RxChainStage::Eq:
+                    ensureClientEqEditor()->showForPath(ClientEqApplet::Path::Rx);
+                    break;
+                case AudioEngine::RxChainStage::Gate:
+                    ensureClientGateEditor()->showForRx();
+                    break;
+                case AudioEngine::RxChainStage::Comp:
+                    ensureClientCompEditor()->showForRx();
+                    break;
+                case AudioEngine::RxChainStage::Tube:
+                    ensureClientTubeEditor()->showForRx();
+                    break;
+                case AudioEngine::RxChainStage::Pudu:
+                    ensureClientPuduEditor()->showForRx();
+                    break;
+                default:
+                    break;
+            }
+        });
+        // ADSP launcher tile → open / focus the AetherDsp Settings
+        // dialog, same as the Settings menu action.
+        connect(m_aetherialStrip, &AetherialAudioStrip::rxDspEditRequested,
+                this, [this]() {
+            if (m_dspDialog) {
+                m_dspDialog->raise();
+                m_dspDialog->activateWindow();
+                return;
+            }
+            auto* dlg = new AetherDspDialog(m_audio, this);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            if (auto* w = dlg->widget()) wireAetherDspWidget(w);
+            m_dspDialog = dlg;
+            dlg->show();
+        });
         // PUDU monitor record / play — same toggle logic as the docked
         // ClientChainApplet.
         connect(m_aetherialStrip, &AetherialAudioStrip::monitorRecordClicked,

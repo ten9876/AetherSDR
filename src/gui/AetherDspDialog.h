@@ -2,6 +2,9 @@
 
 #include <QDialog>
 
+class QEvent;
+class QMouseEvent;
+
 namespace AetherSDR {
 
 class AudioEngine;
@@ -51,8 +54,20 @@ signals:
     void nr4MaskingDepthChanged(float value);
     void nr4SuppressionChanged(float value);
 
+protected:
+    // Frameless 8-axis resize + drag-to-move (same pattern as
+    // NetworkDiagnosticsDialog and the AetherialAudioStrip).
+    void mousePressEvent(QMouseEvent* ev) override;
+    void mouseMoveEvent(QMouseEvent* ev) override;
+    void leaveEvent(QEvent* ev) override;
+    bool eventFilter(QObject* obj, QEvent* ev) override;
+
 private:
+    Qt::Edges edgesAt(const QPoint& pos) const;
+    void updateResizeCursor(const QPoint& pos);
+
     AetherDspWidget* m_widget{nullptr};
+    QWidget*         m_titleBar{nullptr};
 };
 
 } // namespace AetherSDR

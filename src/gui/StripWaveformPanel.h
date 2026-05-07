@@ -21,11 +21,14 @@ class StripWaveformPanel : public QWidget {
     Q_OBJECT
 
 public:
+    enum class Side { Tx, Rx };
+
     explicit StripWaveformPanel(AudioEngine* engine,
                                 QWidget* parent = nullptr);
     ~StripWaveformPanel() override;
 
     void showForTx();
+    void showForRx();
 
     // Match the other strip panels' API surface — present even though
     // the waveform display has no engine controls of its own yet.
@@ -35,8 +38,11 @@ private:
     void cycleViewMode();
     void applyViewMode();
     void applyWindowSec(int sec);
+    QString windowSettingsKey() const;
 
     AudioEngine*    m_audio{nullptr};
+    Side            m_side{Side::Tx};
+    QWidget*        m_titleBar{nullptr};   // EditorFramelessTitleBar*
     StripWaveform*  m_waveform{nullptr};
     QPushButton*    m_modeBtn{nullptr};
     QSlider*        m_windowSlider{nullptr};

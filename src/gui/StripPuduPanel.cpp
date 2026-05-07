@@ -278,19 +278,40 @@ StripPuduPanel::~StripPuduPanel() = default;
 
 ClientPudu* StripPuduPanel::pudu() const
 {
-    return m_audio ? m_audio->clientPuduTx() : nullptr;
+    if (!m_audio) return nullptr;
+    return m_side == Side::Rx ? m_audio->clientPuduRx()
+                              : m_audio->clientPuduTx();
 }
 
 void StripPuduPanel::savePuduSettings() const
 {
-    if (m_audio) m_audio->saveClientPuduSettings();
+    if (!m_audio) return;
+    if (m_side == Side::Rx) m_audio->saveClientPuduRxSettings();
+    else                    m_audio->saveClientPuduSettings();
 }
 
 void StripPuduPanel::showForTx()
 {
+    m_side = Side::Tx;
     if (m_logo && pudu()) m_logo->setPudu(pudu());
     const QString title = QString::fromUtf8(
         "Aetherial Voice Processor \xe2\x80\x94 TX");
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    setWindowTitle(title);
+    syncControlsFromEngine();
+    restoreGeometryFromSettings();
+    show();
+    raise();
+    activateWindow();
+}
+
+void StripPuduPanel::showForRx()
+{
+    m_side = Side::Rx;
+    if (m_logo && pudu()) m_logo->setPudu(pudu());
+    const QString title = QString::fromUtf8(
+        "Aetherial Voice Processor \xe2\x80\x94 RX");
     if (m_titleBar)
         static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
     setWindowTitle(title);

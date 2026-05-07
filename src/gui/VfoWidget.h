@@ -88,6 +88,8 @@ Q_SIGNALS:
 #endif
     void recordToggled(bool on);
     void playToggled(bool on);
+    void aetherDspRequested();     // user clicked the ADSP button on the DSP tab
+    void aetherVoiceRequested();   // user clicked the AetherVoice button on the DSP tab
     void splitToggled();
     void swapRequested();
     void autotuneRequested(bool intermittent);  // CW auto-tune: false=stop, true=loop
@@ -238,6 +240,8 @@ private:
     QPushButton* m_anflBtn{nullptr};
     QPushButton* m_anftBtn{nullptr};
     QPushButton* m_apfBtn{nullptr};
+    QPushButton* m_aetherDspBtn{nullptr};    // launches AetherDSP Settings dialog
+    QPushButton* m_aetherVoiceBtn{nullptr};  // toggles Aetherial Audio Channel Strip
 
     // Shared DSP-level row at the bottom of the DSP grid: one slider whose
     // target switches based on which leveled DSP the user most recently

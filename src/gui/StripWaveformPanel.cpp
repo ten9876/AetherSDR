@@ -34,6 +34,7 @@ StripWaveformPanel::StripWaveformPanel(AudioEngine* engine, QWidget* parent)
 
     auto* titleBar = new EditorFramelessTitleBar;
     titleBar->setTitleText(title);
+    m_titleBar = titleBar;
     // Embedded inside the strip — no need for the min/max/close trio
     // (the strip's own chrome carries those) and the dark fill bar
     // reads as a heavy header in this row.  Drop both so the panel
@@ -103,8 +104,7 @@ StripWaveformPanel::StripWaveformPanel(AudioEngine* engine, QWidget* parent)
     // Restore the saved time window (or default to 20 s) and apply
     // it through the slider so the readout label updates in lockstep.
     const int savedSec = std::clamp(
-        AppSettings::instance().value(
-            "AetherialStripWaveformWindowSec", "20").toInt(),
+        AppSettings::instance().value(windowSettingsKey(), "20").toInt(),
         1, 20);
     {
         QSignalBlocker b(m_windowSlider);
@@ -116,25 +116,29 @@ StripWaveformPanel::StripWaveformPanel(AudioEngine* engine, QWidget* parent)
     // (kTxPostChainEmitMinIntervalMs = 8 ms) so the widget always
     // has fresh data on every frame.
     m_waveform->setRefreshRateHz(90);
-    // The strip waveform is TX-only by design — pin the widget into
-    // its TX render path so it never falls back to the RX buffer when
-    // the radio isn't transmitting.  Source samples come from the
-    // dedicated post-chain TX tap below; when we're not transmitting
-    // the chain produces silence, which is the correct visual.
+    // Default render path — pinned TX in the constructor so the
+    // initial paint is consistent.  showForRx() flips the pin and
+    // re-wires the source tap to the RX-side scope signal.
     m_waveform->setTransmitting(true);
     root->addWidget(m_waveform, 1);
 
     applyViewMode();
 
     if (m_audio) {
-        // TX-only tap sampled at the very END of the strip's audio
-        // path — after the user's DSP chain, after PC mic gain, AND
-        // after the final brickwall limiter.  This is exactly what
-        // gets packetised into VITA-49 and sent to the radio, so the
-        // panel shows the operator's actual transmitted envelope.
+        // TX-side tap: post-final-limiter — the exact bytes packetised
+        // for VITA-49.  Fires only when the user is transmitting.
         connect(m_audio, &AudioEngine::txPostChainScopeReady,
                 m_waveform, [this](const QByteArray& mono, int sr) {
-            if (m_waveform) m_waveform->appendScopeSamples(mono, sr, /*tx=*/true);
+            if (m_side != Side::Tx || !m_waveform) return;
+            m_waveform->appendScopeSamples(mono, sr, /*tx=*/true);
+        });
+        // RX-side tap: post-Pudu output (#2425) — the exact bytes
+        // about to hit the local audio sink.  scopeSamplesReady fires
+        // for both sides; filter on tx=false to take only RX.
+        connect(m_audio, &AudioEngine::scopeSamplesReady,
+                m_waveform, [this](const QByteArray& mono, int sr, bool tx) {
+            if (m_side != Side::Rx || tx || !m_waveform) return;
+            m_waveform->appendScopeSamples(mono, sr, /*tx=*/false);
         });
     }
 }
@@ -143,6 +147,45 @@ StripWaveformPanel::~StripWaveformPanel() = default;
 
 void StripWaveformPanel::showForTx()
 {
+    m_side = Side::Tx;
+    const QString title = QString::fromUtf8("Aetherial Waveform \xe2\x80\x94 TX");
+    setWindowTitle(title);
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    if (m_waveform) m_waveform->setTransmitting(true);
+    // Restore the TX-side saved zoom window.
+    const int savedSec = std::clamp(
+        AppSettings::instance().value(windowSettingsKey(), "20").toInt(),
+        1, 20);
+    if (m_windowSlider) {
+        QSignalBlocker b(m_windowSlider);
+        m_windowSlider->setValue(savedSec);
+    }
+    applyWindowSec(savedSec);
+    show();
+    raise();
+    activateWindow();
+}
+
+void StripWaveformPanel::showForRx()
+{
+    m_side = Side::Rx;
+    const QString title = QString::fromUtf8("Aetherial Waveform \xe2\x80\x94 RX");
+    setWindowTitle(title);
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    // RX side wants the widget to render its RX buffer — flip the
+    // transmitting pin off so the StripWaveform falls back to RX.
+    if (m_waveform) m_waveform->setTransmitting(false);
+    // Restore the RX-side saved zoom window (independent of TX).
+    const int savedSec = std::clamp(
+        AppSettings::instance().value(windowSettingsKey(), "20").toInt(),
+        1, 20);
+    if (m_windowSlider) {
+        QSignalBlocker b(m_windowSlider);
+        m_windowSlider->setValue(savedSec);
+    }
+    applyWindowSec(savedSec);
     show();
     raise();
     activateWindow();
@@ -166,8 +209,16 @@ void StripWaveformPanel::applyWindowSec(int sec)
     sec = std::clamp(sec, 1, 20);
     if (m_waveform) m_waveform->setZoomWindowMs(sec * 1000);
     if (m_windowLbl) m_windowLbl->setText(QString("%1 s").arg(sec));
-    AppSettings::instance().setValue(
-        "AetherialStripWaveformWindowSec", QString::number(sec));
+    AppSettings::instance().setValue(windowSettingsKey(), QString::number(sec));
+}
+
+QString StripWaveformPanel::windowSettingsKey() const
+{
+    // Independent persistence per side so TX zoom and RX zoom don't
+    // overwrite each other when the user toggles the strip mode.
+    return m_side == Side::Rx
+        ? QStringLiteral("AetherialStripWaveformRxWindowSec")
+        : QStringLiteral("AetherialStripWaveformWindowSec");
 }
 
 void StripWaveformPanel::applyViewMode()

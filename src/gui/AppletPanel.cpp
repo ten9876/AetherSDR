@@ -699,7 +699,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // floating while working on the chain.)
     if (txDsp) txDsp->insertChildWidget(-1, m_clientChainApplet);
     makeChildContainer("gate",    "Aetherial TX Gate",       m_clientGateApplet,   -1);
-    makeChildContainer("gate-rx", "Aetherial AGC-T",          m_clientGateRxApplet, -1);
+    makeChildContainer("gate-rx", "Aetherial AGC-G",          m_clientGateRxApplet, -1);
     makeChildContainer("ceq",     "Aetherial TX EQ",          m_clientEqTxApplet,   -1);
     makeChildContainer("ceq-rx",  "Aetherial RX EQ",          m_clientEqRxApplet,   -1);
     makeChildContainer("dess",    "Aetherial De-Esser",       m_clientDeEssApplet,  -1);
@@ -1074,12 +1074,13 @@ void AppletPanel::setRxDspChainOrder(
 
     auto idFor = [](AudioEngine::RxChainStage s) -> QString {
         switch (s) {
-            case AudioEngine::RxChainStage::Eq:   return "ceq-rx";
-            case AudioEngine::RxChainStage::Gate: return "gate-rx";
-            case AudioEngine::RxChainStage::Comp: return "cmp-rx";
-            case AudioEngine::RxChainStage::Tube: return "tube-rx";
-            case AudioEngine::RxChainStage::Pudu: return "pudu-rx";
-            case AudioEngine::RxChainStage::None: return {};
+            case AudioEngine::RxChainStage::Eq:    return "ceq-rx";
+            case AudioEngine::RxChainStage::Gate:  return "gate-rx";
+            case AudioEngine::RxChainStage::Comp:  return "cmp-rx";
+            case AudioEngine::RxChainStage::Tube:  return "tube-rx";
+            case AudioEngine::RxChainStage::Pudu:  return "pudu-rx";
+            case AudioEngine::RxChainStage::DeEss: return {};  // no RX applet yet
+            case AudioEngine::RxChainStage::None:  return {};
         }
         return {};
     };

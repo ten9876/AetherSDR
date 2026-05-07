@@ -214,6 +214,7 @@ public:
     // broadband attenuation (capped at amountDb) is applied when
     // sibilant energy crosses threshold.
     ClientDeEss* clientDeEssTx() { return m_clientDeEssTx.get(); }
+    ClientDeEss* clientDeEssRx() { return m_clientDeEssRx.get(); }
 
     // Client-side TX dynamic tube saturator (#1661 Phase 4).  Three
     // selectable curves, bipolar envelope-driven drive, tilt tone
@@ -284,12 +285,13 @@ public:
     // RX-side ClientEq, ClientGate, ClientComp, ClientTube, ClientPudu
     // instances.  See plans/poodoo-rx-chain.md.
     enum class RxChainStage : uint8_t {
-        None = 0,   // sentinel / end-of-list marker
-        Eq   = 1,
-        Gate = 2,
-        Comp = 3,
-        Tube = 4,
-        Pudu = 5,
+        None  = 0,   // sentinel / end-of-list marker
+        Eq    = 1,
+        Gate  = 2,
+        Comp  = 3,
+        Tube  = 4,
+        Pudu  = 5,
+        DeEss = 6,
     };
     static constexpr int kMaxRxChainStages = 8;  // packs into uint64_t
 
@@ -317,6 +319,15 @@ public:
     void setTxBypassed(bool on);
     bool isTxBypassed() const;
 
+    // ── Master RX bypass ─────────────────────────────────────────
+    // Sibling of the TX bypass plumbing above.  Same snapshot-and-
+    // restore semantics applied to the RX chain.  Stages without an
+    // implemented DSP class (currently DeEss) are skipped — they're
+    // already no-ops in the dispatcher, so disabling them is moot.
+    // Emits rxBypassChanged(bool) on transitions.
+    void setRxBypassed(bool on);
+    bool isRxBypassed() const;
+
     // Legacy two-stage API — the existing ClientCompEditor combo box
     // still drives this during the transition to the generalised chain.
     // Reads the relative position of Comp vs Eq in the current chain.
@@ -343,6 +354,9 @@ public:
     // Client-side TX de-esser — persistence.
     void loadClientDeEssSettings();
     void saveClientDeEssSettings() const;
+    // RX-side counterpart (#2425).
+    void loadClientDeEssRxSettings();
+    void saveClientDeEssRxSettings() const;
 
     // Client-side TX dynamic tube — persistence.
     void loadClientTubeSettings();
@@ -438,6 +452,7 @@ signals:
     void radioTransmittingChanged(bool tx);
     void mutedChanged(bool muted);                          // local audio output mute state
     void txBypassChanged(bool on);                          // master TX BYPASS state
+    void rxBypassChanged(bool on);                          // master RX BYPASS state
     // Fired by saveClientReverbSettings() after any reverb param
     // changes — UI surfaces (strip panel + docked applet) listen and
     // refresh from a single notification path instead of polling.
@@ -474,6 +489,8 @@ private:
     // Apply client-side TX de-esser in-place.  No-op if disabled.
     void applyClientDeEssTxInt16(QByteArray& int16stereo);
     void applyClientDeEssTxFloat32(QByteArray& float32);
+    // RX de-esser operates on the post-Comp float32 stereo buffer (#2425).
+    void applyClientDeEssRxFloat32(QByteArray& float32);
     // Apply client-side TX tube saturator in-place.  No-op if disabled.
     void applyClientTubeTxInt16(QByteArray& int16stereo);
     void applyClientTubeTxFloat32(QByteArray& float32);
@@ -625,6 +642,7 @@ private:
     std::unique_ptr<ClientGate> m_clientGateRx;
     // Client-side TX de-esser.
     std::unique_ptr<ClientDeEss> m_clientDeEssTx;
+    std::unique_ptr<ClientDeEss> m_clientDeEssRx;
     // Client-side TX tube saturator.
     std::unique_ptr<ClientTube> m_clientTubeTx;
     std::unique_ptr<ClientTube> m_clientTubeRx;
@@ -659,6 +677,10 @@ private:
     // the list.  Phase 0 dispatcher iterates this but every stage is a
     // no-op until its DSP class lands in a later phase.
     std::atomic<uint64_t> m_rxChainPacked{0};
+    // RX bypass snapshot — sibling of m_txBypassSnapshot.  Empty ⇒ not
+    // bypassed; non-empty ⇒ holds the stages that were enabled when
+    // bypass engaged so we can restore exactly that set on un-bypass.
+    QVector<RxChainStage> m_rxBypassSnapshot;
     // Scratch buffer for in-place EQ on the RX path (avoids per-call alloc).
     QByteArray m_clientEqRxScratch;
     QByteArray m_clientEqTxScratch;
@@ -667,6 +689,7 @@ private:
     QByteArray m_clientGateTxScratch;
     QByteArray m_clientGateRxScratch;
     QByteArray m_clientDeEssTxScratch;
+    QByteArray m_clientDeEssRxScratch;
     QByteArray m_clientTubeTxScratch;
     QByteArray m_clientTubeRxScratch;
     QByteArray m_clientPuduTxScratch;

@@ -57,6 +57,34 @@ AudioEngine::TxChainStage stageNameToEnum(const QString& n)
     return AudioEngine::TxChainStage::None;
 }
 
+// RX-side enum↔name mapping (#2425).  Only stages that exist in
+// RxChainStage; the pre-existing TX-only stages (Enh / Reverb) have no
+// RX equivalent and aren't in the enum.
+QString rxStageEnumToName(AudioEngine::RxChainStage s)
+{
+    switch (s) {
+        case AudioEngine::RxChainStage::Gate:  return "Gate";
+        case AudioEngine::RxChainStage::Eq:    return "Eq";
+        case AudioEngine::RxChainStage::DeEss: return "DeEss";
+        case AudioEngine::RxChainStage::Comp:  return "Comp";
+        case AudioEngine::RxChainStage::Tube:  return "Tube";
+        case AudioEngine::RxChainStage::Pudu:  return "Pudu";
+        case AudioEngine::RxChainStage::None:  return "";
+    }
+    return "";
+}
+
+AudioEngine::RxChainStage rxStageNameToEnum(const QString& n)
+{
+    if (n == "Gate")  return AudioEngine::RxChainStage::Gate;
+    if (n == "Eq")    return AudioEngine::RxChainStage::Eq;
+    if (n == "DeEss") return AudioEngine::RxChainStage::DeEss;
+    if (n == "Comp")  return AudioEngine::RxChainStage::Comp;
+    if (n == "Tube")  return AudioEngine::RxChainStage::Tube;
+    if (n == "Pudu")  return AudioEngine::RxChainStage::Pudu;
+    return AudioEngine::RxChainStage::None;
+}
+
 // ── Per-module enum string maps ───────────────────────────────────
 
 QString eqFilterTypeName(ClientEq::FilterType t)
@@ -516,6 +544,110 @@ QJsonObject ChannelStripPresets::capturePresetJson() const
         preset["finalLimiter"] = o;
     }
 
+    // ── RX-side mirror (#2425) ────────────────────────────────────
+    // Stored under a top-level "rx" object so old preset files (no
+    // rx key) leave RX state untouched on apply, and so a single
+    // schema bump isn't required to ship this.  Same field shapes
+    // as the TX modules above, just bound to the *Rx engine getters.
+    {
+        QJsonObject rx;
+
+        // RX chain order.
+        QJsonArray rxChain;
+        for (auto s : m_engine->rxChainStages()) {
+            const QString n = rxStageEnumToName(s);
+            if (!n.isEmpty()) rxChain.append(n);
+        }
+        rx["chain"] = rxChain;
+
+        if (auto* g = m_engine->clientGateRx()) {
+            QJsonObject o;
+            o["enabled"]      = g->isEnabled();
+            o["mode"]         = gateModeName(g->mode());
+            o["thresholdDb"]  = g->thresholdDb();
+            o["ratio"]        = g->ratio();
+            o["attackMs"]     = g->attackMs();
+            o["releaseMs"]    = g->releaseMs();
+            o["holdMs"]       = g->holdMs();
+            o["floorDb"]      = g->floorDb();
+            o["returnDb"]     = g->returnDb();
+            o["lookaheadMs"]  = g->lookaheadMs();
+            rx["gate"] = o;
+        }
+        if (auto* e = m_engine->clientEqRx()) {
+            QJsonObject o;
+            o["enabled"]         = e->isEnabled();
+            o["masterGain"]      = e->masterGain();
+            o["filterFamily"]    = eqFilterFamilyName(e->filterFamily());
+            o["activeBandCount"] = e->activeBandCount();
+            QJsonArray bands;
+            for (int i = 0; i < ClientEq::kMaxBands; ++i) {
+                const auto b = e->band(i);
+                QJsonObject bo;
+                bo["freqHz"]        = b.freqHz;
+                bo["gainDb"]        = b.gainDb;
+                bo["q"]             = b.q;
+                bo["type"]          = eqFilterTypeName(b.type);
+                bo["enabled"]       = b.enabled;
+                bo["slopeDbPerOct"] = b.slopeDbPerOct;
+                bands.append(bo);
+            }
+            o["bands"] = bands;
+            rx["eq"] = o;
+        }
+        if (auto* c = m_engine->clientCompRx()) {
+            QJsonObject o;
+            o["enabled"]          = c->isEnabled();
+            o["thresholdDb"]      = c->thresholdDb();
+            o["ratio"]            = c->ratio();
+            o["attackMs"]         = c->attackMs();
+            o["releaseMs"]        = c->releaseMs();
+            o["kneeDb"]           = c->kneeDb();
+            o["makeupDb"]         = c->makeupDb();
+            o["limiterEnabled"]   = c->limiterEnabled();
+            o["limiterCeilingDb"] = c->limiterCeilingDb();
+            rx["comp"] = o;
+        }
+        if (auto* d = m_engine->clientDeEssRx()) {
+            QJsonObject o;
+            o["enabled"]     = d->isEnabled();
+            o["frequencyHz"] = d->frequencyHz();
+            o["q"]           = d->q();
+            o["thresholdDb"] = d->thresholdDb();
+            o["amountDb"]    = d->amountDb();
+            o["attackMs"]    = d->attackMs();
+            o["releaseMs"]   = d->releaseMs();
+            rx["deess"] = o;
+        }
+        if (auto* t = m_engine->clientTubeRx()) {
+            QJsonObject o;
+            o["enabled"]        = t->isEnabled();
+            o["model"]          = tubeModelName(t->model());
+            o["driveDb"]        = t->driveDb();
+            o["biasAmount"]     = t->biasAmount();
+            o["tone"]           = t->tone();
+            o["outputGainDb"]   = t->outputGainDb();
+            o["dryWet"]         = t->dryWet();
+            o["envelopeAmount"] = t->envelopeAmount();
+            o["attackMs"]       = t->attackMs();
+            o["releaseMs"]      = t->releaseMs();
+            rx["tube"] = o;
+        }
+        if (auto* p = m_engine->clientPuduRx()) {
+            QJsonObject o;
+            o["enabled"]        = p->isEnabled();
+            o["mode"]           = puduModeName(p->mode());
+            o["pooDriveDb"]     = p->pooDriveDb();
+            o["pooTuneHz"]      = p->pooTuneHz();
+            o["pooMix"]         = p->pooMix();
+            o["dooTuneHz"]      = p->dooTuneHz();
+            o["dooHarmonicsDb"] = p->dooHarmonicsDb();
+            o["dooMix"]         = p->dooMix();
+            rx["pudu"] = o;
+        }
+        preset["rx"] = rx;
+    }
+
     return preset;
 }
 
@@ -665,6 +797,121 @@ void ChannelStripPresets::applyPresetJson(const QJsonObject& preset)
         lim->setDcBlockEnabled(jbool(o, "dcBlock", lim->dcBlockEnabled()));
     }
 
+    // ── RX-side apply (#2425) ─────────────────────────────────────
+    // Reads the optional top-level "rx" block.  Old preset files
+    // (no rx key) leave RX state untouched.
+    if (preset.contains("rx") && preset.value("rx").isObject()) {
+        const auto rx = preset.value("rx").toObject();
+
+        if (rx.contains("chain") && rx.value("chain").isArray()) {
+            QVector<AudioEngine::RxChainStage> stages;
+            for (const auto& v : rx.value("chain").toArray()) {
+                const auto s = rxStageNameToEnum(v.toString());
+                if (s != AudioEngine::RxChainStage::None) stages.append(s);
+            }
+            if (!stages.isEmpty()) m_engine->setRxChainStages(stages);
+        }
+
+        if (auto* g = m_engine->clientGateRx();
+            g && rx.contains("gate") && rx.value("gate").isObject()) {
+            const auto o = rx.value("gate").toObject();
+            g->setEnabled(jbool(o, "enabled", g->isEnabled()));
+            g->setMode(gateModeFromName(jstr(o, "mode", gateModeName(g->mode()))));
+            g->setThresholdDb(jnum(o, "thresholdDb", g->thresholdDb()));
+            g->setRatio(jnum(o, "ratio", g->ratio()));
+            g->setAttackMs(jnum(o, "attackMs", g->attackMs()));
+            g->setReleaseMs(jnum(o, "releaseMs", g->releaseMs()));
+            g->setHoldMs(jnum(o, "holdMs", g->holdMs()));
+            g->setFloorDb(jnum(o, "floorDb", g->floorDb()));
+            g->setReturnDb(jnum(o, "returnDb", g->returnDb()));
+            g->setLookaheadMs(jnum(o, "lookaheadMs", g->lookaheadMs()));
+        }
+
+        if (auto* e = m_engine->clientEqRx();
+            e && rx.contains("eq") && rx.value("eq").isObject()) {
+            const auto o = rx.value("eq").toObject();
+            e->setEnabled(jbool(o, "enabled", e->isEnabled()));
+            e->setMasterGain(static_cast<float>(jnum(o, "masterGain", e->masterGain())));
+            e->setFilterFamily(eqFilterFamilyFromName(
+                jstr(o, "filterFamily", eqFilterFamilyName(e->filterFamily()))));
+            const int activeCount = static_cast<int>(jnum(o, "activeBandCount",
+                                                           e->activeBandCount()));
+            if (o.contains("bands") && o.value("bands").isArray()) {
+                const auto bands = o.value("bands").toArray();
+                const int n = std::min<int>(bands.size(), ClientEq::kMaxBands);
+                for (int i = 0; i < n; ++i) {
+                    const auto bo = bands.at(i).toObject();
+                    ClientEq::BandParams p = e->band(i);
+                    p.freqHz = static_cast<float>(jnum(bo, "freqHz", p.freqHz));
+                    p.gainDb = static_cast<float>(jnum(bo, "gainDb", p.gainDb));
+                    p.q      = static_cast<float>(jnum(bo, "q", p.q));
+                    p.type   = eqFilterTypeFromName(
+                        jstr(bo, "type", eqFilterTypeName(p.type)));
+                    p.enabled = jbool(bo, "enabled", p.enabled);
+                    p.slopeDbPerOct = static_cast<int>(
+                        jnum(bo, "slopeDbPerOct", p.slopeDbPerOct));
+                    e->setBand(i, p);
+                }
+            }
+            e->setActiveBandCount(activeCount);
+        }
+
+        if (auto* c = m_engine->clientCompRx();
+            c && rx.contains("comp") && rx.value("comp").isObject()) {
+            const auto o = rx.value("comp").toObject();
+            c->setEnabled(jbool(o, "enabled", c->isEnabled()));
+            c->setThresholdDb(jnum(o, "thresholdDb", c->thresholdDb()));
+            c->setRatio(jnum(o, "ratio", c->ratio()));
+            c->setAttackMs(jnum(o, "attackMs", c->attackMs()));
+            c->setReleaseMs(jnum(o, "releaseMs", c->releaseMs()));
+            c->setKneeDb(jnum(o, "kneeDb", c->kneeDb()));
+            c->setMakeupDb(jnum(o, "makeupDb", c->makeupDb()));
+            c->setLimiterEnabled(jbool(o, "limiterEnabled", c->limiterEnabled()));
+            c->setLimiterCeilingDb(jnum(o, "limiterCeilingDb",
+                                        c->limiterCeilingDb()));
+        }
+
+        if (auto* d = m_engine->clientDeEssRx();
+            d && rx.contains("deess") && rx.value("deess").isObject()) {
+            const auto o = rx.value("deess").toObject();
+            d->setEnabled(jbool(o, "enabled", d->isEnabled()));
+            d->setFrequencyHz(jnum(o, "frequencyHz", d->frequencyHz()));
+            d->setQ(jnum(o, "q", d->q()));
+            d->setThresholdDb(jnum(o, "thresholdDb", d->thresholdDb()));
+            d->setAmountDb(jnum(o, "amountDb", d->amountDb()));
+            d->setAttackMs(jnum(o, "attackMs", d->attackMs()));
+            d->setReleaseMs(jnum(o, "releaseMs", d->releaseMs()));
+        }
+
+        if (auto* t = m_engine->clientTubeRx();
+            t && rx.contains("tube") && rx.value("tube").isObject()) {
+            const auto o = rx.value("tube").toObject();
+            t->setEnabled(jbool(o, "enabled", t->isEnabled()));
+            t->setModel(tubeModelFromName(jstr(o, "model", tubeModelName(t->model()))));
+            t->setDriveDb(jnum(o, "driveDb", t->driveDb()));
+            t->setBiasAmount(jnum(o, "biasAmount", t->biasAmount()));
+            t->setTone(jnum(o, "tone", t->tone()));
+            t->setOutputGainDb(jnum(o, "outputGainDb", t->outputGainDb()));
+            t->setDryWet(jnum(o, "dryWet", t->dryWet()));
+            t->setEnvelopeAmount(jnum(o, "envelopeAmount", t->envelopeAmount()));
+            t->setAttackMs(jnum(o, "attackMs", t->attackMs()));
+            t->setReleaseMs(jnum(o, "releaseMs", t->releaseMs()));
+        }
+
+        if (auto* p = m_engine->clientPuduRx();
+            p && rx.contains("pudu") && rx.value("pudu").isObject()) {
+            const auto o = rx.value("pudu").toObject();
+            p->setEnabled(jbool(o, "enabled", p->isEnabled()));
+            p->setMode(puduModeFromName(jstr(o, "mode", puduModeName(p->mode()))));
+            p->setPooDriveDb(jnum(o, "pooDriveDb", p->pooDriveDb()));
+            p->setPooTuneHz(jnum(o, "pooTuneHz", p->pooTuneHz()));
+            p->setPooMix(jnum(o, "pooMix", p->pooMix()));
+            p->setDooTuneHz(jnum(o, "dooTuneHz", p->dooTuneHz()));
+            p->setDooHarmonicsDb(jnum(o, "dooHarmonicsDb", p->dooHarmonicsDb()));
+            p->setDooMix(jnum(o, "dooMix", p->dooMix()));
+        }
+    }
+
     // Persist the new engine state back to AppSettings so the values
     // survive an app restart.  Without this, the per-module setters
     // above only update in-memory state — on next launch the engine
@@ -678,6 +925,14 @@ void ChannelStripPresets::applyPresetJson(const QJsonObject& preset)
     m_engine->saveClientPuduSettings();
     m_engine->saveClientReverbSettings();
     m_engine->saveClientFinalLimiterSettings();
+    // RX-side persistence (#2425).  saveClientEqSettings above already
+    // handles both Rx and Tx EQ; the rest are independent.
+    m_engine->saveClientGateRxSettings();
+    m_engine->saveClientCompRxSettings();
+    m_engine->saveClientDeEssRxSettings();
+    m_engine->saveClientTubeRxSettings();
+    m_engine->saveClientPuduRxSettings();
+    m_engine->saveClientRxChainOrder();
 }
 
 } // namespace AetherSDR

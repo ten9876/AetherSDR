@@ -1003,6 +1003,29 @@ void VfoWidget::buildTabContent()
         m_anftBtn->setAccessibleName("FFT notch filter");
         m_apfBtn->hide();  // only visible in CW mode
 
+        // Client-side AetherDSP launcher — same kDspToggle styling and
+        // single-cell width as the radio-side toggles, but non-checkable.
+        // Placed by relayoutDspGrid() at the end of the radio-side toggle list.
+        m_aetherDspBtn = new QPushButton("ADSP");
+        m_aetherDspBtn->setCheckable(false);
+        m_aetherDspBtn->setMinimumHeight(22);
+        m_aetherDspBtn->setStyleSheet(kDspToggle);
+        m_aetherDspBtn->setAccessibleName("AetherDSP Settings");
+        m_aetherDspBtn->setToolTip("Open AetherDSP Settings (client-side NR2 / NR4 / DFNR / RN2 / BNR / MNR)");
+        connect(m_aetherDspBtn, &QPushButton::clicked, this,
+                &VfoWidget::aetherDspRequested);
+
+        // AetherVoice launcher — opens the Aetherial Audio Channel Strip.
+        // 2 columns wide (cols 2-3 of the same row that hosts ADSP).
+        m_aetherVoiceBtn = new QPushButton("AetherVoice");
+        m_aetherVoiceBtn->setCheckable(false);
+        m_aetherVoiceBtn->setMinimumHeight(22);
+        m_aetherVoiceBtn->setStyleSheet(kDspToggle);
+        m_aetherVoiceBtn->setAccessibleName("Aetherial Audio Channel Strip");
+        m_aetherVoiceBtn->setToolTip("Open Aetherial Audio Channel Strip — unified TX DSP suite");
+        connect(m_aetherVoiceBtn, &QPushButton::clicked, this,
+                &VfoWidget::aetherVoiceRequested);
+
         // Radio-side DSP buttons only \u2014 client-side modules (NR2 / NR4 /
         // MNR / BNR / DFNR / RN2) live in the spectrum overlay menu and
         // the AetherDSP applet; users toggle them there to keep the VFO
@@ -2585,16 +2608,31 @@ void VfoWidget::setSlice(SliceModel* slice)
             m_updatingFromModel = false;
         });
     };
-    connectDsp(&SliceModel::nbChanged,  m_nbBtn);
-    connectDsp(&SliceModel::nrChanged,  m_nrBtn);
-    connectDsp(&SliceModel::anfChanged, m_anfBtn);
-    connectDsp(&SliceModel::nrlChanged, m_nrlBtn);
-    connectDsp(&SliceModel::nrsChanged, m_nrsBtn);
-    connectDsp(&SliceModel::rnnChanged, m_rnnBtn);
-    connectDsp(&SliceModel::nrfChanged, m_nrfBtn);
-    connectDsp(&SliceModel::anflChanged, m_anflBtn);
-    connectDsp(&SliceModel::anftChanged, m_anftBtn);
-    connectDsp(&SliceModel::apfChanged, m_apfBtn);
+    // Leveled variant — also push/pop the shared DSP-level slider stack
+    // when state changes arrive from the radio.  Without this the slider
+    // is missing on launch for any DSP enabled in the radio's saved
+    // profile until the user manually toggles it (#startup-slider).
+    auto connectLeveledDsp = [this](auto signal, QPushButton* btn,
+                                    DspLevelTarget tag) {
+        connect(m_slice, signal, this, [this, btn, tag](bool on) {
+            m_updatingFromModel = true;
+            QSignalBlocker sb(btn);
+            btn->setChecked(on);
+            m_updatingFromModel = false;
+            if (on) pushDspLevelTarget(tag);
+            else    popDspLevelTarget(tag);
+        });
+    };
+    connectLeveledDsp(&SliceModel::nbChanged,   m_nbBtn,   LvlNB);
+    connectLeveledDsp(&SliceModel::nrChanged,   m_nrBtn,   LvlNR);
+    connectLeveledDsp(&SliceModel::anfChanged,  m_anfBtn,  LvlAnf);
+    connectLeveledDsp(&SliceModel::nrlChanged,  m_nrlBtn,  LvlNrl);
+    connectLeveledDsp(&SliceModel::nrsChanged,  m_nrsBtn,  LvlNrs);
+    connectDsp(&SliceModel::rnnChanged, m_rnnBtn);     // toggle-only, no level
+    connectLeveledDsp(&SliceModel::nrfChanged,  m_nrfBtn,  LvlNrf);
+    connectLeveledDsp(&SliceModel::anflChanged, m_anflBtn, LvlAnfl);
+    connectDsp(&SliceModel::anftChanged, m_anftBtn);   // toggle-only, no level
+    connectDsp(&SliceModel::apfChanged, m_apfBtn);     // own level row
     connect(m_slice, &SliceModel::apfLevelChanged, this, [this](int v) {
         m_updatingFromModel = true;
         m_apfSlider->setValue(v);
@@ -3036,6 +3074,10 @@ void VfoWidget::relayoutDspGrid()
                           m_nrsBtn, m_rnnBtn, m_nrfBtn, m_anflBtn, m_anftBtn};
     for (auto* btn : all)
         m_dspGrid->removeWidget(btn);
+    if (m_aetherDspBtn)
+        m_dspGrid->removeWidget(m_aetherDspBtn);
+    if (m_aetherVoiceBtn)
+        m_dspGrid->removeWidget(m_aetherVoiceBtn);
 
     // Re-add only non-hidden buttons in 4-column rows
     int col = 0, row = 0;
@@ -3044,6 +3086,15 @@ void VfoWidget::relayoutDspGrid()
             m_dspGrid->addWidget(btn, row, col);
             if (++col >= 4) { col = 0; ++row; }
         }
+    }
+    // Client-side launchers: ADSP (1 col) + AetherVoice (2 cols spanning
+    // the rightmost 2 columns) live on the same row.  If ADSP would land
+    // beyond col 1, wrap the pair to a fresh row first so AetherVoice
+    // always occupies cols 2-3.
+    if (m_aetherDspBtn && m_aetherVoiceBtn) {
+        if (col > 1) { col = 0; ++row; }
+        m_dspGrid->addWidget(m_aetherDspBtn, row, col);
+        m_dspGrid->addWidget(m_aetherVoiceBtn, row, 2, 1, 2);
     }
 }
 

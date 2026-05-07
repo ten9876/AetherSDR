@@ -202,6 +202,7 @@ AudioEngine::AudioEngine(QObject* parent)
     , m_clientGateTx(std::make_unique<ClientGate>())
     , m_clientGateRx(std::make_unique<ClientGate>())
     , m_clientDeEssTx(std::make_unique<ClientDeEss>())
+    , m_clientDeEssRx(std::make_unique<ClientDeEss>())
     , m_clientTubeTx(std::make_unique<ClientTube>())
     , m_clientTubeRx(std::make_unique<ClientTube>())
     , m_clientPuduTx(std::make_unique<ClientPudu>())
@@ -223,6 +224,7 @@ AudioEngine::AudioEngine(QObject* parent)
     m_clientTubeRx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientPuduRx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientDeEssTx->prepare(DEFAULT_SAMPLE_RATE);
+    m_clientDeEssRx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientTubeTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientPuduTx->prepare(DEFAULT_SAMPLE_RATE);
     m_clientReverbTx->prepare(DEFAULT_SAMPLE_RATE);
@@ -237,6 +239,7 @@ AudioEngine::AudioEngine(QObject* parent)
     loadClientTubeRxSettings();  // restore persisted RX tube params
     loadClientPuduRxSettings();  // restore persisted RX PUDU params
     loadClientDeEssSettings();   // restore persisted de-esser params
+    loadClientDeEssRxSettings(); // restore persisted RX de-esser params
     loadClientTubeSettings();    // restore persisted tube params
     loadClientPuduSettings();    // restore persisted PUDU params
     loadClientReverbSettings();  // restore persisted reverb params
@@ -916,10 +919,19 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
             compSource = &m_clientCompRxScratch;
         }
 
-        // RX chain stage: TUBE — runs after COMP.
-        const QByteArray* tubeSource = compSource;
+        // RX chain stage: DESS — runs after COMP, before TUBE.  Same
+        // scratch-copy pattern as the surrounding stages.
+        const QByteArray* deEssSource = compSource;
+        if (m_clientDeEssRx && m_clientDeEssRx->isEnabled() && !m_radioTransmitting) {
+            m_clientDeEssRxScratch = *compSource;
+            applyClientDeEssRxFloat32(m_clientDeEssRxScratch);
+            deEssSource = &m_clientDeEssRxScratch;
+        }
+
+        // RX chain stage: TUBE — runs after DESS.
+        const QByteArray* tubeSource = deEssSource;
         if (m_clientTubeRx && m_clientTubeRx->isEnabled() && !m_radioTransmitting) {
-            m_clientTubeRxScratch = *compSource;
+            m_clientTubeRxScratch = *deEssSource;
             applyClientTubeRxFloat32(m_clientTubeRxScratch);
             tubeSource = &m_clientTubeRxScratch;
         }
@@ -1358,6 +1370,16 @@ void AudioEngine::applyClientDeEssTxInt16(QByteArray& int16stereo)
     }
 }
 
+void AudioEngine::applyClientDeEssRxFloat32(QByteArray& float32)
+{
+    if (!m_clientDeEssRx || !m_clientDeEssRx->isEnabled()) return;
+    const int frames = float32.size() / static_cast<int>(sizeof(float)) / 2;
+    if (frames <= 0) return;
+
+    m_clientDeEssRx->process(reinterpret_cast<float*>(float32.data()),
+                             frames, 2);
+}
+
 void AudioEngine::applyClientDeEssTxFloat32(QByteArray& float32)
 {
     if (!m_clientDeEssTx || !m_clientDeEssTx->isEnabled()) return;
@@ -1584,12 +1606,13 @@ void AudioEngine::applyClientRxDspFloat32(QByteArray& float32)
     for (int i = 0; i < kMaxRxChainStages; ++i) {
         const auto stage = static_cast<RxChainStage>((packed >> (i * 8)) & 0xFF);
         switch (stage) {
-            case RxChainStage::None: return;     // end-of-list marker
-            case RxChainStage::Eq:   /* TODO Phase 1 */ break;
-            case RxChainStage::Gate: /* TODO Phase 2 */ break;
-            case RxChainStage::Comp: /* TODO Phase 3 */ break;
-            case RxChainStage::Tube: /* TODO Phase 4 */ break;
-            case RxChainStage::Pudu: /* TODO Phase 5 */ break;
+            case RxChainStage::None:  return;     // end-of-list marker
+            case RxChainStage::Eq:    /* TODO Phase 1 */ break;
+            case RxChainStage::Gate:  /* TODO Phase 2 */ break;
+            case RxChainStage::Comp:  /* TODO Phase 3 */ break;
+            case RxChainStage::Tube:  /* TODO Phase 4 */ break;
+            case RxChainStage::Pudu:  /* TODO Phase 5 */ break;
+            case RxChainStage::DeEss: /* TODO Phase 6 */ break;
         }
     }
     (void)float32;  // unused until first stage lands
@@ -1696,36 +1719,40 @@ QVector<AudioEngine::RxChainStage> unpackRxChain(uint64_t v)
 QString rxStageName(AudioEngine::RxChainStage s)
 {
     switch (s) {
-        case AudioEngine::RxChainStage::Eq:   return "Eq";
-        case AudioEngine::RxChainStage::Gate: return "Gate";
-        case AudioEngine::RxChainStage::Comp: return "Comp";
-        case AudioEngine::RxChainStage::Tube: return "Tube";
-        case AudioEngine::RxChainStage::Pudu: return "Pudu";
-        case AudioEngine::RxChainStage::None: return "";
+        case AudioEngine::RxChainStage::Eq:    return "Eq";
+        case AudioEngine::RxChainStage::Gate:  return "Gate";
+        case AudioEngine::RxChainStage::Comp:  return "Comp";
+        case AudioEngine::RxChainStage::Tube:  return "Tube";
+        case AudioEngine::RxChainStage::Pudu:  return "Pudu";
+        case AudioEngine::RxChainStage::DeEss: return "DeEss";
+        case AudioEngine::RxChainStage::None:  return "";
     }
     return "";
 }
 
 AudioEngine::RxChainStage rxStageFromName(const QString& name)
 {
-    if (name == "Eq")   return AudioEngine::RxChainStage::Eq;
-    if (name == "Gate") return AudioEngine::RxChainStage::Gate;
-    if (name == "Comp") return AudioEngine::RxChainStage::Comp;
-    if (name == "Tube") return AudioEngine::RxChainStage::Tube;
-    if (name == "Pudu") return AudioEngine::RxChainStage::Pudu;
+    if (name == "Eq")    return AudioEngine::RxChainStage::Eq;
+    if (name == "Gate")  return AudioEngine::RxChainStage::Gate;
+    if (name == "Comp")  return AudioEngine::RxChainStage::Comp;
+    if (name == "Tube")  return AudioEngine::RxChainStage::Tube;
+    if (name == "Pudu")  return AudioEngine::RxChainStage::Pudu;
+    if (name == "DeEss") return AudioEngine::RxChainStage::DeEss;
     return AudioEngine::RxChainStage::None;
 }
 
-// Canonical RX order matches the user's diagram in plans/poodoo-rx-chain.md:
-//   [RADIO]→[DSP]→[RX EQ]→[GATE]→[COMP]→[TUBE]→[PUDU]→[SPEAK]
-// RADIO / DSP / SPEAK are status-only tiles handled by the chain widget;
-// the audio path only sees the user-controllable stages between them.
+// Canonical RX chain order (#2425):
+//   [RADIO]→[ADSP]→[AGC-T]→[EQ]→[AGC-C]→[DESS]→[TUBE]→[EVO]→[SPEAK]
+// RADIO / ADSP / SPEAK are status/launcher tiles handled by the chain
+// widget; the audio path only sees the six user-controllable stages
+// between them, in the order: Gate, Eq, Comp, DeEss, Tube, Pudu.
 QVector<AudioEngine::RxChainStage> defaultRxChain()
 {
     return {
-        AudioEngine::RxChainStage::Eq,
         AudioEngine::RxChainStage::Gate,
+        AudioEngine::RxChainStage::Eq,
         AudioEngine::RxChainStage::Comp,
+        AudioEngine::RxChainStage::DeEss,
         AudioEngine::RxChainStage::Tube,
         AudioEngine::RxChainStage::Pudu,
     };
@@ -1846,6 +1873,96 @@ void AudioEngine::setTxBypassed(bool on)
     }
 
     emit txBypassChanged(on);
+}
+
+bool AudioEngine::isRxBypassed() const
+{
+    return !m_rxBypassSnapshot.isEmpty();
+}
+
+void AudioEngine::setRxBypassed(bool on)
+{
+    if (on == isRxBypassed()) return;
+
+    auto setStageEnabled = [this](RxChainStage s, bool enabled) {
+        switch (s) {
+            case RxChainStage::Eq:
+                if (m_clientEqRx) {
+                    m_clientEqRx->setEnabled(enabled);
+                    saveClientEqSettings();
+                }
+                break;
+            case RxChainStage::Gate:
+                if (m_clientGateRx) {
+                    m_clientGateRx->setEnabled(enabled);
+                    saveClientGateRxSettings();
+                }
+                break;
+            case RxChainStage::Comp:
+                if (m_clientCompRx) {
+                    m_clientCompRx->setEnabled(enabled);
+                    saveClientCompRxSettings();
+                }
+                break;
+            case RxChainStage::Tube:
+                if (m_clientTubeRx) {
+                    m_clientTubeRx->setEnabled(enabled);
+                    saveClientTubeRxSettings();
+                }
+                break;
+            case RxChainStage::Pudu:
+                if (m_clientPuduRx) {
+                    m_clientPuduRx->setEnabled(enabled);
+                    saveClientPuduRxSettings();
+                }
+                break;
+            case RxChainStage::DeEss:
+                if (m_clientDeEssRx) {
+                    m_clientDeEssRx->setEnabled(enabled);
+                    saveClientDeEssRxSettings();
+                }
+                break;
+            case RxChainStage::None:
+                break;
+        }
+    };
+
+    auto isEnabled = [this](RxChainStage s) -> bool {
+        switch (s) {
+            case RxChainStage::Eq:    return m_clientEqRx    && m_clientEqRx->isEnabled();
+            case RxChainStage::Gate:  return m_clientGateRx  && m_clientGateRx->isEnabled();
+            case RxChainStage::Comp:  return m_clientCompRx  && m_clientCompRx->isEnabled();
+            case RxChainStage::Tube:  return m_clientTubeRx  && m_clientTubeRx->isEnabled();
+            case RxChainStage::Pudu:  return m_clientPuduRx  && m_clientPuduRx->isEnabled();
+            case RxChainStage::DeEss: return m_clientDeEssRx && m_clientDeEssRx->isEnabled();
+            case RxChainStage::None:  return false;
+        }
+        return false;
+    };
+
+    static const QVector<RxChainStage> kAllStages{
+        RxChainStage::Eq,
+        RxChainStage::Gate,
+        RxChainStage::Comp,
+        RxChainStage::Tube,
+        RxChainStage::Pudu,
+        RxChainStage::DeEss,
+    };
+
+    if (on) {
+        m_rxBypassSnapshot.clear();
+        for (auto s : kAllStages) {
+            if (isEnabled(s)) {
+                m_rxBypassSnapshot.append(s);
+                setStageEnabled(s, false);
+            }
+        }
+    } else {
+        for (auto s : m_rxBypassSnapshot) setStageEnabled(s, true);
+        m_rxBypassSnapshot.clear();
+    }
+
+    emit rxBypassChanged(on);
 }
 
 void AudioEngine::setRxChainStages(const QVector<RxChainStage>& stages)
@@ -2223,6 +2340,47 @@ void AudioEngine::saveClientDeEssSettings() const
         QString::number(m_clientDeEssTx->attackMs()));
     s.setValue("ClientDeEssTxReleaseMs",
         QString::number(m_clientDeEssTx->releaseMs()));
+}
+
+void AudioEngine::loadClientDeEssRxSettings()
+{
+    if (!m_clientDeEssRx) return;
+    auto& s = AppSettings::instance();
+    m_clientDeEssRx->setEnabled(
+        s.value("ClientDeEssRxEnabled", "False").toString() == "True");
+    m_clientDeEssRx->setFrequencyHz(
+        s.value("ClientDeEssRxFrequencyHz", "6000.0").toFloat());
+    m_clientDeEssRx->setQ(
+        s.value("ClientDeEssRxQ", "2.0").toFloat());
+    m_clientDeEssRx->setThresholdDb(
+        s.value("ClientDeEssRxThresholdDb", "-30.0").toFloat());
+    m_clientDeEssRx->setAmountDb(
+        s.value("ClientDeEssRxAmountDb", "-6.0").toFloat());
+    m_clientDeEssRx->setAttackMs(
+        s.value("ClientDeEssRxAttackMs", "1.0").toFloat());
+    m_clientDeEssRx->setReleaseMs(
+        s.value("ClientDeEssRxReleaseMs", "100.0").toFloat());
+}
+
+void AudioEngine::saveClientDeEssRxSettings() const
+{
+    if (!m_clientDeEssRx) return;
+    auto& s = AppSettings::instance();
+    auto toBool = [](bool on) { return on ? QString("True") : QString("False"); };
+    s.setValue("ClientDeEssRxEnabled",
+        toBool(m_clientDeEssRx->isEnabled()));
+    s.setValue("ClientDeEssRxFrequencyHz",
+        QString::number(m_clientDeEssRx->frequencyHz()));
+    s.setValue("ClientDeEssRxQ",
+        QString::number(m_clientDeEssRx->q()));
+    s.setValue("ClientDeEssRxThresholdDb",
+        QString::number(m_clientDeEssRx->thresholdDb()));
+    s.setValue("ClientDeEssRxAmountDb",
+        QString::number(m_clientDeEssRx->amountDb()));
+    s.setValue("ClientDeEssRxAttackMs",
+        QString::number(m_clientDeEssRx->attackMs()));
+    s.setValue("ClientDeEssRxReleaseMs",
+        QString::number(m_clientDeEssRx->releaseMs()));
 }
 
 void AudioEngine::loadClientTubeSettings()

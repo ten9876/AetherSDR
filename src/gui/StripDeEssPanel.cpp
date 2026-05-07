@@ -121,6 +121,7 @@ StripDeEssPanel::StripDeEssPanel(AudioEngine* engine, QWidget* parent)
 
     auto* titleBar = new EditorFramelessTitleBar;
     titleBar->setTitleText(title);
+    m_titleBar = titleBar;
     root->addWidget(titleBar);
 
     // Bypass moved to the CHAIN widget's single-click gesture.
@@ -270,8 +271,8 @@ StripDeEssPanel::StripDeEssPanel(AudioEngine* engine, QWidget* parent)
     root->addLayout(body);
 
     // Bind the curve to the de-esser so it starts polling.
-    if (m_audio && m_audio->clientDeEssTx()) {
-        m_curve->setDeEss(m_audio->clientDeEssTx());
+    if (m_audio && deEss()) {
+        m_curve->setDeEss(deEss());
     }
 
     syncControlsFromEngine();
@@ -286,6 +287,12 @@ StripDeEssPanel::~StripDeEssPanel() = default;
 
 void StripDeEssPanel::showForTx()
 {
+    m_side = Side::Tx;
+    const QString title = QString::fromUtf8("Aetherial De-Esser \xe2\x80\x94 TX");
+    setWindowTitle(title);
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    if (m_curve && deEss()) m_curve->setDeEss(deEss());
     syncControlsFromEngine();
     restoreGeometryFromSettings();
     show();
@@ -294,10 +301,40 @@ void StripDeEssPanel::showForTx()
     if (m_syncTimer) m_syncTimer->start();
 }
 
+void StripDeEssPanel::showForRx()
+{
+    m_side = Side::Rx;
+    const QString title = QString::fromUtf8("Aetherial De-Esser \xe2\x80\x94 RX");
+    setWindowTitle(title);
+    if (m_titleBar)
+        static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
+    if (m_curve && deEss()) m_curve->setDeEss(deEss());
+    syncControlsFromEngine();
+    restoreGeometryFromSettings();
+    show();
+    raise();
+    activateWindow();
+    if (m_syncTimer) m_syncTimer->start();
+}
+
+ClientDeEss* StripDeEssPanel::deEss() const
+{
+    if (!m_audio) return nullptr;
+    return m_side == Side::Rx ? m_audio->clientDeEssRx()
+                              : m_audio->clientDeEssTx();
+}
+
+void StripDeEssPanel::saveDeEssSettings() const
+{
+    if (!m_audio) return;
+    if (m_side == Side::Rx) m_audio->saveClientDeEssRxSettings();
+    else                    m_audio->saveClientDeEssSettings();
+}
+
 void StripDeEssPanel::syncControlsFromEngine()
 {
-    if (!m_audio || !m_audio->clientDeEssTx()) return;
-    ClientDeEss* d = m_audio->clientDeEssTx();
+    if (!m_audio || !deEss()) return;
+    ClientDeEss* d = deEss();
     m_restoring = true;
 
     { QSignalBlocker b(m_freq);      m_freq->setValue(d->frequencyHz()); }
@@ -316,41 +353,41 @@ void StripDeEssPanel::syncControlsFromEngine()
 void StripDeEssPanel::applyFrequency(float hz)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientDeEssTx()->setFrequencyHz(hz);
-    m_audio->saveClientDeEssSettings();
+    deEss()->setFrequencyHz(hz);
+    saveDeEssSettings();
     if (m_curve) m_curve->update();
 }
 void StripDeEssPanel::applyQ(float q)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientDeEssTx()->setQ(q);
-    m_audio->saveClientDeEssSettings();
+    deEss()->setQ(q);
+    saveDeEssSettings();
     if (m_curve) m_curve->update();
 }
 void StripDeEssPanel::applyThreshold(float db)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientDeEssTx()->setThresholdDb(db);
-    m_audio->saveClientDeEssSettings();
+    deEss()->setThresholdDb(db);
+    saveDeEssSettings();
     if (m_curve) m_curve->update();
 }
 void StripDeEssPanel::applyAmount(float db)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientDeEssTx()->setAmountDb(db);
-    m_audio->saveClientDeEssSettings();
+    deEss()->setAmountDb(db);
+    saveDeEssSettings();
 }
 void StripDeEssPanel::applyAttack(float ms)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientDeEssTx()->setAttackMs(ms);
-    m_audio->saveClientDeEssSettings();
+    deEss()->setAttackMs(ms);
+    saveDeEssSettings();
 }
 void StripDeEssPanel::applyRelease(float ms)
 {
     if (m_restoring || !m_audio) return;
-    m_audio->clientDeEssTx()->setReleaseMs(ms);
-    m_audio->saveClientDeEssSettings();
+    deEss()->setReleaseMs(ms);
+    saveDeEssSettings();
 }
 
 void StripDeEssPanel::saveGeometryToSettings()
