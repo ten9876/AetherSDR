@@ -24,7 +24,8 @@ jobs:
           version: '6.8.*'
           host: 'windows'
           target: 'desktop'
-          arch: 'win64_msvc2019_64'
+          # Qt 6.8 LTS dropped MSVC 2019 builds — arch must be msvc2022.
+          arch: 'win64_msvc2022_64'
           modules: 'qtmultimedia qtserialport qtwebsockets qtshadertools'
 
       - name: Install Ninja, Inno Setup, and LLVM
