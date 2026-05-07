@@ -2803,12 +2803,23 @@ MainWindow::MainWindow(QWidget* parent)
         else
             setIndicatorHtml(m_pgxlIndicator, "AMP", "STANDBY", "#404858");
     };
-    connect(&m_radioModel, &RadioModel::ampStateChanged, this, updatePgxlStyle);
+    connect(&m_radioModel, &RadioModel::ampStateChanged, this, [this, updatePgxlStyle]() {
+        updatePgxlStyle();
+        // Sync the AmpApplet button — the direct PGXL TCP path may not deliver
+        // a state update fast enough, leaving the button stuck on the old state.
+        // RadioModel is authoritative; use it to keep the button consistent.
+        m_appletPanel->ampApplet()->setState(
+            m_radioModel.ampOperate() ? QStringLiteral("OPERATE") : QStringLiteral("STANDBY"));
+    });
 
     connect(&m_radioModel, &RadioModel::amplifierChanged, this, [this, updatePgxlStyle](bool present) {
         m_pgxlIndicator->setVisible(present);
         m_appletPanel->setAmpVisible(present);
-        if (present) updatePgxlStyle();
+        if (present) {
+            updatePgxlStyle();
+            m_appletPanel->ampApplet()->setState(
+                m_radioModel.ampOperate() ? QStringLiteral("OPERATE") : QStringLiteral("STANDBY"));
+        }
     });
     connect(&m_radioModel.meterModel(), &MeterModel::ampMetersChanged,
             this, [this](float fwdPwr, float swr, float temp) {
