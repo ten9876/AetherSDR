@@ -21,11 +21,43 @@ AppSettings& AppSettings::instance()
 
 AppSettings::AppSettings()
 {
+    // GenericConfigLocation gives a plain base dir (no org/app suffix) on all
+    // platforms: ~/.config on Linux/macOS, %LOCALAPPDATA% on Windows.
+    // ConfigLocation on Windows Qt 6 resolves to AppConfigLocation
+    // (%LOCALAPPDATA%/OrgName/AppName), so appending "/AetherSDR" produces a
+    // triple-nested path. GenericConfigLocation avoids this and stays consistent
+    // with the log-dir path used in main.cpp.
     const QString configDir =
-        QStandardPaths::writableLocation(QStandardPaths::ConfigLocation)
+        QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
         + "/AetherSDR";
     QDir().mkpath(configDir);
     m_filePath = configDir + "/AetherSDR.settings";
+
+    migrateSettingsPath();
+}
+
+// ─── Path migration ───────────────────────────────────────────────────────────
+
+void AppSettings::migrateSettingsPath()
+{
+    if (QFile::exists(m_filePath))
+        return;  // already at the correct location
+
+#ifdef Q_OS_WIN
+    // Before this fix, ConfigLocation on Windows Qt 6 resolved to
+    // %LOCALAPPDATA%/AetherSDR/AetherSDR (OrgName/AppName), so appending
+    // "/AetherSDR" produced a triple-nested path. Move the file if found there.
+    const QString oldPath =
+        QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
+        + "/AetherSDR/AetherSDR.settings";
+    if (QFile::exists(oldPath)) {
+        if (QFile::rename(oldPath, m_filePath)) {
+            qDebug() << "AppSettings: migrated settings from" << oldPath << "to" << m_filePath;
+        } else {
+            qWarning() << "AppSettings: failed to migrate from" << oldPath << "to" << m_filePath;
+        }
+    }
+#endif
 }
 
 // ─── Load ─────────────────────────────────────────────────────────────────────

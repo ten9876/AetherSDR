@@ -7,7 +7,8 @@
 namespace AetherSDR {
 
 // XML-based application settings, structured to match SmartSDR's SSDR.settings.
-// Stored at ~/.config/AetherSDR/AetherSDR.settings.
+// Stored at ~/.config/AetherSDR/AetherSDR.settings (Linux/macOS) or
+// %LOCALAPPDATA%/AetherSDR/AetherSDR.settings (Windows).
 //
 // Usage:
 //   auto& s = AppSettings::instance();
@@ -57,6 +58,10 @@ private:
     ~AppSettings() = default;
     AppSettings(const AppSettings&) = delete;
     AppSettings& operator=(const AppSettings&) = delete;
+
+    // One-time path migration: on Windows, Qt 6's ConfigLocation produced a
+    // triple-nested path. Move the file to the correct GenericConfigLocation.
+    void migrateSettingsPath();
 
     QString m_filePath;
     QMap<QString, QString> m_settings;          // top-level key=value
