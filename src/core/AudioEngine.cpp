@@ -849,12 +849,44 @@ static void applyRxPanInPlace(float* stereo, int nFrames, int pan)
 }
 
 // Resample 24kHz stereo float32 → 48kHz stereo float32 via r8brain.
+// L and R are processed through separate Resampler instances so that any
+// per-channel difference (radio-applied audio_pan) is preserved.
+// processStereoToStereo() collapses L+R to mono — do NOT use it here.
 QByteArray AudioEngine::resampleStereo(const QByteArray& pcm)
 {
     if (!m_rxResampler)
         m_rxResampler = std::make_unique<Resampler>(24000, 48000);
+    if (!m_rxResamplerR)
+        m_rxResamplerR = std::make_unique<Resampler>(24000, 48000);
+
+    const int frames = pcm.size() / (2 * static_cast<int>(sizeof(float)));
+    if (frames <= 0) return {};
+
     const auto* src = reinterpret_cast<const float*>(pcm.constData());
-    return m_rxResampler->processStereoToStereo(src, pcm.size() / (2 * static_cast<int>(sizeof(float))));
+
+    std::vector<float> lBuf(frames), rBuf(frames);
+    for (int i = 0; i < frames; ++i) {
+        lBuf[i] = src[2 * i];
+        rBuf[i] = src[2 * i + 1];
+    }
+
+    QByteArray lOut = m_rxResampler->process(lBuf.data(), frames);
+    QByteArray rOut = m_rxResamplerR->process(rBuf.data(), frames);
+
+    const int outFrames = lOut.size() / static_cast<int>(sizeof(float));
+    const int rFrames   = rOut.size() / static_cast<int>(sizeof(float));
+    const int commonFrames = std::min(outFrames, rFrames);
+    if (commonFrames <= 0) return {};
+
+    QByteArray result(commonFrames * 2 * static_cast<int>(sizeof(float)), Qt::Uninitialized);
+    auto*       dst  = reinterpret_cast<float*>(result.data());
+    const auto* lSrc = reinterpret_cast<const float*>(lOut.constData());
+    const auto* rSrc = reinterpret_cast<const float*>(rOut.constData());
+    for (int i = 0; i < commonFrames; ++i) {
+        dst[2 * i]     = lSrc[i];
+        dst[2 * i + 1] = rSrc[i];
+    }
+    return result;
 }
 
 void AudioEngine::feedAudioData(const QByteArray& pcm)

@@ -583,8 +583,9 @@ private:
     std::atomic<int>   m_rxBufferCapMs{200}; // RX buffer cap in ms (#1505)
     std::atomic<bool>  m_muted{false};
     bool  m_resampleTo48k{false};      // RX: upsample 24kHz → 48kHz output
-    std::unique_ptr<Resampler> m_rxResampler;      // 24k stereo → 48k stereo (lazy init)
-    std::unique_ptr<Resampler> m_radeRxResampler;  // separate 24k→48k for RADE decoded speech
+    std::unique_ptr<Resampler> m_rxResampler;       // 24k→48k for L channel (lazy init)
+    std::unique_ptr<Resampler> m_rxResamplerR;      // 24k→48k for R channel — kept in sync with m_rxResampler
+    std::unique_ptr<Resampler> m_radeRxResampler;   // separate 24k→48k for RADE decoded speech
     std::unique_ptr<CwSidetoneGenerator> m_cwSidetone;  // local CW sidetone, mixed into RX drain
     bool  m_txNeedsResample{false};      // TX: input rate != 24kHz, needs resampling
     bool  m_txInputMono{false};          // TX: input device is mono
