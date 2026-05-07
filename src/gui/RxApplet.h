@@ -111,6 +111,11 @@ private:
     TransmitModel* m_txModel{nullptr};
     QStringList m_antList{"ANT1", "ANT2"};   // populated from ant_list key
 
+    // Tracks whether THIS applet last asked MainWindow to activate RADE,
+    // so we don't fire spurious radeActivated(false) on subsequent
+    // non-RADE mode swaps. Same defense-in-depth guard as VfoWidget.
+    bool m_radeActive{false};
+
     // Step sizes (Hz) — per-mode, swapped on mode change
     QVector<int> m_stepSizes{10, 50, 100, 250, 500, 1000, 2500, 5000, 10000};
     int          m_stepIdx{2};          // index into m_stepSizes, default 100 Hz
