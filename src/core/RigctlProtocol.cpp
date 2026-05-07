@@ -329,7 +329,12 @@ QString RigctlProtocol::cmdSetMode(const QString& args)
                     // are at audio DC.
                     lo = -passband / 2;
                     hi =  passband / 2;
-                } else if (m == "LSB") {
+                } else if (m == "LSB" || m == "DIGL") {
+                    // DIGL audio sits on the lower sideband — same edge
+                    // geometry as LSB. (Offset-aware placement for narrow
+                    // widths is handled in the GUI path; the rigctld path
+                    // uses the wide-fallback geometry from
+                    // VfoWidget::applyFilterPreset.)
                     lo = -passband;
                     hi = -95;
                 } else {
