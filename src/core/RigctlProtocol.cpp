@@ -12,19 +12,24 @@ namespace AetherSDR {
 
 namespace {
 
+constexpr quint64 kRigLevelRfPower           = (1ULL << 13);
 constexpr quint64 kRigLevelKeyspd            = (1ULL << 14);
 constexpr quint64 kRigLevelSwr               = (1ULL << 28);
 constexpr quint64 kRigLevelRfPowerMeter      = (1ULL << 32);
 constexpr quint64 kRigLevelRfPowerMeterWatts = (1ULL << 39);
 constexpr qint64  kTxMeterFreshMs            = 1500;
-constexpr quint64 kRigGetLevelMask = kRigLevelKeyspd
+constexpr quint64 kRigGetLevelMask = kRigLevelRfPower
+                                   | kRigLevelKeyspd
                                    | kRigLevelSwr
                                    | kRigLevelRfPowerMeter
                                    | kRigLevelRfPowerMeterWatts;
+constexpr quint64 kRigSetLevelMask = kRigLevelRfPower
+                                   | kRigLevelKeyspd;
 
 QStringList rigGetLevelTokens()
 {
     return {
+        QStringLiteral("RFPOWER"),
         QStringLiteral("KEYSPD"),
         QStringLiteral("SWR"),
         QStringLiteral("RFPOWER_METER"),
@@ -34,7 +39,10 @@ QStringList rigGetLevelTokens()
 
 QStringList rigSetLevelTokens()
 {
-    return { QStringLiteral("KEYSPD") };
+    return {
+        QStringLiteral("RFPOWER"),
+        QStringLiteral("KEYSPD"),
+    };
 }
 
 QString formatRigLevelValue(double value)
@@ -501,6 +509,13 @@ QString RigctlProtocol::cmdGetLevel(const QString& arg)
     if (level == "KEYSPD")
         return makeResponse(QString::number(txModel.cwSpeed()));
 
+    if (level == "RFPOWER") {
+        // Hamlib RIG_LEVEL_RFPOWER is normalized 0.0–1.0; the radio reports
+        // 0–100 (percent of max_power_level), so divide by 100.
+        const double ratio = qBound(0.0, txModel.rfPower() / 100.0, 1.0);
+        return makeResponse(formatRigLevelValue(ratio));
+    }
+
     if (level == "SWR") {
         // WSJT-X polls immediately after PTT and treats 0 as "no valid reading".
         // Suppress cached last-TX values until a fresh TX meter sample arrives.
@@ -539,6 +554,21 @@ QString RigctlProtocol::cmdSetLevel(const QString& args)
     }
     if (level == "KEYSPD")
         return cmdSetKeySpeed(parts.mid(1).join(' '));
+
+    if (level == "RFPOWER") {
+        if (parts.size() < 2) return rprt(-1);
+        bool ok = false;
+        double ratio = parts[1].toDouble(&ok);
+        if (!ok) return rprt(-1);
+        // Hamlib delivers RFPOWER as 0.0–1.0; convert to the radio's 0–100
+        // scale and let TransmitModel::setRfPower clamp.
+        const int percent = qRound(qBound(0.0, ratio, 1.0) * 100.0);
+        if (!m_model) return rprt(-8);
+        QMetaObject::invokeMethod(m_model, [this, percent]() {
+            m_model->transmitModel().setRfPower(percent);
+        }, Qt::QueuedConnection);
+        return rprt(0);
+    }
     return rprt(-11);  // RIG_ENAVAIL
 }
 
@@ -586,11 +616,12 @@ QString RigctlProtocol::cmdDumpState()
     dump += "\n";
     dump += "\n";
     // has get/set func/level/parm
-    // Levels: KEYSPD, SWR, RFPOWER_METER, RFPOWER_METER_WATTS
+    // get levels: RFPOWER, KEYSPD, SWR, RFPOWER_METER, RFPOWER_METER_WATTS
+    // set levels: RFPOWER, KEYSPD
     dump += "0x0\n";
     dump += "0x0\n";
     dump += QStringLiteral("0x%1\n").arg(kRigGetLevelMask, 0, 16);
-    dump += QStringLiteral("0x%1\n").arg(kRigLevelKeyspd, 0, 16);
+    dump += QStringLiteral("0x%1\n").arg(kRigSetLevelMask, 0, 16);
     dump += "0x0\n";
     dump += "0x0\n";
     // Protocol v1 additional fields (required by netrigctl_open)
