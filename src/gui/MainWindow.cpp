@@ -2995,6 +2995,20 @@ MainWindow::MainWindow(QWidget* parent)
             tx.setRfPower(std::clamp(power, 0, 100));
             return;
         }
+        case FlexWheelMode::Rit: {
+            auto* s = activeSlice();
+            if (!s) return;
+            int hz = std::clamp(s->ritFreq() + steps * 10, -9999, 9999);
+            s->setRit(true, hz);
+            return;
+        }
+        case FlexWheelMode::Xit: {
+            auto* s = activeSlice();
+            if (!s) return;
+            int hz = std::clamp(s->xitFreq() + steps * 10, -9999, 9999);
+            s->setXit(true, hz);
+            return;
+        }
         case FlexWheelMode::Frequency:
         default:
             break;
@@ -3091,6 +3105,10 @@ MainWindow::MainWindow(QWidget* parent)
             m_flexWheelMode = FlexWheelMode::Volume;
         } else if (actionName == "WheelPower") {
             m_flexWheelMode = FlexWheelMode::Power;
+        } else if (actionName == "WheelRit") {
+            m_flexWheelMode = FlexWheelMode::Rit;
+        } else if (actionName == "WheelXit") {
+            m_flexWheelMode = FlexWheelMode::Xit;
         }
     });
 #endif
@@ -4867,6 +4885,8 @@ QJsonObject MainWindow::buildControlDevicesSnapshot() const
         case FlexWheelMode::Frequency: return QStringLiteral("Frequency");
         case FlexWheelMode::Volume:    return QStringLiteral("Volume");
         case FlexWheelMode::Power:     return QStringLiteral("Power");
+        case FlexWheelMode::Rit:       return QStringLiteral("Rit");
+        case FlexWheelMode::Xit:       return QStringLiteral("Xit");
         }
         return QStringLiteral("Unknown");
     };
