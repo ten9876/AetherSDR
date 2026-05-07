@@ -10070,8 +10070,24 @@ void MainWindow::applyUiScale(int pct)
         QString("UI scale changed to %1%. Restart AetherSDR now to apply?").arg(pct),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
     if (answer == QMessageBox::Yes) {
+#ifdef Q_OS_MAC
+        // On macOS, relaunch via 'open -n' so the .app bundle is activated through
+        // Launch Services — direct binary exec bypasses the bundle, causing dock
+        // duplication and incorrect activation policy in notarized builds.
+        // Walk up from the binary (Foo.app/Contents/MacOS/Foo) to the bundle root.
+        QDir d = QFileInfo(QCoreApplication::applicationFilePath()).dir(); // .../MacOS
+        d.cdUp();  // .../Contents
+        d.cdUp();  // .../Foo.app  (or plain build dir in dev)
+        if (d.dirName().endsWith(".app")) {
+            QProcess::startDetached("open", {"-n", d.absolutePath()});
+        } else {
+            QProcess::startDetached(QCoreApplication::applicationFilePath(),
+                                    QCoreApplication::arguments().mid(1));
+        }
+#else
         QProcess::startDetached(QCoreApplication::applicationFilePath(),
                                 QCoreApplication::arguments().mid(1));
+#endif
         QCoreApplication::quit();
     }
 }
