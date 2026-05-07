@@ -201,6 +201,12 @@ int main(int argc, char* argv[])
     {
 #ifdef Q_OS_MAC
         QString settingsPath = QDir::homePath() + "/Library/Preferences/AetherSDR/AetherSDR.settings";
+#elif defined(Q_OS_WIN)
+        // On Windows, QStandardPaths::ConfigLocation maps to %APPDATA% — match that here
+        // since QStandardPaths isn't available before QApplication.
+        QString settingsPath = QDir::fromNativeSeparators(
+                                   QString::fromLocal8Bit(qgetenv("APPDATA")))
+                               + "/AetherSDR/AetherSDR.settings";
 #else
         QString settingsPath = QDir::homePath() + "/.config/AetherSDR/AetherSDR.settings";
 #endif
@@ -215,7 +221,9 @@ int main(int argc, char* argv[])
                 int end = data.indexOf('<', idx);
                 if (end > idx) {
                     int pct = data.mid(idx, end - idx).trimmed().toInt();
-                    if (pct > 0 && pct != 100)
+                    // Always set — even at 100% — so a restarted child process
+                    // overrides any QT_SCALE_FACTOR it inherited from its parent.
+                    if (pct > 0)
                         qputenv("QT_SCALE_FACTOR", QByteArray::number(pct / 100.0, 'f', 2));
                 }
             }
