@@ -341,6 +341,9 @@ signals:
     // Emitted when a power amplifier (e.g. PGXL) is detected or lost.
     void amplifierChanged(bool present);
     void ampStateChanged();   // amplifier operate/bypass changed
+    // Raw KVS from the radio's amplifier status message (id, vac, meffa, temp, state, …).
+    // Emitted on every update so the GUI can refresh telemetry without a direct PGXL connection.
+    void ampTelemetryUpdated(const QMap<QString, QString>& kvs);
     void memoryChanged(int index);
     void memoryRemoved(int index);
     void memoriesCleared();

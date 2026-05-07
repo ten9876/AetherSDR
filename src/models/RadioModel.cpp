@@ -3238,6 +3238,10 @@ void RadioModel::onStatusReceived(const QString& object,
                         emit ampStateChanged();
                     }
                 }
+                // Forward the full KVS so the GUI can update telemetry fields
+                // (id/drain current, vac/mains voltage, meffa, temp) without
+                // requiring a direct PGXL TCP connection.
+                emit ampTelemetryUpdated(kvs);
             }
         }
         return;
