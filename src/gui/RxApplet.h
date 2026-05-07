@@ -78,6 +78,10 @@ signals:
 public:
     void setInitialStepSize(int hz);
 
+    // Mode-aware filter width formatter, shared with VfoWidget so the two
+    // filter readouts stay in sync (#794, #1225, #2197).
+    static QString formatFilterWidth(int lo, int hi, const QString& mode = QString());
+
 protected:
     bool eventFilter(QObject* obj, QEvent* ev) override;
 
@@ -96,7 +100,6 @@ private:
     void updateOffsetDirButtons();
     void applyOffsetDir(const QString& dir);
     static QString formatHz(int hz);
-    static QString formatFilterWidth(int lo, int hi, const QString& mode = QString());
     static QString formatStepLabel(int hz);
 
     SliceModel* m_slice{nullptr};

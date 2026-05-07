@@ -2,6 +2,7 @@
 #include "PhaseKnob.h"
 #include "ComboStyle.h"
 #include "GuardedSlider.h"
+#include "RxApplet.h"
 #include "SliceColorManager.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
@@ -3019,14 +3020,10 @@ void VfoWidget::updateFreqLabel()
 void VfoWidget::updateFilterLabel()
 {
     if (!m_slice) return;
-    // Always show the filter width (hi - lo), matching the filter preset
-    // buttons. Previously showed the edge value for USB/LSB, which
-    // disagreed with the highlighted button by ~100 Hz (#1225).
-    int w = m_slice->filterHigh() - m_slice->filterLow();
-    if (w >= 1000)
-        m_filterWidthLbl->setText(QString("%1K").arg(w / 1000.0, 0, 'f', 1));
-    else
-        m_filterWidthLbl->setText(QString::number(w));
+    // Single source of truth with the RX applet's filter readout to keep both
+    // labels in sync — they previously drifted (#794, #1225, #2197).
+    m_filterWidthLbl->setText(RxApplet::formatFilterWidth(
+        m_slice->filterLow(), m_slice->filterHigh(), m_slice->mode()));
 }
 
 void VfoWidget::relayoutDspGrid()
