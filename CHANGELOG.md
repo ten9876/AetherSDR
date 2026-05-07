@@ -3,6 +3,227 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [v0.9.8] — 2026-05-06
+
+### Aetherial Audio Channel Strip RX + community-driven reliability sweep
+
+A focused 24-hour sweep around the Aetherial Audio Channel Strip's RX
+side and a long list of community-contributed fixes. The RX panel
+gains DESS, full final-output / waveform stages, ADSP cluster bypass,
+and parity with the TX layout. Hamlib NET-rigctl interoperability is
+unblocked end-to-end — Not1MM, MacLoggerDX, fldigi, and any other
+standard rigctld client can now drive AetherSDR's frequency, mode,
+filter passband, RF power, PTT, and CW. The release also clears two
+silent Windows footguns (UI Scale on Windows was completely broken;
+spot clients crashed on disconnect cascade), and lands a CW-knob UX
+upgrade plus a dialog chrome refit on the AetherDSP Settings window.
+
+Big thanks to **@chibondking** (CJ Johnson — editable CW value fields,
+cwDelay optimistic-update, UI Scale Windows + reset-to-100% fix, macOS
+relaunch via `open -n`, PGXL OPERATE/STANDBY sync), **@jensenpat**
+(spot client thread affinity Windows crash, hardware-PTT mic_selection
+fix, filter width indicator, mode-correct widen/narrow shortcuts,
+Not1MM rigctld interop), **@rfoust** (Robbie Foust — status bar
+separator dot fix, audio shutdown null-guards), and **@s53zo** (MIDI
+VFO jog-wheel stabilization). Also crediting **@ct1drb** for the
+original orphaned rigctld pipe-separator fix that #2438 cherry-picked.
+
+### New features
+
+**Aetherial Audio Channel Strip — RX side (#2425)**
+- The Channel Strip now has a fully-built RX path alongside the TX
+  path. RX side mirrors the TX layout: AGC-G (formerly AGC-T), EQ,
+  De-Esser, Compressor, Tube/Saturator, PUDU, Final Output, and
+  Waveform tiles, all wired through the inline RX DSP pipeline in
+  AudioEngine.
+- The CHAIN status row's ADSP tile is now a Stage-style toggle that
+  bypasses the entire client-side NR cluster (NR2 / NR4 / MNR / DFNR
+  / RN2 / BNR) with a single click; an in-memory snapshot restores
+  the prior NR state on un-bypass.
+- ChannelStripPresets schema gains an optional `rx` block so saved
+  profiles capture both TX and RX state. Old preset files without
+  the block leave RX state untouched (forward-compatible).
+- New StripRxOutputPanel with peak/RMS meter, MUTE, BOOST. Strip-side
+  Waveform panel becomes side-aware so the same widget renders the
+  TX or RX scope tap based on a `Side::Tx | Side::Rx` flag.
+
+**Editable CW Delay / Speed / Sidetone / Pitch fields (#2429, chibondking)**
+- The four CW value labels in the PhoneCwApplet are now `QLineEdit`
+  widgets. Click any value and type a number directly — SmartSDR
+  parity. `QIntValidator` clamps to the valid range, `editingFinished`
+  drives the slider so the existing slider→model command path fires
+  unchanged. `hasFocus()` guards on the slider valueChanged path AND
+  on `syncCwFromModel` keep mid-edit input from being clobbered by
+  radio echoes.
+
+**Hamlib NET-rigctl / Not1MM interoperability (#2438, jensenpat, closes #2048 #2108)**
+- Pipe separator (`|`) — rigctld's wire convention. AetherSDR only
+  recognised `;`, so every pipe-prefixed command returned `RPRT -4`.
+  Cherry-picks the orphaned PR #2051 fix from @ct1drb with full
+  attribution.
+- Multi-line bare `b` send_morse — Hamlib spec allows the morse text
+  on the next line. Per-connection `m_pendingMorseLine` flag arms the
+  next handleLine call to consume morse text verbatim. Required by
+  Not1MM contest CW.
+- RFPOWER `get_level` / `set_level` — was returning `RPRT -11` (silent
+  failure). Wires through to `TransmitModel::setRfPower / rfPower()`
+  with proper 0.0–1.0 ratio ↔ 0–100 percent conversion. `dump_state`
+  set_level mask was hardcoded to KEYSPD only — now correctly reflects
+  the full RFPOWER + KEYSPD set.
+- Per-mode filter passband placement — `cmdSetMode` was applying the
+  USB convention to every non-LSB mode, so `M CW 250` produced a
+  155 Hz filter centered at 172 Hz instead of a 250 Hz filter centered
+  on 0. Mirrors the canonical mode→filter-edge mapping from
+  `VfoWidget::applyFilterPreset`.
+
+**AetherDSP Settings dialog refit + VFO DSP launchers**
+- AetherDSP Settings dialog gets the standard frameless 18 px gradient
+  title bar (matching NetworkDiagnosticsDialog and AetherialAudioStrip)
+  with grip glyph, min/max/close trio, drag-to-move, double-click to
+  maximize, 8-axis resize.
+- New `setDialogMode(true)` on AetherDspWidget bumps every inline
+  font-size to 13 px to match the VFO DSP toggle row, applies a
+  parallel 60×24 / 70×26 toggle-button geometry. Applet path leaves
+  this off.
+- Per-slice VFO DSP grid gains an `ADSP` button (opens AetherDSP
+  Settings — same entry point as the Settings menu) and an
+  `AetherVoice` button (toggles the Aetherial Audio Channel Strip).
+
+### Bug fixes
+
+**Spot client thread affinity Windows crash (#2420, jensenpat, fixes #1929 #2418)**
+- `QTcpSocket` / `QUdpSocket` / `QWebSocket` create an internal
+  `QSocketNotifier` whose Win32 message-loop affinity binds to the
+  *construction* thread, not the QObject's current thread. Constructing
+  on main-thread then `moveToThread()` to `SpotClients` left the
+  notifier bound to main-thread; disconnect-cascade socket events
+  tripped a cross-thread `sendEvent` assert. Each client now defers
+  socket creation to an `initialize()` slot dispatched on the worker
+  thread via `Qt::QueuedConnection` so internal notifiers bind there.
+
+**Audio callbacks during shutdown (#2413, rfoust)**
+- Quit-time crash on macOS where `WanConnection::~WanConnection`
+  triggered a TLS disconnect cascade that emitted
+  `radioTransmittingChanged(false)` after `m_audio` was already null
+  but before `QObject::~QObject` had auto-disconnected the connected
+  lambdas. Surgical null guards on the three TX-state callbacks
+  (`moxChanged`, `txAudioGateChanged`, `radioTransmittingChanged`)
+  match the existing `if (m_audio && ...)` pattern used elsewhere in
+  the file.
+
+**Hardware PTT into radio with mic_selection=PC (#2431, jensenpat, fixes #2373 #2200)**
+- The interlock gate was forcing `setTransmitting(false)` whenever
+  `m_txRequested` was false — even when the radio reported our handle
+  as TX owner. Hardware-keyed PTT (mic-line, ACC footswitch, RCA
+  TXREQ) had no bypass. PC mic audio with hardware PTT had likely
+  never worked through this branch. Parses the radio's interlock
+  `source=` field (SW / MIC / ACC / RCA / TUNE per FlexLib v4.2.18
+  `ParsePTTSource`) and adds `MIC|ACC|RCA` to the bypass list. SW
+  source still requires `m_txRequested` so SSB optimistic-off
+  responsiveness is preserved.
+
+**UI Scale not applied on Windows; reset to 100% silently ignored (#2432, chibondking)**
+- Two unrelated bugs in `main.cpp`'s pre-Qt settings read. (1) The
+  pre-Qt path was hardcoded to `~/.config/AetherSDR/` (Linux
+  convention); on Windows AppSettings actually writes to
+  `%APPDATA%/AetherSDR/`, so the file was never found and
+  `QT_SCALE_FACTOR` never set. Adds a `Q_OS_WIN` branch using
+  `qEnvironmentVariable("APPDATA")`. (2) The `if (pct != 100)` guard
+  meant a child process inheriting `QT_SCALE_FACTOR` from a scaled
+  parent kept using it after the user reset to 100%. Always-set fix
+  writes `1.00` so the inherited value is overridden.
+
+**macOS relaunch via `open -n` on UI Scale restart (#2434, chibondking)**
+- `applyUiScale()` was calling `QProcess::startDetached` on
+  `applicationFilePath()`, which on a `.app` bundle launches
+  `Foo.app/Contents/MacOS/Foo` directly — bypassing Launch Services.
+  The relaunched instance shows as a separate dock entry, loses
+  proper activation policy, and on notarized/sandboxed builds can
+  fail entirely. Walks up to the bundle root and launches via
+  `open -n <bundle>` with `--args` pass-through.
+
+**MIDI jog-wheel VFO tuning stabilization (#2422, s53zo, fixes #2421)**
+- Three independent failure modes on touch-sensitive jog wheels (e.g.
+  Hercules DJControl Starlight). MIDI Learn could bind the touch
+  sensor instead of the movement CC. Saved bindings without the
+  relative flag interpreted unit-pulse 1/127 as absolute endpoints,
+  turning each detent into ~±63 steps. Tuning targets read
+  `SliceModel::frequency()` which lags behind in-flight tune commands,
+  making rapid spins jump backward. Fixed in three layered passes
+  with a 250 ms idle-timer-cleared in-flight tune target.
+
+**VFO filter width indicator showing 0.1 kHz too low (#2435, jensenpat, fixes #2197)**
+- `updateFilterLabel()` computed raw `filterHigh - filterLow`, which
+  for SSB/digital modes is ~100 Hz less than the named preset width
+  due to the intentional low-cut. Bug had been reported three times
+  (#794, #1225, this issue) — the structural fix promotes
+  `RxApplet::formatFilterWidth` to public static and has VfoWidget
+  call it directly. Single source of truth prevents the next swap.
+
+**Mode-correct filter widen/narrow shortcuts (#2436, jensenpat, fixes #2208)**
+- The `filter_widen` / `filter_narrow` shortcuts (also bound to MIDI
+  `global.filterWiden` / `global.filterNarrow`) only adjusted the
+  upper edge by ±100 Hz. On LSB / CWL / DIGL / RTTY the upper edge is
+  fixed near 0, so "widen" actually collapsed the passband. New
+  `RxApplet::stepFilterWidth(direction)` walks the active mode's
+  preset list and routes through `applyFilterPreset` so all modes get
+  mode-correct edge geometry.
+
+**PGXL OPERATE/STANDBY button stuck on OPERATE (#2437, chibondking)**
+- AmpApplet button was only updated via the direct PGXL TCP path; if
+  that lagged, the button stayed on the old label. The click handler
+  reads `m_operateBtn->text()` to decide toggle direction, so a
+  stuck OPERATE button emitted `operate=0` on click — sending another
+  standby command instead of returning to OPERATE. Wires
+  `RadioModel::ampStateChanged` (authoritative) to also call
+  `AmpApplet::setState`.
+
+**Status bar separator dots for unsupported optional sections (#2412, rfoust)**
+- TGXL and PGXL separator dots stayed visible even when the indicators
+  were hidden, leaving stray `· ·` clusters in the bottom status bar
+  on radios without those accessories. Optional separators now toggle
+  in lockstep with their matching indicators.
+
+**cwDelay optimistic-update prevents Delay slider reset (#2428, chibondking)**
+- `setCwDelay()` was the lone outlier in the CW setter family —
+  didn't cache `ms` into `m_cwDelay` before emitting the command.
+  Subsequent `phoneStateChanged` emissions read stale `m_cwDelay`
+  and snapped the Delay slider back, silently re-enabling QSK on
+  amplifiers that can't tolerate it. Now matches the
+  `setCwBreakIn` / `setCwIambicMode` optimistic-update pattern.
+
+**DSP-level slider missing on launch**
+- The leveled DSP toggles (NR / NB / ANF / NRL / NRS / NRF / ANFL)
+  push onto a target stack so the shared 4th-row slider re-targets
+  the most recently activated DSP. State changes arriving from radio
+  status (profile load, reconnect) went through a `QSignalBlocker`'d
+  path that suppressed the `toggled()` signal — so on launch the
+  slider was hidden until the user manually toggled the DSP off and
+  back on. New `connectLeveledDsp` helper mirrors the user-click
+  stack push/pop on every state change.
+
+**Channel Strip initial height on sub-4K displays (#2440)**
+- The Aetherial Audio Channel Strip opened at its natural 1620 px
+  height on every display. On 1080p the bottom edge landed offscreen
+  with the resize grip unreachable. Queries
+  `QGuiApplication::primaryScreen()->availableGeometry().height()`
+  at construction; caps initial height to 960 px on anything below
+  ~4K (2000 px threshold catches 1080p / 1440p / 1600p). 4K and 5K
+  still get the natural 1620.
+
+### Infrastructure
+
+**CI runtime + reliability sweep**
+- Skip CodeQL on doc-only PRs (#2397).
+- Cache Windows third-party deps — Opus, FFTW, hidapi, DeepFilterNet
+  (#2398) — drops cold Windows builds by ~3 min.
+- Mirror Opus download to GitHub Releases with retry/fallback (#2399)
+  — replaces the unreliable Xiph mirror that occasionally 503s.
+- Scope CodeQL to first-party sources (#2400) — drops third_party/
+  noise from the analysis.
+- Speed up macOS Intel build with pinned Qt + ccache (#2402).
+- Bump Qt to 6.8.3 LTS across all release workflows (#2404).
+
 ## [v0.9.7] — 2026-05-05
 
 ### CW keying overhaul + reliability sweep
