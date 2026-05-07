@@ -1128,7 +1128,7 @@ void SpectrumOverlayMenu::buildDisplayPanel()
     if (m_colorSchemeCmb) m_colorSchemeCmb->setToolTip("Selects the waterfall color palette.");
     if (m_bgOpacitySlider) m_bgOpacitySlider->setToolTip("Opacity of the background image overlay.");
     if (m_floorEnableBtn) m_floorEnableBtn->setToolTip("Shows a noise floor reference line on the spectrum display.");
-    if (m_floorSlider) m_floorSlider->setToolTip("Vertical position of the noise floor reference line.");
+    if (m_floorSlider) m_floorSlider->setToolTip("Radio squelch level (0-100). 0 = off (noise passes), raise to gate above the noise floor.");
 
     m_displayPanel->adjustSize();
 }
@@ -1175,12 +1175,15 @@ void SpectrumOverlayMenu::syncDisplaySettings(int avg, int fps, int fillPct,
     m_rateLabel->setText(QString::number(rateSliderVal));
 
     if (m_floorSlider) {
-        QSignalBlocker bf(m_floorSlider), be(m_floorEnableBtn);
-        m_floorSlider->setValue(floorPos);
-        m_floorLabel->setText(QString::number(floorPos));
+        // m_floorSlider is the radio squelch level control; its value is
+        // initialized from the slice in syncSquelchState() — do NOT overwrite
+        // it here with the visual noise-floor position (floorPos).
+        QSignalBlocker be(m_floorEnableBtn);
         m_floorEnableBtn->setChecked(floorEnable);
         m_floorEnableBtn->setText(floorEnable ? "On" : "Off");
         m_floorSlider->setEnabled(floorEnable);
+        if (m_sqlEnableBtn) m_sqlEnableBtn->setEnabled(floorEnable);
+        if (m_sqlAutoBtn)   m_sqlAutoBtn->setEnabled(floorEnable);
     }
     if (m_heatMapBtn) {
         QSignalBlocker bh(m_heatMapBtn);
@@ -1240,8 +1243,7 @@ void SpectrumOverlayMenu::syncSquelchState(bool enabled, int level, bool autoMod
         m_sqlEnableBtn->setChecked(enabled);
         m_sqlEnableBtn->setText(enabled ? "On" : "Off");
         m_floorLabel->setText(QString::number(level));
-        if (m_floorSlider->isEnabled())
-            m_floorSlider->setValue(level);
+        m_floorSlider->setValue(level);  // always update, not just when enabled
     }
     if (m_sqlAutoBtn) {
         QSignalBlocker b(*m_sqlAutoBtn);
