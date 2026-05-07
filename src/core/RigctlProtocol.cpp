@@ -122,6 +122,11 @@ QString RigctlProtocol::rprt(int code) const
 
 QString RigctlProtocol::handleLine(const QString& line)
 {
+    if (m_pendingMorseLine) {
+        m_pendingMorseLine = false;
+        return cmdSendMorse(line.trimmed());
+    }
+
     QString trimmed = line.trimmed();
     if (trimmed.isEmpty())
         return {};
@@ -610,7 +615,15 @@ QString RigctlProtocol::cmdDumpState()
 
 QString RigctlProtocol::cmdSendMorse(const QString& text)
 {
-    if (!m_model || text.isEmpty()) return rprt(-1);
+    if (!m_model) return rprt(-1);
+    if (text.isEmpty()) {
+        // Hamlib `b` accepts the morse text on the next line when none is
+        // supplied inline. Arm the pending flag and return no response; the
+        // next handleLine() call will deliver the text. Required by Not1MM
+        // contest CW and any other client that uses the two-line form.
+        m_pendingMorseLine = true;
+        return {};
+    }
     QString cmd = QString("cwx send \"%1\"").arg(text);
     QMetaObject::invokeMethod(m_model, [this, cmd]() {
         m_model->sendCmdPublic(cmd, nullptr);
