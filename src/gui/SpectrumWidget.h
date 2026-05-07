@@ -97,6 +97,12 @@ public:
     void setNoiseFloorPosition(int pos) { m_noiseFloorPosition = pos; }
     void setNoiseFloorEnable(bool on)   { m_noiseFloorEnable = on; }
 
+    // Two-pass trimmed-mean noise floor from live FFT bins (dBm), EMA-smoothed.
+    // Pass 1 computes the overall mean; pass 2 averages only bins ≤ mean so
+    // signal peaks exclude themselves, leaving the flat noise baseline.
+    // Reflects the current band, antenna and preamp — no hardcoded dBm value.
+    float noiseFloorDbm() const { return m_measuredNoiseFloorDbm; }
+
     // (getters for display settings are below with their members)
 
     // Set the VFO frequency (draws the orange VFO marker).
@@ -318,6 +324,11 @@ public:
 
     void setShowSpots(bool on) { m_showSpots = on; update(); }
     bool showSpots() const { return m_showSpots; }
+    void setShowSHistory(bool on)    { m_showSHistory = on;    update(); }
+    bool showSHistory() const         { return m_showSHistory; }
+    void setShowSHistoryQrm(bool on) { m_showSHistoryQrm = on; update(); }
+    bool showSHistoryQrm() const      { return m_showSHistoryQrm; }
+    void setSHistoryMarkers(const QVector<SpotMarker>& markers);
     void setSpotFontSize(int px) { m_spotFontSize = px; update(); }
     void setSpotMaxLevels(int n) { m_spotMaxLevels = n; update(); }
     void setSpotStartPct(int pct) { m_spotStartPct = pct; update(); }
@@ -481,6 +492,10 @@ private:
 
     float m_refLevel{-50.0f};       // top of display (dBm)
     float m_dynamicRange{100.0f};   // dB range shown in spectrum (-50 to -150)
+
+    // Two-pass trimmed-mean noise floor (dBm), EMA-smoothed across ~20 frames.
+    // -1000 = cold start (not yet measured).
+    float m_measuredNoiseFloorDbm{-1000.0f};
 
     // Noise floor auto-adjust
     bool  m_noiseFloorEnable{false};
@@ -688,6 +703,9 @@ private:
 
     QVector<SpotCluster> m_spotClusters;
     bool m_showSpots{true};
+    bool m_showSHistory{false};
+    bool m_showSHistoryQrm{false};
+    QVector<SpotMarker> m_sHistoryMarkers;
     int  m_spotFontSize{16};
     int  m_spotMaxLevels{3};
     int  m_spotStartPct{50};      // % down from top of spectrum

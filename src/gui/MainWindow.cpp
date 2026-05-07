@@ -11,6 +11,7 @@
 #include "PanLayoutDialog.h"
 #include "core/CommandParser.h"
 #include "core/LogManager.h"
+#include "core/VoiceSignalDetector.h"
 #include "core/MemoryRecallPolicy.h"
 #include "core/StreamStatus.h"
 #include "models/PanadapterModel.h"
@@ -174,6 +175,8 @@
 #include <sys/resource.h>
 #endif
 #include <QLocale>
+#include <QFile>
+#include <QStandardPaths>
 
 namespace AetherSDR {
 
@@ -2096,6 +2099,10 @@ MainWindow::MainWindow(QWidget* parent)
             finishPanadapterConnectionAnimation();
         }
     });
+    // ── S History Markers — tap into FFT frames for voice signal detection ──
+    connect(m_radioModel.panStream(), &PanadapterStream::spectrumReady,
+            this, &MainWindow::onSpectrumReadyForSHistory);
+
     connect(m_radioModel.panStream(), &PanadapterStream::waterfallRowReady,
             this, [this](quint32 streamId, const QVector<float>& bins,
                          double low, double high, quint32 tc) {
@@ -2398,6 +2405,9 @@ MainWindow::MainWindow(QWidget* parent)
             }
         }
         m_panStack->removePanadapter(panId);
+        m_sHistoryData.remove(panId);
+        m_sHistoryPanState.remove(panId);
+        m_spectrogramBuffers.remove(panId);
         qDebug() << "MainWindow: removed panadapter applet for" << panId;
 
         // Rearrange remaining pans to a sensible layout
@@ -6298,6 +6308,49 @@ void MainWindow::buildMenuBar()
         AppSettings::instance().save();
     });
 
+    m_sHistoryEnabled =
+        AppSettings::instance().value("SHistoryMarkersEnabled", "False").toString() == "True";
+    m_sHistoryQrmEnabled =
+        AppSettings::instance().value("SHistoryQrmEnabled", "False").toString() == "True";
+
+    auto* sHistoryAct = viewMenu->addAction("Signal History Markers");
+    sHistoryAct->setCheckable(true);
+    sHistoryAct->setChecked(m_sHistoryEnabled);
+    connect(sHistoryAct, &QAction::toggled, this, [this](bool on) {
+        m_sHistoryEnabled = on;
+        AppSettings::instance().setValue("SHistoryMarkersEnabled", on ? "True" : "False");
+        AppSettings::instance().save();
+        for (auto* a : m_panStack->allApplets()) {
+            a->spectrumWidget()->setShowSHistory(on);
+        }
+        if (!on && !m_sHistoryQrmEnabled) {
+            m_sHistoryData.clear();
+            m_sHistoryPanState.clear();
+            for (auto* a : m_panStack->allApplets()) {
+                a->spectrumWidget()->setSHistoryMarkers({});
+            }
+        }
+    });
+
+    auto* qrmHistoryAct = viewMenu->addAction("QRM History Markers");
+    qrmHistoryAct->setCheckable(true);
+    qrmHistoryAct->setChecked(m_sHistoryQrmEnabled);
+    connect(qrmHistoryAct, &QAction::toggled, this, [this](bool on) {
+        m_sHistoryQrmEnabled = on;
+        AppSettings::instance().setValue("SHistoryQrmEnabled", on ? "True" : "False");
+        AppSettings::instance().save();
+        for (auto* a : m_panStack->allApplets()) {
+            a->spectrumWidget()->setShowSHistoryQrm(on);
+        }
+        if (!on && !m_sHistoryEnabled) {
+            m_sHistoryData.clear();
+            m_sHistoryPanState.clear();
+            for (auto* a : m_panStack->allApplets()) {
+                a->spectrumWidget()->setSHistoryMarkers({});
+            }
+        }
+    });
+
     // UI Scale submenu — sets QT_SCALE_FACTOR, applies on restart
     auto* scaleMenu = viewMenu->addMenu("UI Scale");
     int savedScale = AppSettings::instance().value("UiScalePercent", "100").toInt();
@@ -7375,6 +7428,30 @@ void MainWindow::buildUI()
 
     statusBar()->addWidget(container, 1);
     updateBandStackIndicator();
+
+    // S History Markers expiry — sweeps stale detections once per second
+    m_sHistoryExpireTimer = new QTimer(this);
+    m_sHistoryExpireTimer->setInterval(1000);
+    connect(m_sHistoryExpireTimer, &QTimer::timeout,
+            this, &MainWindow::expireSHistoryMarkers);
+    m_sHistoryExpireTimer->start();
+
+    // CNN signal classifier — load model from next to the executable or ~/.config/AetherSDR/
+    {
+        const QString exeDir  = QCoreApplication::applicationDirPath();
+        const QString cfgDir  = QStandardPaths::writableLocation(
+                                    QStandardPaths::AppConfigLocation);
+        const QString modelFile = QStringLiteral("signal_classifier.onnx");
+        QString modelPath;
+        if (QFile::exists(exeDir + QLatin1Char('/') + modelFile)) {
+            modelPath = exeDir + QLatin1Char('/') + modelFile;
+        } else if (QFile::exists(cfgDir + QLatin1Char('/') + modelFile)) {
+            modelPath = cfgDir + QLatin1Char('/') + modelFile;
+        }
+        if (!modelPath.isEmpty()) {
+            m_signalClassifier.loadModel(modelPath);
+        }
+    }
 }
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
@@ -9096,6 +9173,20 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setSpotBgColor(QColor(s.value("SpotsOverrideBgColor", "#000000").toString()));
         sw->setSpotBgOpacity(s.value("SpotsBackgroundOpacity", 48).toInt());
         sw->setSpotShowLines(s.value("IsSpotsLinesEnabled", "True").toString() == "True");
+    }
+
+    // ── S History Markers ─────────────────────────────────────────────────
+    sw->setShowSHistory(m_sHistoryEnabled);
+    sw->setShowSHistoryQrm(m_sHistoryQrmEnabled);
+    if (m_sHistoryEnabled || m_sHistoryQrmEnabled) {
+        // Seed a 10-second warmup so QRM classification can establish a
+        // baseline before any markers appear on the newly-wired pan.
+        auto& ps = m_sHistoryPanState[applet->panId()];
+        if (ps.suppressUntilMs == 0) {
+            ps.suppressUntilMs = QDateTime::currentMSecsSinceEpoch() + 10000;
+        }
+        if (m_sHistoryData.contains(applet->panId()))
+            rebuildSHistoryForPan(applet->panId());
     }
 
     // ── Per-pan display controls (client-side) ───────────────────────────
@@ -13197,6 +13288,332 @@ void MainWindow::dockAppletPanel()
     m_appletPanelFloatWindow->removeEventFilter(this);
     m_appletPanelFloatWindow->deleteLater();
     m_appletPanelFloatWindow = nullptr;
+}
+
+static double roundToHundredHz(double freqMhz)
+{
+    return std::round(freqMhz * 10000.0) / 10000.0;
+}
+
+void MainWindow::rebuildSHistoryForPan(const QString& panId)
+{
+    auto* sw = m_panStack->spectrum(panId);
+    if (!sw) return;
+
+    constexpr qint64 kQrmWindowMs       = 15000; // timestamp retention window
+    constexpr qint64 kHitWindowMs       = 1000;
+    constexpr int    kMinHits           = 1;
+    constexpr qint64 kQualifyMs         = 3000;  // 3-second streak before showing
+    constexpr qint64 kNarrowQrmGateMs   = 6000;  // narrow/wideband: show QRM after 6 s
+    // Require 70% frame occupancy over 6 s, derived from observed fps rather than
+    // the old hard-coded 105 (which assumed 25 fps and broke at 10 fps or 60 fps).
+    const float observedFps = m_sHistoryPanState.value(panId).fpsEwma;
+    const int   kNarrowQrmHitsNeeded = static_cast<int>(
+        std::clamp(observedFps * (kNarrowQrmGateMs / 1000.0f) * 0.70f, 30.0f, 500.0f));
+    constexpr qint64 kVoiceToQrmMs      = 120000;
+    constexpr qint64 kHideAfterMs       = 30000; // past-signals history window
+
+    const qint64 now           = QDateTime::currentMSecsSinceEpoch();
+    auto&        entries       = m_sHistoryData[panId];
+    const qint64 suppressUntil = m_sHistoryPanState.value(panId).suppressUntilMs;
+
+    for (auto& e : entries) {
+        // Keep 30 s of timestamps for QRM assessment.
+        e.hitTimestamps.erase(
+            std::remove_if(e.hitTimestamps.begin(), e.hitTimestamps.end(),
+                [now](qint64 t) { return (now - t) > kQrmWindowMs; }),
+            e.hitTimestamps.end());
+
+        // How many hits in the last 1 second (display gate).
+        const int recentHits1s = static_cast<int>(std::count_if(
+            e.hitTimestamps.constBegin(), e.hitTimestamps.constEnd(),
+            [now](qint64 t) { return (now - t) <= kHitWindowMs; }));
+        const bool currentlyActive = (recentHits1s >= kMinHits);
+
+        // Detect any gap > 1 s in the retained timestamp window.
+        bool hasVoiceGap = false;
+        constexpr qint64 kMaxQrmGapMs = 1000;
+        for (int ti = 1; ti < e.hitTimestamps.size() && !hasVoiceGap; ++ti) {
+            if ((e.hitTimestamps[ti] - e.hitTimestamps[ti - 1]) > kMaxQrmGapMs) {
+                hasVoiceGap = true;
+            }
+        }
+        if (hasVoiceGap) { e.lastGapMs = now; }
+
+        // QRM classification:
+        //   Voice-width (≥1.8 kHz, ≤8 kHz): require 2 unbroken minutes.
+        //   True narrow (< 1.8 kHz) / wideband (> 8 kHz): QRM after 6 s of
+        //   continuous presence with no gap (checked via lastGapMs so gaps that
+        //   age out of the 15 s timestamp window are still honoured).
+        // CNN override: if carrierScore > 0.70, treat as narrow carrier even if
+        // width falls in the voice range.  Threshold is conservative to avoid
+        // mis-classifying real voice.  Has no effect when ONNX is absent (score stays 0.5).
+        const bool cnnSaysCarrier = (e.carrierScore > 0.70f);
+        const bool isVoiceWidth   = !cnnSaysCarrier
+                                    && (e.widthHz >= 1800.0 && e.widthHz <= 8000.0);
+        bool qrmQualified;
+        if (isVoiceWidth) {
+            qrmQualified = (now - e.lastGapMs) >= kVoiceToQrmMs;
+        } else {
+            const int hitsIn6s = static_cast<int>(std::count_if(
+                e.hitTimestamps.constBegin(), e.hitTimestamps.constEnd(),
+                [now](qint64 t) { return (now - t) <= kNarrowQrmGateMs; }));
+            // Use lastGapMs so gaps that fell out of the 15 s window still
+            // prevent a voice-like signal from being misclassified as QRM.
+            const bool noRecentGap = (now - e.lastGapMs) >= kNarrowQrmGateMs;
+            qrmQualified = (now - e.firstDetectedMs) >= kNarrowQrmGateMs
+                           && noRecentGap
+                           && (hitsIn6s >= kNarrowQrmHitsNeeded);
+        }
+        e.suspectQrm = currentlyActive && qrmQualified && !hasVoiceGap;
+
+        // Hide visible markers absent for 30 seconds (the "past signals" history window).
+        if (e.visible && !currentlyActive && (now - e.lastSeenMs) > kHideAfterMs) {
+            e.visible = false;
+            e.qualifyStartMs = 0;
+        }
+
+        if (!e.visible) {
+            // < 1800 Hz: narrow carrier — QRM-only
+            // 1800–8000 Hz: voice path (includes the 1800–2300 Hz borderline zone)
+            // > 8000 Hz: wideband interference — QRM-only
+            const bool isNarrowCarrier   = (e.widthHz < 1800.0);
+            const bool isWidebandCarrier = (e.widthHz > 8000.0);
+            if (isNarrowCarrier || isWidebandCarrier) {
+                if (e.suspectQrm) { e.visible = true; }
+            } else if (currentlyActive) {
+                if (e.qualifyStartMs == 0) { e.qualifyStartMs = now; }
+                // Confirmed voice re-qualifies in 2 s; new signals need 3 s.
+                const qint64 requiredMs = e.confirmedVoice ? 2000LL : kQualifyMs;
+                if ((now - e.qualifyStartMs) >= requiredMs && now >= suppressUntil) {
+                    e.visible = true;
+                    if (!e.suspectQrm) { e.confirmedVoice = true; }
+                }
+            } else if ((now - e.lastSeenMs) > 3000) {
+                // Reset streak only after 3 s of no detections — inter-word pauses
+                // and brief FFT gaps don't restart the qualify clock.
+                e.qualifyStartMs = 0;
+            }
+        }
+    }
+
+    QVector<SpectrumWidget::SpotMarker> markers;
+    for (const auto& e : entries) {
+        if (!e.visible) { continue; }
+        const bool isQrm = e.suspectQrm;
+        const QString label = isQrm
+            ? (QStringLiteral("QRM") + AetherSDR::sLabel(e.peakDbm).mid(1))
+            : AetherSDR::sLabel(e.peakDbm);
+        const QString color = isQrm ? QStringLiteral("#FF0000") : QStringLiteral("#FFFF00");
+        const QString comment = isQrm
+            ? QStringLiteral("QRM width=%1 Hz").arg(e.widthHz, 0, 'f', 0)
+            : QStringLiteral("Voice width=%1 Hz").arg(e.widthHz, 0, 'f', 0);
+        markers.append({
+            -1,
+            label,
+            roundToHundredHz(e.freqMhz),
+            color,
+            e.mode,
+            QColor(isQrm ? 255 : 255, isQrm ? 0 : 200, 0),
+            isQrm ? QStringLiteral("QRM") : QStringLiteral("SHistory"),
+            {},
+            comment,
+            e.lastSeenMs
+        });
+
+        // Double mark: voice operator detected on top of a QRM-classified entry.
+        // Emit an additional gold voice marker so the operator can see both the
+        // interference AND the person trying to work through it simultaneously.
+        // The voice marker ages out independently (30 s after last voice-width hit).
+        if (isQrm && (now - e.voiceOverQrmLastMs) < kHideAfterMs) {
+            markers.append({
+                -1,
+                AetherSDR::sLabel(e.peakDbm),
+                roundToHundredHz(e.freqMhz),
+                QStringLiteral("#FFFF00"),
+                e.mode,
+                QColor(255, 200, 0),
+                QStringLiteral("SHistory"),
+                {},
+                QStringLiteral("Voice on QRM ch, width=%1 Hz").arg(e.widthHz, 0, 'f', 0),
+                e.voiceOverQrmLastMs
+            });
+        }
+    }
+    sw->setSHistoryMarkers(markers);
+}
+
+void MainWindow::expireSHistoryMarkers()
+{
+    if (!m_sHistoryEnabled && !m_sHistoryQrmEnabled) return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    constexpr qint64 kLifetimeMs = 60000;  // entries live 60 s; visible for 30 s
+    for (auto it = m_sHistoryData.begin(); it != m_sHistoryData.end(); ++it) {
+        auto& entries = it.value();
+        entries.erase(
+            std::remove_if(entries.begin(), entries.end(),
+                [now](const SHistoryEntry& e) {
+                    return (now - e.lastSeenMs) > kLifetimeMs;
+                }),
+            entries.end());
+        // Rebuild unconditionally: hit-window timestamps age out every second
+        // even when no new detections arrive, which hides markers whose peaks
+        // have fallen below the 25% threshold.
+        if (!entries.isEmpty()) {
+            rebuildSHistoryForPan(it.key());
+        }
+    }
+}
+
+void MainWindow::onSpectrumReadyForSHistory(quint32 streamId, const QVector<float>& bins)
+{
+    if (!m_sHistoryEnabled && !m_sHistoryQrmEnabled) return;
+
+    // Build voice-only frequency ranges from the active band plan once per frame
+    QVector<QPair<double, double>> voiceRanges;
+    if (m_bandPlanMgr) {
+        for (const auto& seg : m_bandPlanMgr->segments()) {
+            if (AetherSDR::isVoiceSegmentLabel(seg.label))
+                voiceRanges.append({seg.lowMhz, seg.highMhz});
+        }
+    }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (auto* pan : m_radioModel.panadapters()) {
+        if (pan->panStreamId() != streamId) continue;
+
+        const QString panId = pan->panId();
+        auto& state = m_sHistoryPanState[panId];
+        // Only reset on a genuine band change (centre shifts by >500 kHz).
+        // Zoom (bandwidth change) must NOT clear markers — the operator
+        // zooms in to inspect signals that are already marked.
+        const bool bandChanged =
+            std::abs(state.centerMhz - pan->centerMhz()) > 0.5;
+        state.centerMhz    = pan->centerMhz();
+        state.bandwidthMhz = pan->bandwidthMhz();
+        // Track observed frame rate (EWMA) so QRM hit thresholds adapt to
+        // actual pan fps rather than assuming 25 fps.
+        if (state.lastFrameMs > 0) {
+            const float dtSec = static_cast<float>(now - state.lastFrameMs) / 1000.0f;
+            if (dtSec > 0.0f && dtSec < 1.0f) {  // ignore stale gaps (pan was paused)
+                constexpr float kFpsAlpha = 0.05f;
+                state.fpsEwma = state.fpsEwma * (1.0f - kFpsAlpha)
+                              + (1.0f / dtSec) * kFpsAlpha;
+            }
+        }
+        state.lastFrameMs = now;
+        if (bandChanged) {
+            state.suppressUntilMs = now + 10000;
+            m_sHistoryData.remove(panId);
+            m_spectrogramBuffers.remove(panId);  // old frames are for a different band
+        }
+
+        // Read the noise floor that the spectrum widget has already measured
+        // from this pan's live FFT stream — no hardcoded dBm, adapts to the
+        // current band, antenna, and preamp setup automatically.
+        SpectrumWidget* sw = m_panStack->spectrum(pan->panId());
+        const float noiseFloor = sw ? sw->noiseFloorDbm() : -1000.0f;
+
+        // Use the active slice mode so USB pans only show USB markers and
+        // LSB pans only show LSB markers — no more double-marking one signal.
+        QString sliceMode;
+        for (auto* slice : m_radioModel.slices()) {
+            if (slice && slice->panId() == pan->panId()) {
+                sliceMode = slice->mode();
+                break;
+            }
+        }
+
+        // Push this frame into the spectrogram buffer for CNN classification.
+        auto& bufPtr = m_spectrogramBuffers[panId];
+        if (!bufPtr) { bufPtr = std::make_shared<AetherSDR::SpectrogramBuffer>(); }
+        bufPtr->push(bins, pan->centerMhz(), pan->bandwidthMhz());
+
+        const auto detected =
+            AetherSDR::detectVoiceSignals(bins, pan->centerMhz(), pan->bandwidthMhz(),
+                                          voiceRanges, noiseFloor, sliceMode);
+        auto& entries = m_sHistoryData[panId];
+        for (const auto& sig : detected) {
+            bool found = false;
+            for (auto& e : entries) {
+                // Merge window: 2 kHz for voice signals — large enough to absorb
+                // frame-to-frame edge jitter (bin quantisation + ±400 Hz gap-fill
+                // ≈ up to ~700 Hz shift), small enough to stay below the minimum
+                // SSB channel spacing of 2.7 kHz so adjacent stations get their
+                // own entries.  Half the signal width for wideband QRM so
+                // frame-to-frame centre drift doesn't create duplicates.
+                const double mergeHz = (sig.widthHz > 8000.0)
+                    ? sig.widthHz / 2.0 : 2000.0;
+                if (std::abs(e.freqMhz - sig.freqMhz) < mergeHz / 1e6) {
+                    e.lastSeenMs = now;
+                    e.hitTimestamps.append(now);
+                    // Track widest detection: a signal can look narrow when weak
+                    // but wider at peak — the widest seen determines classification.
+                    e.widthHz = std::max(e.widthHz, sig.widthHz);
+                    if (sig.peakDbm > e.peakDbm) {
+                        e.peakDbm = sig.peakDbm;
+                        e.freqMhz = sig.freqMhz;
+                    }
+                    // Voice over QRM: if this entry is already QRM-classified
+                    // and the current detection is voice-width, flag for double
+                    // marking so both a red QRM and a gold voice marker appear.
+                    if (e.suspectQrm
+                            && sig.widthHz >= 1800.0 && sig.widthHz <= 8000.0) {
+                        e.voiceOverQrmLastMs = now;
+                    }
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                SHistoryEntry newEntry;
+                newEntry.freqMhz         = sig.freqMhz;
+                newEntry.peakDbm         = sig.peakDbm;
+                newEntry.mode            = sig.mode;
+                newEntry.firstDetectedMs = now;
+                newEntry.lastSeenMs      = now;
+                newEntry.widthHz         = sig.widthHz;
+                newEntry.hitTimestamps   = {now};
+                newEntry.lastGapMs       = now;  // treat appearance as a gap reset
+                entries.append(std::move(newEntry));
+            }
+        }
+        // CNN classification for borderline-width entries (1800–2500 Hz).
+        // Runs only when the model is loaded; gracefully skipped otherwise.
+        if (m_signalClassifier.isLoaded()) {
+            const auto cit = m_spectrogramBuffers.constFind(panId);
+            AetherSDR::SpectrogramBuffer* buf = (cit != m_spectrogramBuffers.constEnd()) ? cit->get() : nullptr;
+            if (buf != nullptr) {
+                if (buf->frameCount() >= AetherSDR::SpectrogramBuffer::kMaxFrames) {
+                    for (auto& e : entries) {
+                        if (e.widthHz >= 1800.0 && e.widthHz <= 2500.0) {
+                            const double patchWidthMhz = e.widthHz * 2.0 / 1.0e6;
+                            const QVector<float> patch =
+                                buf->extractPatch(e.freqMhz, patchWidthMhz);
+                            if (!patch.isEmpty()) {
+                                const AetherSDR::ClassifierResult res =
+                                    m_signalClassifier.classify(
+                                        patch,
+                                        AetherSDR::SpectrogramBuffer::kMaxFrames,
+                                        AetherSDR::SpectrogramBuffer::kPatchFreqBins);
+                                if (res.valid) {
+                                    // EMA α = 0.15 — gradual update, resilient to
+                                    // single-frame misclassification
+                                    constexpr float kAlpha = 0.15f;
+                                    e.carrierScore = e.carrierScore * (1.0f - kAlpha)
+                                                   + res.carrierProb * kAlpha;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Always rebuild so hit-window expiry hides markers promptly
+        // even when nothing was detected this frame.
+        rebuildSHistoryForPan(panId);
+        break;
+    }
 }
 
 } // namespace AetherSDR
