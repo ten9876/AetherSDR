@@ -28,10 +28,13 @@ class StripDeEssPanel : public QWidget {
     Q_OBJECT
 
 public:
+    enum class Side { Tx, Rx };
+
     explicit StripDeEssPanel(AudioEngine* engine, QWidget* parent = nullptr);
     ~StripDeEssPanel() override;
 
     void showForTx();
+    void showForRx();
 
     // Pull every knob / button / label state from the bound engine.
     // Called after preset load when the engine is mutated externally.
@@ -58,7 +61,14 @@ private:
     void applyAttack(float ms);
     void applyRelease(float ms);
 
+    // Side-aware accessors so the panel binds to either TX or RX
+    // ClientDeEss without duplicating the entire control surface.
+    class ClientDeEss* deEss() const;
+    void               saveDeEssSettings() const;
+
     AudioEngine*            m_audio{nullptr};
+    Side                    m_side{Side::Tx};
+    QWidget*                m_titleBar{nullptr};   // EditorFramelessTitleBar*
     ClientDeEssCurveWidget* m_curve{nullptr};
     QWidget*                m_grBar{nullptr};   // gain-reduction bar below curve
     ClientCompKnob*         m_freq{nullptr};

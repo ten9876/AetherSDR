@@ -569,6 +569,8 @@ set(GUI_SOURCES
     src/gui/ClientChainApplet.cpp
     src/gui/ClientChainWidget.cpp
     src/gui/StripChainWidget.cpp
+    src/gui/StripRxChainWidget.cpp
+    src/gui/StripRxOutputPanel.cpp
     src/gui/ClientRxChainWidget.cpp
     src/gui/EditorFramelessTitleBar.cpp
     src/gui/containers/ContainerManager.cpp

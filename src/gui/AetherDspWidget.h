@@ -45,6 +45,11 @@ public:
     // The Settings-menu dialog leaves this off and renders at full size.
     void setCompactMode(bool on);
 
+    // Scale every child QPushButton / QLabel font to 13 px to match the
+    // VFO DSP toggle row.  The applet path leaves this off; only the
+    // Settings-menu AetherDspDialog calls it.
+    void setDialogMode(bool on);
+
     // Disable the NR2 selector button when compressed (Opus / SmartLink)
     // audio is active — NR2 amplifies codec artifacts (#1597).
     void setNr2Available(bool available, const QString& tooltip);

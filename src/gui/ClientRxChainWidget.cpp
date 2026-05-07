@@ -2,6 +2,7 @@
 
 #include "core/AppSettings.h"
 #include "core/ClientComp.h"
+#include "core/ClientDeEss.h"
 #include "core/ClientEq.h"
 #include "core/ClientGate.h"
 #include "core/ClientPudu.h"
@@ -70,12 +71,13 @@ constexpr const char* kMimeFormat = "application/x-aethersdr-rx-chain-stage";
 QString stageLabel(AudioEngine::RxChainStage s)
 {
     switch (s) {
-        case AudioEngine::RxChainStage::Eq:   return "EQ";
-        case AudioEngine::RxChainStage::Gate: return "AGC-T";
-        case AudioEngine::RxChainStage::Comp: return "AGC-C";
-        case AudioEngine::RxChainStage::Tube: return "TUBE";
-        case AudioEngine::RxChainStage::Pudu: return "EVO";
-        case AudioEngine::RxChainStage::None: return "";
+        case AudioEngine::RxChainStage::Eq:    return "EQ";
+        case AudioEngine::RxChainStage::Gate:  return "AGC-G";
+        case AudioEngine::RxChainStage::Comp:  return "AGC-C";
+        case AudioEngine::RxChainStage::Tube:  return "TUBE";
+        case AudioEngine::RxChainStage::Pudu:  return "EVO";
+        case AudioEngine::RxChainStage::DeEss: return "DESS";
+        case AudioEngine::RxChainStage::None:  return "";
     }
     return "";
 }
@@ -141,12 +143,13 @@ bool ClientRxChainWidget::isStageImplemented(AudioEngine::RxChainStage s) const
     // Phase 1: only EQ has a working DSP core.  Phase 2-5 will flip
     // their entries to true as each stage's class lands.
     switch (s) {
-        case AudioEngine::RxChainStage::Eq:   return true;
-        case AudioEngine::RxChainStage::Gate: return true;
-        case AudioEngine::RxChainStage::Comp: return true;
-        case AudioEngine::RxChainStage::Tube: return true;
-        case AudioEngine::RxChainStage::Pudu: return true;
-        case AudioEngine::RxChainStage::None: return false;
+        case AudioEngine::RxChainStage::Eq:    return true;
+        case AudioEngine::RxChainStage::Gate:  return true;
+        case AudioEngine::RxChainStage::Comp:  return true;
+        case AudioEngine::RxChainStage::Tube:  return true;
+        case AudioEngine::RxChainStage::Pudu:  return true;
+        case AudioEngine::RxChainStage::DeEss: return true;
+        case AudioEngine::RxChainStage::None:  return false;
     }
     return false;
 }
@@ -165,6 +168,8 @@ bool ClientRxChainWidget::isStageBypassed(AudioEngine::RxChainStage s) const
             return m_audio->clientTubeRx() ? !m_audio->clientTubeRx()->isEnabled() : true;
         case AudioEngine::RxChainStage::Pudu:
             return m_audio->clientPuduRx() ? !m_audio->clientPuduRx()->isEnabled() : true;
+        case AudioEngine::RxChainStage::DeEss:
+            return m_audio->clientDeEssRx() ? !m_audio->clientDeEssRx()->isEnabled() : true;
         case AudioEngine::RxChainStage::None:
             return true;
     }
@@ -307,6 +312,12 @@ void ClientRxChainWidget::toggleStageBypass(int boxIdx)
             if (auto* p = m_audio->clientPuduRx()) {
                 p->setEnabled(willEnable);
                 m_audio->saveClientPuduRxSettings();
+            }
+            break;
+        case AudioEngine::RxChainStage::DeEss:
+            if (auto* d = m_audio->clientDeEssRx()) {
+                d->setEnabled(willEnable);
+                m_audio->saveClientDeEssRxSettings();
             }
             break;
         default:
