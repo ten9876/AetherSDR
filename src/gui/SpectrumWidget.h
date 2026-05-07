@@ -104,6 +104,8 @@ public:
     // When enabled, emits autoSquelchLevelSuggested() each measurement cycle
     // with a level 0.5 dBm above the 95th-percentile smoothed noise.
     void setAutoSquelchEnable(bool on);
+    // Margin above the 20th-pct noise floor for auto-squelch suggestion (5-20 dBm).
+    void setAutoSqlMarginDb(int dBm);
 
     // (getters for display settings are below with their members)
 
@@ -503,6 +505,8 @@ private:
     bool  m_squelchLineVisible{false};
     int   m_squelchLevel{0};          // 0-100 radio squelch units
     bool  m_autoSquelchEnabled{false};
+    int   m_autoSqlMarginDb{10};      // dBm above 20th-pct floor; user-tunable via Display tab
+    int   m_lastAutoSquelchLevel{-1}; // dedup — only emit when level changes
 
     // Tuning step size for click-snap and wheel scroll (Hz)
     int m_stepHz{100};

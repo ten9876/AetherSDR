@@ -2523,6 +2523,18 @@ MainWindow::MainWindow(QWidget* parent)
     for (auto* a : m_panStack->allApplets()) a->spectrumWidget()->setStepSize(savedStep);
     m_appletPanel->rxApplet()->setInitialStepSize(savedStep);
 
+    // ── RxApplet squelch controls → primary SpectrumWidget ─────────────────
+    {
+        RxApplet* rx  = m_appletPanel->rxApplet();
+        SpectrumWidget* mainSw = m_panApplet->spectrumWidget();
+        connect(rx, &RxApplet::noiseFloorEnableChanged,
+                mainSw, &SpectrumWidget::setNoiseFloorEnable);
+        connect(rx, &RxApplet::sqlAutoChanged,
+                mainSw, &SpectrumWidget::setAutoSquelchEnable);
+        connect(rx, &RxApplet::squelchStateChanged,
+                mainSw, &SpectrumWidget::setSquelchLine);
+    }
+
     // ── Antenna list from radio → applet panel ─────────────────────────────
     connect(&m_radioModel, &RadioModel::antListChanged,
             m_appletPanel, &AppletPanel::setAntennaList);
@@ -9123,24 +9135,11 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             sw, &SpectrumWidget::setFftLineWidth);
     connect(menu, &SpectrumOverlayMenu::noiseFloorPositionChanged,
             sw, &SpectrumWidget::setNoiseFloorPosition);
-    connect(menu, &SpectrumOverlayMenu::noiseFloorEnableChanged,
-            sw, &SpectrumWidget::setNoiseFloorEnable);
+    connect(menu, &SpectrumOverlayMenu::autoSqlMarginDbChanged,
+            sw, &SpectrumWidget::setAutoSqlMarginDb);
+    sw->setAutoSqlMarginDb(
+        AppSettings::instance().value("AutoSqlMarginDb", "10").toInt());
 
-    // Squelch overlay: menu → radio squelch + visual line on spectrum
-    connect(menu, &SpectrumOverlayMenu::squelchEnableChanged, this, [this, sw](bool on) {
-        auto* s = activeSlice();
-        if (!s) return;
-        s->setSquelch(on, s->squelchLevel());
-        sw->setSquelchLine(on, s->squelchLevel());
-    });
-    connect(menu, &SpectrumOverlayMenu::squelchLevelChanged, this, [this, sw](int level) {
-        auto* s = activeSlice();
-        if (!s) return;
-        s->setSquelch(s->squelchOn(), level);
-        sw->setSquelchLine(s->squelchOn(), level);
-    });
-    connect(menu, &SpectrumOverlayMenu::squelchAutoChanged,
-            sw, &SpectrumWidget::setAutoSquelchEnable);
     // Auto-squelch suggestion: apply to radio and update visual line
     connect(sw, &SpectrumWidget::autoSquelchLevelSuggested, this, [this, sw](int level) {
         auto* s = activeSlice();

@@ -120,6 +120,8 @@ signals:
     void squelchEnableChanged(bool on);
     void squelchLevelChanged(int level);   // 0-100 radio units
     void squelchAutoChanged(bool on);
+    // Auto-squelch margin: dBm above 20th-pct noise floor (5-20 dBm)
+    void autoSqlMarginDbChanged(int dBm);
     // Emitted when user selects a band from the sub-panel.
     void bandSelected(const QString& bandName, double freqMhz, const QString& mode);
     // Emitted when user clicks XVTR button to open Radio Setup XVTR tab.
@@ -242,6 +244,8 @@ private:
     QPushButton* m_sqlEnableBtn{nullptr};     // enables radio squelch
     QPushButton* m_sqlAutoBtn{nullptr};       // enables auto-squelch
 
+    QSlider*     m_autoSqlMarginSlider{nullptr};
+    QLabel*      m_autoSqlMarginLabel{nullptr};
     QComboBox*   m_freqGridSpacingCmb{nullptr};
     QSlider*     m_bgOpacitySlider{nullptr};
     QLabel*      m_bgOpacityLabel{nullptr};

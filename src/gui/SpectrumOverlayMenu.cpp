@@ -1,4 +1,5 @@
 #include "SpectrumOverlayMenu.h"
+#include "core/AppSettings.h"
 #include "DspParamPopup.h"
 #include "MemoryBrowsePanel.h"
 #include "SpectrumWidget.h"
@@ -914,61 +915,40 @@ void SpectrumOverlayMenu::buildDisplayPanel()
             emit wfAutoBlackOffsetChanged(m_blackAutoOffsetValue);
     });
 
-    // ── Floor / Squelch rows ──────────────────────────────────────────────
-    // Row 1 — Floor enable + squelch level slider (slider 0-100 = radio squelch).
-    //   Slider zero corresponds visually to the measured noise floor line on screen.
-    makeRowWithBtn("Floor:", 0, 100, 0, m_floorSlider, m_floorLabel,
-                   m_floorEnableBtn, "Off");
-    m_floorEnableBtn->setToolTip(
-        "Show noise floor reference line on the spectrum.\n"
-        "The line represents the averaged noise floor; slider 0 = at the floor.");
-    m_floorSlider->setToolTip("Squelch threshold — 0 = at noise floor, raise to gate above it.");
-    m_floorSlider->setEnabled(false);
-    connect(m_floorEnableBtn, &QPushButton::toggled, this, [this](bool on) {
-        m_floorEnableBtn->setText(on ? "On" : "Off");
-        if (m_floorSlider)    m_floorSlider->setEnabled(on);
-        if (m_sqlEnableBtn)   m_sqlEnableBtn->setEnabled(on);
-        if (m_sqlAutoBtn)     m_sqlAutoBtn->setEnabled(on);
-        emit noiseFloorEnableChanged(on);
-    });
-    connect(m_floorSlider, &QSlider::valueChanged, this, [this](int v) {
-        m_floorLabel->setText(QString::number(v));
-        emit squelchLevelChanged(v);
-    });
+    // Floor / Squelch controls have moved to the RX applet left panel.
+    // The "Auto SQL" button there enables both noise floor measurement and
+    // auto-squelch in one toggle.
 
-    // Row 2 — SQL enable + Auto buttons (no slider, sits under row 1).
+    // Auto SQL Margin: how far above the noise floor the auto-squelch threshold sits.
     {
-        ++row;  // blank label col
-        auto* sqlLbl = new QLabel("SQL:");
-        sqlLbl->setStyleSheet(labelStyle);
-        grid->addWidget(sqlLbl, row, 0);
+        const int saved = AppSettings::instance().value("AutoSqlMarginDb", "10").toInt();
+        auto* lbl = new QLabel("SQL Margin:");
+        lbl->setStyleSheet(labelStyle);
+        grid->addWidget(lbl, row, 0);
 
-        m_sqlEnableBtn = new QPushButton("Off");
-        m_sqlEnableBtn->setCheckable(true);
-        m_sqlEnableBtn->setFixedSize(36, 18);
-        m_sqlEnableBtn->setStyleSheet(btnStyle);
-        m_sqlEnableBtn->setToolTip("Enable squelch on the active slice at the floor threshold.");
-        m_sqlEnableBtn->setEnabled(false);
-        grid->addWidget(m_sqlEnableBtn, row, 1);
+        m_autoSqlMarginSlider = new QSlider(Qt::Horizontal);
+        m_autoSqlMarginSlider->setRange(5, 20);
+        m_autoSqlMarginSlider->setValue(saved);
+        m_autoSqlMarginSlider->setToolTip(
+            "Auto-squelch margin: dBm above the measured noise floor where the\n"
+            "squelch threshold is set. Increase on noisier/bursty bands (e.g. 40m),\n"
+            "decrease on quieter bands (e.g. 17m). Default 10 dBm.");
+        m_autoSqlMarginSlider->setStyleSheet(sliderStyle);
+        grid->addWidget(m_autoSqlMarginSlider, row, 1, 1, 2);
 
-        m_sqlAutoBtn = new QPushButton("Auto");
-        m_sqlAutoBtn->setCheckable(true);
-        m_sqlAutoBtn->setFixedSize(36, 18);
-        m_sqlAutoBtn->setStyleSheet(btnStyle);
-        m_sqlAutoBtn->setToolTip(
-            "Auto-squelch: continuously sets the threshold to 0.5 dB above the\n"
-            "peak noise floor. Disable to lock the threshold manually.");
-        m_sqlAutoBtn->setEnabled(false);
-        grid->addWidget(m_sqlAutoBtn, row, 2);
-
+        m_autoSqlMarginLabel = new QLabel(QString("%1 dB").arg(saved));
+        m_autoSqlMarginLabel->setStyleSheet(valStyle);
+        m_autoSqlMarginLabel->setFixedWidth(32);
+        m_autoSqlMarginLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        grid->addWidget(m_autoSqlMarginLabel, row, 3);
         ++row;
 
-        connect(m_sqlEnableBtn, &QPushButton::toggled, this, [this](bool on) {
-            m_sqlEnableBtn->setText(on ? "On" : "Off");
-            emit squelchEnableChanged(on);
-        });
-        connect(m_sqlAutoBtn, &QPushButton::toggled, this, [this](bool on) {
-            emit squelchAutoChanged(on);
+        connect(m_autoSqlMarginSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_autoSqlMarginLabel->setText(QString("%1 dB").arg(v));
+            auto& s = AppSettings::instance();
+            s.setValue("AutoSqlMarginDb", QString::number(v));
+            s.save();
+            emit autoSqlMarginDbChanged(v);
         });
     }
 

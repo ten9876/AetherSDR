@@ -558,8 +558,16 @@ void SpectrumWidget::setSquelchLine(bool visible, int level)
 void SpectrumWidget::setAutoSquelchEnable(bool on)
 {
     m_autoSquelchEnabled = on;
-    if (!on)
-        m_noiseFloorPeakDbm = -999.0f;
+    if (!on) {
+        m_noiseFloorPeakDbm    = -999.0f;
+        m_lastAutoSquelchLevel = -1;
+    }
+}
+
+void SpectrumWidget::setAutoSqlMarginDb(int dBm)
+{
+    m_autoSqlMarginDb      = std::clamp(dBm, 5, 20);
+    m_lastAutoSquelchLevel = -1;  // force re-emit with new margin
 }
 
 void SpectrumWidget::setWfColorScheme(int scheme) {
@@ -1418,14 +1426,24 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
             else
                 m_noiseFloorPeakDbm = 0.05f * peakSample + 0.95f * m_noiseFloorPeakDbm;
 
-            // Auto-squelch: suggest a radio level 0.5 dBm above the peak floor.
-            if (m_autoSquelchEnabled && m_noiseFloorPeakDbm > -200.0f) {
-                const float minDbm    = m_refLevel - m_dynamicRange;
-                const float targetDbm = m_noiseFloorPeakDbm + 0.5f;
+            // Auto-squelch: suggest a level m_autoSqlMarginDb dBm above the
+            // 20th-percentile noise floor (default 10 dBm, user-adjustable via
+            // Display > SQL Margin).  The 20th-pct EWMA sits below the audible
+            // gate point — atmospheric QRN is bursty and the EWMA lags.
+            // The radio maps squelch_level 0-100 to a fixed absolute dBm scale
+            // (~-160 to -60 dBm, 1 dBm per unit): level = targetDbm - kSqlMinDbm.
+            // Deduplicate: only emit when the integer level changes so we don't
+            // flood the radio with identical commands on every FFT frame.
+            if (m_autoSquelchEnabled && m_noiseFloorDbm > -200.0f) {
+                constexpr float kSqlMinDbm = -160.0f;
+                const float targetDbm = m_noiseFloorDbm + static_cast<float>(m_autoSqlMarginDb);
                 const int level = std::clamp(
-                    static_cast<int>((targetDbm - minDbm) / m_dynamicRange * 100.0f + 0.5f),
+                    static_cast<int>(targetDbm - kSqlMinDbm + 0.5f),
                     1, 100);
-                emit autoSquelchLevelSuggested(level);
+                if (level != m_lastAutoSquelchLevel) {
+                    m_lastAutoSquelchLevel = level;
+                    emit autoSquelchLevelSuggested(level);
+                }
             }
 
             markOverlayDirty();
@@ -5423,10 +5441,14 @@ void SpectrumWidget::drawSliceMarkers(QPainter& p, const QRect& specRect, const 
     }
 
     // ── Squelch threshold overlay line (solid yellow) ─────────────────────
-    // Position maps radio squelch 0-100 linearly across the display dBm range.
+    // The radio maps squelch_level 0-100 to a fixed absolute dBm scale:
+    // approximately -160 dBm (level 0, no squelch) to -60 dBm (level 100,
+    // maximum squelch), 1 dBm per unit.  This is independent of the display
+    // range, so the line correctly tracks the actual gate position regardless
+    // of zoom level or refLevel setting.
     if (m_squelchLineVisible && m_squelchLevel > 0) {
-        const float minDbm     = m_refLevel - m_dynamicRange;
-        const float squelchDbm = minDbm + (m_squelchLevel / 100.0f) * m_dynamicRange;
+        constexpr float kSqlMinDbm = -160.0f;
+        const float squelchDbm = kSqlMinDbm + static_cast<float>(m_squelchLevel);
         const float norm       = (m_refLevel - squelchDbm) / m_dynamicRange;
         const int sy = specRect.top()
                        + static_cast<int>(std::clamp(norm, 0.0f, 1.0f) * specRect.height());

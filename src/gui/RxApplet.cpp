@@ -759,6 +759,25 @@ void RxApplet::buildUI()
         rightCol->addLayout(row);
     }
 
+    // Auto SQL button (enables noise floor measurement + auto-squelch)
+    {
+        auto* row2 = new QHBoxLayout;
+        row2->setSpacing(4);
+
+        m_sqlAutoBtn = mkToggle("Auto SQL");
+        m_sqlAutoBtn->setStyleSheet(QString(kButtonBase) + kGreenActive + kDisabledBtn);
+        row2->addWidget(m_sqlAutoBtn);
+        row2->addStretch();
+
+        connect(m_sqlAutoBtn, &QPushButton::toggled, this, [this](bool on) {
+            emit noiseFloorEnableChanged(on);
+            emit sqlAutoChanged(on);
+            m_sqlSlider->setEnabled(!on);
+        });
+
+        rightCol->addLayout(row2);
+    }
+
     // AGC mode + threshold (wrapped in container for FM hide)
     {
         m_agcContainer = new QWidget;
@@ -922,6 +941,9 @@ void RxApplet::buildUI()
     m_afSlider->setToolTip("Audio output volume for this slice.");
     m_sqlBtn->setToolTip("Squelch gate \u2014 silences audio when the signal drops below the threshold.");
     m_sqlSlider->setToolTip("Squelch threshold. Increase to require a stronger signal before audio opens.");
+    m_sqlAutoBtn->setToolTip(
+        "Auto Squelch \u2014 measures the noise floor and automatically sets the\n"
+        "squelch threshold just above it. Slider becomes read-only while active.");
     m_agcCombo->setToolTip("AGC speed. Slow resists pumping on quiet bands; Fast tracks rapid signal changes.");
     m_agcTSlider->setToolTip(QString("AGC Threshold: %1").arg(m_agcTSlider->value()));
     m_ritOnBtn->setToolTip("Receive Incremental Tuning \u2014 offsets the receive frequency without moving transmit.");
@@ -1372,6 +1394,7 @@ void RxApplet::connectSlice(SliceModel* s)
         if (m_sqlBtn->isEnabled())
             m_sqlBtn->setChecked(on);
         m_sqlSlider->setValue(level);
+        emit squelchStateChanged(on, level);
     });
 
     // DSP toggles removed — use VFO DSP tab or spectrum overlay

@@ -74,6 +74,12 @@ signals:
     void afGainChanged(int value);
     // Emitted when the user changes the tuning step size (Hz).
     void stepSizeChanged(int hz);
+    // Emitted when Auto SQL button is toggled — enables noise floor measurement
+    // and auto-squelch on the associated SpectrumWidget.
+    void noiseFloorEnableChanged(bool on);
+    void sqlAutoChanged(bool on);
+    // Relays the radio's squelch state echo so MainWindow can sync the visual line.
+    void squelchStateChanged(bool on, int level);
 
 #ifdef HAVE_RADE
     // Emitted when user selects/deselects RADE digital voice mode
@@ -177,6 +183,7 @@ private:
     // Squelch
     QPushButton* m_sqlBtn{nullptr};
     QSlider*     m_sqlSlider{nullptr};
+    QPushButton* m_sqlAutoBtn{nullptr};   // "Auto SQL" — enables floor measurement + auto-squelch
     bool         m_savedSquelchOn{false};
 
 
