@@ -310,19 +310,34 @@ QString RigctlProtocol::cmdSetMode(const QString& args)
         slice->setMode(sdrMode);
     }, Qt::QueuedConnection);
 
-    // Set passband if provided and > 0
+    // Set passband if provided and > 0. Hamlib's passband is the filter
+    // *width* in Hz; SmartSDR's `filt` command takes absolute lo/hi audio
+    // edges, and the right placement depends on the mode. Mirrors the
+    // canonical mapping in VfoWidget::applyFilterWidthForMode (#2259-era).
     if (parts.size() >= 2) {
         bool ok;
         int passband = parts[1].toInt(&ok);
         if (ok && passband > 0) {
             QMetaObject::invokeMethod(slice, [slice, passband]() {
-                // Center the filter around 0 for SSB modes
-                QString m = slice->mode();
-                if (m == "LSB" || m == "DIGL" || m == "CWL") {
-                    slice->setFilterWidth(-passband, -95);
+                const QString m = slice->mode();
+                int lo = 95;
+                int hi = passband;
+                if (m == "CW" || m == "CWL"
+                    || m == "AM" || m == "SAM" || m == "DSB"
+                    || m == "FM" || m == "NFM" || m == "DFM") {
+                    // Symmetric around 0 — CW BFO offset and AM/FM carrier
+                    // are at audio DC.
+                    lo = -passband / 2;
+                    hi =  passband / 2;
+                } else if (m == "LSB") {
+                    lo = -passband;
+                    hi = -95;
                 } else {
-                    slice->setFilterWidth(95, passband);
+                    // USB, DIGU, RTTY, FDV, etc. — high-side from 95 Hz
+                    lo = 95;
+                    hi = passband;
                 }
+                slice->setFilterWidth(lo, hi);
             }, Qt::QueuedConnection);
         }
     }
