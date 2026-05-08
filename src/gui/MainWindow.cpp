@@ -12794,6 +12794,7 @@ void MainWindow::activateRADE(int sliceId)
         m_audio->setPcMicGain(gain);
     }
     m_appletPanel->phoneCwApplet()->setRadeActive(true);
+    m_appletPanel->rxApplet()->setRadeActive(true);
 
     // Start mic capture if not already running
     if (!m_audio->isTxStreaming()) {
@@ -12845,6 +12846,7 @@ void MainWindow::deactivateRADE()
     m_audio->setRadeMode(false);
     m_audio->clearTxAccumulators();  // flush stale RADE modem data
     m_appletPanel->phoneCwApplet()->setRadeActive(false);
+    m_appletPanel->rxApplet()->setRadeActive(false);
     // For hardware mics, reset to full gain — the radio controls hardware levels.
     // PC mic keeps its PcMicGain so SSB sessions are unaffected.
     if (m_radioModel.transmitModel().micSelection() != "PC") {

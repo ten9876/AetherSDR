@@ -398,7 +398,8 @@ void RxApplet::buildUI()
                 emit radeActivated(true, m_slice ? m_slice->sliceId() : -1);
                 return;
             }
-            emit radeActivated(false, m_slice ? m_slice->sliceId() : -1);
+            if (m_radeActive)
+                emit radeActivated(false, m_slice ? m_slice->sliceId() : -1);
 #endif
             if (m_slice) m_slice->setMode(mode);
         });
@@ -2009,6 +2010,10 @@ bool RxApplet::eventFilter(QObject* obj, QEvent* ev)
     }
     return QWidget::eventFilter(obj, ev);
 }
+
+#ifdef HAVE_RADE
+void RxApplet::setRadeActive(bool on) { m_radeActive = on; }
+#endif
 
 } // namespace AetherSDR
 #include "moc_GuardedSlider.cpp"

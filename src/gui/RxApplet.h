@@ -82,6 +82,9 @@ signals:
 
 public:
     void setInitialStepSize(int hz);
+#ifdef HAVE_RADE
+    void setRadeActive(bool on);
+#endif
 
     // Mode-aware filter width formatter, shared with VfoWidget so the two
     // filter readouts stay in sync (#794, #1225, #2197).
@@ -195,6 +198,10 @@ private:
     QPushButton* m_xitPlus{nullptr};
 
     static constexpr int RIT_STEP_HZ = 10;
+
+#ifdef HAVE_RADE
+    bool m_radeActive{false};
+#endif
 };
 
 } // namespace AetherSDR
