@@ -164,6 +164,24 @@ void FloatingContainerWindow::setFramelessMode(bool on)
     if (wasVisible) show();
 }
 
+void FloatingContainerWindow::setAlwaysOnTop(bool on)
+{
+    if (on == m_alwaysOnTop) return;
+    m_alwaysOnTop = on;
+
+    const bool wasVisible = isVisible();
+    const QRect geom = geometry();
+    Qt::WindowFlags flags = windowFlags();
+    if (on) {
+        flags |= Qt::WindowStaysOnTopHint;
+    } else {
+        flags &= ~Qt::WindowStaysOnTopHint;
+    }
+    setWindowFlags(flags);
+    setGeometry(geom);
+    if (wasVisible) show();
+}
+
 void FloatingContainerWindow::closeEvent(QCloseEvent* ev)
 {
     if (m_shuttingDown) {

@@ -104,6 +104,11 @@ signals:
     // but may choose to destroy the container instead.
     void closeRequested();
 
+    // Emitted by the titlebar's pin button while floating.  Connected
+    // code (ContainerManager) toggles the floating window's
+    // Qt::WindowStaysOnTopHint and persists the per-container choice.
+    void alwaysOnTopRequested(bool on);
+
     // Fired after setContainerVisible() changes state.
     void visibilityChanged(bool visible);
 
@@ -111,9 +116,15 @@ signals:
     // titlebar button label in sync.
     void dockModeChanged(DockMode mode);
 
+    // Sync the titlebar's pin glyph with the persisted state.  Used by
+    // ContainerManager when it floats a container so the button matches
+    // the value already applied to the floating window.
+    void setAlwaysOnTopIndicator(bool on);
+
 private slots:
     void onTitleBarFloatToggle();
     void onTitleBarClose();
+    void onTitleBarAlwaysOnTopToggled(bool on);
     void onTitleBarDragStart(const QPoint& globalPos);
 
 private:

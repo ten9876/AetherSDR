@@ -121,6 +121,7 @@ private slots:
     void onFloatRequested();
     void onDockRequested();
     void onCloseRequested();
+    void onAlwaysOnTopRequested(bool on);
     void onFloatingWindowDock(ContainerWidget* c);
 
 private:

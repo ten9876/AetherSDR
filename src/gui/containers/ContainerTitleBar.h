@@ -34,9 +34,15 @@ public:
     // through the menu bar instead).
     void setCloseButtonVisible(bool visible);
 
+    // Reflect the always-on-top state in the pin button glyph/colour
+    // without re-emitting alwaysOnTopToggled.  Used when the manager
+    // restores persisted state on float.
+    void setAlwaysOnTopState(bool on);
+
 signals:
     void floatToggleClicked();
     void closeClicked();
+    void alwaysOnTopToggled(bool on);
     void dragStartRequested(const QPoint& globalPos);
 
 protected:
@@ -46,11 +52,13 @@ protected:
 private:
     QLabel*      m_titleLabel{nullptr};
     QPushButton* m_floatBtn{nullptr};
+    QPushButton* m_pinBtn{nullptr};
     QPushButton* m_closeBtn{nullptr};
     QPoint       m_pressPos;
     bool         m_pressed{false};
     bool         m_closeAllowed{true};   // false = explicitly disabled (sidebar)
     bool         m_isFloating{false};
+    bool         m_alwaysOnTop{false};
 };
 
 } // namespace AetherSDR

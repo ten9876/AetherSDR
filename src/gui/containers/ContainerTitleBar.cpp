@@ -52,6 +52,18 @@ ContainerTitleBar::ContainerTitleBar(const QString& title, QWidget* parent)
     layout->addWidget(m_titleLabel);
     layout->addStretch();
 
+    m_pinBtn = new QPushButton(QString::fromUtf8("\xe2\x88\x98"));  // ∘ unpinned
+    m_pinBtn->setStyleSheet(kBtnStyle);
+    m_pinBtn->setFixedSize(16, 16);
+    m_pinBtn->setToolTip("Keep this window above all applications");
+    m_pinBtn->setCursor(Qt::ArrowCursor);
+    m_pinBtn->setVisible(false);  // only meaningful when floating
+    connect(m_pinBtn, &QPushButton::clicked, this, [this]() {
+        setAlwaysOnTopState(!m_alwaysOnTop);
+        emit alwaysOnTopToggled(m_alwaysOnTop);
+    });
+    layout->addWidget(m_pinBtn);
+
     m_floatBtn = new QPushButton(QString::fromUtf8("\xe2\x9a\x8a"));  // ⚊ single line
     m_floatBtn->setStyleSheet(kBtnStyle);
     m_floatBtn->setFixedSize(16, 16);
@@ -94,12 +106,28 @@ void ContainerTitleBar::setFloatingState(bool isFloating)
     // ↙ already covers "close + dock" while floating, so the redundant
     // × button hides itself in float mode and reappears when docked.
     if (m_closeBtn) m_closeBtn->setVisible(m_closeAllowed && !isFloating);
+    // Pin button only makes sense in float mode.
+    if (m_pinBtn) m_pinBtn->setVisible(isFloating);
 }
 
 void ContainerTitleBar::setCloseButtonVisible(bool visible)
 {
     m_closeAllowed = visible;
     if (m_closeBtn) m_closeBtn->setVisible(visible && !m_isFloating);
+}
+
+void ContainerTitleBar::setAlwaysOnTopState(bool on)
+{
+    m_alwaysOnTop = on;
+    if (!m_pinBtn) return;
+    // Filled "●" when pinned, hollow "∘" when not.  Tooltip flips so
+    // the click target reads as a toggle.
+    m_pinBtn->setText(on
+        ? QString::fromUtf8("\xe2\x97\x8f")
+        : QString::fromUtf8("\xe2\x88\x98"));
+    m_pinBtn->setToolTip(on
+        ? "Stop keeping this window above all applications"
+        : "Keep this window above all applications");
 }
 
 void ContainerTitleBar::mousePressEvent(QMouseEvent* ev)
