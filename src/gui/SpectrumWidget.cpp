@@ -52,6 +52,30 @@ static const QColor kAetherBrandBlue(0x00, 0xb4, 0xd8);
 static const QColor kAetherBrandGreen(0x20, 0xc0, 0x60);
 static const QColor kConnectionTextColor(0xd8, 0xe6, 0xf0);
 
+static bool spotMarkersVisuallyEqual(const QVector<SpectrumWidget::SpotMarker>& lhs,
+                                     const QVector<SpectrumWidget::SpotMarker>& rhs)
+{
+    constexpr double kFrequencyEpsilonMhz = 1.0e-6;
+
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+
+    for (qsizetype i = 0; i < lhs.size(); ++i) {
+        const SpectrumWidget::SpotMarker& a = lhs.at(i);
+        const SpectrumWidget::SpotMarker& b = rhs.at(i);
+        if (a.callsign != b.callsign
+            || std::abs(a.freqMhz - b.freqMhz) > kFrequencyEpsilonMhz
+            || a.color != b.color
+            || a.dxccColor != b.dxccColor
+            || a.source != b.source) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static QString formatFlagFrequency(double freqMhz)
 {
     const long long hz = static_cast<long long>(std::llround(freqMhz * 1.0e6));
@@ -4497,13 +4521,21 @@ void SpectrumWidget::setTnfMarkers(const QVector<TnfMarker>& markers)
 
 void SpectrumWidget::setSpotMarkers(const QVector<SpotMarker>& markers)
 {
+    const bool visualChange = !spotMarkersVisuallyEqual(m_spotMarkers, markers);
     m_spotMarkers = markers;
+    if (!visualChange) {
+        return;
+    }
     markOverlayDirty();
 }
 
 void SpectrumWidget::setSHistoryMarkers(const QVector<SpotMarker>& markers)
 {
+    const bool visualChange = !spotMarkersVisuallyEqual(m_sHistoryMarkers, markers);
     m_sHistoryMarkers = markers;
+    if (!visualChange) {
+        return;
+    }
     markOverlayDirty();
 }
 
