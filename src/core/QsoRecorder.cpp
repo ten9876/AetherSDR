@@ -1,11 +1,19 @@
 #include "QsoRecorder.h"
 #include "AppSettings.h"
 #include "LogManager.h"
+#include "Resampler.h"
 #include "../models/SliceModel.h"
 
+#include <QAudioDevice>
+#include <QAudioFormat>
+#include <QAudioSink>
 #include <QDir>
+#include <QMediaDevices>
 #include <QStandardPaths>
 #include <QtEndian>
+
+#include <algorithm>
+#include <vector>
 
 namespace AetherSDR {
 
@@ -292,53 +300,87 @@ void QsoRecorder::patchWavHeader()
 
 // ── Playback ───────────────────────────────────────────────────────────────
 
+bool QsoRecorder::preparePlaybackPcm(int sinkRateHz)
+{
+    QFile f(m_lastRecordingPath);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    f.seek(WAV_HEADER_SIZE);
+    QByteArray raw = f.readAll();
+    f.close();
+    if (raw.isEmpty()) return false;
+
+    if (sinkRateHz == SAMPLE_RATE) {
+        m_playPcm = std::move(raw);
+        return true;
+    }
+
+    // Resample L and R independently to preserve stereo image.
+    static constexpr int kBytesPerFrame = NUM_CHANNELS * (BITS_PER_SAMPLE / 8);
+    const int srcFrames = raw.size() / kBytesPerFrame;
+    if (srcFrames <= 0) return false;
+
+    std::vector<float> lIn(srcFrames), rIn(srcFrames);
+    const auto* s16 = reinterpret_cast<const qint16*>(raw.constData());
+    for (int i = 0; i < srcFrames; ++i) {
+        lIn[i] = s16[i * 2]     / 32768.0f;
+        rIn[i] = s16[i * 2 + 1] / 32768.0f;
+    }
+
+    Resampler lResampler(SAMPLE_RATE, sinkRateHz, srcFrames + 16);
+    Resampler rResampler(SAMPLE_RATE, sinkRateHz, srcFrames + 16);
+    const QByteArray lOut = lResampler.process(lIn.data(), srcFrames);
+    const QByteArray rOut = rResampler.process(rIn.data(), srcFrames);
+
+    const int outFrames = std::min(lOut.size() / static_cast<int>(sizeof(float)),
+                                   rOut.size() / static_cast<int>(sizeof(float)));
+    if (outFrames <= 0) return false;
+
+    m_playPcm.resize(outFrames * kBytesPerFrame);
+    auto* dst = reinterpret_cast<qint16*>(m_playPcm.data());
+    const auto* lf = reinterpret_cast<const float*>(lOut.constData());
+    const auto* rf = reinterpret_cast<const float*>(rOut.constData());
+    for (int i = 0; i < outFrames; ++i) {
+        dst[i * 2]     = static_cast<qint16>(std::clamp(lf[i] * 32768.0f, -32768.0f, 32767.0f));
+        dst[i * 2 + 1] = static_cast<qint16>(std::clamp(rf[i] * 32768.0f, -32768.0f, 32767.0f));
+    }
+    return true;
+}
+
 void QsoRecorder::startPlayback()
 {
     if (m_playing || m_lastRecordingPath.isEmpty()) return;
 
-    m_playFile = new QFile(m_lastRecordingPath, this);
-    if (!m_playFile->open(QIODevice::ReadOnly)) {
-        delete m_playFile;
-        m_playFile = nullptr;
-        return;
+    QAudioDevice dev = QMediaDevices::defaultAudioOutput();
+    if (dev.isNull()) return;
+
+    QAudioFormat fmt;
+    fmt.setChannelCount(NUM_CHANNELS);
+    fmt.setSampleFormat(QAudioFormat::Int16);
+    fmt.setSampleRate(SAMPLE_RATE);
+    int sinkRate = SAMPLE_RATE;
+
+    if (!dev.isFormatSupported(fmt)) {
+        fmt.setSampleRate(48000);
+        sinkRate = 48000;
+        if (!dev.isFormatSupported(fmt)) return;
     }
 
-    // Skip WAV header
-    m_playFile->seek(WAV_HEADER_SIZE);
+    if (!preparePlaybackPcm(sinkRate)) return;
+
+    m_playBuffer.close();
+    m_playBuffer.setBuffer(&m_playPcm);
+    if (!m_playBuffer.open(QIODevice::ReadOnly)) return;
+
+    m_playSink = new QAudioSink(dev, fmt, this);
+    // 300 ms ring buffer: absorbs Windows WASAPI jitter (default ~40 ms starves
+    // on event-loop hiccups and inserts silence).  Backend may clamp to its
+    // period granularity; not an error if the effective size differs.
+    m_playSink->setBufferSize(fmt.bytesForDuration(300'000));
+    connect(m_playSink, &QAudioSink::stateChanged,
+            this, &QsoRecorder::onPlaybackSinkState);
+    m_playSink->start(&m_playBuffer);
+
     m_playing = true;
-
-    // Feed audio in chunks matching the recording format (24kHz stereo int16).
-    // Convert int16 → float32 for AudioEngine. Timer paces at ~10ms intervals
-    // (same as AudioEngine RX timer) to avoid buffer overrun.
-    static constexpr int kChunkFrames = 240;  // 10ms at 24kHz
-    static constexpr int kChunkBytes = kChunkFrames * NUM_CHANNELS * (BITS_PER_SAMPLE / 8);
-
-    m_playTimer = new QTimer(this);
-    m_playTimer->setInterval(10);
-    connect(m_playTimer, &QTimer::timeout, this, [this]() {
-        if (!m_playFile || !m_playFile->isOpen()) {
-            stopPlayback();
-            return;
-        }
-
-        QByteArray chunk = m_playFile->read(kChunkBytes);
-        if (chunk.isEmpty()) {
-            stopPlayback();
-            return;
-        }
-
-        // Convert int16 → float32 for AudioEngine
-        int numSamples = chunk.size() / static_cast<int>(sizeof(qint16));
-        QByteArray floatPcm(numSamples * static_cast<int>(sizeof(float)), Qt::Uninitialized);
-        const qint16* src = reinterpret_cast<const qint16*>(chunk.constData());
-        float* dst = reinterpret_cast<float*>(floatPcm.data());
-        for (int i = 0; i < numSamples; ++i) {
-            dst[i] = static_cast<float>(src[i]) / 32768.0f;
-        }
-
-        emit playbackAudio(floatPcm);
-    });
-    m_playTimer->start();
     emit muteRxRequested(true);
     emit playbackStarted();
 }
@@ -348,20 +390,23 @@ void QsoRecorder::stopPlayback()
     if (!m_playing) return;
     m_playing = false;
 
-    if (m_playTimer) {
-        m_playTimer->stop();
-        m_playTimer->deleteLater();
-        m_playTimer = nullptr;
+    if (m_playSink) {
+        m_playSink->stop();
+        m_playSink->disconnect(this);
+        m_playSink->deleteLater();
+        m_playSink = nullptr;
     }
-
-    if (m_playFile) {
-        m_playFile->close();
-        m_playFile->deleteLater();
-        m_playFile = nullptr;
-    }
+    if (m_playBuffer.isOpen()) m_playBuffer.close();
 
     emit muteRxRequested(false);
     emit playbackStopped();
+}
+
+void QsoRecorder::onPlaybackSinkState(QAudio::State state)
+{
+    if (state == QAudio::IdleState || state == QAudio::StoppedState) {
+        stopPlayback();
+    }
 }
 
 } // namespace AetherSDR

@@ -969,8 +969,6 @@ MainWindow::MainWindow(QWidget* parent)
 
     // QSO audio recorder (#1297) — lives on main thread, audio feeds are thread-safe
     m_qsoRecorder = new QsoRecorder(this);
-    connect(m_qsoRecorder, &QsoRecorder::playbackAudio,
-            m_audio, &AudioEngine::feedDecodedSpeech);
     // During playback, block live RX audio from entering the buffer
     connect(m_qsoRecorder, &QsoRecorder::muteRxRequested, this, [this](bool mute) {
         if (mute) {

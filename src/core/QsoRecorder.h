@@ -1,11 +1,16 @@
 #pragma once
 
-#include <QObject>
-#include <QFile>
-#include <QTimer>
+#include <QAudio>
+#include <QBuffer>
+#include <QByteArray>
 #include <QDateTime>
+#include <QFile>
+#include <QObject>
 #include <QString>
+#include <QTimer>
 #include <mutex>
+
+class QAudioSink;
 
 namespace AetherSDR {
 
@@ -84,8 +89,10 @@ signals:
     void recordingError(const QString& error);
     void playbackStarted();
     void playbackStopped();
-    void playbackAudio(const QByteArray& pcm);  // float32 stereo chunks for AudioEngine
     void muteRxRequested(bool mute);  // mute live RX during playback
+
+private slots:
+    void onPlaybackSinkState(QAudio::State state);
 
 private:
     void startFile();
@@ -93,6 +100,7 @@ private:
     QString buildFilename() const;
     void writeWavHeader();
     void patchWavHeader();
+    bool preparePlaybackPcm(int sinkRateHz);
 
     // Recording state
     bool        m_recording{false};
@@ -119,10 +127,11 @@ private:
     QTimer*     m_idleTimer{nullptr};
 
     // Playback
-    bool        m_playing{false};
-    QString     m_lastRecordingPath;
-    QFile*      m_playFile{nullptr};
-    QTimer*     m_playTimer{nullptr};
+    bool         m_playing{false};
+    QString      m_lastRecordingPath;
+    QAudioSink*  m_playSink{nullptr};
+    QBuffer      m_playBuffer;
+    QByteArray   m_playPcm;
 
     // Thread safety for audio feed paths
     std::mutex  m_writeMutex;
