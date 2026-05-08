@@ -7,6 +7,7 @@
 #include <QString>
 #include <QLoggingCategory>
 #include <QMutex>
+#include <QtCore/qlogging.h>
 
 namespace AetherSDR {
 

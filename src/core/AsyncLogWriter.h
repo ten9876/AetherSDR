@@ -2,7 +2,7 @@
 
 #include <QTime>
 #include <QString>
-#include <QtLogging>
+#include <QtCore/qlogging.h>
 
 #include <condition_variable>
 #include <deque>
