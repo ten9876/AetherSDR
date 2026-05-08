@@ -3,6 +3,10 @@
 #include <QString>
 #include <QMap>
 
+#include <functional>
+#include <memory>
+#include <utility>
+
 namespace AetherSDR {
 
 class RadioModel;
@@ -14,6 +18,13 @@ class SliceModel;
 class RigctlProtocol {
 public:
     explicit RigctlProtocol(RadioModel* model);
+
+    using AsyncResponder = std::function<void(const QString&)>;
+    void setAsyncResponder(AsyncResponder responder) { m_asyncResponder = std::move(responder); }
+    bool hasPendingAsyncResponse() const
+    {
+        return m_asyncResponsePending && *m_asyncResponsePending;
+    }
 
     // Process one command line (may contain ';' or '|'-separated batch commands).
     // '|' separator enables extended responses joined by '|' (rigctld pipe mode).
@@ -69,6 +80,7 @@ private:
     SliceModel* sliceForVfo(const QString& vfo) const;
     SliceModel* findTxSlice() const;
     QString rprt(int code) const;
+    void scheduleMorseAck(const QString& text);
 
     // Mode conversion tables
     static QString smartsdrToHamlib(const QString& mode);
@@ -82,6 +94,8 @@ private:
     // The next line is consumed verbatim as the morse text. Hamlib spec
     // allows this two-line form and Not1MM contest CW relies on it.
     bool m_pendingMorseLine{false};
+    AsyncResponder m_asyncResponder;
+    std::shared_ptr<bool> m_asyncResponsePending;
 };
 
 } // namespace AetherSDR

@@ -3,6 +3,7 @@
 #include "RigctlProtocol.h"
 #include "models/RadioModel.h"
 
+#include <QPointer>
 #include <QSocketNotifier>
 
 #ifndef _WIN32
@@ -68,6 +69,13 @@ bool RigctlPty::start()
     // Set up protocol handler
     m_protocol = new RigctlProtocol(m_model);
     m_protocol->setSliceIndex(m_sliceIndex);
+    QPointer<RigctlPty> self(this);
+    m_protocol->setAsyncResponder([self](const QString& response) {
+        if (!self || self->m_masterFd < 0 || response.isEmpty())
+            return;
+        const QByteArray data = response.toUtf8();
+        ::write(self->m_masterFd, data.constData(), data.size());
+    });
 
     // Watch for data on the master FD
     m_notifier = new QSocketNotifier(m_masterFd, QSocketNotifier::Read, this);

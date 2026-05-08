@@ -4,12 +4,15 @@
 #include "models/TransmitModel.h"
 
 #include <QByteArray>
+#include <QHash>
 #include <QLocale>
 #include <QMetaObject>
 #include <QStringList>
+#include <QTimer>
 #include <QtGlobal>
 
 #include <cmath>
+#include <memory>
 
 namespace AetherSDR {
 
@@ -90,6 +93,67 @@ QString formatRigLevelValue(double value)
     if (text == "-0" || text == "-0.0")
         text = "0";
     return text;
+}
+
+const QHash<QChar, QString>& morseTable()
+{
+    static const QHash<QChar, QString> table = {
+        {'A', ".-"},    {'B', "-..."},  {'C', "-.-."},  {'D', "-.."},
+        {'E', "."},     {'F', "..-."},  {'G', "--."},   {'H', "...."},
+        {'I', ".."},    {'J', ".---"},  {'K', "-.-"},   {'L', ".-.."},
+        {'M', "--"},    {'N', "-."},    {'O', "---"},   {'P', ".--."},
+        {'Q', "--.-"},  {'R', ".-."},   {'S', "..."},   {'T', "-"},
+        {'U', "..-"},   {'V', "...-"},  {'W', ".--"},   {'X', "-..-"},
+        {'Y', "-.--"},  {'Z', "--.."},
+        {'0', "-----"}, {'1', ".----"}, {'2', "..---"}, {'3', "...--"},
+        {'4', "....-"}, {'5', "....."}, {'6', "-...."}, {'7', "--..."},
+        {'8', "---.."}, {'9', "----."},
+        {'.', ".-.-.-"},{',', "--..--"},{'?', "..--.."},{'\'',".----."},
+        {'!', "-.-.--"},{'/', "-..-."}, {'(', "-.--."}, {')', "-.--.-"},
+        {'&', ".-..."}, {':', "---..."},{';', "-.-.-."},{'=', "-...-"},
+        {'+', ".-.-."}, {'-', "-....-"},{'_', "..--.-"},{'"', ".-..-."},
+        {'$', "...-..-"},{'@', ".--.-."},
+    };
+    return table;
+}
+
+int estimateMorseDurationMs(const QString& text, int wpm)
+{
+    const int clampedWpm = qBound(5, wpm, 100);
+    const int unitMs = qMax(1, qRound(1200.0 / clampedWpm));
+    const auto& table = morseTable();
+    int units = 0;
+    bool firstChar = true;
+
+    for (const QChar raw : text.toUpper()) {
+        if (raw.isSpace() || raw == QChar(0x7f)) {
+            if (units > 0)
+                units += 7;
+            firstChar = true;
+            continue;
+        }
+
+        const auto it = table.find(raw);
+        if (it == table.end()) {
+            if (units > 0)
+                units += 7;
+            firstChar = true;
+            continue;
+        }
+
+        if (!firstChar)
+            units += 3;
+        firstChar = false;
+
+        const QString& pattern = it.value();
+        for (int i = 0; i < pattern.size(); ++i) {
+            if (i > 0)
+                units += 1;
+            units += (pattern[i] == '.') ? 1 : 3;
+        }
+    }
+
+    return units * unitMs + 500;
 }
 
 } // namespace
@@ -195,6 +259,51 @@ SliceModel* RigctlProtocol::sliceForVfo(const QString& vfo) const
 QString RigctlProtocol::rprt(int code) const
 {
     return QStringLiteral("RPRT %1\n").arg(code);
+}
+
+void RigctlProtocol::scheduleMorseAck(const QString& text)
+{
+    if (!m_model || !m_asyncResponder)
+        return;
+
+    auto* cwx = &m_model->cwxModel();
+    const int targetIndex = cwx->sentIndex() + text.size();
+    const int timeoutMs = estimateMorseDurationMs(text, cwx->speed());
+    const auto responder = m_asyncResponder;
+
+    auto pending = std::make_shared<bool>(true);
+    m_asyncResponsePending = pending;
+    auto sentConn = std::make_shared<QMetaObject::Connection>();
+    auto erasedConn = std::make_shared<QMetaObject::Connection>();
+    auto cancelConn = std::make_shared<QMetaObject::Connection>();
+    auto finish = [pending, responder, sentConn, erasedConn, cancelConn]() mutable {
+        if (!*pending)
+            return;
+        *pending = false;
+        QObject::disconnect(*sentConn);
+        QObject::disconnect(*erasedConn);
+        QObject::disconnect(*cancelConn);
+        responder(QStringLiteral("RPRT 0\n"));
+    };
+
+    *sentConn = QObject::connect(cwx, &CwxModel::charSent, cwx,
+        [targetIndex, finish](int index) mutable {
+            if (index >= targetIndex)
+                finish();
+        });
+    *erasedConn = QObject::connect(cwx, &CwxModel::erased, cwx,
+        [targetIndex, finish](int, int stop) mutable {
+            if (stop >= targetIndex)
+                finish();
+        });
+    *cancelConn = QObject::connect(cwx, &CwxModel::transmissionCancelled, cwx,
+        [finish]() mutable {
+            finish();
+        });
+
+    QTimer::singleShot(timeoutMs, cwx, [finish]() mutable {
+        finish();
+    });
 }
 
 // ── Main entry point ────────────────────────────────────────────────────────
@@ -480,7 +589,7 @@ QString RigctlProtocol::cmdGetVfoInfo(const QString& arg)
     if (requested == "?") {
         const QString supported = rigVfoTokens().join(' ');
         if (m_extended)
-            return QStringLiteral("get_vfo_info:\nVFO: %1\n").arg(supported) + rprt(0);
+            return QStringLiteral("get_vfo_info: ?\n%1\n").arg(supported) + rprt(0);
         return supported + "\n";
     }
 
@@ -496,9 +605,8 @@ QString RigctlProtocol::cmdGetVfoInfo(const QString& arg)
     constexpr int satMode = 0;
 
     if (m_extended) {
-        // MacLoggerDX sends +\get_vfo_info but parses the payload as the
-        // five positional values from Hamlib's non-extended response.
-        return QStringLiteral("get_vfo_info:\n%1\n%2\n%3\n%4\n%5\n")
+        return QStringLiteral("get_vfo_info: %1\nFreq: %2\nMode: %3\nWidth: %4\nSplit: %5\nSatMode: %6\n")
+            .arg(requested)
             .arg(hz)
             .arg(mode)
             .arg(width)
@@ -555,9 +663,15 @@ QString RigctlProtocol::cmdSetPtt(const QString& arg)
 QString RigctlProtocol::cmdGetInfo()
 {
     if (!m_model || !m_model->isConnected())
-        return QStringLiteral("AetherSDR\n");
-    return QStringLiteral("%1 %2 v%3\n")
+        return m_extended
+            ? QStringLiteral("get_info:\nInfo: AetherSDR\n") + rprt(0)
+            : QStringLiteral("AetherSDR\n");
+
+    const QString info = QStringLiteral("%1 %2 v%3")
         .arg(m_model->name(), m_model->model(), m_model->version());
+    if (m_extended)
+        return QStringLiteral("get_info:\nInfo: %1\n").arg(info) + rprt(0);
+    return info + QChar('\n');
 }
 
 QString RigctlProtocol::cmdGetRigInfo()
@@ -920,17 +1034,23 @@ QString RigctlProtocol::cmdSendMorse(const QString& text)
         m_pendingMorseLine = true;
         return {};
     }
-    QMetaObject::invokeMethod(m_model, [this, text]() {
-        m_model->cwxModel().send(text);
+    const bool asyncAck = static_cast<bool>(m_asyncResponder);
+    if (asyncAck)
+        scheduleMorseAck(text);
+
+    auto* model = m_model;
+    QMetaObject::invokeMethod(model, [model, text]() {
+        model->cwxModel().send(text);
     }, Qt::QueuedConnection);
-    return rprt(0);
+    return asyncAck ? QString() : rprt(0);
 }
 
 QString RigctlProtocol::cmdStopMorse()
 {
     if (!m_model) return rprt(-1);
-    QMetaObject::invokeMethod(m_model, [this]() {
-        m_model->cwxModel().clearBuffer();
+    auto* model = m_model;
+    QMetaObject::invokeMethod(model, [model]() {
+        model->cwxModel().clearBuffer();
     }, Qt::QueuedConnection);
     return rprt(0);
 }

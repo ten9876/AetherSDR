@@ -3,6 +3,9 @@
 #include "RigctlProtocol.h"
 #include "models/RadioModel.h"
 
+#include <QMetaObject>
+#include <QPointer>
+
 namespace AetherSDR {
 
 RigctlServer::RigctlServer(RadioModel* model, QObject* parent)
@@ -78,6 +81,22 @@ void RigctlServer::onNewConnection()
         socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);  // TCP_NODELAY
         auto* protocol = new RigctlProtocol(m_model);
         protocol->setSliceIndex(m_sliceIndex);
+        QPointer<RigctlServer> self(this);
+        QPointer<QTcpSocket> socketPtr(socket);
+        protocol->setAsyncResponder([self, socketPtr](const QString& response) {
+            if (!socketPtr || response.isEmpty())
+                return;
+            if (socketPtr->state() != QAbstractSocket::ConnectedState)
+                return;
+            qCDebug(lcCat) << "rigctld async resp:" << response.left(60).trimmed();
+            socketPtr->write(response.toUtf8());
+            if (self) {
+                QMetaObject::invokeMethod(self, [self, socketPtr]() {
+                    if (self && socketPtr)
+                        self->processClientData(socketPtr);
+                }, Qt::QueuedConnection);
+            }
+        });
 
         ClientState cs;
         cs.socket = socket;
@@ -97,6 +116,13 @@ void RigctlServer::onClientData()
     auto* socket = qobject_cast<QTcpSocket*>(sender());
     if (!socket) return;
 
+    processClientData(socket);
+}
+
+void RigctlServer::processClientData(QTcpSocket* socket)
+{
+    if (!socket) return;
+
     // Find the client state
     int idx = -1;
     for (int i = 0; i < m_clients.size(); ++i) {
@@ -105,10 +131,16 @@ void RigctlServer::onClientData()
     if (idx < 0) return;
 
     auto& cs = m_clients[idx];
+    if (cs.protocol->hasPendingAsyncResponse())
+        return;
+
     cs.buffer.append(socket->readAll());
 
     // Process complete lines
     while (true) {
+        if (cs.protocol->hasPendingAsyncResponse())
+            return;
+
         int nlPos = cs.buffer.indexOf('\n');
         if (nlPos < 0) break;
 
@@ -127,6 +159,9 @@ void RigctlServer::onClientData()
             qCDebug(lcCat) << "rigctld cmd:" << trimmed
                      << "-> resp:" << response.left(60).trimmed();
             socket->write(response.toUtf8());
+        } else if (cs.protocol->hasPendingAsyncResponse()) {
+            qCDebug(lcCat) << "rigctld cmd:" << trimmed << "-> async resp pending";
+            return;
         }
     }
 }

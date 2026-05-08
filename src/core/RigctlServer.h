@@ -39,6 +39,8 @@ private slots:
     void onClientDisconnected();
 
 private:
+    void processClientData(QTcpSocket* socket);
+
     struct ClientState {
         QTcpSocket*     socket{nullptr};
         RigctlProtocol* protocol{nullptr};
