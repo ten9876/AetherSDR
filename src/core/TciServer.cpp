@@ -248,6 +248,13 @@ quint16 TciServer::port() const
     return m_server ? m_server->serverPort() : 0;
 }
 
+void TciServer::broadcastMasterVolume(int pct)
+{
+    if (pct < 0)   pct = 0;
+    if (pct > 100) pct = 100;
+    broadcast(QStringLiteral("volume:%1;").arg(pct));
+}
+
 void TciServer::setTxGain(float gain)
 {
     const float clamped = std::clamp(gain, 0.0f, 1.0f);
@@ -552,6 +559,14 @@ void TciServer::onTextMessage(const QString& msg)
                     cs.socket->sendTextMessage(notification);
             }
         }
+
+        // Master volume SET — TciProtocol owns only RadioModel, so it can't
+        // touch AudioEngine directly. It stashes the requested level and we
+        // forward to MainWindow via signal, mirroring the title bar slider's
+        // signal path. The notification (`volume:N;`) was already echoed
+        // above to the requesting client and broadcast to others.
+        int mvol = client.protocol->pendingMasterVolume();
+        if (mvol >= 0) emit masterVolumeRequested(mvol);
 
         // Start/stop TX_CHRONO when a TCI client sets trx state.
         // WSJT-X only sends TX audio in response to TX_CHRONO (type=3) frames.
@@ -1154,6 +1169,16 @@ void TciServer::wireSlice(int trx, SliceModel* slice)
         const int trx = TciProtocol::tciTrxForSlice(m_model,slice);
         broadcast(QStringLiteral("lock:%1,%2;")
                       .arg(trx).arg(locked ? "true" : "false"));
+    });
+
+    // Per-slice audioGain → `rx_volume:trx,N;` broadcast. Without this,
+    // a GUI change to a slice's audio level was invisible to TCI clients;
+    // remote controllers would drift out of sync. Part of issue #1764 fix.
+    connect(slice, &SliceModel::audioGainChanged, this, [this, slice](float gain) {
+        if (m_clients.isEmpty()) return;
+        const int trx = TciProtocol::tciTrxForSlice(m_model, slice);
+        broadcast(QStringLiteral("rx_volume:%1,%2;")
+                      .arg(trx).arg(static_cast<int>(gain)));
     });
 }
 

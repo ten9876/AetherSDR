@@ -112,6 +112,13 @@ private slots:
     void onSliceAdded(SliceModel* slice);
     void onSliceRemoved(int id);
 
+    // Master volume — single entry point used by both the title bar slider
+    // (TitleBar::masterVolumeChanged) and TCI clients (TciServer::
+    // masterVolumeRequested) so the audio path, persistence, and TCI
+    // broadcast all stay in lockstep regardless of which UI changed it.
+    // See issue #1764.
+    void applyMasterVolume(int pct);
+
 private:
     enum class TuneIntent {
         IncrementalTune,

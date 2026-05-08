@@ -2563,16 +2563,11 @@ MainWindow::MainWindow(QWidget* parent)
             m_radioModel.removeRxAudioStream();
         }
     });
-    connect(m_titleBar, &TitleBar::masterVolumeChanged, this, [this](int pct) {
-        bool pcAudio = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
-        if (pcAudio)
-            m_audio->setRxVolume(pct / 100.0f);
-        else
-            m_radioModel.setLineoutGain(pct);
-        auto& s = AppSettings::instance();
-        s.setValue("MasterVolume", QString::number(pct));
-        s.save();
-    });
+    // Master volume — title bar slider routes through applyMasterVolume()
+    // so the TCI `volume:N;` command (#1764) can hit the same code path
+    // when m_tciServer is created later in this constructor.
+    connect(m_titleBar, &TitleBar::masterVolumeChanged,
+            this, &MainWindow::applyMasterVolume);
     connect(m_titleBar, &TitleBar::headphoneVolumeChanged,
             &m_radioModel, &RadioModel::setHeadphoneGain);
     connect(m_titleBar, &TitleBar::lineoutMuteChanged, this, [this](bool muted) {
@@ -3746,6 +3741,16 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->tciApplet(), &TciApplet::setTciRxLevel);
     connect(m_tciServer, &TciServer::txLevel,
             m_appletPanel->tciApplet(), &TciApplet::setTciTxLevel);
+
+    // TCI `volume:N;` master-volume SET → mirror on the title bar slider
+    // and route through the same applyMasterVolume() slot the slider uses
+    // (audio path + persistence + broadcast back to other TCI clients).
+    // See issue #1764 — no master-volume TCI hook existed before.
+    connect(m_tciServer, &TciServer::masterVolumeRequested,
+            this, [this](int pct) {
+        if (m_titleBar) m_titleBar->setMasterVolume(pct);
+        applyMasterVolume(pct);
+    });
 
     // Wire slice state changes -> TCI broadcasts. TCI receivers are contiguous
     // indexes within our owned slice list; Flex slice ids can be non-zero when
@@ -8079,6 +8084,23 @@ bool MainWindow::activateMemorySpot(int memoryIndex, const QString& preferredPan
     if (!repeaterFixup.isEmpty())
         m_radioModel.sendCommand(repeaterFixup);
     return true;
+}
+
+void MainWindow::applyMasterVolume(int pct)
+{
+    if (pct < 0)   pct = 0;
+    if (pct > 100) pct = 100;
+    bool pcAudio = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
+    if (pcAudio)
+        m_audio->setRxVolume(pct / 100.0f);
+    else
+        m_radioModel.setLineoutGain(pct);
+    auto& s = AppSettings::instance();
+    s.setValue("MasterVolume", QString::number(pct));
+    s.save();
+#ifdef HAVE_WEBSOCKETS
+    if (m_tciServer) m_tciServer->broadcastMasterVolume(pct);
+#endif
 }
 
 void MainWindow::onSliceAdded(SliceModel* s)

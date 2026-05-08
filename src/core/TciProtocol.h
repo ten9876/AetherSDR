@@ -27,6 +27,13 @@ public:
     // Returns empty if no broadcast needed.
     QString pendingNotification();
 
+    // After handleCommand(), if the command was a master-volume SET, this
+    // returns the requested level (0-100). -1 means no master-volume change
+    // was requested. The TciServer reads this to forward the request to
+    // MainWindow (which owns the AudioEngine + RadioModel-lineout path).
+    // Per TCI v2.0 spec, `volume:N;` is the global master volume command.
+    int pendingMasterVolume() const { return m_pendingMasterVolume; }
+
 private:
     // Command handlers — return response string or empty
     QString cmdVfo(const QStringList& args, bool isSet);
@@ -107,6 +114,7 @@ private:
 
     RadioModel* m_model;
     QString     m_pendingNotification;
+    int         m_pendingMasterVolume{-1};   // -1 = no change requested
     bool        m_started{false};  // client sent START
 };
 

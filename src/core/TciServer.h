@@ -41,6 +41,12 @@ public:
 
     void setAudioEngine(AudioEngine* audio) { m_audio = audio; }
 
+    // Broadcast a master-volume change to all connected TCI clients. Called
+    // by MainWindow whenever the GUI master volume slider moves so remote
+    // controllers (e.g. aether_pad) stay in sync. Idempotent — clients
+    // re-applying the value they just sent is harmless.
+    void broadcastMasterVolume(int pct);
+
     // TCI TX gain (0.0–1.0). Applied to outbound TX audio from WSJT-X/JTDX
     // before the radio.  Decoupled from DaxTxGain (#1627) — the DAX bridge
     // and TCI maintain independent gain settings.  Persists to TciTxGain.
@@ -70,6 +76,11 @@ signals:
     void clientCountChanged(int count);
     void rxLevel(int channel, float rms);  // 1-based channel, RMS of TCI-gained RX audio
     void txLevel(float rms);                // RMS of post-gain TCI TX audio
+    // Emitted when a TCI client sends `volume:N;` (master volume SET).
+    // MainWindow handles it by calling the same path as the title bar
+    // master volume slider — m_audio->setRxVolume() (or lineout when PC
+    // audio is off) plus persistence to AppSettings.
+    void masterVolumeRequested(int pct);
 
 private slots:
     void onNewConnection();

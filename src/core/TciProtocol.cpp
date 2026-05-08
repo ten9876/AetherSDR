@@ -1,5 +1,6 @@
 #ifdef HAVE_WEBSOCKETS
 #include "TciProtocol.h"
+#include "AppSettings.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
@@ -189,6 +190,7 @@ QString TciProtocol::generateInitBurst()
 QString TciProtocol::handleCommand(const QString& cmd)
 {
     m_pendingNotification.clear();
+    m_pendingMasterVolume = -1;
 
     if (cmd.isEmpty()) return {};
 
@@ -204,9 +206,14 @@ QString TciProtocol::handleCommand(const QString& cmd)
         for (auto& a : args) a = a.trimmed();
     }
 
-    // Determine if this is a set (has args beyond trx) or get (trx only or no args)
-    // TCI convention: get has 1 arg (trx), set has 2+ args
-    bool isSet = false;
+    // Determine if this is a set or get. TCI convention is: 0-1 args = GET
+    // (no args, or trx index only), 2+ args = SET (trx index + value(s)).
+    // Computed once up front so all dispatched commands see the correct
+    // value — the previous implementation only set this AFTER the first
+    // dispatch block, leaving early-dispatched commands (rx_volume,
+    // cw_keyer_speed, mon_volume, rx_mute, rx_balance, …) with isSet=false
+    // forever and silently treating SETs as GETs. See issue #1764.
+    bool isSet = (args.size() >= 2);
 
     // Commands with special handling
     if (name == "start")            return cmdStart();
@@ -246,8 +253,8 @@ QString TciProtocol::handleCommand(const QString& cmd)
     if (name == "if_limits")        return QStringLiteral("if_limits:-10000,10000;");
     if (name == "vfo_lock")         return cmdLock(args, isSet);  // alias
 
-    // Bidirectional commands: get if 0-1 args, set if 2+
-    isSet = (args.size() >= 2);
+    // Bidirectional commands — isSet was already computed at the top of
+    // this function, so the dispatch is uniform from here on.
 
     if (name == "vfo")              return cmdVfo(args, isSet);
     if (name == "modulation")       return cmdModulation(args, isSet);
@@ -439,16 +446,21 @@ QString TciProtocol::cmdTune(const QStringList& args, bool isSet)
 
 // ── DRIVE: get/set RF power ────────────────────────────────────────────────
 
-QString TciProtocol::cmdDrive(const QStringList& args, bool isSet)
+// DRIVE and TUNE_DRIVE are global commands per the TCI v2.0 spec — they have
+// no TRX prefix. Spec form: `drive;` for GET, `drive:N;` for SET. The
+// dispatcher's isSet heuristic (args.size() >= 2) is wrong for globals
+// (treats `drive:50;` as a GET). We override here: any args at all = SET,
+// no args = GET. We also accept the legacy TRX-prefixed form `drive:0,N;`
+// for backward compatibility — when 2+ args arrive, we take args[1] as the
+// value and ignore the trx index (drive is global anyway).
+QString TciProtocol::cmdDrive(const QStringList& args, bool /*isSet*/)
 {
-    if (!isSet) {
+    if (args.isEmpty()) {
         int pwr = m_model ? m_model->transmitModel().rfPower() : 0;
         return QStringLiteral("drive:%1;").arg(pwr);
     }
-
-    if (args.isEmpty()) return {};
     bool ok;
-    int pwr = args[0].toInt(&ok);
+    int pwr = args[args.size() == 1 ? 0 : 1].toInt(&ok);
     if (!ok) return {};
     QMetaObject::invokeMethod(m_model, [this, pwr]() {
         m_model->transmitModel().setRfPower(pwr);
@@ -460,16 +472,14 @@ QString TciProtocol::cmdDrive(const QStringList& args, bool isSet)
 
 // ── TUNE_DRIVE: get/set tune power ─────────────────────────────────────────
 
-QString TciProtocol::cmdTuneDrive(const QStringList& args, bool isSet)
+QString TciProtocol::cmdTuneDrive(const QStringList& args, bool /*isSet*/)
 {
-    if (!isSet) {
+    if (args.isEmpty()) {
         int pwr = m_model ? m_model->transmitModel().tunePower() : 0;
         return QStringLiteral("tune_drive:%1;").arg(pwr);
     }
-
-    if (args.isEmpty()) return {};
     bool ok;
-    int pwr = args[0].toInt(&ok);
+    int pwr = args[args.size() == 1 ? 0 : 1].toInt(&ok);
     if (!ok) return {};
     QMetaObject::invokeMethod(m_model, [this, pwr]() {
         m_model->transmitModel().setTunePower(pwr);
@@ -735,28 +745,40 @@ QString TciProtocol::cmdSqlLevel(const QStringList& args, bool isSet)
 
 // ── Volume / Mute ──────────────────────────────────────────────────────────
 
-QString TciProtocol::cmdVolume(const QStringList& args, bool isSet)
+// VOLUME is a GLOBAL command per TCI v2.0 spec — it controls the master
+// output level the operator hears, not a per-slice audio gain. This
+// matches the title bar's master volume slider in the GUI. Per-receiver
+// volume goes through the separate `rx_volume` command (cmdRxVolume).
+//
+// Spec form:  GET = `volume;`  (no args)
+//             SET = `volume:N;` (1 arg, 0-100)
+//
+// We also accept the legacy TRX-prefixed form `volume:trx,N;` for
+// backward compatibility — the trx is ignored since master volume is
+// global. Old clients that previously sent this form to set per-slice
+// gain were silently broken (the SET path mixed up vol and trx
+// indices) — those clients should migrate to `rx_volume:trx,N;`.
+//
+// For SET, we don't directly call AudioEngine here — TciProtocol owns
+// only the RadioModel, not AudioEngine. Instead we stash the requested
+// level in m_pendingMasterVolume; TciServer reads it after handleCommand
+// and forwards the request to MainWindow via signal, mirroring the path
+// taken by the title bar's masterVolumeChanged signal.
+QString TciProtocol::cmdVolume(const QStringList& args, bool /*isSet*/)
 {
-    if (!isSet) {
-        // Volume is per-slice audioGain in FlexRadio (0-100)
-        if (!args.isEmpty()) {
-            int trx = args[0].toInt();
-            auto* s = sliceForTrx(trx);
-            if (s) return QStringLiteral("volume:%1;")
-                              .arg(static_cast<int>(s->audioGain()));
-        }
-        return {};
+    if (args.isEmpty()) {
+        // GET — current master volume from saved settings (the same value
+        // the title bar slider reads on startup).
+        int pct = AppSettings::instance()
+                      .value("MasterVolume", "100").toInt();
+        return QStringLiteral("volume:%1;").arg(pct);
     }
 
-    if (args.isEmpty()) return {};
-    int vol = args[0].toInt();
-    // Apply to the specified trx slice, or first slice as fallback
-    auto* s = sliceForTrx(args.size() > 1 ? args[0].toInt() : 0);
-    if (s) {
-        float gain = static_cast<float>(vol);
-        QMetaObject::invokeMethod(s, [s, gain]() { s->setAudioGain(gain); },
-                                  Qt::QueuedConnection);
-    }
+    // SET — accept either spec form (1 arg) or legacy trx-prefixed (2+ args).
+    int vol = args[args.size() == 1 ? 0 : 1].toInt();
+    if (vol < 0)   vol = 0;
+    if (vol > 100) vol = 100;
+    m_pendingMasterVolume = vol;
 
     m_pendingNotification = QStringLiteral("volume:%1;").arg(vol);
     return {};
