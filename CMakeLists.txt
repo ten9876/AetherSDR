@@ -1282,6 +1282,9 @@ add_executable(ole_compound_file_test
 )
 target_include_directories(ole_compound_file_test PRIVATE src)
 target_link_libraries(ole_compound_file_test PRIVATE Qt6::Core mspack_static)
+if(UNIX)
+    target_link_libraries(ole_compound_file_test PRIVATE pthread)
+endif()
 
 add_executable(xvtr_policy_test
     tests/xvtr_policy_test.cpp
@@ -1336,6 +1339,9 @@ add_executable(meter_model_test
 )
 target_include_directories(meter_model_test PRIVATE src)
 target_link_libraries(meter_model_test PRIVATE Qt6::Core)
+if(UNIX)
+    target_link_libraries(meter_model_test PRIVATE pthread)
+endif()
 set_target_properties(meter_model_test PROPERTIES AUTOMOC ON)
 
 add_executable(memory_recall_policy_test
@@ -1355,6 +1361,9 @@ add_executable(transmit_model_apd_test
 )
 target_include_directories(transmit_model_apd_test PRIVATE src)
 target_link_libraries(transmit_model_apd_test PRIVATE Qt6::Core Qt6::Test)
+if(UNIX)
+    target_link_libraries(transmit_model_apd_test PRIVATE pthread)
+endif()
 set_target_properties(transmit_model_apd_test PROPERTIES AUTOMOC ON)
 
 # Help guide search tests - needs QApplication + Widgets.
@@ -1393,6 +1402,9 @@ add_executable(transmit_model_test
 )
 target_include_directories(transmit_model_test PRIVATE src)
 target_link_libraries(transmit_model_test PRIVATE Qt6::Core)
+if(UNIX)
+    target_link_libraries(transmit_model_test PRIVATE pthread)
+endif()
 
 # Container system Phase 1 tests — needs QApplication + Widgets.
 add_executable(container_widget_test
