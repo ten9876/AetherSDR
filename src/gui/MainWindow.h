@@ -166,6 +166,7 @@ private:
     void disableSplit();
     void wirePanadapter(PanadapterApplet* applet);
     void schedulePanFpsReconcile(const QString& panId, int reportedFps);
+    void scheduleWaterfallLineDurationReconcile(const QString& panId, int reportedMs);
     void reassertUnmutedSliceAudioForPan(const QString& panId);
     void setActivePanApplet(PanadapterApplet* applet);
     void routeCwDecoderOutput();  // wire CW decoder to the pan owning the active slice
@@ -516,6 +517,14 @@ private:
     };
     QHash<QString, PanFpsReconcileState> m_panFpsReconcile;
     QHash<QString, QMetaObject::Connection> m_panFpsReconcileConnections;
+    struct WaterfallLineDurationReconcileState {
+        QTimer* timer{nullptr};
+        QPointer<SpectrumWidget> spectrum;
+        qint64 lastSentMs{0};
+        int lastSentDesired{-1};
+    };
+    QHash<QString, WaterfallLineDurationReconcileState> m_wfLineDurationReconcile;
+    QHash<QString, QMetaObject::Connection> m_wfLineDurationReconcileConnections;
     QTimer* m_layoutRestoreTimer{nullptr}; // debounced layout rearrange after pans added on connect
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     QTimer* m_bsExpiryTimer{nullptr};    // band-stack bookmark auto-expiry, started on connect only (#1471)

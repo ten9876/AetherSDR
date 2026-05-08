@@ -2401,6 +2401,11 @@ MainWindow::MainWindow(QWidget* parent)
             QObject::disconnect(it.value());
             m_panFpsReconcileConnections.erase(it);
         }
+        if (auto it = m_wfLineDurationReconcileConnections.find(panId);
+            it != m_wfLineDurationReconcileConnections.end()) {
+            QObject::disconnect(it.value());
+            m_wfLineDurationReconcileConnections.erase(it);
+        }
         if (auto it = m_panFpsReconcile.find(panId);
             it != m_panFpsReconcile.end()) {
             if (it->timer) {
@@ -2408,6 +2413,14 @@ MainWindow::MainWindow(QWidget* parent)
                 it->timer->deleteLater();
             }
             m_panFpsReconcile.erase(it);
+        }
+        if (auto it = m_wfLineDurationReconcile.find(panId);
+            it != m_wfLineDurationReconcile.end()) {
+            if (it->timer) {
+                it->timer->stop();
+                it->timer->deleteLater();
+            }
+            m_wfLineDurationReconcile.erase(it);
         }
 
         // Disconnect all signals from the dying applet's widgets to prevent
@@ -7874,6 +7887,11 @@ void MainWindow::onConnectionStateChanged(bool connected)
             QObject::disconnect(it.value());
         }
         m_panFpsReconcileConnections.clear();
+        for (auto it = m_wfLineDurationReconcileConnections.begin();
+             it != m_wfLineDurationReconcileConnections.end(); ++it) {
+            QObject::disconnect(it.value());
+        }
+        m_wfLineDurationReconcileConnections.clear();
         for (auto it = m_panFpsReconcile.begin();
              it != m_panFpsReconcile.end(); ++it) {
             if (it->timer) {
@@ -7882,6 +7900,14 @@ void MainWindow::onConnectionStateChanged(bool connected)
             }
         }
         m_panFpsReconcile.clear();
+        for (auto it = m_wfLineDurationReconcile.begin();
+             it != m_wfLineDurationReconcile.end(); ++it) {
+            if (it->timer) {
+                it->timer->stop();
+                it->timer->deleteLater();
+            }
+        }
+        m_wfLineDurationReconcile.clear();
 
         // Clear spectrum/waterfall so the display doesn't look frozen
         for (auto* applet : m_panStack->allApplets())
@@ -9131,6 +9157,85 @@ void MainWindow::schedulePanFpsReconcile(const QString& panId, int reportedFps)
     state.timer->start();
 }
 
+void MainWindow::scheduleWaterfallLineDurationReconcile(const QString& panId, int reportedMs)
+{
+    if (panId.isEmpty() || reportedMs <= 0)
+        return;
+
+    auto* pan = m_radioModel.panadapter(panId);
+    if (!pan)
+        return;
+
+    auto& state = m_wfLineDurationReconcile[panId];
+    if (!state.spectrum) {
+        if (auto* applet = m_panStack->panadapter(panId))
+            state.spectrum = applet->spectrumWidget();
+    }
+
+    auto* sw = state.spectrum.data();
+    if (!sw)
+        return;
+
+    const int desiredMs = sw->wfLineDuration();
+    if (desiredMs <= 0)
+        return;
+    if (desiredMs == reportedMs) {
+        if (state.timer)
+            state.timer->stop();
+        state.lastSentMs = 0;
+        state.lastSentDesired = -1;
+        return;
+    }
+
+    if (!state.timer) {
+        state.timer = new QTimer(this);
+        state.timer->setSingleShot(true);
+        state.timer->setInterval(300);
+        connect(state.timer, &QTimer::timeout, this, [this, panId]() {
+            auto it = m_wfLineDurationReconcile.find(panId);
+            if (it == m_wfLineDurationReconcile.end())
+                return;
+
+            auto* pan = m_radioModel.panadapter(panId);
+            auto* sw = it->spectrum.data();
+            if (!sw) {
+                if (auto* applet = m_panStack->panadapter(panId)) {
+                    sw = applet->spectrumWidget();
+                    it->spectrum = sw;
+                }
+            }
+            if (!pan || !sw)
+                return;
+
+            const QString wfId = pan->waterfallId();
+            const int reported = pan->waterfallLineDuration();
+            const int desired = sw->wfLineDuration();
+            if (wfId.isEmpty() || reported <= 0 || desired <= 0 || reported == desired)
+                return;
+
+            constexpr qint64 kCooldownMs = 5000;
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (it->lastSentDesired == desired
+                && it->lastSentMs > 0
+                && now - it->lastSentMs < kCooldownMs) {
+                return;
+            }
+
+            qCDebug(lcProtocol).noquote().nospace()
+                << "MainWindow: reasserting waterfall rate pan=" << panId
+                << " waterfall=" << wfId
+                << " reported_line_duration=" << reported
+                << " desired_line_duration=" << desired;
+            m_radioModel.sendCommand(
+                QString("display panafall set %1 line_duration=%2").arg(wfId).arg(desired));
+            it->lastSentMs = now;
+            it->lastSentDesired = desired;
+        });
+    }
+
+    state.timer->start();
+}
+
 void MainWindow::wirePanadapter(PanadapterApplet* applet)
 {
     auto* sw = applet->spectrumWidget();
@@ -9204,6 +9309,22 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 schedulePanFpsReconcile(panId, fps);
             }));
         schedulePanFpsReconcile(applet->panId(), pan->fps());
+
+        auto oldWfLineDurationConnection =
+            m_wfLineDurationReconcileConnections.take(applet->panId());
+        if (oldWfLineDurationConnection)
+            QObject::disconnect(oldWfLineDurationConnection);
+
+        auto& wfLineDurationState = m_wfLineDurationReconcile[applet->panId()];
+        wfLineDurationState.spectrum = sw;
+        m_wfLineDurationReconcileConnections.insert(
+            applet->panId(),
+            connect(pan, &PanadapterModel::waterfallLineDurationReported,
+                    this, [this, panId = applet->panId()](int ms) {
+                scheduleWaterfallLineDurationReconcile(panId, ms);
+            }));
+        scheduleWaterfallLineDurationReconcile(applet->panId(),
+                                               pan->waterfallLineDuration());
     }
 
     // ── Debounced resize → re-push xpixels/ypixels to the radio (#1511) ───
