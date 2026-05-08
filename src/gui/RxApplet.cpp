@@ -394,17 +394,23 @@ void RxApplet::buildUI()
 #ifdef HAVE_RADE
             if (mode == "RADE") {
                 emit radeActivated(true, m_slice ? m_slice->sliceId() : -1);
-                m_radeActive = true;
+                if (m_slice) m_slice->setMode(mode);
                 return;
             }
-            // Same guard pattern as VfoWidget (#2026): only emit deactivate
-            // if THIS applet had previously emitted activate. Otherwise a
-            // user swapping USB->LSB on a non-RADE slice would fire a
-            // radeActivated(false) and tear down RADE on a different pan.
-            if (m_radeActive) {
-                emit radeActivated(false, m_slice ? m_slice->sliceId() : -1);
-                m_radeActive = false;
-            }
+            // Defense-in-depth (matches the spirit of #2026): only emit
+            // deactivate if THIS slice was actually in RADE.  Read
+            // m_slice->mode() BEFORE setMode() runs below so we see the
+            // pre-change mode.  This is correct across:
+            //   - single-instance setSlice() rebind (always reads from the
+            //     bound slice, no leftover flag state)
+            //   - externally activated RADE (via VfoWidget combo, profile
+            //     load on startup, or MainWindow::activateRADE) — the
+            //     slice's mode is "RADE" regardless of how it got there
+            //   - the multi-pan case where the user swaps USB→LSB on a
+            //     non-RADE slice — slice's mode isn't "RADE", so the
+            //     spurious deactivate is suppressed exactly when intended
+            if (m_slice && m_slice->mode() == "RADE")
+                emit radeActivated(false, m_slice->sliceId());
 #endif
             if (m_slice) m_slice->setMode(mode);
         });
