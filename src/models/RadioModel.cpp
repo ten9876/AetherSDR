@@ -1231,10 +1231,6 @@ void RadioModel::onConnected()
     // Delay network monitor until after client gui registration
     // (pings sent before registration cause "Malformed command" on WAN)
 
-    // Send low bandwidth flag before GUI registration (matches FlexLib order)
-    if (AppSettings::instance().value("LowBandwidthConnect", "False").toString() == "True")
-        sendCmd("client low_bw_connect");
-
     // Register as GUI client FIRST — required before subscriptions,
     // especially on WAN/SmartLink where the radio is stricter.
     const QString clientId = AppSettings::instance().value("GUIClientID").toString();
@@ -1327,6 +1323,18 @@ void RadioModel::handleForcedClientDisconnect()
 
 void RadioModel::registerAsGuiClient(const QString& clientId)
 {
+    // Match FlexLib connect-sequence ordering (Radio.cs:2230-2247):
+    //   client program <name>  →  client low_bw_connect  →  client gui
+    // The radio's protocol state machine requires client identity (program)
+    // BEFORE accepting client-mode configuration (low_bw_connect), and the
+    // bandwidth mode must be set BEFORE GUI registration so it is baked
+    // into the client session.  Sending these out of order — as we did
+    // previously — caused the radio to silently ignore low_bw_connect
+    // (#2447: "Low Bandwidth checkbox doesn't do anything meaningful").
+    sendCmd("client program AetherSDR");
+    if (AppSettings::instance().value("LowBandwidthConnect", "False").toString() == "True")
+        sendCmd("client low_bw_connect");
+
     sendCmd(QString("client gui %1").arg(clientId), [this](int code, const QString& body) {
         if (code != 0) {
             qCWarning(lcProtocol) << "RadioModel: client gui failed, code" << Qt::hex << code;
@@ -1339,7 +1347,6 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
             qCDebug(lcProtocol) << "RadioModel: saved GUIClientID:" << body.trimmed();
         }
 
-        sendCmd("client program AetherSDR");
         QString station = AppSettings::instance().value("StationName", "").toString();
         if (station.isEmpty()) {
             station = QSysInfo::machineHostName();
