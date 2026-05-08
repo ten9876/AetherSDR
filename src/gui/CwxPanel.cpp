@@ -194,9 +194,18 @@ CwxPanel::CwxPanel(CwxModel* model, QWidget* parent)
     // ── F1-F12 hotkeys — active app-wide when the active slice is in a CW
     //    mode (CW or CWL).  Guard prevents collisions with a future DVK
     //    macro panel or other function-key users. (#1552)
+    //
+    //    Enabled only while CwxPanel is visible — DvkPanel registers its
+    //    own F1-F12 ApplicationShortcuts and Qt would otherwise emit
+    //    activatedAmbiguously when both contexts match, dropping the
+    //    event silently.  Toggling enabled state on show/hide keeps
+    //    exactly one set live since the panels are mutually exclusive
+    //    in the splitter. (#2464)
     for (int i = 0; i < 12; ++i) {
         auto* sc = new QShortcut(Qt::Key_F1 + i, window());
         sc->setContext(Qt::ApplicationShortcut);
+        sc->setEnabled(false);
+        m_shortcuts.append(sc);
         connect(sc, &QShortcut::activated, this, [this, i]() {
             if (!m_model) return;
             if (m_activeModeProvider) {
@@ -217,6 +226,8 @@ CwxPanel::CwxPanel(CwxModel* model, QWidget* parent)
     //    anyway, so normal UI ESC behavior is preserved. (#1552)
     auto* esc = new QShortcut(QKeySequence(Qt::Key_Escape), window());
     esc->setContext(Qt::ApplicationShortcut);
+    esc->setEnabled(false);
+    m_shortcuts.append(esc);
     connect(esc, &QShortcut::activated, this, [this]() {
         if (m_model)
             m_model->clearBuffer();
@@ -417,6 +428,18 @@ void CwxPanel::sendBuffer()
     m_textEdit->clear();
 
     m_model->send(text);
+}
+
+void CwxPanel::showEvent(QShowEvent* event)
+{
+    for (auto* sc : m_shortcuts) sc->setEnabled(true);
+    QWidget::showEvent(event);
+}
+
+void CwxPanel::hideEvent(QHideEvent* event)
+{
+    for (auto* sc : m_shortcuts) sc->setEnabled(false);
+    QWidget::hideEvent(event);
 }
 
 void CwxPanel::onCharSent(int /*index*/)

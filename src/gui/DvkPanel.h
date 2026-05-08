@@ -9,6 +9,7 @@
 #include <QVector>
 
 class QFrame;
+class QShortcut;
 
 namespace AetherSDR {
 class DvkModel;
@@ -23,6 +24,8 @@ public:
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 
 private slots:
     void onStatusChanged(int status, int id);
@@ -51,6 +54,10 @@ private:
     int m_elapsedMs{0};
     int m_timerSlotId{-1};
     int m_timerStatus{0};  // DvkModel::Status cast to int
+
+    // F1-F12 + ESC shortcuts — ApplicationShortcut on window(), enabled
+    // only while panel is visible to avoid collision with CwxPanel (#2464).
+    QVector<QShortcut*> m_shortcuts;
 
     void selectSlot(int id);
     void showContextMenu(int id, const QPoint& globalPos);

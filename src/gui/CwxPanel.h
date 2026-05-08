@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QVector>
 #include <functional>
 
 class QPushButton;
@@ -11,6 +12,7 @@ class QLineEdit;
 class QStackedWidget;
 class QScrollArea;
 class QVBoxLayout;
+class QShortcut;
 
 namespace AetherSDR {
 
@@ -37,6 +39,8 @@ public:
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 
 private slots:
     void onCharSent(int index);
@@ -76,6 +80,10 @@ private:
 
     std::function<QString()> m_activeModeProvider;
     std::function<bool()>    m_transmittingProvider;
+
+    // F1-F12 + ESC shortcuts — enabled only while panel is visible to
+    // avoid Qt shortcut ambiguity with DvkPanel's F1-F12 set (#2464).
+    QVector<QShortcut*> m_shortcuts;
 };
 
 } // namespace AetherSDR

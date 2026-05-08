@@ -202,9 +202,18 @@ DvkPanel::DvkPanel(DvkModel* model, QWidget* parent)
     connect(m_model, &DvkModel::statusChanged, this, &DvkPanel::onStatusChanged);
     connect(m_model, &DvkModel::recordingChanged, this, &DvkPanel::onRecordingChanged);
 
-    // F1-F12 hotkeys (only play if slot has a recording)
+    // F1-F12 hotkeys (only play if slot has a recording).  Registered as
+    // Qt::ApplicationShortcut on window() but enabled only while the panel
+    // is visible — CwxPanel registers its own F1-F12 ApplicationShortcuts,
+    // and Qt's ambiguity detection silently swallows the event when both
+    // contexts match.  The panels are mutually exclusive in the splitter,
+    // so toggling enabled state on show/hide ensures exactly one set is
+    // live at any time. (#2464)
     for (int i = 0; i < 12; ++i) {
-        auto* sc = new QShortcut(QKeySequence(Qt::Key_F1 + i), this);
+        auto* sc = new QShortcut(QKeySequence(Qt::Key_F1 + i), window());
+        sc->setContext(Qt::ApplicationShortcut);
+        sc->setEnabled(false);
+        m_shortcuts.append(sc);
         connect(sc, &QShortcut::activated, this, [this, i]() {
             int id = i + 1;
             selectSlot(id);
@@ -215,8 +224,11 @@ DvkPanel::DvkPanel(DvkModel* model, QWidget* parent)
         });
     }
 
-    // Escape: cancel rename if active, otherwise stop DVK operation
-    auto* esc = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+    // Escape: cancel rename if active, otherwise stop DVK operation.
+    auto* esc = new QShortcut(QKeySequence(Qt::Key_Escape), window());
+    esc->setContext(Qt::ApplicationShortcut);
+    esc->setEnabled(false);
+    m_shortcuts.append(esc);
     connect(esc, &QShortcut::activated, this, [this]() {
         if (m_renameEdit) {
             cancelRename();
@@ -239,6 +251,18 @@ DvkPanel::DvkPanel(DvkModel* model, QWidget* parent)
 
     m_selectedSlot = 1;
     selectSlot(1);
+}
+
+void DvkPanel::showEvent(QShowEvent* event)
+{
+    for (auto* sc : m_shortcuts) sc->setEnabled(true);
+    QWidget::showEvent(event);
+}
+
+void DvkPanel::hideEvent(QHideEvent* event)
+{
+    for (auto* sc : m_shortcuts) sc->setEnabled(false);
+    QWidget::hideEvent(event);
 }
 
 void DvkPanel::selectSlot(int id)
