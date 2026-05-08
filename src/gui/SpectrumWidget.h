@@ -103,6 +103,21 @@ public:
     // Reflects the current band, antenna and preamp — no hardcoded dBm value.
     float noiseFloorDbm() const { return m_measuredNoiseFloorDbm; }
 
+    // Squelch threshold overlay line.  level is the radio squelch_level (0-100),
+    // mapped to absolute dBm via the radio's fixed scale: dBm = -160 + level.
+    // (Empirically verified on FLEX-8600 fw 4.1.5 — not in FlexLib docs.)
+    void setSquelchLine(bool visible, int level);
+
+    // When enabled, measures the noise floor every 10 frames and emits
+    // autoSquelchLevelSuggested() with a level just above the floor.
+    // Uses asymmetric EWMA (fast rise / slow fall) so AGC-induced apparent
+    // dips during a QSO don't drag the threshold down.
+    void setAutoSquelchEnable(bool on);
+
+    // Margin above the 20th-pct noise floor for auto-squelch suggestion
+    // (5-20 dBm, default 10).  User-tunable via Display > SQL Margin.
+    void setAutoSqlMarginDb(int dBm);
+
     // (getters for display settings are below with their members)
 
     // Set the VFO frequency (draws the orange VFO marker).
@@ -356,6 +371,10 @@ public:
     void setHasTxSlice(bool has) { m_hasTxSlice = has; }
 
 signals:
+    // Emitted when auto-squelch computes a new suggested level (0-100 radio units).
+    // Connect to SliceModel::setSquelch and setSquelchLine to apply.
+    void autoSquelchLevelSuggested(int level);
+
     // Emitted when user clicks on an inactive slice marker.
     void sliceClicked(int sliceId);
     // Emitted when the user requests an absolute jump in the panadapter area.
@@ -502,6 +521,22 @@ private:
     bool  m_noiseFloorEnable{false};
     int   m_noiseFloorPosition{75};  // 0=top, 100=bottom
     int   m_noiseFloorFrameCount{0};
+
+    // Percentile EWMA used for the amber floor overlay line and auto-squelch.
+    // Tracked separately from m_measuredNoiseFloorDbm (two-pass trimmed mean)
+    // so the auto-adjust display feature and auto-squelch are independent.
+    // -999 = unmeasured (cold start).
+    float m_noiseFloorDbm{-999.0f};      // EWMA 20th-pct, asymmetric α
+    float m_noiseFloorPeakDbm{-999.0f};  // EWMA 95th-pct (reserved)
+
+    // Squelch threshold overlay line
+    bool  m_squelchLineVisible{false};
+    int   m_squelchLevel{0};             // 0-100 radio squelch_level units
+    bool  m_autoSquelchEnabled{false};
+    // m_autoSqlMarginDb: dBm above 20th-pct floor for auto-squelch suggestion
+    // (default 10, user-adjustable via Display > SQL Margin, range 5-20).
+    int   m_autoSqlMarginDb{10};
+    int   m_lastAutoSquelchLevel{-1};    // dedup — only emit when level changes
 
     // Tuning step size for click-snap and wheel scroll (Hz)
     int m_stepHz{100};

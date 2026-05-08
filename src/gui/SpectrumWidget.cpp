@@ -523,6 +523,29 @@ void SpectrumWidget::setWfLineDuration(int ms) {
     resetWfTimeScale();
 }
 
+void SpectrumWidget::setSquelchLine(bool visible, int level)
+{
+    m_squelchLineVisible = visible;
+    m_squelchLevel       = level;
+    markOverlayDirty();
+}
+
+void SpectrumWidget::setAutoSquelchEnable(bool on)
+{
+    m_autoSquelchEnabled = on;
+    if (!on) {
+        m_noiseFloorDbm        = -999.0f;
+        m_noiseFloorPeakDbm    = -999.0f;
+        m_lastAutoSquelchLevel = -1;
+    }
+}
+
+void SpectrumWidget::setAutoSqlMarginDb(int dBm)
+{
+    m_autoSqlMarginDb      = std::clamp(dBm, 5, 20);
+    m_lastAutoSquelchLevel = -1;  // force re-emit with new margin
+}
+
 void SpectrumWidget::setWfColorScheme(int scheme) {
     auto clamped = static_cast<WfColorScheme>(
         std::clamp(scheme, 0, static_cast<int>(WfColorScheme::Count) - 1));
@@ -1419,6 +1442,53 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
                 }
             }
         }
+    }
+
+    // ── Auto-squelch: percentile EWMA floor tracking ──────────────────────
+    // Runs when Auto SQL is enabled (m_autoSquelchEnabled), independent of the
+    // display auto-adjust above. Uses the same 10-frame cadence but its own
+    // frame counter (m_noiseFloorFrameCount tracks BOTH — they share the same
+    // block because the sorted array is already available).
+    //
+    // Asymmetric EWMA: rise fast (α=0.15, ~3 s at 25 fps) when band noise
+    // increases so the threshold goes up quickly to protect ears; fall slowly
+    // (α=0.02, ~25 s) so AGC-induced apparent dips during a strong signal don't
+    // drag the threshold down and allow noise through when the signal ends.
+    //
+    // Signal-presence gate: if the spread between the 80th and 20th percentile
+    // exceeds 15 dBm, a signal is riding the band — freeze the floor EWMA so
+    // AGC gain reduction (which lowers apparent noise) doesn't lower the threshold
+    // mid-transmission. 15 dBm chosen empirically: covers real signals without
+    // triggering on band noise peaks.
+    //
+    // kSqlMinDbm: the radio maps squelch_level 0-100 to a fixed absolute dBm
+    // scale of -160 to -60 dBm (1 dBm/unit). Empirically verified on FLEX-8600
+    // fw 4.1.5 — not explicitly documented in FlexLib. If a future firmware
+    // version changes this mapping, this constant needs updating.
+    if (m_autoSquelchEnabled && !m_transmitting && !m_smoothed.isEmpty()) {
+        QVector<float> sorted = m_smoothed;
+        std::sort(sorted.begin(), sorted.end());
+        const int n = sorted.size();
+        const float sample = sorted[n / 5];                          // 20th percentile
+        const float p80    = sorted[std::min(n * 4 / 5, n - 1)];    // 80th percentile
+        const bool  signalPresent = (p80 - sample) > 15.0f;
+
+        if (m_noiseFloorDbm <= -200.0f) {
+            m_noiseFloorDbm = sample;
+        } else if (!signalPresent) {
+            const float alpha = (sample > m_noiseFloorDbm) ? 0.15f : 0.02f;
+            m_noiseFloorDbm = alpha * sample + (1.0f - alpha) * m_noiseFloorDbm;
+        }
+
+        constexpr float kSqlMinDbm = -160.0f;  // see comment above
+        const float targetDbm = m_noiseFloorDbm + static_cast<float>(m_autoSqlMarginDb);
+        const int level = std::clamp(
+            static_cast<int>(targetDbm - kSqlMinDbm + 0.5f), 1, 100);
+        if (level != m_lastAutoSquelchLevel) {
+            m_lastAutoSquelchLevel = level;
+            emit autoSquelchLevelSuggested(level);
+        }
+        markOverlayDirty();
     }
 
     // Use FFT data for waterfall only when native tiles aren't available.
@@ -3433,6 +3503,46 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
             drawSwrSweep(p, specRect);
             drawSliceMarkers(p, specRect, wfRect);
             drawOffScreenSlices(p, specRect);
+
+            // ── Noise floor overlay line (dashed amber) ───────────────────
+            // Shows the measured 20th-percentile EWMA floor when Auto SQL is on.
+            if (m_autoSquelchEnabled && m_noiseFloorDbm > -500.0f) {
+                const float norm = (m_refLevel - m_noiseFloorDbm) / m_dynamicRange;
+                const int y = specRect.top()
+                    + static_cast<int>(std::clamp(norm, 0.0f, 1.0f) * specRect.height());
+                QPen floorPen(QColor(0xFF, 0xA0, 0x20, 200), 1, Qt::DashLine);
+                p.setPen(floorPen);
+                p.drawLine(specRect.left(), y, specRect.right(), y);
+                QFont f = p.font();
+                f.setPointSize(8);
+                f.setBold(true);
+                p.setFont(f);
+                p.setPen(QColor(0xFF, 0xA0, 0x20, 200));
+                const QString lbl = QString("Floor %1 dBm").arg(static_cast<int>(m_noiseFloorDbm));
+                p.drawText(specRect.right() - p.fontMetrics().horizontalAdvance(lbl) - 4, y - 2, lbl);
+            }
+
+            // ── Squelch threshold line (solid yellow) ────────────────────
+            // Drawn at the radio's actual gate position using the fixed absolute
+            // dBm scale: dBm = -160 + squelch_level. Empirically verified on
+            // FLEX-8600 fw 4.1.5; independent of refLevel/dynamicRange so the
+            // line stays correct regardless of zoom or display range changes.
+            if (m_squelchLineVisible && m_squelchLevel > 0) {
+                constexpr float kSqlMinDbm = -160.0f;
+                const float squelchDbm = kSqlMinDbm + static_cast<float>(m_squelchLevel);
+                const float norm = (m_refLevel - squelchDbm) / m_dynamicRange;
+                const int sy = specRect.top()
+                    + static_cast<int>(std::clamp(norm, 0.0f, 1.0f) * specRect.height());
+                p.setPen(QPen(QColor(0xFF, 0xFF, 0x00, 220), 1));
+                p.drawLine(specRect.left(), sy, specRect.right(), sy);
+                QFont f = p.font();
+                f.setPointSize(8);
+                f.setBold(true);
+                p.setFont(f);
+                p.setPen(QColor(0xFF, 0xFF, 0x00, 220));
+                const QString lbl = QString("SQL %1").arg(m_squelchLevel);
+                p.drawText(4, sy - 2, lbl);
+            }
 
             // WNB / RF gain / Prop forecast indicators (top-right of spectrum)
             {

@@ -749,12 +749,36 @@ void RxApplet::buildUI()
         m_sqlSlider->setStyleSheet(kSliderStyle);
         row->addWidget(m_sqlSlider, 1);
 
+        m_sqlAutoBtn = new QPushButton("AUTO");
+        m_sqlAutoBtn->setCheckable(true);
+        m_sqlAutoBtn->setFixedWidth(42);
+        m_sqlAutoBtn->setFixedHeight(20);
+        m_sqlAutoBtn->setStyleSheet(QString(kButtonBase) + kGreenActive + kDisabledBtn);
+        m_sqlAutoBtn->setToolTip("Automatically sets squelch just above the measured noise floor.");
+        row->addWidget(m_sqlAutoBtn);
+
         connect(m_sqlBtn, &QPushButton::toggled, this, [this](bool on) {
+            // Turning SQL off while AUTO is engaged cancels AUTO
+            if (!on && m_sqlAutoBtn && m_sqlAutoBtn->isChecked()) {
+                QSignalBlocker sb(m_sqlAutoBtn);
+                m_sqlAutoBtn->setChecked(false);
+                emit sqlAutoChanged(false);
+                emit noiseFloorEnableChanged(false);
+            }
+            m_sqlSlider->setEnabled(on && !(m_sqlAutoBtn && m_sqlAutoBtn->isChecked()));
             if (m_slice) m_slice->setSquelch(on, m_sqlSlider->value());
         });
         connect(m_sqlSlider, &QSlider::valueChanged, this, [this](int v) {
             if (m_slice && m_sqlBtn->isChecked())
                 m_slice->setSquelch(true, v);
+        });
+        connect(m_sqlAutoBtn, &QPushButton::toggled, this, [this](bool on) {
+            emit sqlAutoChanged(on);
+            emit noiseFloorEnableChanged(on);
+            if (on && !m_sqlBtn->isChecked()) {
+                m_sqlBtn->setChecked(true);  // triggers setSquelch via existing connection
+            }
+            m_sqlSlider->setEnabled(!on && m_sqlBtn->isChecked());
         });
         rightCol->addLayout(row);
     }
@@ -922,6 +946,7 @@ void RxApplet::buildUI()
     m_afSlider->setToolTip("Audio output volume for this slice.");
     m_sqlBtn->setToolTip("Squelch gate \u2014 silences audio when the signal drops below the threshold.");
     m_sqlSlider->setToolTip("Squelch threshold. Increase to require a stronger signal before audio opens.");
+    if (m_sqlAutoBtn) m_sqlAutoBtn->setToolTip("Auto-squelch: automatically tracks the noise floor and sets the threshold just above it.");
     m_agcCombo->setToolTip("AGC speed. Slow resists pumping on quiet bands; Fast tracks rapid signal changes.");
     m_agcTSlider->setToolTip(QString("AGC Threshold: %1").arg(m_agcTSlider->value()));
     m_ritOnBtn->setToolTip("Receive Incremental Tuning \u2014 offsets the receive frequency without moving transmit.");
@@ -961,6 +986,10 @@ void RxApplet::buildUI()
     m_sqlBtn->setAccessibleDescription("Toggle squelch gate");
     m_sqlSlider->setAccessibleName("Squelch threshold");
     m_sqlSlider->setAccessibleDescription("Signal level below which audio is muted");
+    if (m_sqlAutoBtn) {
+        m_sqlAutoBtn->setAccessibleName("Auto squelch");
+        m_sqlAutoBtn->setAccessibleDescription("Automatically track noise floor for squelch threshold");
+    }
     m_agcCombo->setAccessibleName("AGC mode");
     m_agcCombo->setAccessibleDescription("Automatic gain control speed");
     m_agcTSlider->setAccessibleName("AGC threshold");
@@ -1357,6 +1386,7 @@ void RxApplet::connectSlice(SliceModel* s)
         m_sqlBtn->setChecked(s->squelchOn());
         m_sqlSlider->setValue(s->squelchLevel());
     }
+    emit squelchStateChanged(s->squelchOn(), s->squelchLevel());
     // AF gain → radio's per-slice audio_level
     {
         QSignalBlocker sb(m_afSlider);
@@ -1372,6 +1402,7 @@ void RxApplet::connectSlice(SliceModel* s)
         if (m_sqlBtn->isEnabled())
             m_sqlBtn->setChecked(on);
         m_sqlSlider->setValue(level);
+        emit squelchStateChanged(on, level);
     });
 
     // DSP toggles removed — use VFO DSP tab or spectrum overlay
@@ -1466,6 +1497,7 @@ void RxApplet::connectSlice(SliceModel* s)
 void RxApplet::disconnectSlice(SliceModel* s)
 {
     s->disconnect(this);
+    emit squelchStateChanged(false, 0);  // clear spectrum squelch line on slice detach
 }
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
@@ -1695,7 +1727,8 @@ void RxApplet::updateModeSettings(const QString& mode)
     bool sqlDisabled = (mode == "DIGU" || mode == "DIGL" || mode == "NT"
                         || mode == "CW" || mode == "CWL");
     m_sqlBtn->setEnabled(!sqlDisabled);
-    m_sqlSlider->setEnabled(!sqlDisabled);
+    m_sqlSlider->setEnabled(!sqlDisabled && !(m_sqlAutoBtn && m_sqlAutoBtn->isChecked()));
+    if (m_sqlAutoBtn) m_sqlAutoBtn->setEnabled(!sqlDisabled);
     if (sqlDisabled && m_slice) {
         if (m_slice->squelchOn()) {
             m_savedSquelchOn = true;

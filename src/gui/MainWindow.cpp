@@ -9569,6 +9569,29 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     connect(menu, &SpectrumOverlayMenu::noiseFloorEnableChanged,
             sw, &SpectrumWidget::setNoiseFloorEnable);
 
+    // ── Auto-squelch wiring ───────────────────────────────────────────────
+    // RxApplet signals → per-pan spectrum widget
+    connect(m_appletPanel->rxApplet(), &RxApplet::noiseFloorEnableChanged,
+            sw, &SpectrumWidget::setNoiseFloorEnable);
+    connect(m_appletPanel->rxApplet(), &RxApplet::sqlAutoChanged,
+            sw, &SpectrumWidget::setAutoSquelchEnable);
+    connect(m_appletPanel->rxApplet(), &RxApplet::squelchStateChanged,
+            sw, &SpectrumWidget::setSquelchLine);
+    // Spectrum widget → radio: apply auto-suggested squelch level to active slice
+    connect(sw, &SpectrumWidget::autoSquelchLevelSuggested,
+            this, [this](int level) {
+        if (auto* s = activeSlice()) s->setSquelch(true, level);
+    });
+    // SQL Margin overlay control → spectrum widget + persist
+    connect(menu, &SpectrumOverlayMenu::autoSqlMarginDbChanged,
+            sw, &SpectrumWidget::setAutoSqlMarginDb);
+    // Initialize SQL Margin from AppSettings for this pan's spectrum widget
+    {
+        auto& s = AppSettings::instance();
+        int margin = std::clamp(s.value("AutoSqlMarginDb", "10").toInt(), 5, 20);
+        sw->setAutoSqlMarginDb(margin);
+    }
+
     // Pop out / dock panadapter
     connect(sw, &SpectrumWidget::popOutRequested, this, [this, applet](bool popOut) {
         if (popOut) {
