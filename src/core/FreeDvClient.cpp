@@ -486,6 +486,13 @@ void FreeDvClient::disableReporting()
     m_myMessage.clear();
 }
 
+void FreeDvClient::updateMessage(const QString& message)
+{
+    m_myMessage = message;
+    if (!m_reportingEnabled || !m_connected.load() || m_myCallsign.isEmpty()) return;
+    sendEvent("message_update", QJsonObject{{"message", message}});
+}
+
 void FreeDvClient::reportFreqChange(double freqMhz)
 {
     m_myFreqMhz = freqMhz;

@@ -54,6 +54,7 @@ public slots:
 
     void reportFreqChange(double freqMhz);
     void reportTxState(bool transmitting);
+    void updateMessage(const QString& message);
 
     // Feed live SNR from RADEEngine::snrChanged — throttled to 1 s by internal timer.
     void updateRxSnr(float snrDb);

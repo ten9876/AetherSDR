@@ -1698,8 +1698,10 @@ void DxClusterDialog::buildFreeDvTab(QTabWidget* tabs)
         "QLineEdit { background: #1a1a2e; color: #c8d8e8; border: 1px solid #203040; padding: 3px; }");
     connect(m_fdvMessageEdit, &QLineEdit::editingFinished, this, [this] {
         auto& as = AppSettings::instance();
-        as.setValue("FreeDvMyMessage", m_fdvMessageEdit->text().trimmed());
+        QString msg = m_fdvMessageEdit->text().trimmed();
+        as.setValue("FreeDvMyMessage", msg);
         as.save();
+        emit fdvMessageChanged(msg);
     });
     reportLayout->addWidget(m_fdvMessageEdit, frow, 1);
     frow++;
