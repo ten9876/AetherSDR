@@ -4,7 +4,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QMutexLocker>
 #include <QStandardPaths>
+#include <QTime>
 
 namespace AetherSDR {
 
@@ -67,8 +69,11 @@ LogManager::LogManager()
 
 LogManager& LogManager::instance()
 {
-    static LogManager mgr;
-    return mgr;
+    // The Qt message handler can still be invoked during late teardown on
+    // some platforms. Keep the manager alive for process lifetime and shut
+    // down the writer explicitly from main().
+    static LogManager* mgr = new LogManager;
+    return *mgr;
 }
 
 bool LogManager::isEnabled(const QString& id) const
@@ -113,8 +118,44 @@ void LogManager::applyFilterRules()
     QLoggingCategory::setFilterRules(rules.join('\n'));
 }
 
+bool LogManager::startLogging(const QString& path, bool mirrorToStderr)
+{
+    if (!m_writer.start(path, mirrorToStderr))
+        return false;
+
+    setActiveLogFilePath(path);
+    return true;
+}
+
+void LogManager::shutdownLogging()
+{
+    m_writer.shutdown();
+}
+
+void LogManager::enqueueMessage(QtMsgType type, const QMessageLogContext& ctx, const QString& msg)
+{
+    const QString category = (ctx.category && *ctx.category)
+        ? QString::fromUtf8(ctx.category)
+        : QStringLiteral("default");
+
+    m_writer.enqueue(type, QTime::currentTime(), category, msg);
+    if (type == QtFatalMsg)
+        m_writer.flush();
+}
+
+void LogManager::flushLog() const
+{
+    m_writer.flush();
+}
+
+AsyncLogWriter::Counters LogManager::logCounters() const
+{
+    return m_writer.counters();
+}
+
 QString LogManager::logFilePath() const
 {
+    QMutexLocker locker(&m_pathMutex);
     if (!m_activeLogFilePath.isEmpty()) {
         return m_activeLogFilePath;
     }
@@ -124,17 +165,24 @@ QString LogManager::logFilePath() const
 
 void LogManager::setActiveLogFilePath(const QString& path)
 {
+    QMutexLocker locker(&m_pathMutex);
     m_activeLogFilePath = path;
 }
 
 qint64 LogManager::logFileSize() const
 {
+    flushLog();
     QFileInfo fi(logFilePath());
     return fi.exists() ? fi.size() : 0;
 }
 
 void LogManager::clearLog()
 {
+    if (m_writer.isRunning()) {
+        m_writer.clearLog();
+        return;
+    }
+
     QFile f(logFilePath());
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
         f.close();

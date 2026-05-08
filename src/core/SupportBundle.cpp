@@ -50,6 +50,7 @@ SupportBundle::RadioInfo SupportBundle::collectRadioInfo(const RadioModel* model
 QString SupportBundle::createBundle(const RadioInfo& radio)
 {
     auto& logMgr = LogManager::instance();
+    logMgr.flushLog();
 
     // Create temp directory for bundle contents
     QTemporaryDir tmpDir;

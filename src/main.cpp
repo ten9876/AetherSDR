@@ -11,10 +11,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QDateTime>
-#include <QMutex>
-#include <QMutexLocker>
 #include <QStandardPaths>
-#include <QRegularExpression>
 
 #ifdef _WIN32
 #include <io.h>
@@ -58,90 +55,9 @@ static int aetherTolerantX11ErrorHandler(AetherX11Display*, AetherX11ErrorEvent*
 }
 #endif  // __linux__
 
-static QFile* s_logFile = nullptr;
-
-static QMutex* logMutex()
-{
-    // qInstallMessageHandler callbacks can arrive concurrently from any Qt
-    // thread; leak this intentionally so shutdown logging cannot outlive it.
-    static QMutex* mutex = new QMutex;
-    return mutex;
-}
-
-// Redact PII from log messages before writing to file.
-// Patterns: IP addresses, radio serial numbers, Auth0 tokens, MAC addresses.
-//
-// Regex objects are heap-allocated (intentional leak) so they survive static
-// destruction order during abnormal teardown.  Without this, crash cleanup
-// invokes the message handler from dying threads after the function-local
-// statics are destroyed, producing "invalid QRegularExpression" errors (#1233).
-static QString redactPii(const QString& msg)
-{
-    QString out = msg;
-
-    // IPv4 addresses: 192.168.50.121 → *.*.*. 121 (keep last octet)
-    // Negative lookbehind/lookahead skip 4-component version strings:
-    //   "0.9.2.1"            — quoted (Qt qDebug output)
-    //   v0.9.2.1             — v-prefixed
-    //   software_ver=4.2.18.41174  — protocol field with trailing build number
-    //   firmware_ver=…       — same shape
-    // The trailing (?![\d"]) handles the build-number case where the 4th
-    // captured "octet" is part of a longer number (e.g. 41174 → matches as
-    // 411 with 74 dangling, which is the bug we're fixing).
-    static const QRegularExpression* ipRe = new QRegularExpression(
-        R"((?<!ver=)(?<![v"])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\d"]))");
-    out.replace(*ipRe, QStringLiteral("*.*.*. \\4"));
-
-    // Radio serial: 4424-1213-8600-7836 → ****-****-****-7836
-    static const QRegularExpression* serialRe = new QRegularExpression(
-        R"(\d{4}-\d{4}-\d{4}-(\d{4}))");
-    out.replace(*serialRe, QStringLiteral("****-****-****-\\1"));
-
-    // Auth0 tokens (long base64 strings after id_token or token)
-    static const QRegularExpression* tokenRe = new QRegularExpression(
-        R"((id_token[= :]|token[= :])\s*([A-Za-z0-9_\-\.]{20})[A-Za-z0-9_\-\.]+)");
-    out.replace(*tokenRe, QStringLiteral("\\1 \\2...REDACTED"));
-
-    // MAC addresses: 00-1C-2D-05-37-2A → **-**-**-**-**-2A
-    static const QRegularExpression* macRe = new QRegularExpression(
-        R"(([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2})-([0-9A-Fa-f]{2}))");
-    out.replace(*macRe, QStringLiteral("**-**-**-**-**-\\6"));
-
-    return out;
-}
-
 static void messageHandler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg)
 {
-    static const char* labels[] = {"DBG", "WRN", "CRT", "FTL", "INF"};
-    const char* label = (type <= QtInfoMsg) ? labels[type] : "???";
-    const QString category = (ctx.category && *ctx.category)
-        ? QString::fromUtf8(ctx.category)
-        : QStringLiteral("default");
-
-    const QString safeMsg = redactPii(msg);
-    const QString line = QString("[%1] %2 %3: %4\n")
-        .arg(QDateTime::currentDateTime().toString("HH:mm:ss.zzz"), label, category, safeMsg);
-    const QByteArray lineBytes = line.toUtf8();
-
-    // File write is the only thing that needs the mutex — QFile is not
-    // thread-safe (PR #2284 added this serialization to fix concurrent-write
-    // corruption).
-    {
-        QMutexLocker locker(logMutex());
-        if (s_logFile && s_logFile->isOpen()) {
-            s_logFile->write(lineBytes);
-            s_logFile->flush();
-        }
-    }
-
-    // Skip stderr when it's a pipe to a non-draining parent (Stream Deck
-    // "Run Command", systemd user services, GUI launchers).  Once the
-    // ~64 KB pipe buffer fills, a blocking write would lock up the app.
-    // The fprintf is outside the log mutex so even an unexpected stall
-    // here can't block other threads' log calls.
-    static const bool stderrIsTty = isatty(fileno(stderr));
-    if (stderrIsTty)
-        fprintf(stderr, "%s", lineBytes.constData());
+    AetherSDR::LogManager::instance().enqueueMessage(type, ctx, msg);
 }
 
 int main(int argc, char* argv[])
@@ -261,11 +177,13 @@ int main(int argc, char* argv[])
         }
     }
 
-    s_logFile = new QFile(logPath);
-    if (s_logFile->open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
-        // Restrict log file to owner-only (may contain session identifiers)
-        s_logFile->setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-        AetherSDR::LogManager::instance().setActiveLogFilePath(logPath);
+    // Skip stderr when it's a pipe to a non-draining parent (Stream Deck
+    // "Run Command", systemd user services, GUI launchers).  Once the
+    // ~64 KB pipe buffer fills, a blocking write could lock up the logger.
+    static const bool stderrIsTty = isatty(fileno(stderr));
+
+    auto& logManager = AetherSDR::LogManager::instance();
+    if (logManager.startLogging(logPath, stderrIsTty)) {
         qInstallMessageHandler(messageHandler);
 
         // Symlink aethersdr.log → latest timestamped file (for Support dialog)
@@ -274,8 +192,6 @@ int main(int argc, char* argv[])
         QFile::link(logPath, symlink);
     } else {
         fprintf(stderr, "Warning: could not open log file %s\n", logPath.toLocal8Bit().constData());
-        delete s_logFile;
-        s_logFile = nullptr;
     }
 
     // Use Fusion style as a clean cross-platform base
@@ -293,8 +209,15 @@ int main(int argc, char* argv[])
 
     qDebug() << "Starting AetherSDR" << app.applicationVersion();
 
-    AetherSDR::MainWindow window;
-    window.show();
+    int exitCode = 0;
+    {
+        AetherSDR::MainWindow window;
+        window.show();
+        exitCode = app.exec();
+    }
 
-    return app.exec();
+    qInstallMessageHandler(nullptr);
+    logManager.shutdownLogging();
+
+    return exitCode;
 }

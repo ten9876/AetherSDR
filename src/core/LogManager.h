@@ -1,9 +1,12 @@
 #pragma once
 
+#include "AsyncLogWriter.h"
+
 #include <QObject>
 #include <QList>
 #include <QString>
 #include <QLoggingCategory>
+#include <QMutex>
 
 namespace AetherSDR {
 
@@ -60,6 +63,12 @@ public:
     void setAllEnabled(bool on);
 
     // Log file management
+    bool startLogging(const QString& path, bool mirrorToStderr);
+    void shutdownLogging();
+    void enqueueMessage(QtMsgType type, const QMessageLogContext& ctx, const QString& msg);
+    void flushLog() const;
+    AsyncLogWriter::Counters logCounters() const;
+
     QString logFilePath() const;
     void setActiveLogFilePath(const QString& path);
     qint64 logFileSize() const;
@@ -77,7 +86,9 @@ private:
     void applyFilterRules();
 
     QList<Category> m_categories;
+    mutable QMutex m_pathMutex;
     QString m_activeLogFilePath;
+    mutable AsyncLogWriter m_writer;
 };
 
 } // namespace AetherSDR
