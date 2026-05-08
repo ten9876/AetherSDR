@@ -15,6 +15,7 @@
 #include "core/MemoryRecallPolicy.h"
 #include "core/StreamStatus.h"
 #include "models/PanadapterModel.h"
+#include "models/RadioStatusOwnership.h"
 #include "SpectrumWidget.h"
 #ifdef AETHER_GPU_SPECTRUM
 #include <QRhiWidget>
@@ -11979,11 +11980,7 @@ void MainWindow::createPansSequentially(const QString& layoutId, int total,
                 showPanadapterSliceCapacityMessage();
                 return;
             }
-            const auto kvs = CommandParser::parseKVs(body);
-            QString panId;
-            if (kvs.contains("pan"))       panId = kvs["pan"];
-            else if (kvs.contains("id"))   panId = kvs["id"];
-            else                           panId = body.trimmed();
+            const QString panId = RadioStatusOwnership::parsePanafallCreatePanId(body);
 
             qDebug() << "applyPanLayout: created pan" << (created + 1) << "of" << total
                      << "id:" << panId;

@@ -6,6 +6,7 @@
 #include <QMap>
 #include <QString>
 
+#include <algorithm>
 #include <utility>
 
 namespace AetherSDR::RadioStatusOwnership {
@@ -23,9 +24,39 @@ inline QString streamCommandId(quint32 value)
         : QString::number(value, 16).rightJustified(8, QLatin1Char('0'));
 }
 
+inline QString normalizedFlexId(QString text)
+{
+    text = text.trimmed();
+    if (text.isEmpty()) {
+        return QString();
+    }
+
+    if (text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive)) {
+        text = text.mid(2);
+    }
+
+    bool ok = false;
+    const quint32 id = text.toUInt(&ok, 16);
+    return ok ? hexId(id) : QString();
+}
+
 inline quint32 parseFlexId(QString text)
 {
     return parseStatusHandle(std::move(text));
+}
+
+inline QString parsePanafallCreatePanId(const QString& body)
+{
+    const QMap<QString, QString> kvs = CommandParser::parseKVs(body);
+    if (kvs.contains(QStringLiteral("pan"))) {
+        return normalizedFlexId(kvs.value(QStringLiteral("pan")));
+    }
+    if (kvs.contains(QStringLiteral("id"))) {
+        return normalizedFlexId(kvs.value(QStringLiteral("id")));
+    }
+
+    const QStringList parts = body.trimmed().split(QLatin1Char(','));
+    return parts.isEmpty() ? QString() : normalizedFlexId(parts.constFirst());
 }
 
 struct StreamObjectParts {
@@ -122,6 +153,24 @@ inline quint32 parseCreateResponseStreamId(const QString& body)
     if (kvs.contains(QStringLiteral("id")))
         return parseStreamId(kvs.value(QStringLiteral("id")));
     return parseStreamId(body);
+}
+
+inline int boundedSliceCapacity(int modelLimit,
+                                int currentMax,
+                                int currentSliceCount,
+                                int reportedAvailableSlices)
+{
+    if (modelLimit <= 0) {
+        return currentMax;
+    }
+    const int clampedCurrentMax = std::min(currentMax, modelLimit);
+
+    if (reportedAvailableSlices < 0) {
+        return clampedCurrentMax;
+    }
+
+    const int reportedTotal = currentSliceCount + reportedAvailableSlices;
+    return std::min(modelLimit, std::max(clampedCurrentMax, reportedTotal));
 }
 
 inline RemoteAudioRxAction applyRemoteAudioRxStatus(RemoteAudioRxTracking& state,

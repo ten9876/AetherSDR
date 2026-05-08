@@ -263,6 +263,35 @@ void testCreateResponseParsing()
           "numeric-only keyed create response stream id parses as hex");
     check(streamCommandId(0x0400000A) == QStringLiteral("0400000a"),
           "stream command id is normalized for stream remove");
+    check(parsePanafallCreatePanId(QStringLiteral("0x40000000,0x42000000"))
+              == QStringLiteral("0x40000000"),
+          "panafall create comma response returns only the pan id");
+    check(parsePanafallCreatePanId(QStringLiteral("40000000,0x42000000"))
+              == QStringLiteral("0x40000000"),
+          "panafall create bare comma response normalizes only the pan id");
+    check(parsePanafallCreatePanId(QStringLiteral("pan=0x40000001 waterfall=0x42000001"))
+              == QStringLiteral("0x40000001"),
+          "panafall create keyed response returns pan id");
+}
+
+void testBoundedSliceCapacity()
+{
+    check(boundedSliceCapacity(8, 8, 8, 2) == 8,
+          "slice capacity does not inflate above model limit");
+    check(boundedSliceCapacity(8, 10, 8, 2) == 8,
+          "stale inflated slice capacity is clamped back to model limit");
+    check(boundedSliceCapacity(8, 10, 1, 2) == 8,
+          "stale inflated slice capacity is clamped when reported total is below model limit");
+    check(boundedSliceCapacity(8, 10, 1, -1) == 8,
+          "stale inflated slice capacity is clamped when reported availability is invalid");
+    check(boundedSliceCapacity(4, 10, 1, 2) == 4,
+          "slice capacity clamps to lower model limits");
+    check(boundedSliceCapacity(8, 4, 3, 5) == 8,
+          "reported available slices can raise capacity up to model limit");
+    check(boundedSliceCapacity(4, 4, 1, -1) == 4,
+          "negative reported slice availability is ignored");
+    check(boundedSliceCapacity(0, 4, 8, 2) == 4,
+          "slice capacity does not change before model limit is known");
 }
 
 } // namespace
@@ -277,6 +306,7 @@ int main()
     testDaxTxPolicy();
     testUdpRegistrationPolicy();
     testCreateResponseParsing();
+    testBoundedSliceCapacity();
 
     if (failures) {
         std::printf("\n%d failure(s)\n", failures);

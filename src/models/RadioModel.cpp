@@ -107,26 +107,14 @@ QString hexCode(int value)
 
 QString normalizePanadapterId(QString text)
 {
-    text = text.trimmed();
-    if (text.isEmpty())
-        return QString();
-
-    if (text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
-        text = text.mid(2);
-
-    bool ok = false;
-    const quint32 id = text.toUInt(&ok, 16);
-    return ok ? hexId(id) : text;
+    const QString trimmed = text.trimmed();
+    const QString normalized = RadioStatusOwnership::normalizedFlexId(trimmed);
+    return normalized.isEmpty() ? trimmed : normalized;
 }
 
 QString parsePanadapterCreateId(const QString& body)
 {
-    const QMap<QString, QString> kvs = CommandParser::parseKVs(body);
-    if (kvs.contains(QStringLiteral("pan")))
-        return normalizePanadapterId(kvs.value(QStringLiteral("pan")));
-    if (kvs.contains(QStringLiteral("id")))
-        return normalizePanadapterId(kvs.value(QStringLiteral("id")));
-    return normalizePanadapterId(body);
+    return RadioStatusOwnership::parsePanafallCreatePanId(body);
 }
 
 struct StreamObjectParts {
@@ -3513,9 +3501,25 @@ void RadioModel::handleRadioStatus(const QMap<QString, QString>& kvs)
     if (kvs.contains("model"))    { m_model = kvs["model"]; m_maxSlices = maxSlicesForModel(m_model); changed = true; }
     if (kvs.contains("slices")) {
         // slices=N reports available (unused) slots; total capacity = open + available
-        int available = kvs["slices"].toInt();
-        int total = m_slices.size() + available;
-        if (total > m_maxSlices) m_maxSlices = total;
+        const int available = kvs["slices"].toInt();
+        const int currentSliceCount = static_cast<int>(m_slices.size());
+        const int modelLimit = m_model.isEmpty() ? 0 : maxSlicesForModel(m_model);
+        const int reportedTotal = currentSliceCount + available;
+        if (modelLimit > 0 && reportedTotal > modelLimit) {
+            qCWarning(lcProtocol) << "RadioModel: ignoring impossible slice capacity"
+                                  << reportedTotal << "for model" << m_model
+                                  << "limit" << modelLimit
+                                  << "current slices" << currentSliceCount
+                                  << "reported available" << available;
+        }
+        const int updatedMax = RadioStatusOwnership::boundedSliceCapacity(
+            modelLimit,
+            m_maxSlices,
+            currentSliceCount,
+            available);
+        if (updatedMax != m_maxSlices) {
+            m_maxSlices = updatedMax;
+        }
         changed = true;
     }
     if (kvs.contains("callsign")) { m_callsign = kvs["callsign"]; changed = true; }
