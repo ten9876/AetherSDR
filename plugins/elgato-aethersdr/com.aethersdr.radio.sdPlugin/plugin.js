@@ -64,7 +64,7 @@ function parseTci(msg) {
             case "modulation":   if (p.length >= 2) radio.mode = p[1]; break;
             case "trx":          if (p.length >= 2) radio.transmitting = p[1] === "true"; break;
             case "tune":         if (p.length >= 1) radio.tuning = p[0] === "true"; break;
-            case "mute":         if (p.length >= 1) radio.muted = p[0] === "true"; break;
+            case "mute":         if (p.length >= 2) radio.muted = p[1] === "true"; break;
             case "volume":       if (p.length >= 1) radio.volume = parseInt(p[0]); break;
             case "drive":        if (p.length >= 1) radio.rfPower = parseInt(p[0]); break;
             case "tune_drive":   if (p.length >= 1) radio.tunePower = parseInt(p[0]); break;
@@ -113,7 +113,7 @@ const actionHandlers = {
     "com.aethersdr.radio.rf-power":    { keyDown: () => tciSend(`drive:${nextInCycle(POWER_LEVELS, radio.rfPower)};`) },
     "com.aethersdr.radio.tune-power":  { keyDown: () => tciSend(`tune_drive:${nextInCycle(TUNE_LEVELS, radio.tunePower)};`) },
     // Audio
-    "com.aethersdr.radio.mute-toggle":  { keyDown: () => tciSend(`mute:${!radio.muted};`) },
+    "com.aethersdr.radio.mute-toggle":  { keyDown: () => tciSend(`mute:0,${!radio.muted};`) },
     "com.aethersdr.radio.volume-up":    { keyDown: () => tciSend(`volume:${Math.min(radio.volume + 5, 100)};`) },
     "com.aethersdr.radio.volume-down":  { keyDown: () => tciSend(`volume:${Math.max(radio.volume - 5, 0)};`) },
     // DSP
