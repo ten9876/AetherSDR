@@ -258,7 +258,8 @@ SliceModel* RigctlProtocol::ensureCatSplitTxSlice(bool createIfMissing)
     if (txSlice) {
         m_catSplitCreatePending = false;
         m_catSplitTxSliceId = txSlice->sliceId();
-        txSlice->setTxSlice(true);
+        if (!txSlice->isTxSlice())
+            txSlice->setTxSlice(true);
         applyPendingSplitSettings(txSlice);
         return txSlice;
     }
