@@ -790,16 +790,36 @@ void PanadapterStack::setFramelessMode(bool on)
 void PanadapterStack::prepareShutdown()
 {
     saveFloatingState();
+
+    // Explicitly delete floating windows rather than calling close().
+    // close() without WA_DeleteOnClose only hides the window, leaving it alive
+    // as a Qt::Window child of MainWindow.  When MainWindow's QWidget::~QWidget()
+    // later tears down its QRhi, Qt fires the QRhiWidgetPrivate cleanup callbacks
+    // for those still-parented-but-hidden floating windows in an order that can
+    // invalidate QRhiWidgetPrivate before the callback returns → crash at 0x1e2.
+    // Deleting fw explicitly runs QRhiWidget::~QRhiWidget() → removeCleanupCallback
+    // while the QRhi is still valid, so no stale callbacks remain when MainWindow
+    // tears down (#2495 exit crash on macOS).
+    const QList<QString> floatingIds = m_floatingWindows.keys();
+    for (const QString& panId : floatingIds) {
+        PanFloatingWindow* fw = m_floatingWindows.take(panId);
+        if (!fw) continue;
+        fw->saveWindowGeometry();
+        if (PanadapterApplet* applet = fw->applet()) {
+            if (SpectrumWidget* sw = applet->spectrumWidget()) {
+                sw->hide();
+                sw->resetGpuResources();
+            }
+        }
+        m_pans.remove(panId);
+        delete fw;
+    }
+
     for (auto* applet : m_pans) {
         if (auto* sw = applet ? applet->spectrumWidget() : nullptr) {
             sw->hide();
             sw->resetGpuResources();
         }
-    }
-    for (auto* fw : m_floatingWindows) {
-        fw->saveWindowGeometry();
-        fw->setShuttingDown(true);
-        fw->close();
     }
 }
 
