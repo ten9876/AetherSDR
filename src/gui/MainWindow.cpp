@@ -951,6 +951,16 @@ MainWindow::MainWindow(QWidget* parent)
         }
         if (s.value("FramelessWindow", "True").toString() == "True")
             setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
+
+        // One-shot migration: remove persisted per-slice audio mute state.
+        // The radio does not persist audio_mute, so restoring it from
+        // AppSettings caused Slice A to start muted on every reconnect.
+        if (!s.contains("SliceAudioMutedMigratedV0999")) {
+            for (const QChar letter : {'A', 'B', 'C', 'D'})
+                s.remove(QString("SliceAudioMuted_%1").arg(letter));
+            s.setValue("SliceAudioMutedMigratedV0999", "True");
+            s.save();
+        }
     }
 
     applyDarkTheme();
@@ -10398,24 +10408,6 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
         if (sliceId == m_activeSliceId)
             m_audio->setRxPan(v);
     });
-
-    // Per-slice AF mute persistence (#1560): save state to AppSettings on each
-    // toggle so it survives the session; restore it once the slice is ready
-    // (the radio does not persist audio_mute between client connections).
-    // Use the user-visible slice letter (A/B/C/D) as the key so the saved state
-    // survives sessions where the radio assigns different numeric IDs (#1560).
-    const QChar sliceLetter = QChar('A' + sliceId);
-    connect(w, &VfoWidget::audioMuteToggled, this, [this, sliceLetter](bool on) {
-        AppSettings::instance().setValue(
-            QString("SliceAudioMuted_%1").arg(sliceLetter), on ? "True" : "False");
-    });
-    {
-        bool savedMute = AppSettings::instance()
-            .value(QString("SliceAudioMuted_%1").arg(sliceLetter), "False")
-            .toString() == "True";
-        if (savedMute)
-            s->setAudioMute(true);  // send audio_mute=1 to radio for this slice
-    }
 
     // Wire slice data into widget
     w->setSlice(s);
