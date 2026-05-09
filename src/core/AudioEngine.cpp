@@ -2878,7 +2878,7 @@ void AudioEngine::setNr4NoiseEstimationMethod(int m) { if (m_nr4) m_nr4->setNois
 void AudioEngine::setNr4MaskingDepth(float v) { if (m_nr4) m_nr4->setMaskingDepth(v); }
 void AudioEngine::setNr4SuppressionStrength(float v) { if (m_nr4) m_nr4->setSuppressionStrength(v); }
 #else // !HAVE_SPECBLEACH — stubs
-void AudioEngine::setNr4Enabled(bool) {}
+void AudioEngine::setNr4Enabled(bool on) { if (on) emit nr4EnabledChanged(false); }
 void AudioEngine::setNr4ReductionAmount(float) {}
 void AudioEngine::setNr4SmoothingFactor(float) {}
 void AudioEngine::setNr4WhiteningFactor(float) {}

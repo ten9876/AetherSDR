@@ -178,6 +178,15 @@ AetherDspWidget::AetherDspWidget(AudioEngine* audio, QWidget* parent)
             b->setToolTip("MNR is only available on macOS.");
         }
 #endif
+        // NR4 (libspecbleach spectral NR) requires clang-cl on Windows to
+        // compile its C99 VLAs — disabled when LLVM is not installed.
+#ifndef HAVE_SPECBLEACH
+        if (i == NR4) {
+            b->setEnabled(false);
+            b->setToolTip("NR4 requires LLVM (clang-cl) on Windows.\n"
+                          "Install LLVM from llvm.org and rebuild to enable NR4.");
+        }
+#endif
         // BNR (NVIDIA GPU neural denoising) is gated at compile time
         // by HAVE_BNR — VfoWidget hides its button entirely; here we
         // keep the slot visible so the 6-button row stays balanced and
