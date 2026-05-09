@@ -2136,9 +2136,6 @@ MainWindow::MainWindow(QWidget* parent)
 
 #ifdef HAVE_RADE
         if (m_radeSliceId >= 0 && m_radeEngine && m_radeEngine->isActive()) {
-            if (m_audio) {
-                m_audio->setRadeMode(tx);
-            }
             if (!tx) {
                 m_radeEngine->resetTx();
             }
