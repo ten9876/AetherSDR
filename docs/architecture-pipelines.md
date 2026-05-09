@@ -8,7 +8,7 @@ thread safety, signal routing, or data flow issues.
 Multi-thread architecture — up to 11 threads depending on features enabled:
 - **Main thread**: GUI rendering (paintEvent), RadioModel + all sub-models, user input
 - **Connection thread**: RadioConnection (TCP 4992 I/O, kernel TCP_INFO RTT)
-- **Audio thread**: AudioEngine (RX/TX audio, NR2/RN2 DSP, QAudioSink/Source)
+- **Audio thread**: AudioEngine (RX/TX audio; NR2/RN2/NR4/DFNR/BNR/MNR DSP, QAudioSink/Source)
 - **Network thread**: PanadapterStream (VITA-49 UDP parsing, FFT/waterfall/meter demux)
 - **ExtControllers thread**: FlexControl, MIDI, SerialPort (USB/serial I/O, RtMidi callbacks)
 - **Spot thread**: DxCluster, RBN, WSJT-X, POTA, FreeDV spot clients

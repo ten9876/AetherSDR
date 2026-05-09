@@ -218,6 +218,39 @@ Reusable widget from `src/gui/HGauge.h`.
 - **Bar fill:** cyan `#00b4d8`, range 0-255
 - **Value text:** 28px wide, right-aligned
 
+### MeterSmoother (Meter Ballistics)
+
+Every meter / level-bar / GR readout drives its display value through
+`MeterSmoother` (`src/gui/MeterSmoother.h`) so the whole interface reads as
+one consistent instrument.
+
+- **Attack:** 30 ms · **Release:** 180 ms · **Poll rate:** 120 Hz
+  (`kMeterSmootherIntervalMs` = 8 ms)
+- **Domain:** normalised `[0, 1]` — callers map physical units (dBFS,
+  dB of GR, etc.) to a fraction before `setTarget()`
+- **Driving timer:** `QTimer` + `QElapsedTimer` per the header's usage
+  example; `tick(elapsedMs)` integrates over wall clock so timer
+  jitter doesn't change the perceived ballistic
+
+Don't roll your own envelope follower or copy ad-hoc smoothing constants
+from another widget. If a meter genuinely needs different ballistics
+(e.g. a slower release for a specialised GR bar), opt into different
+constants via `MeterSmoother::Ballistics`.
+
+### ClientCompKnob (Rotary Knob)
+
+Reusable knob widget from `src/gui/ClientCompKnob.h` used throughout the
+TX/RX DSP chain editors and the Aetherial Audio Channel Strip.
+
+- **Standard size:** 76×76 px (channel-strip / editor); 38×48 px on
+  applet tiles for compact mode
+- **Center label:** enable via `setCenterLabelMode(true)` to render the
+  numeric value inside the dial; otherwise the value renders below
+- **Range:** `setRange(min, max)` + `setDefault(v)`; double-click resets
+  to default
+- **Format:** `setLabelFormat([](float v){ return ...; })` for
+  unit-suffixed display (`"+3.0 dB"`, `"15 ms"`, etc.)
+
 ---
 
 ## Layout

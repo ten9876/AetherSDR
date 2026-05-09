@@ -5,7 +5,7 @@
 Replicate the **Windows-only FlexRadio SmartSDR client** (written in C#) as a
 **Linux-native C++ application** using Qt6 and C++20. The aim is to mirror the
 look, feel, and every function SmartSDR is capable of. The reference radio is a
-**FLEX-8600 running firmware 4.1.5**, which speaks **SmartSDR protocol v1.4.0.0**.
+**FLEX-8600 running firmware 4.2.18**, which speaks **SmartSDR protocol v1.4.0.0**.
 
 ## AI Agent Guidelines
 
@@ -135,7 +135,7 @@ key=value pairs by locating the last space before the first `=` sign.
 7. `stream create type=remote_audio_rx compression=none` → radio starts sending
    VITA-49 audio to our UDP port
 
-### Firmware v1.4.0.0 Quirks
+### Protocol / Firmware Quirks (v1.4.0.0 protocol on fw 4.x)
 
 - `client set udpport` returns `0x50001000` — use the one-byte UDP packet method
 - `client set enforce_local_ptt=1` returns `0x50001000` — correct command is `client set local_ptt=1`; the radio echoes a full `connected` status to ALL clients updating their `local_ptt` field when ownership changes

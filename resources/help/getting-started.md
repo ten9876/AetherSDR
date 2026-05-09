@@ -91,7 +91,7 @@ Common applets include:
 - `TUN`: tuner controls when supported hardware is present
 - `AMP`: amplifier controls when supported hardware is present
 - `TX`: transmit power, profiles, ATU, TUNE, and MOX
-- `PHNE`: voice-specific transmit shaping
+- `PHN`: voice-specific transmit shaping
 - `P/CW`: microphone controls in phone modes and keyer controls in CW modes
 - `EQ`: transmit and receive equalization
 - `DIGI`: CAT, DAX, TTY, and TCI controls for software integration

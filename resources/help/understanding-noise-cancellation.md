@@ -112,6 +112,7 @@ client-side mode can be active at a time.
 | NR2 | Spectral NR | Statistical DSP | 6 parameters | CPU | Fine-tuned control over SSB noise |
 | RN2 | RNNoise | Neural network | None | CPU | Quick cleanup, no fuss |
 | NR4 | SpecBleach | Advanced spectral | 7 parameters | CPU | Stubborn broadband noise |
+| MNR | Apple MMSE-Wiener | Statistical DSP | 1 slider | CPU (macOS only) | macOS users wanting a native option |
 | BNR | NVIDIA Maxine | AI (cloud/GPU) | 1 slider | RTX GPU | Maximum quality with NVIDIA hardware |
 | DFNR | DeepFilterNet3 | AI (local) | 2 parameters | CPU | Best all-around AI denoising |
 
@@ -128,7 +129,7 @@ operation. They work by identifying and preserving human speech while removing
 everything else — which is exactly the wrong thing to do when the signal you
 want is a CW tone or a digital mode like FT8, JS8Call, or RTTY.
 
-For this reason, most client-side modes (NR2, RN2, BNR, and DFNR)
+For this reason, the client-side modes (NR2, RN2, NR4, MNR, BNR, and DFNR)
 automatically disable themselves when you switch to CW, CWL, or a digital
 mode. This is intentional — do not try to force them on. Running voice-optimized
 noise reduction on non-voice signals can distort the audio, confuse decoding
@@ -189,6 +190,29 @@ the noise.
 automatically.
 
 **Recommendation:** RN2 is a great starting point if you are new to noise reduction or just want cleaner audio without learning what all the knobs do. If it is clipping weak signals or the audio sounds slightly muffled on very noisy bands, try DFNR or NR2 instead.
+
+---
+
+### MNR — Apple MMSE-Wiener (macOS only)
+
+MNR is a macOS-only spectral noise reducer that uses Apple's vDSP framework
+to run an MMSE (Minimum Mean-Square Error) Wiener filter natively on the
+operating system's optimised math libraries. It is mathematically related
+to NR2 — both descend from the Ephraim-Malah family — but takes advantage
+of macOS's hand-tuned implementation so it costs almost nothing on Apple
+Silicon.
+
+MNR exists for Mac users who want a no-fuss native option without
+installing GPU drivers (BNR) or compiling extra libraries (DFNR / NR4).
+It handles general HF SSB noise well; for tougher conditions or weak-DX
+work, DFNR remains the best all-around choice on macOS too.
+
+**Available tunables:**
+- **Strength** — A single slider (0–100%) controlling how aggressively
+  the Wiener filter cuts noise. Default 100%; lower for lighter touch.
+
+**Recommendation:** macOS users start here for the simplest setup; switch
+to DFNR for tougher noise.
 
 ---
 
@@ -284,7 +308,7 @@ gradually — over-processing can make voices sound robotic or hollow.
 
 ## Where to Find the Controls
 
-- **Quick toggle:** The DSP buttons on the VFO bar (NR2, RN2, BNR, NR4, DFNR)
+- **Quick toggle:** The DSP buttons on the VFO bar (NR2, RN2, NR4, MNR, BNR, DFNR)
 - **Overlay panel:** Right-click the spectrum display, open the DSP panel
 - **Full settings:** Settings menu → AetherDSP Settings (or right-click any DSP applet)
 - **Right-click shortcut:** Right-click the NR2 button on the VFO bar for a quick parameter popup

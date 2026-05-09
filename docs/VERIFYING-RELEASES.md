@@ -74,7 +74,7 @@ without an EV code signing certificate. To verify the download:
 ```powershell
 # Install Gpg4win from https://gpg4win.org/
 gpg --import RELEASE-SIGNING-KEY.pub.asc
-gpg --verify AetherSDR-Setup-v0.7.12.exe.asc AetherSDR-Setup-v0.7.12.exe
+gpg --verify AetherSDR-Setup-vX.Y.Z.exe.asc AetherSDR-Setup-vX.Y.Z.exe
 ```
 
 ## Commit Signing

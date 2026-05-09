@@ -79,7 +79,7 @@ changes.
 |--------|-----------|
 | **Main** | GUI rendering, RadioModel, all sub-models, user input |
 | **Connection** | RadioConnection (TCP 4992 I/O) |
-| **Audio** | AudioEngine (RX/TX audio, NR2/RN2/BNR DSP) |
+| **Audio** | AudioEngine (RX/TX audio; NR2/RN2/NR4/DFNR/BNR/MNR DSP) |
 | **Network** | PanadapterStream (VITA-49 UDP parsing) |
 | **ExtControllers** | FlexControl, MIDI, SerialPort |
 | **Spot** | DX Cluster, RBN, WSJT-X, POTA, FreeDV clients |
@@ -156,7 +156,10 @@ Features gated behind compile-time flags:
 | `HAVE_KEYCHAIN` | `Qt6Keychain` | SmartLink credential persistence |
 | `HAVE_MIDI` | Bundled RtMidi | MIDI controller mapping |
 | `HAVE_RADE` | Bundled RADE/Opus | FreeDV digital voice |
+| `HAVE_SPECBLEACH` | libspecbleach (clang-cl on Win) | NR4 spectral noise reduction |
+| `HAVE_DFNR` | Bundled DeepFilterNet3 | DFNR neural noise reduction |
 | `HAVE_BNR` | NVIDIA NIM container | GPU noise removal |
+| `HAVE_MQTT` | Bundled libmosquitto | MQTT applet |
 
 Use `#ifdef HAVE_*` guards. Features must degrade gracefully when unavailable.
 

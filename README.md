@@ -27,8 +27,8 @@ AetherSDR brings FlexRadio operation to Linux without Wine or virtual machines. 
 - **Multi-slice operation** — color-coded VFO overlays, independent TX assignment, diversity mode with ESC beamforming
 - **Multi-panadapter** — up to 8 pans (FLEX-6700) with 6 layout options, detachable pop-out windows, per-pan display controls, native VITA-49 waterfall tiles
 - **Full RX/TX controls** — filter presets, custom filter edges, AGC, DSP, EQ, mic/compression gauges, ATU, TUNE/MOX
-- **Aetherial Audio Channel Strip** — unified TX DSP suite (gate, EQ, compressor, de-esser, tube, AetherVoice exciter, Freeverb, brickwall limiter) with savable preset library
-- **Client-side noise reduction** — NR2 (spectral), RN2 (RNNoise neural), BNR (NVIDIA GPU AI denoiser)
+- **Aetherial Audio Channel Strip** — unified RX **and** TX DSP suite (gate, EQ, compressor, de-esser, tube, AetherVoice exciter, Freeverb on TX, plus brickwall limiter on TX / output trim on RX) with savable preset library and a wall-clock-accurate scope on each side
+- **Client-side noise reduction** — NR2 (spectral), RN2 (RNNoise neural), NR4 (libspecbleach), DFNR (DeepFilterNet3 neural), BNR (NVIDIA GPU AI denoiser), MNR (macOS MMSE-Wiener)
 - **AetherSweep** — in-panadapter SWR analyzer with log scale, threshold-band shading, interpolated bandwidth at SWR ≤ 1.5 / 2.0
 - **Network Diagnostics** — per-metric trend graphs, packet loss / RTT / jitter metrics, live log tail
 - **Memory channels + profiles** — memory bank with quick-recall, global / mic / TX profile management synced with the radio
@@ -51,7 +51,7 @@ AetherSDR brings FlexRadio operation to Linux without Wine or virtual machines. 
 
 ## Supported Radios
 
-Works with any FlexRadio transceiver: FLEX-6300, 6400, 6400M, 6500, 6600, 6600M, 6700, 8400, 8400M, 8600, 8600M, Aurora (AU-510, AU-520), and ML- / CL- / RT-series. Active test target is FLEX-8600 firmware 4.1.5 (SmartSDR protocol v1.4.0.0); v3.x firmware likely works but is not tested.
+Works with any FlexRadio transceiver: FLEX-6300, 6400, 6400M, 6500, 6600, 6600M, 6700, 8400, 8400M, 8600, 8600M, Aurora (AU-510, AU-520), and ML- / CL- / RT-series. Active test target is FLEX-8600 firmware 4.2.18 (SmartSDR protocol v1.4.0.0); earlier 4.x firmware works; v3.x is unsupported.
 
 ---
 

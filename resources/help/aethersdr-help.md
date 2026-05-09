@@ -168,7 +168,7 @@ Default applet order is:
 - `TUN`
 - `AMP`
 - `TX`
-- `PHNE`
+- `PHN`
 - `P/CW`
 - `EQ`
 - `DIGI`
@@ -207,7 +207,7 @@ The TX applet is the main transmit command surface. It includes:
 
 Before transmitting, this is the applet that should match your intention.
 
-### `PHNE`
+### `PHN`
 
 The Phone applet is focused on voice-mode shaping and behavior:
 
@@ -428,8 +428,8 @@ Work outward from the slice:
 5. if using Opus compression (SmartLink/WAN), disable client-side spectral
    noise reduction (NR2). NR2's noise estimator cannot distinguish Opus
    codec artifacts from real noise, which causes rasping distortion.
-   Use RNNoise (RN2), NR4 (specbleach), or DFNR instead — these
-   neural/spectral filters handle lossy audio gracefully.
+   Use RNNoise (RN2), NR4 (specbleach), MNR, BNR, or DFNR instead —
+   these neural/spectral filters handle lossy audio gracefully.
 
 ### When the display feels cluttered
 
