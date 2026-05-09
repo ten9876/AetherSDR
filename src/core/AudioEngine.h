@@ -98,6 +98,12 @@ public:
     void  setRxVolume(float v);
     void  setRxBoost(bool on) { m_rxBoost.store(on); }
     bool  rxBoost() const { return m_rxBoost.load(); }
+    // Final post-DSP linear gain on the RX path (-12..+12 dB).  Applied
+    // after the optional soft-knee BOOST so the strip's RX output meter
+    // (which taps post-trim) reads what hits the speakers.  Mirrors
+    // ClientFinalLimiter::outputTrimDb on the TX side.
+    void  setRxOutputTrimDb(float db) { m_rxOutputTrimDb.store(db); }
+    float rxOutputTrimDb() const { return m_rxOutputTrimDb.load(); }
 
     // Client-side RX pan (0=full-left, 50=centre, 100=full-right).
     // Normally the radio handles panning, but client-side NR mono-mixes
@@ -588,6 +594,7 @@ private:
     QAudioDevice m_inputDevice;
     std::atomic<float> m_rxVolume{1.0f};
     std::atomic<bool>  m_rxBoost{false};  // 50% software gain boost (#1445)
+    std::atomic<float> m_rxOutputTrimDb{0.0f};  // ±12 dB linear trim, post-boost
     std::atomic<int>   m_rxPan{50};       // 0=left, 50=centre, 100=right (#1460)
     std::atomic<int>   m_rxBufferCapMs{200}; // RX buffer cap in ms (#1505)
     std::atomic<bool>  m_muted{false};

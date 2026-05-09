@@ -1,6 +1,9 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QWidget>
+
+#include "MeterSmoother.h"
 
 class QLabel;
 class QPushButton;
@@ -9,6 +12,7 @@ class QTimer;
 namespace AetherSDR {
 
 class AudioEngine;
+class ClientCompKnob;
 
 // "Aetherial Output — RX" — RX-side counterpart of the TX
 // `StripFinalOutputPanel`.  Sits at the very end of the RX panel grid,
@@ -45,19 +49,26 @@ private:
     void tick();
 
     AudioEngine*  m_audio{nullptr};
-    QWidget*      m_titleBar{nullptr};   // EditorFramelessTitleBar*
-    QPushButton*  m_muteBtn{nullptr};
-    QPushButton*  m_boostBtn{nullptr};
-    QWidget*      m_meter{nullptr};      // peak bar widget (paint event)
-    QLabel*       m_peakLbl{nullptr};
-    QLabel*       m_rmsLbl{nullptr};
-    QTimer*       m_decayTimer{nullptr};
+    QWidget*        m_titleBar{nullptr};   // EditorFramelessTitleBar*
+    ClientCompKnob* m_trim{nullptr};
+    QPushButton*    m_muteBtn{nullptr};
+    QPushButton*    m_boostBtn{nullptr};
+    QWidget*        m_meter{nullptr};      // gradient bar widget (paint event)
+    QLabel*         m_peakLbl{nullptr};
+    QLabel*         m_rmsLbl{nullptr};
+    QLabel*         m_crestLbl{nullptr};
+    QTimer*         m_animTimer{nullptr};
+    QElapsedTimer   m_animClock;
 
-    // Peak/RMS state (dBFS).  Updated from the audio thread via
-    // scopeSamplesReady (queued cross-thread).  Decayed by m_decayTimer
-    // so the displayed reading falls smoothly when audio stops.
-    float         m_peakDb{-120.0f};
-    float         m_rmsDb{-120.0f};
+    // Project-canonical MeterSmoother ballistics — 30 ms attack /
+    // 180 ms release at 120 Hz polling.  Targets are normalised
+    // [0, 1] via dbToRatio(); m_peakDb / m_rmsDb are derived back to
+    // dB for the readout labels and as references into the gradient
+    // meter widget.
+    MeterSmoother   m_peakSmooth;
+    MeterSmoother   m_rmsSmooth;
+    float           m_peakDb{-120.0f};
+    float           m_rmsDb{-120.0f};
 };
 
 } // namespace AetherSDR

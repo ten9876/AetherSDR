@@ -1039,6 +1039,17 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
             }
             output = &boosted;
         }
+        QByteArray trimmed;
+        const float trimDb = m_rxOutputTrimDb.load();
+        if (std::fabs(trimDb) > 0.01f) {
+            const float gain = std::pow(10.0f, trimDb / 20.0f);
+            trimmed.resize(output->size());
+            const auto* src = reinterpret_cast<const float*>(output->constData());
+            auto* dst = reinterpret_cast<float*>(trimmed.data());
+            const int nSamples = output->size() / static_cast<int>(sizeof(float));
+            for (int i = 0; i < nSamples; ++i) dst[i] = src[i] * gain;
+            output = &trimmed;
+        }
         m_rxBuffer.append(*output);
         emitScopeFromFloat32Stereo(*output, scopeSampleRate, false);
         emitRxPostChainScopeFromFloat32Stereo(*output, scopeSampleRate);
@@ -3167,10 +3178,22 @@ void AudioEngine::processBnr(const QByteArray& stereoPcm)
 
         if (m_audioDevice && m_audioDevice->isOpen()) {
             const int scopeSampleRate = m_resampleTo48k ? 48000 : DEFAULT_SAMPLE_RATE;
-            const QByteArray& output = m_resampleTo48k ? resampleStereo(chunk) : chunk;
-            m_rxBuffer.append(output);
-            emitScopeFromFloat32Stereo(output, scopeSampleRate, false);
-            emitRxPostChainScopeFromFloat32Stereo(output, scopeSampleRate);
+            const QByteArray& resampled = m_resampleTo48k ? resampleStereo(chunk) : chunk;
+            const QByteArray* output = &resampled;
+            QByteArray trimmed;
+            const float trimDb = m_rxOutputTrimDb.load();
+            if (std::fabs(trimDb) > 0.01f) {
+                const float gain = std::pow(10.0f, trimDb / 20.0f);
+                trimmed.resize(resampled.size());
+                const auto* src = reinterpret_cast<const float*>(resampled.constData());
+                auto* dst = reinterpret_cast<float*>(trimmed.data());
+                const int nSamples = resampled.size() / static_cast<int>(sizeof(float));
+                for (int i = 0; i < nSamples; ++i) dst[i] = src[i] * gain;
+                output = &trimmed;
+            }
+            m_rxBuffer.append(*output);
+            emitScopeFromFloat32Stereo(*output, scopeSampleRate, false);
+            emitRxPostChainScopeFromFloat32Stereo(*output, scopeSampleRate);
             updateRxBufferStats();
         }
         emit levelChanged(computeRMS(chunk));

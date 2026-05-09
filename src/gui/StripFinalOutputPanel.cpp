@@ -2,6 +2,7 @@
 
 #include "ClientCompKnob.h"
 #include "EditorFramelessTitleBar.h"
+#include "MeterSmoother.h"
 #include "core/AppSettings.h"
 #include "core/AudioEngine.h"
 #include "core/ClientFinalLimiter.h"
@@ -46,7 +47,10 @@ constexpr const char* kWindowStyle =
 
 constexpr float kMeterMinDb = -60.0f;
 constexpr float kMeterMaxDb =   0.0f;
-constexpr int   kMeterIntervalMs = 33;   // ~30 Hz visual refresh
+// Use the project-canonical MeterSmoother poll rate so this panel's
+// ballistics match every other meter in the app (ClientCompMeter,
+// HGauge, etc.).
+constexpr int   kMeterIntervalMs = kMeterSmootherIntervalMs;
 
 float dbToRatio(float db)
 {
@@ -614,11 +618,12 @@ StripFinalOutputPanel::StripFinalOutputPanel(AudioEngine* engine, QWidget* paren
     // Initial values from engine.
     syncControlsFromEngine();
 
-    // 30 Hz meter polling.
+    // 120 Hz MeterSmoother polling (project-canonical rate).
     m_meterTimer = new QTimer(this);
     m_meterTimer->setInterval(kMeterIntervalMs);
     connect(m_meterTimer, &QTimer::timeout,
             this, &StripFinalOutputPanel::tickMeters);
+    m_animClock.start();
     m_meterTimer->start();
 }
 
@@ -1107,8 +1112,6 @@ void StripFinalOutputPanel::tickMeters()
     auto* lim = m_audio->clientFinalLimiterTx();
     if (!lim) return;
 
-    // Smoothed peak readings — fast attack, slower decay so transient
-    // peaks register but the bar doesn't jitter.
     const float inPeak   = lim->inputPeakDb();
     const float outPeak  = lim->outputPeakDb();
     const float outRms   = lim->outputRmsDb();
@@ -1117,19 +1120,34 @@ void StripFinalOutputPanel::tickMeters()
     const float activity = lim->limiterActivityPct();
     const quint64 clipCount = lim->clipPreLimiterCount();
 
-    // Cheap one-pole towards the latest reading; identical attack/decay
-    // is fine here since the limiter publishes block-peak values that
-    // are already conservative.
-    constexpr float kAlphaUp   = 0.55f;
-    constexpr float kAlphaDown = 0.10f;
-    auto blend = [&](float& state, float target) {
-        const float a = (target > state) ? kAlphaUp : kAlphaDown;
-        state += a * (target - state);
+    // Feed the smoothers in normalised [0, 1] space — setTarget every
+    // tick with the latest accessor value, no "only rise" guard.  The
+    // smoother's asymmetric attack/release does the right thing on
+    // its own (matches ClientCompMeter, ClientCompApplet, etc.).
+    // GR is mapped via -gr/30 so a 30 dB cut reads as a full bar
+    // (matches the existing red-fill overlay scale in HorizMeter).
+    auto dbRatio = [](float db) {
+        if (db <= kMeterMinDb) return 0.0f;
+        if (db >= kMeterMaxDb) return 1.0f;
+        return (db - kMeterMinDb) / (kMeterMaxDb - kMeterMinDb);
     };
-    blend(m_inPeakDb,  inPeak);
-    blend(m_outPeakDb, outPeak);
-    blend(m_outRmsDb,  outRms);
-    blend(m_grDb,      gr);
+    m_inPeakSmooth.setTarget(dbRatio(inPeak));
+    m_outPeakSmooth.setTarget(dbRatio(outPeak));
+    m_outRmsSmooth.setTarget(dbRatio(outRms));
+    m_grSmooth.setTarget(std::clamp(-gr / 30.0f, 0.0f, 1.0f));
+
+    const qint64 dt = m_animClock.restart();
+    m_inPeakSmooth.tick(dt);
+    m_outPeakSmooth.tick(dt);
+    m_outRmsSmooth.tick(dt);
+    m_grSmooth.tick(dt);
+
+    constexpr float kRange = kMeterMaxDb - kMeterMinDb;
+    m_inPeakDb  = kMeterMinDb + m_inPeakSmooth.value()  * kRange;
+    m_outPeakDb = kMeterMinDb + m_outPeakSmooth.value() * kRange;
+    m_outRmsDb  = kMeterMinDb + m_outRmsSmooth.value()  * kRange;
+    m_grDb      = -m_grSmooth.value() * 30.0f;
+
     m_active = active;
 
     // OVR latch — clip count is monotonic; any increase since last

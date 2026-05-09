@@ -467,7 +467,8 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     // the right path.
     auto makeEntry = [&](const QString& id, const QString& label,
                          QWidget* contentOrContainer, bool defaultOn,
-                         QWidget* rowParent, QHBoxLayout* rowLayout) -> AppletEntry {
+                         QWidget* rowParent, QHBoxLayout* rowLayout,
+                         const QString& buttonText = QString()) -> AppletEntry {
         ContainerWidget* c =
             qobject_cast<ContainerWidget*>(contentOrContainer);
         if (!c) {
@@ -477,7 +478,11 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
 
         QPushButton* btn = nullptr;
         if (rowLayout) {
-            btn = new QPushButton(id, rowParent);
+            // buttonText overrides the ID-as-label default — used to
+            // shorten visual labels (e.g. PHNE → PHN, WAVE → WAV) while
+            // keeping the persistence key (Applet_<ID>) stable.
+            btn = new QPushButton(buttonText.isEmpty() ? id : buttonText,
+                                  rowParent);
             btn->setCheckable(true);
             rowLayout->addWidget(btn);
         }
@@ -637,7 +642,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_appletOrder.append(makeEntry("TX", "TX Controls", m_txApplet, true, btnRow1, btnLayout1));
 
     m_phoneApplet = new PhoneApplet;
-    m_appletOrder.append(makeEntry("PHNE", "Phone", m_phoneApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("PHNE", "Phone", m_phoneApplet, true, btnRow1, btnLayout1, "PHN"));
 
     m_phoneCwApplet = new PhoneCwApplet;
     m_appletOrder.append(makeEntry("P/CW", "Phone/CW", m_phoneCwApplet, true, btnRow1, btnLayout1));
@@ -646,7 +651,7 @@ AppletPanel::AppletPanel(QWidget* parent) : QWidget(parent)
     m_appletOrder.append(makeEntry("EQ", "Equalizer", m_eqApplet, true, btnRow1, btnLayout1));
 
     m_waveApplet = new WaveApplet;
-    m_appletOrder.append(makeEntry("WAVE", "Waveform", m_waveApplet, true, btnRow1, btnLayout1));
+    m_appletOrder.append(makeEntry("WAVE", "Waveform", m_waveApplet, true, btnRow1, btnLayout1, "WAV"));
 
     // CEQ and CMP intentionally have no toggle button in the tray —
     // their visibility follows DSP bypass state, driven externally

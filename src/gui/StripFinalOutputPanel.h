@@ -1,6 +1,9 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QWidget>
+
+#include "MeterSmoother.h"
 
 class QLabel;
 class QPushButton;
@@ -68,7 +71,16 @@ private:
     QLabel*         m_limitLed{nullptr};
     QLabel*         m_activityLbl{nullptr};
     QTimer*         m_meterTimer{nullptr};
+    QElapsedTimer   m_animClock;
 
+    // Project-canonical MeterSmoother ballistics — 30 ms attack /
+    // 180 ms release at 120 Hz polling.  Targets normalised to [0, 1]
+    // via dbToRatio(); m_*Db members hold the post-smoother dB values
+    // for label readouts and HorizMeter rendering.
+    MeterSmoother m_inPeakSmooth;
+    MeterSmoother m_outPeakSmooth;
+    MeterSmoother m_outRmsSmooth;
+    MeterSmoother m_grSmooth;        // GR is positive-going; target = -gr/30 clamped to [0, 1]
     float    m_inPeakDb{-120.0f};
     float    m_outPeakDb{-120.0f};
     float    m_outRmsDb{-120.0f};

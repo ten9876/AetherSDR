@@ -220,6 +220,13 @@ Some radio commands lack status echo (e.g. `tnf remove`). Update the local
 model optimistically. **File a GitHub issue** tagged `protocol` + `upstream`
 for each missing status echo — optimistic updates break Multi-Flex.
 
+### Meter Smoothing — use MeterSmoother
+
+Every meter / level-bar / GR readout in the GUI must drive its display
+value through `MeterSmoother` (`src/gui/MeterSmoother.h`). Don't write
+new envelope-follower code or copy smoothing logic from other widgets
+— `MeterSmoother`'s header has the API and a usage example.
+
 ---
 
 ## Multi-Panadapter Support
