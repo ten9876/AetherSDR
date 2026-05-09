@@ -193,6 +193,40 @@ void PanadapterStack::equalizeSizes()
 
 void PanadapterStack::rearrangeLayout(const QString& layoutId)
 {
+    // Dock any floating pans first.  m_pans always contains every applet
+    // including those currently in a PanFloatingWindow (floatPanadapter
+    // never removes from m_pans), so the reparent loop below would yank
+    // a floating applet out of its native window via setParent(nullptr),
+    // bypassing the GPU-reset path that float/dock use.  The QRhiWidget
+    // would stay bound to the floating window's HWND/NSView — the next
+    // render produces a black surface and the next input event into it
+    // crashes (#2495).  Stale entries would also remain in
+    // m_floatingWindows, permanently blocking future float requests.
+    QList<SpectrumWidget*> rebound;
+    if (!m_floatingWindows.isEmpty()) {
+        const QList<QString> floatingIds = m_floatingWindows.keys();
+        for (const QString& panId : floatingIds) {
+            PanFloatingWindow* fw = m_floatingWindows.take(panId);
+            if (!fw) continue;
+            fw->saveWindowGeometry();
+            PanadapterApplet* applet = fw->applet();
+            if (auto* sw = applet ? applet->spectrumWidget() : nullptr) {
+                sw->hide();
+                sw->resetGpuResources();
+                rebound.append(sw);
+            }
+            applet = fw->takeApplet();
+            fw->hide();
+            fw->deleteLater();
+            if (applet) {
+                applet->setFloatingState(false);
+                applet->spectrumWidget()->setFloating(false);
+            }
+            emit panDocked(panId);
+        }
+        saveFloatingState();
+    }
+
     // Collect applets in order
     QList<PanadapterApplet*> applets = m_pans.values();
     if (applets.isEmpty()) return;
@@ -325,8 +359,18 @@ void PanadapterStack::rearrangeLayout(const QString& layoutId)
             m_splitter->addWidget(a);
     }
 
-    // Defer equalize until the new splitter has been laid out by Qt
-    QTimer::singleShot(0, this, [this]() { equalizeSizes(); });
+    // Defer equalize until the new splitter has been laid out by Qt.
+    // Re-show + refresh GPU surfaces for any spectrum widgets that came
+    // out of a floating window, so they bind to the new top-level window
+    // before the first render (mirrors the dockPanadapter() refresh dance).
+    QTimer::singleShot(0, this, [this, rebound]() {
+        for (auto* sw : rebound) {
+            if (!sw) continue;
+            sw->show();
+            refreshAfterReparent(sw);
+        }
+        equalizeSizes();
+    });
 }
 
 void PanadapterStack::removeAll()
