@@ -102,6 +102,7 @@
 #include "AetherDspWidget.h"
 #include "ClientRxDspApplet.h"
 #include "DspParamPopup.h"
+#include "FramelessResizer.h"
 #include "FramelessWindowTitleBar.h"
 
 #include <algorithm>
@@ -1022,6 +1023,15 @@ MainWindow::MainWindow(QWidget* parent)
         }
         if (s.value("FramelessWindow", "True").toString() == "True")
             setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
+
+        // 8-axis edge resize for frameless mode — same install pattern
+        // as the floating dialogs (SpotHub, RadioSetup, MemoryDialog).
+        // Filter sits on the native QWindow so it doesn't compete with
+        // the TitleBar's drag-to-move handler (the 6 px resize margin
+        // is well clear of the 18+ px title-bar height).  Stays
+        // installed across frameless toggles — when the system frame is
+        // back on, the platform owns resize and our filter no-ops.
+        FramelessResizer::install(this);
 
         // One-shot migration: remove persisted per-slice audio mute state.
         // The radio does not persist audio_mute, so restoring it from

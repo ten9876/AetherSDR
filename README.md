@@ -86,7 +86,8 @@ sudo apt install qt6-base-dev qt6-base-private-dev qt6-multimedia-dev \
   qt6-websockets-dev qt6-serialport-dev qt6-shader-baker qt6-shadertools-dev \
   cmake ninja-build pkg-config autoconf automake libtool \
   libfftw3-dev portaudio19-dev libhidapi-dev qtkeychain-qt6-dev \
-  libxkbcommon-dev gstreamer1.0-pulseaudio gstreamer1.0-plugins-base
+  libxkbcommon-dev libopengl0 \
+  gstreamer1.0-pulseaudio gstreamer1.0-plugins-base
 
 # Fedora
 sudo dnf install qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtmultimedia-devel \
@@ -113,11 +114,17 @@ brew install qt@6 ninja cmake pkgconf autoconf automake libtool \
 | portaudio19-dev | PortAudio audio backend |
 | libhidapi-dev | USB HID encoders (RC-28, PowerMate, FlexControl) |
 | qtkeychain-qt6-dev | SmartLink credential persistence |
+| libopengl0 | GLVND-split desktop OpenGL runtime (GPU spectrum/waterfall) |
 
 </details>
 
 > **Linux Mint / Ubuntu note:** If PC audio devices show as "Dummy Output",
 > install `gstreamer1.0-pulseaudio`. For PipeWire systems, also install `gstreamer1.0-pipewire`.
+>
+> **Ubuntu 26.04 note:** If AetherSDR fails to start with a missing
+> `libOpenGL.so.0` error, install `libopengl0`.  26.04 stopped pulling it in
+> by default for the desktop image; the build-deps line above includes it
+> explicitly so this only bites users who install just the AppImage.
 
 ### Build & Run
 
