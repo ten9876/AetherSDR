@@ -111,7 +111,8 @@ RadioInfo RadioDiscovery::parseDiscoveryPacket(const QByteArray& data) const
         else if (key == "status")  info.status  = value;
         else if (key == "nickname") info.nickname = value;
         else if (key == "callsign") info.callsign = value;
-        else if (key == "inuse")   info.inUse   = (value == "1");
+        else if (key == "inuse")       info.inUse           = (value == "1");
+        else if (key == "mf_enable")   info.multiFlexEnabled = (value != "0");
         else if (key == "max_licensed_version") info.maxLicensedVersion = value.toInt();
         else if (key == "is_system_model") info.isSystemModel = (value == "1");
         else if (key == "turf_region")     info.turfRegion    = value;

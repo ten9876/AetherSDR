@@ -61,6 +61,7 @@ struct RadioInfo {
     QString status;         // "Available" | "In_Use" | etc.
     int maxLicensedVersion{0};
     bool inUse{false};
+    bool multiFlexEnabled{true}; // mf_enable from discovery; true = multi-client allowed
     bool isRouted{false};
     bool isSystemModel{false};
     QString turfRegion;

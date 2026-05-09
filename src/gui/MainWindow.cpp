@@ -5,6 +5,7 @@
 #include "ConnectionPanel.h"
 #include "Theme.h"
 #include "ClientDisconnectDialog.h"
+#include "ConnectedStationsDialog.h"
 #include "TitleBar.h"
 #include "PanadapterApplet.h"
 #include "PanadapterStack.h"
@@ -632,6 +633,37 @@ bool MainWindow::confirmClientSlotAvailability(const RadioInfo& info,
         disconnectHandles->clear();
 
     const auto clients = buildDisconnectClients(info);
+
+    // When multiFLEX is disabled, any connected client blocks us — show the
+    // Connected Stations dialog so the user can disconnect them first.
+    if (!info.multiFlexEnabled && !clients.isEmpty()) {
+        ConnectedStationsDialog::RadioMeta meta;
+        meta.model    = info.model;
+        meta.nickname = info.nickname;
+        meta.callsign = info.callsign;
+
+        QList<ConnectedStationsDialog::Client> sdClients;
+        for (const auto& c : clients) {
+            ConnectedStationsDialog::Client sc;
+            sc.handle  = c.handle;
+            sc.program = c.program;
+            sc.station = c.station;
+            sdClients.append(sc);
+        }
+
+        ConnectedStationsDialog dialog(meta, sdClients, this);
+        if (dialog.exec() != QDialog::Accepted)
+            return false;
+
+        const quint32 handle = dialog.selectedHandle();
+        if (handle == 0)
+            return false;
+
+        if (disconnectHandles)
+            *disconnectHandles = {handle};
+        return true;
+    }
+
     const int maxSlices = RadioModel::maxSlicesForModel(info.model);
     if (clients.isEmpty() || clients.size() < maxSlices)
         return true;
@@ -652,6 +684,37 @@ bool MainWindow::confirmClientSlotAvailability(const WanRadioInfo& info,
         disconnectHandles->clear();
 
     const auto clients = buildDisconnectClients(info);
+
+    // licensedClients == 1 means the radio's multiFLEX license allows only one
+    // simultaneous client — effectively mf_enable=0 from the SmartLink perspective.
+    if (info.licensedClients <= 1 && !clients.isEmpty()) {
+        ConnectedStationsDialog::RadioMeta meta;
+        meta.model    = info.model;
+        meta.nickname = info.nickname;
+        meta.callsign = info.callsign;
+
+        QList<ConnectedStationsDialog::Client> sdClients;
+        for (const auto& c : clients) {
+            ConnectedStationsDialog::Client sc;
+            sc.handle  = c.handle;
+            sc.program = c.program;
+            sc.station = c.station;
+            sdClients.append(sc);
+        }
+
+        ConnectedStationsDialog dialog(meta, sdClients, this);
+        if (dialog.exec() != QDialog::Accepted)
+            return false;
+
+        const quint32 handle = dialog.selectedHandle();
+        if (handle == 0)
+            return false;
+
+        if (disconnectHandles)
+            *disconnectHandles = {handle};
+        return true;
+    }
+
     const int maxSlices = RadioModel::maxSlicesForModel(info.model);
     if (clients.isEmpty() || clients.size() < maxSlices)
         return true;
@@ -1704,6 +1767,42 @@ MainWindow::MainWindow(QWidget* parent)
         m_connPanel->setStatusText("Disconnected by another client");
         setPanadapterConnectionAnimation(false);
         showForcedDisconnectDialog(wasWan, radioInfo, wanInfo);
+    });
+    connect(&m_radioModel, &RadioModel::multiFlexConflictDetected, this, [this] {
+        ConnectedStationsDialog::RadioMeta meta;
+        meta.model    = m_radioModel.model();
+        meta.nickname = m_radioModel.nickname();
+        meta.callsign = m_radioModel.callsign();
+
+        QList<ConnectedStationsDialog::Client> sdClients;
+        const quint32 ours = m_radioModel.ourClientHandle();
+        for (auto it = m_radioModel.clientInfoMap().cbegin();
+             it != m_radioModel.clientInfoMap().cend(); ++it) {
+            if (it.key() == ours)
+                continue;
+            ConnectedStationsDialog::Client c;
+            c.handle  = it.key();
+            c.program = it->program;
+            c.station = it->station;
+            sdClients.append(c);
+        }
+
+        ConnectedStationsDialog* dlg = new ConnectedStationsDialog(meta, sdClients, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        connect(dlg, &QDialog::accepted, this, [this, dlg] {
+            const quint32 handle = dlg->selectedHandle();
+            if (handle != 0)
+                m_radioModel.resolveMultiFlexConflict(handle);
+            else
+                m_radioModel.cancelMultiFlexConflict();
+        });
+        connect(dlg, &QDialog::rejected, this, [this] {
+            m_userDisconnected = true;
+            m_connPanel->setStatusText("Connection canceled");
+            setPanadapterConnectionAnimation(false);
+            m_radioModel.cancelMultiFlexConflict();
+        });
+        dlg->show();
     });
     connect(&m_radioModel, &RadioModel::sliceAdded,
             this, &MainWindow::onSliceAdded);

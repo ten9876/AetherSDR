@@ -521,6 +521,7 @@ set(GUI_SOURCES
     src/gui/MainWindow.cpp
     src/gui/ConnectionPanel.cpp
     src/gui/ClientDisconnectDialog.cpp
+    src/gui/ConnectedStationsDialog.cpp
     src/gui/SpectrumWidget.cpp
     src/gui/SpectrumOverlayMenu.cpp
     src/gui/SliceColorManager.cpp

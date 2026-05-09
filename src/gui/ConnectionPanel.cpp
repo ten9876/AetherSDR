@@ -4,6 +4,8 @@
 #include "FramelessResizer.h"
 #include "FramelessWindowTitleBar.h"
 
+#include <memory>
+
 #include <QAbstractItemView>
 #include <QFormLayout>
 #include <QFrame>
@@ -1335,57 +1337,137 @@ void ConnectionPanel::probeRadio(const QString& ip)
     });
 
     connect(sock, &QTcpSocket::connected, this, [this, sock, trimmedIp, bindSettings] {
-        auto* buffer = new QByteArray;
+        // Shared state across readyRead calls and the peek timer.
+        auto buffer      = std::make_shared<QByteArray>();
+        auto version     = std::make_shared<QString>();
+        auto statusLines = std::make_shared<QStringList>();
+        auto localSrc    = std::make_shared<QHostAddress>();
+        auto seenHandle  = std::make_shared<bool>(false);
+
+        // Fired 400 ms after H is received; by then the radio has sent
+        // its full radio + client status burst in response to our subs.
+        auto* peekTimer = new QTimer(sock);
+        peekTimer->setSingleShot(true);
+        peekTimer->setInterval(400);
+
+        // Build RadioInfo from collected status and emit the connect signal.
+        auto finishProbe = [this, sock, trimmedIp, bindSettings, version, statusLines, localSrc] {
+            sock->deleteLater();
+
+            RadioInfo info;
+            info.address  = QHostAddress(trimmedIp);
+            info.port     = 4992;
+            info.version  = *version;
+            info.status   = QStringLiteral("Available");
+            info.model    = QStringLiteral("FLEX");
+            info.name     = QStringLiteral("FLEX");
+            info.serial   = trimmedIp;
+            info.isRouted = true;
+            info.bindSettings       = bindSettings;
+            info.sessionBindAddress = *localSrc;
+
+            // Parse S-type status lines collected during the peek window.
+            for (const QString& line : *statusLines) {
+                // S<handle>|<object> [key=val ...]
+                const int pipeIdx = line.indexOf('|');
+                if (pipeIdx < 0)
+                    continue;
+                const QString body = line.mid(pipeIdx + 1);
+
+                if (body.startsWith(QStringLiteral("radio "))) {
+                    const QStringList parts = body.mid(6).split(' ', Qt::SkipEmptyParts);
+                    for (const QString& part : parts) {
+                        const int eq = part.indexOf('=');
+                        if (eq < 0)
+                            continue;
+                        const QString key = part.left(eq);
+                        const QString val = part.mid(eq + 1);
+                        if (key == QStringLiteral("mf_enable")) {
+                            info.multiFlexEnabled = (val != QStringLiteral("0"));
+                        } else if (key == QStringLiteral("model") && !val.isEmpty()) {
+                            info.model = val;
+                            info.name  = val;
+                        } else if (key == QStringLiteral("nickname") && !val.isEmpty()) {
+                            info.nickname = val;
+                        } else if (key == QStringLiteral("callsign") && !val.isEmpty()) {
+                            info.callsign = val;
+                        }
+                    }
+                } else if (body.startsWith(QStringLiteral("client 0x"))
+                           && body.contains(QStringLiteral("connected"))) {
+                    // "client 0x<handle> connected program=... station=..."
+                    const QStringList tokens = body.split(' ', Qt::SkipEmptyParts);
+                    if (tokens.size() >= 3 && tokens[2] == QStringLiteral("connected")) {
+                        bool ok = false;
+                        const quint32 handle = tokens[1].toUInt(&ok, 16);
+                        if (!ok || handle == 0)
+                            continue;
+                        QString program;
+                        QString station;
+                        for (int i = 3; i < tokens.size(); ++i) {
+                            const int eq = tokens[i].indexOf('=');
+                            if (eq < 0)
+                                continue;
+                            const QString key = tokens[i].left(eq);
+                            const QString val = tokens[i].mid(eq + 1);
+                            if (key == QStringLiteral("program"))
+                                program = val;
+                            else if (key == QStringLiteral("station"))
+                                station = val;
+                        }
+                        info.guiClientHandles.append(QString::number(handle, 16).toUpper());
+                        info.guiClientPrograms.append(program);
+                        info.guiClientStations.append(station);
+                    }
+                }
+            }
+
+            saveManualProfile(trimmedIp, bindSettings, *localSrc);
+            rememberManualIp(trimmedIp);
+
+            m_manualConnectBtn->setText(QStringLiteral("Connect by IP"));
+            updateActionState();
+
+            if (m_manualConnectPending) {
+                saveLowBandwidthPreference(m_lowBwCheck->isChecked());
+                setManualMessage(
+                    QStringLiteral("Found a radio at %1. Connecting now…").arg(trimmedIp));
+                m_manualConnectPending = false;
+                emit connectRequested(info);
+            } else {
+                setManualMessage(
+                    QStringLiteral("Found a radio at %1 and saved the path for later.")
+                        .arg(trimmedIp));
+                emit routedRadioFound(info);
+            }
+        };
+
+        connect(peekTimer, &QTimer::timeout, this, [finishProbe] { finishProbe(); });
+
         connect(sock, &QTcpSocket::readyRead, this,
-                [this, sock, trimmedIp, bindSettings, buffer] {
+                [sock, buffer, version, statusLines, localSrc, seenHandle, peekTimer] {
             buffer->append(sock->readAll());
 
-            QString version;
             while (buffer->contains('\n')) {
                 const int idx = buffer->indexOf('\n');
                 const QString line = QString::fromUtf8(buffer->left(idx)).trimmed();
                 buffer->remove(0, idx + 1);
 
                 if (line.startsWith('V')) {
-                    version = line.mid(1);
-                } else if (line.startsWith('H')) {
-                    const QHostAddress localSource = sock->localAddress();
-                    sock->disconnectFromHost();
-                    sock->deleteLater();
-                    delete buffer;
-
-                    RadioInfo info;
-                    info.address = QHostAddress(trimmedIp);
-                    info.port = 4992;
-                    info.version = version;
-                    info.status = "Available";
-                    info.model = "FLEX";
-                    info.name = "FLEX";
-                    info.serial = trimmedIp;
-                    info.isRouted = true;
-                    info.bindSettings = bindSettings;
-                    info.sessionBindAddress = localSource;
-
-                    saveManualProfile(trimmedIp, bindSettings, info.sessionBindAddress);
-                    rememberManualIp(trimmedIp);
-
-                    m_manualConnectBtn->setText("Connect by IP");
-                    updateActionState();
-
-                    if (m_manualConnectPending) {
-                        saveLowBandwidthPreference(m_lowBwCheck->isChecked());
-                        setManualMessage(
-                            QStringLiteral("Found a radio at %1. Connecting now…").arg(trimmedIp));
-                        m_manualConnectPending = false;
-                        emit connectRequested(info);
-                    } else {
-                        setManualMessage(
-                            QStringLiteral("Found a radio at %1 and saved the path for later.")
-                                .arg(trimmedIp));
-                        emit routedRadioFound(info);
-                    }
-
-                    return;
+                    *version = line.mid(1);
+                } else if (line.startsWith('H') && !*seenHandle) {
+                    *seenHandle = true;
+                    *localSrc   = sock->localAddress();
+                    // Ask the radio for its current state before we commit
+                    // to a real connection. This lets us populate mf_enable
+                    // and connected client info even when there's no discovery
+                    // broadcast (direct IP / VPN / routed path).
+                    sock->write("C1|sub radio all\n");
+                    sock->write("C2|sub client all\n");
+                    sock->flush();
+                    peekTimer->start();
+                } else if (line.startsWith('S') && *seenHandle) {
+                    statusLines->append(line);
                 }
             }
         });

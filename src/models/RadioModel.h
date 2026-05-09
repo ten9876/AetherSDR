@@ -265,6 +265,11 @@ public:
     void connectToRadio(const RadioInfo& info);
     void connectViaWan(WanConnection* wan, const QString& publicIp, quint16 udpPort);
     void setPendingClientDisconnects(const QList<quint32>& handles);
+    // Called by MainWindow in response to multiFlexConflictDetected().
+    // Disconnects handle and resumes the connection sequence.
+    void resolveMultiFlexConflict(quint32 handle);
+    // Called by MainWindow when the user cancels the conflict dialog.
+    void cancelMultiFlexConflict();
     void disconnectFromRadio();
     void forceDisconnect();  // Close TCP but allow auto-reconnect
     bool isWan() const { return m_wanConn != nullptr; }
@@ -348,6 +353,10 @@ signals:
     void memoryRemoved(int index);
     void memoriesCleared();
     void audioOutputChanged();
+    // Emitted when multiFLEX is disabled and another client is already connected,
+    // detected post-TCP-connect before client gui is sent. MainWindow should show
+    // ConnectedStationsDialog and call resolveMultiFlexConflict() or cancelMultiFlexConflict().
+    void multiFlexConflictDetected();
     // Emitted when TX ownership changes in Multi-Flex (another client transmitting)
     void txOwnerChanged(bool ownedByUs, const QString& otherStation);
     // Emitted when the set of other connected clients changes.
@@ -428,6 +437,10 @@ private:
     void configureWaterfall();
     void registerAsGuiClient(const QString& clientId);
     void disconnectPendingClientsThen(std::function<void()> continuation);
+    // LAN-only: subscribe to radio+client topics early, wait 400 ms for
+    // the radio status burst, then check for a multiFLEX conflict before
+    // sending client gui. Calls continuation() if no conflict is found.
+    void peekForMultiFlexConflictThen(std::function<void()> continuation);
     void handleForcedClientDisconnect();
     void applyKnownGuiClients(const QStringList& handles,
                               const QStringList& programs,
@@ -679,6 +692,7 @@ private:
     int                m_rttyMarkDefault{2125};
     quint32            m_txClientHandle{0};  // handle of the client that owns TX
     QMap<quint32, ClientInfo> m_clientInfoMap; // handle → full client info
+    std::function<void()> m_multiFlexContinuation; // saved continuation during conflict pause
     QMap<quint32, QString> m_clientStations;   // handle → station name (legacy, kept in sync)
     QList<quint32> m_pendingClientDisconnects; // handles chosen before connecting
     QSet<quint32> m_announcedClientConnections; // client login notices shown this session
