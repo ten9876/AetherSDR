@@ -337,6 +337,15 @@ RadioModel::RadioModel(QObject* parent)
             m_cwxActive = false;
         sendCmd(cmd);
     });
+    // When the radio signals its CWX buffer is drained, release TX. (#2450)
+    // The radio's break-in timer fires but sync_cwx=1 still requires an
+    // explicit xmit 0 from the client — without it the radio holds TX for
+    // its full hardware interlock timeout (~60 s).
+    connect(&m_cwxModel, &CwxModel::queueEmpty, this, [this]() {
+        if (!m_cwxActive) return;
+        m_cwxActive = false;
+        m_transmitModel.setMox(false);
+    });
     connect(&m_dvkModel, &DvkModel::commandReady, this, [this](const QString& cmd){
         sendCmd(cmd);
     });

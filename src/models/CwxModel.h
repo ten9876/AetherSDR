@@ -49,6 +49,7 @@ signals:
     // self-contained even if speed changes mid-transmission.
     void transmissionRequested(const QString& text, int wpm);
     void transmissionCancelled();        // erase / clearBuffer / interrupt
+    void queueEmpty();                   // radio CWX buffer drained — TX teardown required
 
 private:
     int     m_speed{20};

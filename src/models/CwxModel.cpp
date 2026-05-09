@@ -143,6 +143,11 @@ void CwxModel::applyStatus(const QMap<QString, QString>& kvs)
                 int stop  = parts[1].toInt(&ok2);
                 if (ok1 && ok2) emit erased(start, stop);
             }
+        } else if (key == "queue") {
+            // Empty queue= means the radio's CWX buffer has drained.
+            // Signal RadioModel to release MOX (required when sync_cwx=1).
+            if (val.isEmpty() || val == "0")
+                emit queueEmpty();
         } else if (key.startsWith("macro") && key.length() > 5) {
             bool ok;
             int idx = key.mid(5).toInt(&ok);
