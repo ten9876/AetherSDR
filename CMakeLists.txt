@@ -1332,6 +1332,15 @@ target_link_libraries(cwx_panel_test PRIVATE
     Qt6::Core Qt6::Widgets
 )
 
+add_executable(cwx_model_queue_test
+    tests/cwx_model_queue_test.cpp
+    src/models/CwxModel.cpp
+    src/models/CwxModel.h
+)
+target_include_directories(cwx_model_queue_test PRIVATE src)
+target_link_libraries(cwx_model_queue_test PRIVATE Qt6::Core)
+add_test(NAME cwx_model_queue_test COMMAND cwx_model_queue_test)
+
 add_executable(meter_model_test
     tests/meter_model_test.cpp
     src/models/MeterModel.cpp
