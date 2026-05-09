@@ -147,10 +147,14 @@ WaveApplet::WaveApplet(QWidget* parent)
     // One-time migration from the previous "TimeWindowSec" key (1–20 s
     // linear) to the new "TimeWindowMs" discrete-step storage.  Existing
     // users keep their value, snapped to the nearest available step.
+    // Remove the old key + save so the legacy entry doesn't linger in
+    // AetherSDR.settings forever (CLAUDE.md migration pattern).
     if (settings.contains("WaveApplet_TimeWindowSec")
         && !settings.contains("WaveApplet_TimeWindowMs")) {
         const int legacySec = settings.value("WaveApplet_TimeWindowSec", 1).toInt();
         settings.setValue("WaveApplet_TimeWindowMs", QString::number(legacySec * 1000));
+        settings.remove("WaveApplet_TimeWindowSec");
+        settings.save();
     }
     const int windowMs = settings.value(
         "WaveApplet_TimeWindowMs",
