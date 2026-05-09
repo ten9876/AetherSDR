@@ -1352,6 +1352,7 @@ void ConnectionPanel::probeRadio(const QString& ip)
 
         // Build RadioInfo from collected status and emit the connect signal.
         auto finishProbe = [this, sock, trimmedIp, bindSettings, version, statusLines, localSrc] {
+            sock->disconnectFromHost();
             sock->deleteLater();
 
             RadioInfo info;

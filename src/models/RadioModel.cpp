@@ -1324,6 +1324,15 @@ void RadioModel::peekForMultiFlexConflictThen(std::function<void()> continuation
                     }
                 }
 
+                // If the map is still empty (only our own handle or nothing) after
+                // waiting for the burst, the radio either hasn't sent any client
+                // status yet or the burst arrived after the window closed.  Log so
+                // field reports of missed conflicts are diagnosable.  The connection
+                // proceeds — the alternative is a hang, which is worse than a miss.
+                if (m_clientInfoMap.isEmpty() || (m_clientInfoMap.size() == 1 && m_clientInfoMap.contains(ours2)))
+                    qCWarning(lcProtocol) << "RadioModel: peek window closed with no client status received —"
+                                            " conflict detection may have been missed (busy radio or lossy LAN)";
+
                 if (!m_multiFlexEnabled && hasOthers) {
                     qCDebug(lcProtocol) << "RadioModel: multiFLEX disabled, other clients present — pausing connection";
                     emit multiFlexConflictDetected();

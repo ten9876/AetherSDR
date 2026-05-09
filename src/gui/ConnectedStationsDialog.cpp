@@ -172,21 +172,23 @@ ConnectedStationsDialog::ConnectedStationsDialog(const RadioMeta& radio,
             label = QStringLiteral("client 0x%1").arg(client.handle, 8, 16, QChar('0')).toUpper();
 
         auto* rb = new QRadioButton(label, rowFrame);
-        group->addButton(rb, static_cast<int>(client.handle));
+        // Store the full quint32 handle as a property — avoids the truncation /
+        // sign-bit ambiguity that arises when casting to QButtonGroup's int id.
+        rb->setProperty("handle", QVariant::fromValue(client.handle));
+        group->addButton(rb);
         rowLayout->addWidget(rb);
         stationsLayout->addWidget(rowFrame);
 
-        connect(rb, &QRadioButton::toggled, this, [disconnectBtn, handle = client.handle](bool checked) {
+        connect(rb, &QRadioButton::toggled, this, [disconnectBtn](bool checked) {
             if (checked)
                 disconnectBtn->setEnabled(true);
-            Q_UNUSED(handle)
         });
     }
 
     connect(disconnectBtn, &QPushButton::clicked, this, [this, group] {
-        const int id = group->checkedId();
-        if (id > 0) {
-            m_selectedHandle = static_cast<quint32>(id);
+        QAbstractButton* checked = group->checkedButton();
+        if (checked) {
+            m_selectedHandle = checked->property("handle").value<quint32>();
             accept();
         }
     });

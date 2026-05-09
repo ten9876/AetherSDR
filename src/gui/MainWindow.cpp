@@ -687,7 +687,13 @@ bool MainWindow::confirmClientSlotAvailability(const WanRadioInfo& info,
 
     // licensedClients == 1 means the radio's multiFLEX license allows only one
     // simultaneous client — effectively mf_enable=0 from the SmartLink perspective.
+    // WanRadioInfo defaults to 1 when licensed_clients is absent from the SmartLink
+    // response (older firmware, partial parse), so this gate is fail-safe: it blocks
+    // rather than allows.  Log when we hit the default so field reports are diagnosable.
     if (info.licensedClients <= 1 && !clients.isEmpty()) {
+        if (info.licensedClients == 1)
+            qCWarning(lcGui) << "MainWindow: WAN licensedClients=1 (may be default) — "
+                                "showing conflict dialog as a precaution";
         ConnectedStationsDialog::RadioMeta meta;
         meta.model    = info.model;
         meta.nickname = info.nickname;
