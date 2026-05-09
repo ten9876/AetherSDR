@@ -3994,6 +3994,58 @@ MainWindow::MainWindow(QWidget* parent)
     // TCI audio (WSJT-X) should enable PC Audio manually. (#1071)
 #endif
 
+    // ── DAX IQ wiring on platforms without an audio bridge ──────────────
+    //
+    // Same class of bug as #1820 (RADE RX on Windows): startDax() is
+    // compiled out on platforms without an audio bridge (Windows, Linux
+    // without PipeWire), so the DAX IQ stream-status registration handler
+    // that lives inside it never runs.  As a result PanadapterStream sees
+    // the inbound VITA-49 IQ packets but never knows what channel to
+    // route them to — iqDataReady never fires, the GUI applet meter
+    // shows nothing, and TCI clients get no IQ frames.
+    //
+    // Mirror just the IQ-side wiring here (the audio-bridge wiring
+    // genuinely needs the bridge so we leave that gated).  On Mac /
+    // PipeWire builds startDax() does the same wiring lazily when DAX
+    // audio is toggled, so we skip this block to avoid double-connection.
+#if !defined(Q_OS_MAC) && !defined(HAVE_PIPEWIRE)
+    if (m_appletPanel && m_appletPanel->daxIqApplet() && m_radioModel.panStream()) {
+        connect(&m_radioModel, &RadioModel::statusReceived,
+                this, [this](const QString& obj, const QMap<QString,QString>& kvs) {
+            if (!obj.startsWith("stream ")) return;
+            const QStringList parts = obj.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            if (parts.size() < 2) return;
+            bool ok = false;
+            quint32 streamId = parts[1].toUInt(&ok, 0);
+            if (!ok) return;
+            const bool removed = parts.contains(QStringLiteral("removed"))
+                              || kvs.contains(QStringLiteral("removed"));
+            if (removed) {
+                m_radioModel.panStream()->unregisterIqStream(streamId);
+                m_radioModel.daxIqModel().handleStreamRemoved(streamId);
+                return;
+            }
+            if (kvs.value("type") != "dax_iq") return;
+            if (!streamStatusBelongsToUs(kvs, m_radioModel.ourClientHandle())) return;
+            m_radioModel.daxIqModel().applyStreamStatus(streamId, kvs);
+            int ch = kvs.value("daxiq_channel").toInt();
+            if (streamId && ch >= 1 && ch <= 4)
+                m_radioModel.panStream()->registerIqStream(streamId, ch);
+        });
+
+        connect(m_radioModel.panStream(), &PanadapterStream::iqDataReady,
+                &m_radioModel.daxIqModel(), &DaxIqModel::feedRawIqPacket);
+        connect(&m_radioModel.daxIqModel(), &DaxIqModel::iqLevelReady,
+                m_appletPanel->daxIqApplet(), &DaxIqApplet::setDaxIqLevel);
+        connect(m_appletPanel->daxIqApplet(), &DaxIqApplet::iqEnableRequested,
+                &m_radioModel.daxIqModel(), &DaxIqModel::createStream);
+        connect(m_appletPanel->daxIqApplet(), &DaxIqApplet::iqDisableRequested,
+                &m_radioModel.daxIqModel(), &DaxIqModel::removeStream);
+        connect(m_appletPanel->daxIqApplet(), &DaxIqApplet::iqRateChanged,
+                &m_radioModel.daxIqModel(), &DaxIqModel::setSampleRate);
+    }
+#endif
+
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
     // DAX enable button in DaxApplet → start/stop DAX bridge
     connect(m_appletPanel->daxApplet(), &DaxApplet::daxToggled,
