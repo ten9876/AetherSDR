@@ -4023,10 +4023,21 @@ MainWindow::MainWindow(QWidget* parent)
             if (removed) {
                 m_radioModel.panStream()->unregisterIqStream(streamId);
                 m_radioModel.daxIqModel().handleStreamRemoved(streamId);
+                qCDebug(lcDax) << "MainWindow: unregistered removed DAX IQ stream"
+                               << "0x" + QString::number(streamId, 16);
                 return;
             }
             if (kvs.value("type") != "dax_iq") return;
-            if (!streamStatusBelongsToUs(kvs, m_radioModel.ourClientHandle())) return;
+            if (!streamStatusBelongsToUs(kvs, m_radioModel.ourClientHandle())) {
+                qCDebug(lcDax) << "MainWindow: ignoring DAX IQ stream for another client"
+                                << "stream=0x" + QString::number(streamId, 16)
+                                << "owner=" << kvs.value("client_handle");
+                return;
+            }
+            qCDebug(lcDax) << "MainWindow: DAX IQ stream status" << obj
+                           << "keys=" << kvs.keys()
+                           << "ch=" << kvs.value("daxiq_channel")
+                           << "ip=" << kvs.value("ip");
             m_radioModel.daxIqModel().applyStreamStatus(streamId, kvs);
             int ch = kvs.value("daxiq_channel").toInt();
             if (streamId && ch >= 1 && ch <= 4)
