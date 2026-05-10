@@ -215,9 +215,13 @@ private:
     void setAppletPanelDockedLeft(bool left);
 
     // Show/hide the applet panel — single source of truth that updates the
-    // status-bar ☰ toggle, the View menu action, the title-bar dock icons,
-    // and the persisted "AppletPanelVisible" setting.
+    // title-bar dock icons and the persisted "AppletPanelVisible" setting.
     void setAppletPanelVisible(bool visible);
+
+    // Toggle the applet panel between docked-in-splitter and floating in
+    // its own Qt::Window.  Persists "AppletPanelFloating" and updates the
+    // title-bar pop-out icon highlight.
+    void toggleAppletPanelFloating(bool floating);
 
     void showMemoryDialog();
     void showQuickAddMemoryDialog(const QString& preferredPanId = {});
@@ -452,7 +456,6 @@ private:
     // Status bar labels (SmartSDR-style)
     QLabel* m_connStatusLabel{nullptr};   // hidden, used for connection state logic
     QLabel* m_addPanLabel{nullptr};
-    QAction* m_panelVisAction{nullptr};
     QLabel* m_tnfIndicator{nullptr};
     QLabel* m_cwxIndicator{nullptr};
     CwxPanel* m_cwxPanel{nullptr};
@@ -529,7 +532,6 @@ private:
     // slot is removed; re-dock appends a fresh slot and re-applies the
     // canonical {0, 0, width-260, 260} sizing.
     QWidget*    m_appletPanelFloatWindow{nullptr};
-    QAction*    m_popOutSidebarAction{nullptr};
     void floatAppletPanel();
     void dockAppletPanel();
     bool m_displaySettingsPushed{false};  // one-shot: push saved display settings after pan created

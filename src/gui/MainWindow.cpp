@@ -5440,12 +5440,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                     m_appletPanelFloatWindow->saveGeometry().toBase64());
                 // Fall through — let Qt close the window normally.
             } else {
-                // User clicked the X on the floating window.  Flip
-                // the menu action; its toggled handler docks the
-                // panel back and persists AppletPanelFloating=False.
+                // User clicked the X on the floating window — dock the
+                // panel back and persist AppletPanelFloating=False.
                 QTimer::singleShot(0, this, [this]() {
-                    if (m_popOutSidebarAction)
-                        m_popOutSidebarAction->setChecked(false);
+                    toggleAppletPanelFloating(false);
                 });
             }
         }
@@ -6604,40 +6602,23 @@ void MainWindow::buildMenuBar()
 
     auto* viewMenu = menuBar()->addMenu("&View");
 
-    m_panelVisAction = viewMenu->addAction("Applet Panel");
-    m_panelVisAction->setCheckable(true);
-    m_panelVisAction->setChecked(
-        AppSettings::instance().value("AppletPanelVisible", "True").toString() == "True");
-    connect(m_panelVisAction, &QAction::toggled, this, [this](bool on) {
-        setAppletPanelVisible(on);
+    // Applet-panel show/hide and pop-out are now driven entirely from the
+    // title-bar dock icons (#1713 Phase 6).  Ctrl+Shift+S retained here as
+    // a window-scoped QShortcut so the keystroke survives the View-menu
+    // entries being removed.
+    auto* popOutShortcut = new QShortcut(QKeySequence("Ctrl+Shift+S"), this);
+    connect(popOutShortcut, &QShortcut::activated, this, [this]() {
+        toggleAppletPanelFloating(m_appletPanelFloatWindow == nullptr);
     });
 
-    // Pop out the whole applet panel into its own window (#1713 Phase 6).
-    // Toggles between panel-docked (inside the QSplitter) and floating
-    // (separate Qt::Window).  Ctrl+Shift+S is the keyboard shortcut.
-    m_popOutSidebarAction = viewMenu->addAction("Pop Out Applet Panel");
-    m_popOutSidebarAction->setCheckable(true);
-    m_popOutSidebarAction->setShortcut(QKeySequence("Ctrl+Shift+S"));
-    m_popOutSidebarAction->setChecked(
-        AppSettings::instance().value(
-            "AppletPanelFloating", "False").toString() == "True");
-    connect(m_popOutSidebarAction, &QAction::toggled, this, [this](bool floating) {
-        if (floating) floatAppletPanel();
-        else          dockAppletPanel();
-        AppSettings::instance().setValue(
-            "AppletPanelFloating", floating ? "True" : "False");
-        AppSettings::instance().save();
-        if (m_titleBar)
-            m_titleBar->setAppletFloating(floating);
-    });
-    if (m_popOutSidebarAction->isChecked()) {
+    // Restore floating state at startup if the user had it floating last
+    // time.  Delayed to the next event-loop turn so the splitter has
+    // finished its initial layout before we yank the panel out.
+    if (AppSettings::instance().value("AppletPanelFloating", "False").toString() == "True") {
         QTimer::singleShot(0, this, [this]() {
-            floatAppletPanel();
-            if (m_titleBar) m_titleBar->setAppletFloating(true);
+            toggleAppletPanelFloating(true);
         });
     }
-
-    viewMenu->addSeparator();
 
     // Band Plan submenu — Off / Small / Medium / Large / Huge
     auto* bandPlanMenu = viewMenu->addMenu("Band Plan");
@@ -7064,11 +7045,10 @@ void MainWindow::buildUI()
     };
     connect(m_titleBar, &TitleBar::dockAppletLeftRequested,  this, [handleDockClick]() { handleDockClick(true);  });
     connect(m_titleBar, &TitleBar::dockAppletRightRequested, this, [handleDockClick]() { handleDockClick(false); });
-    // Pop-out icon: route through the existing View-menu toggle so all
-    // three controls (icon, menu, Ctrl+Shift+S) stay in sync.
+    // Pop-out icon: toggle floating via the shared helper so the icon, the
+    // Ctrl+Shift+S shortcut, and the float-window close-X stay in sync.
     connect(m_titleBar, &TitleBar::popOutAppletRequested, this, [this]() {
-        if (m_popOutSidebarAction)
-            m_popOutSidebarAction->toggle();
+        toggleAppletPanelFloating(m_appletPanelFloatWindow == nullptr);
     });
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
@@ -7481,22 +7461,32 @@ void MainWindow::buildUI()
     m_connStatusLabel->hide();
 
     // ── Left section ─────────────────────────────────────────────────────
-    // +PAN icon: mini spectrum with + overlay
+    // +PAN icon: jagged FFT-spectrum trace with multiple sharp peaks
+    // (matching the SSDR visual language) plus a "+" overlay.
     {
         QPixmap pm(36, 28);
         pm.fill(Qt::transparent);
         QPainter pp(&pm);
         pp.setRenderHint(QPainter::Antialiasing);
-        // Spectrum line — flat noise floor with two signal peaks
-        pp.setPen(QPen(QColor(255, 255, 255, 128), 1.8));
+
+        const QColor stroke(255, 255, 255, 210);
+
+        // Polyline: noise floor at y=22, multiple peaks of varying height,
+        // with extra detail between peaks for the "real FFT" texture.
+        pp.setPen(QPen(stroke, 1.6));
         const QPointF pts[] = {
-            {0,22}, {4,21}, {7,20}, {9,14}, {10,7}, {11,14}, {13,20},
-            {16,21}, {18,20}, {20,10}, {21,4}, {22,10}, {24,20},
-            {27,21}, {30,22}
+            { 0, 22}, { 1, 21}, { 2, 22}, { 3, 19}, { 4, 22},   // floor + small peak
+            { 5, 21}, { 6, 18}, { 7, 12}, { 8, 17}, { 9, 22},   // tall peak
+            {10, 21}, {11, 22}, {12, 16}, {13, 22},             // medium peak
+            {14, 21}, {15, 19}, {16, 22},                       // ripple
+            {17, 20}, {18, 12}, {19,  4}, {20, 11}, {21, 21},   // tallest peak
+            {22, 22}, {23, 21}, {24, 17}, {25, 22},             // medium peak
+            {26, 21}, {27, 22}, {28, 18}, {29, 22}, {30, 22}    // small peak + floor
         };
-        pp.drawPolyline(pts, 15);
-        // + sign in upper-right
-        pp.setPen(QPen(QColor(255, 255, 255, 200), 2.2));
+        pp.drawPolyline(pts, sizeof(pts) / sizeof(pts[0]));
+
+        // "+" sign in upper-right.
+        pp.setPen(QPen(stroke, 2.2));
         pp.drawLine(30, 4, 30, 14);   // vertical
         pp.drawLine(25, 9, 35, 9);    // horizontal
         pp.end();
@@ -10958,15 +10948,22 @@ void MainWindow::setAppletPanelVisible(bool visible)
 
     AppSettings::instance().setValue("AppletPanelVisible", visible ? "True" : "False");
     AppSettings::instance().save();
-    if (m_panelVisAction) {
-        QSignalBlocker sb(m_panelVisAction);
-        m_panelVisAction->setChecked(visible);
-    }
     if (m_titleBar) {
         const bool dockedLeft = AppSettings::instance()
             .value("AppletPanelDockedLeft", "False").toString() == "True";
         m_titleBar->setAppletDockState(visible, dockedLeft);
     }
+}
+
+void MainWindow::toggleAppletPanelFloating(bool floating)
+{
+    if (floating) floatAppletPanel();
+    else          dockAppletPanel();
+    AppSettings::instance().setValue(
+        "AppletPanelFloating", floating ? "True" : "False");
+    AppSettings::instance().save();
+    if (m_titleBar)
+        m_titleBar->setAppletFloating(floating);
 }
 
 void MainWindow::setFramelessWindow(bool on)
