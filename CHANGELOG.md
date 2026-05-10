@@ -3,6 +3,331 @@
 All notable changes to AetherSDR are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+> **Versioning:** Starting with **v26.5.1**, AetherSDR moves to **CalVer**
+> (`YY.M.patch`). Earlier tags used semver through v0.9.8.
+
+## [v26.5.1] — 2026-05-10
+
+### 1.0 — first stable release; CalVer cutover
+
+The 1.0-equivalent. After eight 0.9.x cycles the client now covers
+every documented SmartSDR feature on the FLEX-6000, FLEX-8000, and
+Aurora platforms, and ships the Aetherial Audio Channel Strip's RX and
+TX paths in full. Confidence in stability across Linux / macOS /
+Windows is high enough to drop the pre-1.0 framing.
+
+Coincident with the milestone, the project switches from semver to
+**CalVer** (`YY.M.patch`). Rationale: AetherSDR's release cadence is
+driven by FlexLib protocol changes, ham contest seasons, and a steady
+trickle of community fixes — not by API stability commitments to
+downstream consumers. CalVer communicates "this is what shipped in
+month X" more honestly than a 1.x semantic version would. The previous
+`v0.9.x` tags remain in git history; new tags use the `vYY.M.patch`
+form starting here.
+
+55 commits since v0.9.8; highlights below. Big thanks to **@jensenpat**
+(macOS `.icns` build-time generation, FlexControl wheel modes, popout
+frameless lifecycle), **@chibondking** (Windows UI scaling settings
+path), **@rfoust** (DAX IQ Windows/non-PipeWire-Linux fix, RX output
+panel rebuild, TCI volume/drive/rx_volume dispatch), **@aethersdr-agent**
+(AetherClaude — parallel implementations on `aetherclaude-eligible`
+issues, including #2550 spot background_color), **@s53zo**, and
+**@M7HNF-Ian** for contributions across this cycle.
+
+### New features
+
+**S-History v2 — voice signal detection + QRM classification (#2426)**
+- New CNN classifier on the panadapter that distinguishes confirmed
+  voice signals from QRM channels in the Signal History overlay.
+  Voice markers age out independently of QRM markers (30 s after the
+  last voice-width hit); QRM channels with voice riding on top get
+  both markers simultaneously so operators can see the interference
+  AND the person trying to work through it.
+
+**Connected Stations dialog when multiFLEX disabled (#2488)**
+- Operators running with multiFLEX off can now see who else is on
+  the radio via Help → Connected Stations. Lists every connected
+  client with handle, program, station, and ownership state.
+
+**FPS meters + performance telemetry (#2480)**
+- Footer FPS readouts for spectrum / waterfall plus a
+  `PerfTelemetry::recordUiHeartbeat()` hook that captures the Qt
+  event-loop cadence at 50 ms intervals. Feeds the future System Info
+  diagnostics dialog (#2554).
+
+**8-axis edge resize for frameless main window (#2522)**
+- The main window's frameless mode now supports the full eight-axis
+  resize grip (N/S/E/W/NE/NW/SE/SW) matching the Aetherial Audio
+  Channel Strip and other frameless dialogs.
+
+**SpotHub Display tab + tunable Signal History (#2506)**
+- Consolidates the SpotHub display controls into a single tab with
+  Signal History tunables (qualify duration, hide-after, suspect-QRM
+  threshold). Sub-tabs replaced with grouped sections.
+
+**Frameless chrome on Memory Channels dialog (#2509)**
+- The Memory Channels dialog gets the standard 18 px gradient title
+  bar, grip glyph, drag-to-move, double-click-to-maximize, 8-axis
+  resize — matching NetworkDiagnosticsDialog and the Channel Strip.
+
+**Add Memory action moved into MemoryBrowsePanel (#2533)**
+- The "Add memory" button now lives in the MemoryBrowsePanel itself,
+  closer to where users are looking when they want to capture the
+  current slice. The slice-letter badge variant was dropped — adding
+  always targets the active slice without per-letter selection.
+
+**Float popped-out applet panel as frameless project window (#2536)**
+- Popping out the applet panel via the new title-bar icon (or
+  Ctrl+Shift+S) now floats it as a frameless project window with the
+  full chrome treatment: gradient title bar, drag handle, 8-axis
+  resize. Three new title-bar icons (dock-left / dock-right / pop-out)
+  replace the legacy status-bar `☰` toggle.
+
+**Always-on-Top pin on popped-out applets (#2430, #2479)**
+- Per-container pin on the popped-out applet header keeps the float
+  above the panadapter window for instrument-on-instrument workflows.
+
+**FlexControl WheelRit / WheelXit modes (#2452, #2455)**
+- Two new FlexControl USB knob assignment modes drive RIT and XIT
+  offsets directly without touching the slice frequency.
+
+**Easter egg: Ctrl+Shift+A toggles starstruck pan-drag sound (#2534)**
+- Hidden audio cue tied to pan dragging — off by default, no shortcut
+  reservation, harmless when not enabled.
+
+**Status-bar +PAN icon redrawn as a jagged FFT trace (#2537)**
+- Replaces the previous generic icon with a 30-point jagged FFT
+  spectrum trace at 5 distinct peaks — matches the actual spectrum
+  visual idiom AetherSDR is built around.
+
+### Bug fixes
+
+**Linux waterfall smear after TX (#2527, fixes #2527-class reports)**
+- 10–18 second post-TX vertical-stripe smear on Linux only. Root
+  cause: `WaterfallBlanker` retained a TX-era "last good row" across
+  the TX→RX transition; subsequent impulse-detection substitutions
+  painted that row as a frozen vertical stripe until the ring rolled
+  past it. Fix: clear `m_wfLastGoodRow` and reset `m_wfBlankerRingCount`
+  on TX-exit; gate blanker substitution on `!m_transmitting`.
+
+**Slice reduction crash + float/dock GPU corruption + exit crash (#2495, #2512)**
+- Three Multi-Flex / multi-pan crashes consolidated. Slice reduction
+  on disconnect cascade tripped a use-after-free in
+  `wirePanadapter()`. Float→dock transitions on QRhiWidget panes
+  corrupted the spectrum framebuffer until the next full repaint.
+  Exit crash on rapid quit-while-streaming traced to a connection
+  teardown ordering bug. All three guarded with lifetime checks.
+
+**Spot `background_color` honored when override is off (#2550, #2560)**
+- `SpotData::backgroundColor` was parsed from the FlexLib protocol
+  and stored in the model, but dropped at the model→view boundary:
+  `SpotMarker` didn't carry the field, the converter silently dropped
+  it, and `drawSpotMarkers()` only drew the pill from the local
+  Override Background color. Third-party spot sources
+  (wave-flex-integrator, SpotCollector) encoding priority /
+  worked-before via `background_color` now render correctly when
+  Override Background is off.
+
+**ALC gauge rewired to SW ALC meter; mirror across Phone + CW (#2552)**
+- HWALC (RCA voltage telemetry) was driving the SmartSDR-equivalent
+  ALC gauge, producing meaningless readings. Split into hwAlc /
+  swAlc; the gauge now consumes the SW ALC meter (post-software-ALC
+  SSB peak). Mirror identical gauge across Phone and CW panels with
+  the new `HGauge::setFillFromRight` mode.
+
+**DSP curve widgets: HarfBuzz reshape on every paint (#2546, #2556)**
+- The DSP curve widgets (`ClientCompCurveWidget`,
+  `ClientGateCurveWidget`, `ClientDeEssCurveWidget`) were calling
+  `QPainter::drawText` for axis labels on every paint, forcing a
+  full HarfBuzz reshape per frame. Cache axis labels as `QStaticText`
+  with `AggressiveCaching`; ~7× drop in `shapeText` cost.
+
+**macOS app icon missing on local builds (#2558, jensenpat)**
+- `docs/AetherSDR.icns` was never committed (only generated inside
+  the macos-dmg CI runner), so every local macOS dev build silently
+  produced a generic-icon `.app`. Fixed by moving icns generation
+  into CMake via `add_custom_command` sourced from the committed
+  `docs/logo-circle.png`. No new build dependencies.
+
+**Stream Deck mute toggle TCI command (#2519)**
+- The mute action on Stream Deck mappings sent the wrong TCI command.
+  Corrected to the canonical mute/unmute primitive.
+
+**DAX IQ silently broken on Windows / non-PipeWire Linux (#2524)**
+- DAX IQ streams produced no output on Windows and on Linux systems
+  without PipeWire (PulseAudio-only). Root cause: the IQ stream
+  setup path assumed PipeWire native and silently returned without
+  initialization on other platforms. Adds the proper fallback.
+
+**Windows ClangCL build failures (#2525)**
+- ClangCL toolchain failures for NR4/specbleach and other modules
+  resolved with target-specific include path adjustments.
+
+**Memory recall radio state sync (#2526)**
+- Recalling a memory entry now correctly syncs all radio state (mode,
+  filter, slice settings) instead of just frequency.
+
+**RADE mode not disabled on PTT release (#2517)**
+- Mic metering during RADE TX could be interrupted if RADE auto-
+  disabled on key-up. Now stays in RADE mode across PTT cycles.
+
+**RX output panel rebuild with canonical meter ballistics (#2514)**
+- Aetherial Audio Channel Strip's RX output panel rebuilt to use the
+  canonical `MeterSmoother` ballistics (30 ms attack, 180 ms release
+  at 120 Hz) — matches every other meter in the app.
+
+**XVTR Flex band-stack key uses status index, not order (#2342, #2511)**
+- Band-stack persistence keyed off the position-in-list of XVTR
+  entries; if the radio reordered them, recall pulled the wrong
+  entry. Now keys on the radio-supplied status index.
+
+**Frameless float popout follows frameless setting (#2449)**
+- Popped-out applets now respect the global "use frameless windows"
+  preference — previously they were always system-decorated.
+
+**MIDI toggle params + modeUp/Down + category filter (#2446)**
+- Toggle MIDI params no longer auto-revert on note release.
+  Adds `modeUp` / `modeDown` actions. Category filter in MIDI Learn
+  expanded to cover every action group.
+
+**RTTY squelch auto-disable (#2504, #2510)**
+- Switching to RTTY mode now auto-disables squelch (squelch on RTTY
+  notches characters out and breaks decoding).
+
+**NR4 button disabled when libspecbleach unavailable (#2484, #2508)**
+- Builds without `libspecbleach` left the NR4 button live but
+  no-op — confusing operators about what NR4 actually does. Button
+  is now disabled with a tooltip when the dependency is missing.
+
+**CWX release TX when queue drains (#2450, #2507)**
+- CWX macros could leave the radio stuck in TX if the queue drained
+  without an explicit end-of-message marker. Now releases TX when
+  the queue is empty.
+
+**Audio mute restore on reconnect (#2489)**
+- Reconnecting to the radio no longer restores per-slice audio mute
+  state — that's a radio-authoritative setting per the
+  Radio-Authoritative Settings Policy.
+
+**QsoRecorder QTimer playback → QAudioSink pull mode (#2295, #2487)**
+- QSO recorder playback used a `QTimer` to push audio buffers,
+  producing audible glitches under high system load. Rewritten to
+  `QAudioSink` pull mode for glitch-free playback.
+
+**Slice capacity clamp to model limit (#2477)**
+- Some radio models report a slice count higher than they actually
+  support. Client now clamps to the model-specific limit.
+
+**DVK F1-F12 shortcut conflict with CwxPanel (#2464, #2469)**
+- F-key shortcuts triggered both DVK and CWX panels when both were
+  visible. Resolved via panel-scoped shortcut routing.
+
+**ShackSwitch button stale visibility (#2456)**
+- Top-right tray's ShackSwitch button stayed visible after the
+  ShackSwitch feature was disabled. Now toggles in lockstep.
+
+**RX applet radeActivated guard (#2376)**
+- `RxApplet` was missing the RADE-active guard that `VfoWidget`
+  uses — could fire stale mode-change events while RADE was busy.
+
+**Avoid unchanged spot overlay repaints (#2474)**
+- Spot marker list was being rebuilt and repainted on every spot
+  source update even when no visual change occurred. New
+  `spotMarkersVisuallyEqual()` predicate gates the repaint.
+
+**Reassert desired panadapter and waterfall display rates (#2465)**
+- Radio reconnect could silently leave the panadapter and waterfall
+  at the radio's default display rate (10 Hz) instead of the
+  client's configured rate. Now reasserted on every reconnect.
+
+**Windows 48 kHz L-R audio pan (#2403, #2459)**
+- L-R audio panning was incorrect on the Windows 48 kHz resampler
+  path. Restored to match the macOS / native-rate paths.
+
+**Protocol: send client program/low_bw_connect before client gui (#2466)**
+- Subscription order matters on the FlexLib side; sending `client
+  program` and `client low_bw_connect` after `client gui` caused
+  intermittent rejection of metadata. Reordered to match what
+  SmartSDR-for-Windows does.
+
+**TCI volume/drive/rx_volume command dispatch (#1764, #2463)**
+- Three TCI v2.0 commands had no dispatch wiring on AetherSDR's
+  side. Added the three handlers + bidirectional state sync.
+
+**Spectrum cursor update guards (#2461)**
+- Spectrum cursor position updates fired without checking widget
+  lifetime, producing rare null-deref crashes during layout changes.
+
+**AmpApplet telemetry forwarding (#2444)**
+- Amplifier telemetry from the radio (id, vac, meffa, temp) was
+  parsed but not forwarded to `AmpApplet`. Wired through.
+
+**Windows UI scaling settings path (#2443)**
+- Pre-Qt settings read on Windows used the Linux path convention.
+  Corrected to `%APPDATA%/AetherSDR/`.
+
+**FreeDV Station Msg live-update without restart (#2476)**
+- The Station Msg field in FreeDV settings required an app restart
+  to take effect. Now live-updates the reporter.
+
+**Container pop-out glyph + size (#2499)**
+- Switches the pop-out glyph to `⧉` at a larger size for
+  discoverability.
+
+**Minimal mode hides dock-side icons (#2562)**
+- The three dock-side selectors (left dock, right dock, pop-out)
+  and their separator are now hidden in minimal mode — they have
+  no meaning when the spectrum is hidden.
+
+**View → Applet Panel / Pop Out menu entries removed (#2540)**
+- Both menu entries are redundant with the new title-bar dock-side
+  icons (#2536) and the Ctrl+Shift+S window-scoped shortcut.
+
+**Reconnect dialog chrome polish (#2541)**
+- The reconnect dialog gets the frameless gradient title bar and
+  proper chrome to match the rest of the app.
+
+### Closed without fix
+
+**`_platform_memmove` cost in macOS backing-store flush (#2547, #2548)**
+- Two related claims about Qt's widget-RHI fallback cost on macOS
+  (#2547) and 30 Hz hidden-widget timer storms (#2548). Implemented
+  the #2548 fix in full (~150 LOC, 10 widgets timer-gated on
+  visibility) and measured before/after with `perf record -F 99 -g`
+  on Linux: paint pipeline cost moved 16.8 % → 15.7 %, within noise.
+  Reverted; closed both as `wontfix`. Reopen with matched windowed
+  macOS profiling if the cost ever reproduces.
+
+### Infrastructure
+
+**Buffered async file logging (#2478)**
+- AetherSDR's log file path now flushes via a buffered async writer
+  to avoid blocking the GUI thread on slow disks (especially network
+  shares on macOS).
+
+**FPS meters + perf telemetry framework (#2480)**
+- Foundation for the System Info diagnostics dialog (#2554) — see
+  Features above.
+
+**actions/cache bump 4 → 5 (#2493)**
+- Dependabot bump for the GitHub Actions cache action.
+
+**Qt 6.7+ GPU rendering requirement documented (#2531, #756)**
+- README now documents the minimum Qt version for GPU spectrum
+  rendering. Older Qt falls back to CPU rasterization.
+
+**README supported hardware refresh (#2532)**
+- Aurora 510M, RT-series, ML-series, CL-series additions to the
+  Supported Hardware list. AU-520 confirmed working.
+
+**libopengl0 build dep documented (#2523)**
+- Ubuntu/Debian build instructions now list `libopengl0` explicitly.
+
+**1.0 release prep — stale reference sweep (#2515)**
+- Sweep across CLAUDE.md, README.md, CHANGELOG.md, and
+  `docs/architecture-pipelines.md` removing pre-1.0 framing and
+  TODO breadcrumbs.
+
 ## [v0.9.8] — 2026-05-06
 
 ### Aetherial Audio Channel Strip RX + community-driven reliability sweep
