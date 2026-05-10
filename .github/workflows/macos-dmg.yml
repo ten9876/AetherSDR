@@ -74,21 +74,6 @@ jobs:
           cmake --build . --parallel $(sysctl -n hw.ncpu)
           cmake --install .
 
-      - name: Generate .icns from PNG
-        run: |
-          mkdir -p AetherSDR.iconset
-          sips -z 16 16     docs/logo-circle.png --out AetherSDR.iconset/icon_16x16.png
-          sips -z 32 32     docs/logo-circle.png --out AetherSDR.iconset/icon_16x16@2x.png
-          sips -z 32 32     docs/logo-circle.png --out AetherSDR.iconset/icon_32x32.png
-          sips -z 64 64     docs/logo-circle.png --out AetherSDR.iconset/icon_32x32@2x.png
-          sips -z 128 128   docs/logo-circle.png --out AetherSDR.iconset/icon_128x128.png
-          sips -z 256 256   docs/logo-circle.png --out AetherSDR.iconset/icon_128x128@2x.png
-          sips -z 256 256   docs/logo-circle.png --out AetherSDR.iconset/icon_256x256.png
-          sips -z 512 512   docs/logo-circle.png --out AetherSDR.iconset/icon_256x256@2x.png
-          sips -z 512 512   docs/logo-circle.png --out AetherSDR.iconset/icon_512x512.png
-          sips -z 768 768   docs/logo-circle.png --out AetherSDR.iconset/icon_512x512@2x.png
-          iconutil -c icns AetherSDR.iconset -o docs/AetherSDR.icns
-
       - name: Setup DeepFilterNet3 (DFNR)
         run: bash setup-deepfilter.sh
 
@@ -288,7 +273,7 @@ jobs:
           # Layout: app (left) + Applications link (right), PKG below Applications
           create-dmg \
             --volname "AetherSDR" \
-            --volicon "docs/AetherSDR.icns" \
+            --volicon "build/AetherSDR.icns" \
             --background "docs/logo-invert.png" \
             --window-pos 200 120 \
             --window-size 600 400 \

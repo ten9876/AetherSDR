@@ -748,12 +748,32 @@ if(APPLE)
     )
     target_link_libraries(AetherSDR PRIVATE "-framework AVFoundation" "-framework Accelerate")
     target_sources(AetherSDR PRIVATE src/core/MacNRFilter.cpp)
-    set(MACOSX_ICON "${CMAKE_SOURCE_DIR}/docs/AetherSDR.icns")
-    if(EXISTS "${MACOSX_ICON}")
-        target_sources(AetherSDR PRIVATE "${MACOSX_ICON}")
-        set_source_files_properties("${MACOSX_ICON}" PROPERTIES
-            MACOSX_PACKAGE_LOCATION "Resources")
-    endif()
+
+    # Generate AetherSDR.icns at build time from docs/logo-circle.png so local
+    # builds get an app icon without any extra setup (sips and iconutil are
+    # part of macOS).
+    set(ICON_SOURCE "${CMAKE_SOURCE_DIR}/docs/logo-circle.png")
+    set(ICNS_PATH "${CMAKE_BINARY_DIR}/AetherSDR.icns")
+    set(ICONSET_PATH "${CMAKE_BINARY_DIR}/AetherSDR.iconset")
+    add_custom_command(
+        OUTPUT "${ICNS_PATH}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${ICONSET_PATH}"
+        COMMAND sips -z 16  16  "${ICON_SOURCE}" --out "${ICONSET_PATH}/icon_16x16.png"
+        COMMAND sips -z 32  32  "${ICON_SOURCE}" --out "${ICONSET_PATH}/icon_16x16@2x.png"
+        COMMAND sips -z 32  32  "${ICON_SOURCE}" --out "${ICONSET_PATH}/icon_32x32.png"
+        COMMAND sips -z 64  64  "${ICON_SOURCE}" --out "${ICONSET_PATH}/icon_32x32@2x.png"
+        COMMAND sips -z 128 128 "${ICON_SOURCE}" --out "${ICONSET_PATH}/icon_128x128.png"
+        COMMAND sips -z 256 256 "${ICON_SOURCE}" --out "${ICONSET_PATH}/icon_128x128@2x.png"
+        COMMAND sips -z 256 256 "${ICON_SOURCE}" --out "${ICONSET_PATH}/icon_256x256.png"
+        COMMAND sips -z 512 512 "${ICON_SOURCE}" --out "${ICONSET_PATH}/icon_256x256@2x.png"
+        COMMAND sips -z 512 512 "${ICON_SOURCE}" --out "${ICONSET_PATH}/icon_512x512.png"
+        COMMAND sips -z 768 768 "${ICON_SOURCE}" --out "${ICONSET_PATH}/icon_512x512@2x.png"
+        COMMAND iconutil -c icns "${ICONSET_PATH}" -o "${ICNS_PATH}"
+        DEPENDS "${ICON_SOURCE}"
+        COMMENT "Generating AetherSDR.icns"
+    )
+    target_sources(AetherSDR PRIVATE "${ICNS_PATH}")
+    set_source_files_properties("${ICNS_PATH}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
 elseif(WIN32)
     # Windows application icon (taskbar, Start Menu, Alt-Tab)
     set(WIN_RC "${CMAKE_SOURCE_DIR}/docs/AetherSDR.rc")
