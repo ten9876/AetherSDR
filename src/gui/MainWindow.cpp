@@ -856,9 +856,10 @@ void MainWindow::showForcedDisconnectDialog(bool wasWan,
                                             const WanRadioInfo& wanInfo)
 {
     if (m_reconnectDlg) {
-        m_reconnectDlg->close();
-        m_reconnectDlg->deleteLater();
+        QDialog* reconnectDialog = m_reconnectDlg;
         m_reconnectDlg = nullptr;
+        reconnectDialog->close();
+        reconnectDialog->deleteLater();
     }
 
     auto* dialog = new QDialog(this);
@@ -1365,9 +1366,10 @@ MainWindow::MainWindow(QWidget* parent)
         statusBar()->showMessage("SmartLink reconnect stopped: " + err, 5000);
         setPanadapterConnectionAnimation(false);
         if (m_reconnectDlg) {
-            m_reconnectDlg->close();
-            m_reconnectDlg->deleteLater();
+            QDialog* reconnectDialog = m_reconnectDlg;
             m_reconnectDlg = nullptr;
+            reconnectDialog->close();
+            reconnectDialog->deleteLater();
         }
         m_connPanel->show();
     });
@@ -4467,6 +4469,12 @@ void setDialogFramelessMode(QDialog* dialog, bool on)
     if (auto* titleBar = dialog->findChild<QWidget*>("editorFramelessTitleBar")) {
         titleBar->setVisible(on);
     }
+    if (auto* titleBar = dialog->findChild<QWidget*>("framelessWindowTitleBar")) {
+        titleBar->setVisible(on);
+    }
+    if (auto* bodyLayout = dialog->findChild<QVBoxLayout*>("reconnectDialogBodyLayout")) {
+        bodyLayout->setContentsMargins(18, on ? 14 : 16, 18, 16);
+    }
     if (wasVisible) {
         dialog->show();
     }
@@ -4857,9 +4865,10 @@ void MainWindow::closeEvent(QCloseEvent* event)
     m_wanReconnectTimer.stop();
     m_wanReconnectAttemptInProgress = false;
     if (m_reconnectDlg) {
-        m_reconnectDlg->close();
-        delete m_reconnectDlg;
+        QDialog* reconnectDialog = m_reconnectDlg;
         m_reconnectDlg = nullptr;
+        reconnectDialog->close();
+        delete reconnectDialog;
     }
 
     m_discovery.stopListening();
@@ -7895,9 +7904,10 @@ void MainWindow::onConnectionStateChanged(bool connected)
 
         // Close reconnect dialog if it was showing
         if (m_reconnectDlg) {
-            m_reconnectDlg->close();
-            m_reconnectDlg->deleteLater();
+            QDialog* reconnectDialog = m_reconnectDlg;
             m_reconnectDlg = nullptr;
+            reconnectDialog->close();
+            reconnectDialog->deleteLater();
         }
 
         // Load band stack bookmarks for this radio
@@ -8187,33 +8197,69 @@ void MainWindow::onConnectionStateChanged(bool connected)
 
         // Show reconnect dialog on unexpected disconnect (only one at a time)
         if (!m_userDisconnected && !m_reconnectDlg) {
+            const bool frameless = framelessWindowEnabled();
             m_reconnectDlg = new QDialog(this);
-            m_reconnectDlg->setWindowTitle("Radio Disconnected");
+            m_reconnectDlg->setWindowTitle(tr("Radio Disconnected"));
+            m_reconnectDlg->setWindowFlag(Qt::FramelessWindowHint, frameless);
             m_reconnectDlg->setModal(false);
             m_reconnectDlg->setFixedSize(400, 150);
             m_reconnectDlg->setStyleSheet(
-                "QDialog { background: #0f0f1a; border: 2px solid #205070; }"
-                "QLabel { color: #c8d8e8; font-size: 14px; }"
+                "QDialog { background: #0f0f1a; border: 1px solid #203040; }"
+                "QLabel { color: #c8d8e8; background: transparent; }"
+                "QLabel#reconnectTitle { color: #ffffff; font-size: 16px; font-weight: bold; }"
+                "QLabel#reconnectBody { color: #8aa8c0; font-size: 12px; }"
                 "QPushButton { background: #1a3a5a; border: 1px solid #205070; "
                 "border-radius: 3px; color: #c8d8e8; font-size: 12px; "
                 "font-weight: bold; padding: 6px 20px; }"
                 "QPushButton:hover { background: #204060; }");
-            auto* layout = new QVBoxLayout(m_reconnectDlg);
+
+            auto* root = new QVBoxLayout(m_reconnectDlg);
+            root->setContentsMargins(0, 0, 0, 0);
+            root->setSpacing(0);
+
+            auto* titleBar = new FramelessWindowTitleBar(tr("Radio Disconnected"), m_reconnectDlg);
+            titleBar->setObjectName(QStringLiteral("framelessWindowTitleBar"));
+            titleBar->setVisible(frameless);
+            root->addWidget(titleBar);
+
+            auto* content = new QWidget(m_reconnectDlg);
+            auto* layout = new QVBoxLayout(content);
+            layout->setObjectName(QStringLiteral("reconnectDialogBodyLayout"));
+            layout->setContentsMargins(18, frameless ? 14 : 16, 18, 16);
+            layout->setSpacing(8);
             layout->setAlignment(Qt::AlignCenter);
-            auto* label = new QLabel("Radio disconnected\nWaiting for reconnect...");
-            label->setAlignment(Qt::AlignCenter);
-            layout->addWidget(label);
-            auto* dismissBtn = new QPushButton("Disconnect");
+
+            auto* title = new QLabel(tr("Connection to the radio was lost"), content);
+            title->setObjectName(QStringLiteral("reconnectTitle"));
+            title->setAlignment(Qt::AlignCenter);
+            layout->addWidget(title);
+
+            auto* body = new QLabel(tr("AetherSDR is attempting to reconnect automatically."), content);
+            body->setObjectName(QStringLiteral("reconnectBody"));
+            body->setAlignment(Qt::AlignCenter);
+            body->setWordWrap(true);
+            layout->addWidget(body);
+
+            auto* dismissBtn = new QPushButton(tr("Disconnect"), content);
             dismissBtn->setFixedWidth(120);
+            dismissBtn->setCursor(Qt::PointingHandCursor);
             layout->addWidget(dismissBtn, 0, Qt::AlignCenter);
+            root->addWidget(content, 1);
+            QDialog* reconnectDialog = m_reconnectDlg;
+            connect(reconnectDialog, &QDialog::finished, this, [this, reconnectDialog](int) {
+                if (m_reconnectDlg == reconnectDialog) {
+                    m_reconnectDlg = nullptr;
+                }
+                reconnectDialog->deleteLater();
+            });
             connect(dismissBtn, &QPushButton::clicked, this, [this]() {
                 m_userDisconnected = true;
                 m_wanReconnectTimer.stop();
                 m_wanReconnectAttemptInProgress = false;
                 setPanadapterConnectionAnimation(false);
-                m_reconnectDlg->close();
-                m_reconnectDlg->deleteLater();
-                m_reconnectDlg = nullptr;
+                if (m_reconnectDlg) {
+                    m_reconnectDlg->close();
+                }
                 auto& s = AppSettings::instance();
                 s.remove("LastConnectedRadioSerial");
                 s.remove("LastRoutedRadioIp");
@@ -11007,6 +11053,9 @@ void MainWindow::setFramelessWindow(bool on)
         dlg->setFramelessMode(on);
     if (auto* dlg = qobject_cast<MemoryDialog*>(m_memoryDialog))
         dlg->setFramelessMode(on);
+    if (m_reconnectDlg && m_reconnectDlg->findChild<QWidget*>("framelessWindowTitleBar")) {
+        setDialogFramelessMode(m_reconnectDlg, on);
+    }
     if (m_aetherialStrip)
         m_aetherialStrip->setFramelessMode(on);
     setEditorFramelessMode(m_clientEqEditor, on);
