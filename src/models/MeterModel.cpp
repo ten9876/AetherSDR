@@ -122,7 +122,9 @@ void MeterModel::defineMeter(const MeterDef& def)
     else if (def.name == "COMP")
         m_compLevelIdx = def.index;
     else if (def.name == "HWALC")
-        m_alcIdx = def.index;
+        m_hwAlcIdx = def.index;
+    else if (def.name == "ALC")
+        m_swAlcIdx = def.index;
     else if (def.source != "AMP" && def.name == "PATEMP")
         m_paTempIdx = def.index;
     else if (def.name == "+13.8A")
@@ -226,7 +228,8 @@ void MeterModel::removeMeter(int index)
     if (index == m_micPeakIdx)   m_micPeakIdx = -1;
     if (index == m_micLevelIdx)  m_micLevelIdx = -1;
     if (index == m_compLevelIdx) m_compLevelIdx = -1;
-    if (index == m_alcIdx)       m_alcIdx = -1;
+    if (index == m_hwAlcIdx)     m_hwAlcIdx = -1;
+    if (index == m_swAlcIdx)     m_swAlcIdx = -1;
     if (index == m_paTempIdx)    m_paTempIdx = -1;
     if (index == m_supplyIdx)    m_supplyIdx = -1;
     if (index == m_ampFwdPwrIdx) m_ampFwdPwrIdx = -1;
@@ -285,7 +288,8 @@ void MeterModel::clear()
     m_micPeakIdx = -1;
     m_micLevelIdx = -1;
     m_compLevelIdx = -1;
-    m_alcIdx = -1;
+    m_hwAlcIdx = -1;
+    m_swAlcIdx = -1;
     m_paTempIdx = -1;
     m_supplyIdx = -1;
     m_ampFwdPwrIdx = -1;
@@ -309,7 +313,8 @@ void MeterModel::clear()
     clearCompressionState();
     m_micLevel = -50.0f;
     m_compLevel = 0.0f;
-    m_alc = 0.0f;
+    m_hwAlc = 0.0f;
+    m_swAlc = 0.0f;
     m_paTemp = 0.0f;
     m_supplyVolts = 0.0f;
     m_ampFwdPwr = 0.0f;
@@ -593,7 +598,8 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
     // sLevelChanged is emitted per-slice inline in the loop below
     bool txChanged = false;
     bool micChanged = false;
-    bool alcChanged = false;
+    bool hwAlcChangedFlag = false;
+    bool swAlcChangedFlag = false;
     bool hwChanged = false;
     bool ampChanged = false;
     bool tgxlChanged = false;
@@ -679,9 +685,12 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         } else if (idx == m_compLevelIdx) {
             m_compLevel = v;
             micChanged = true;
-        } else if (idx == m_alcIdx) {
-            m_alc = v;
-            alcChanged = true;
+        } else if (idx == m_hwAlcIdx) {
+            m_hwAlc = v;
+            hwAlcChangedFlag = true;
+        } else if (idx == m_swAlcIdx) {
+            m_swAlc = v;
+            swAlcChangedFlag = true;
         } else if (idx == m_paTempIdx) {
             m_paTemp = v;
             hwChanged = true;
@@ -717,8 +726,10 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         emit txMetersChanged(m_fwdPower, m_swr);
     if (micChanged)
         emit micMetersChanged(m_micLevel, m_compLevel, m_micPeak, m_compPeak);
-    if (alcChanged)
-        emit this->alcChanged(m_alc);
+    if (hwAlcChangedFlag)
+        emit this->hwAlcChanged(m_hwAlc);
+    if (swAlcChangedFlag)
+        emit this->swAlcChanged(m_swAlc);
     if (hwChanged)
         emit hwTelemetryChanged(m_paTemp, m_supplyVolts);
     if (ampChanged)

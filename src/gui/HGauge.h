@@ -78,6 +78,13 @@ public:
     }
 
     void setReversed(bool rev) { m_reversed = rev; update(); }
+    // Anchor the fill bar to the right edge instead of the left.  Unlike
+    // setReversed (which also inverts the value mapping for compression-
+    // style gauges), this just mirrors the fill direction — min still
+    // means empty, max still means full, but the bar grows leftward from
+    // the right edge.  Used for the ALC gauge so the bar tracks the scale
+    // in the natural direction.
+    void setFillFromRight(bool on) { m_fillFromRight = on; update(); }
 
     void setRange(float min, float max, float redStart,
                   const QVector<Tick>& ticks, float yellowStart = std::numeric_limits<float>::quiet_NaN()) {
@@ -113,6 +120,14 @@ protected:
             int revFillW = barW - fillW;
             if (revFillW > 0)
                 p.fillRect(barX + fillW + 1, barY + 1, revFillW - 2, barH - 2, QColor(0xff, 0x44, 0x44));
+        } else if (m_fillFromRight) {
+            // Mirrored fill — same min=empty/max=full mapping as the
+            // normal mode, but the bar grows from the right edge inward.
+            // Single color (red); zone-based tinting doesn't translate
+            // cleanly to this orientation.
+            if (fillW > 0)
+                p.fillRect(barX + barW - fillW + 1, barY + 1, fillW - 2, barH - 2,
+                           QColor(0xcc, 0x33, 0x33));
         } else {
             // Normal: three zones cyan → yellow → red
             int yellowX = static_cast<int>(((m_yellowStart - m_min) / (m_max - m_min)) * barW);
@@ -194,6 +209,7 @@ private:
     float m_peakValue{0.0f};
     bool  m_peakEnabled{false};
     bool  m_reversed{false};
+    bool  m_fillFromRight{false};
     QString m_label, m_unit;
     QVector<Tick> m_ticks;
 

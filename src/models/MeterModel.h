@@ -101,8 +101,15 @@ public:
     float micLevel() const { return m_micLevel; }
     float compLevel() const { return m_compLevel; }
 
-    // Convenience: ALC level (0–100 scale, from TX "HWALC" meter).
-    float alc() const { return m_alc; }
+    // Convenience: external Hardware ALC RCA jack voltage (dBFS, from TX
+    // "HWALC" meter).  Permanently zero unless an external Hardware ALC
+    // connection is wired into the radio's HWALC RCA — kept around for
+    // SliceTroubleshootingDialog telemetry; not what users normally watch.
+    float hwAlc() const { return m_hwAlc; }
+    // Convenience: post-software-ALC SSB-peak meter (dBFS, from TX "ALC").
+    // This is the indicator users actually want — moves with voice peaks
+    // and CW keying envelope.  Drives the ALC gauges in the Phone/CW applet.
+    float swAlc() const { return m_swAlc; }
 
     // Convenience: PA heatsink temperature (°C).
     float paTemp() const { return m_paTemp; }
@@ -126,8 +133,11 @@ signals:
     void micMetersChanged(float micLevel, float compLevel,
                           float micPeak, float compPeak);
 
-    // Emitted when ALC meter changes (0–100 scale).
-    void alcChanged(float alc);
+    // Emitted when the external Hardware ALC RCA voltage changes (dBFS).
+    void hwAlcChanged(float dbfs);
+    // Emitted when the post-software-ALC SSB-peak meter changes (dBFS).
+    // Drives the in-app ALC gauges; fires during voice peaks and CW keying.
+    void swAlcChanged(float dbfs);
 
     // Emitted when hardware telemetry meters change (PA temp, supply voltage).
     void hwTelemetryChanged(float paTemp, float supplyVolts);
@@ -177,7 +187,8 @@ private:
     int m_micPeakIdx{-1};    // "COD-" / "MICPEAK" (hardware mic)
     int m_micLevelIdx{-1};   // "COD-" / "MIC" (hardware mic RX level)
     int m_compLevelIdx{-1};  // "TX" / "COMP" (instantaneous)
-    int m_alcIdx{-1};        // "TX" / "HWALC"
+    int m_hwAlcIdx{-1};      // "TX" / "HWALC" — external RCA jack voltage
+    int m_swAlcIdx{-1};      // "TX" / "ALC"   — post-software-ALC SSB peak
     int m_paTempIdx{-1};     // "RAD" / "PATEMP"
     int m_supplyIdx{-1};     // "RAD" / "+13.8A" (supply voltage, point A = before fuse)
     int m_ampFwdPwrIdx{-1};  // "AMP" / "FWD" (PGXL)
@@ -215,7 +226,8 @@ private:
     QString m_lastCompressionSummaryReason;
     float m_micLevel{-50.0f};
     float m_compLevel{0.0f};
-    float m_alc{0.0f};
+    float m_hwAlc{0.0f};
+    float m_swAlc{0.0f};
     float m_paTemp{0.0f};
     float m_supplyVolts{0.0f};
     float m_ampFwdPwr{0.0f};

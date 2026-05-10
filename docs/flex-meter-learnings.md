@@ -122,7 +122,8 @@ reason.
 |---|---:|---:|---|
 | `MICPEAK` | 40 | 40 | Codec hardware mic peak |
 | `MIC` | 20 | 20 | Codec hardware mic average |
-| `HWALC` | 20 | 20 | Hardware ALC input |
+| `HWALC` | 20 | 20 | External Hardware ALC RCA voltage — zero without an external HWALC connection.  Used by SliceTroubleshootingDialog telemetry only; do **not** drive UI ALC gauges from this meter. |
+| `ALC` | 20 | 20 | Post-software-ALC SSB peak (dBFS).  This is the meter that drives the in-app ALC gauges (mirrored across Phone and CW panels). |
 | `FWDPWR` | 20 | 20 | Forward RF power |
 | `REFPWR` | 20 | 20 | Reflected RF power |
 | `SWR` | 20 | 20 | RF SWR |

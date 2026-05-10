@@ -147,6 +147,17 @@ void PhoneCwApplet::buildPhonePanel()
     m_compGauge->setAccessibleName("Compression gauge");
     m_compGauge->setAccessibleDescription("Speech compression amount in dB");
     vbox->addWidget(m_compGauge);
+
+    // ── ALC gauge (post-SW-ALC SSB-peak, dBFS) ──────────────────────────
+    // Mirrored in m_cwPanel; both gauges read from MeterModel::swAlcChanged
+    // so SSB operators watching mic gain see the same indicator CW
+    // operators use to verify clean keying envelope shape.
+    m_alcGaugePhone = new HGauge(-20.0f, 0.0f, -3.0f, "ALC", "dBFS",
+        {{-20, "-20"}, {-15, "-15"}, {-10, "-10"}, {-5, "-5"}, {0, "0"}});
+    m_alcGaugePhone->setFillFromRight(true);  // empty at -20, fills leftward toward 0
+    m_alcGaugePhone->setAccessibleName("ALC gauge (Phone)");
+    m_alcGaugePhone->setAccessibleDescription("Automatic level control — post-software-ALC SSB peak (dBFS)");
+    vbox->addWidget(m_alcGaugePhone);
     vbox->addSpacing(4);
 
     // ── Mic profile dropdown ─────────────────────────────────────────────
@@ -358,12 +369,16 @@ void PhoneCwApplet::buildCwPanel()
     vbox->setContentsMargins(4, 2, 4, 6);
     vbox->setSpacing(4);
 
-    // ── ALC gauge (0–100) ────────────────────────────────────────────────
-    m_alcGauge = new HGauge(0.0f, 100.0f, 80.0f, "ALC", "",
-        {{0, "0"}, {25, "25"}, {50, "50"}, {75, "75"}, {100, "100"}});
-    m_alcGauge->setAccessibleName("ALC gauge");
-    m_alcGauge->setAccessibleDescription("Automatic level control meter");
-    vbox->addWidget(m_alcGauge);
+    // ── ALC gauge (post-SW-ALC SSB-peak, dBFS) ──────────────────────────
+    // Mirrors the Phone-panel ALC gauge — both read from the same
+    // MeterModel::swAlcChanged source.  Range covers normal operating
+    // window (-20…0 dBFS); excessive ALC pins at 0.
+    m_alcGaugeCw = new HGauge(-20.0f, 0.0f, -3.0f, "ALC", "dBFS",
+        {{-20, "-20"}, {-15, "-15"}, {-10, "-10"}, {-5, "-5"}, {0, "0"}});
+    m_alcGaugeCw->setFillFromRight(true);  // empty at -20, fills leftward toward 0
+    m_alcGaugeCw->setAccessibleName("ALC gauge (CW)");
+    m_alcGaugeCw->setAccessibleDescription("Automatic level control — post-software-ALC SSB peak (dBFS)");
+    vbox->addWidget(m_alcGaugeCw);
     vbox->addSpacing(2);
 
     // All left-side labels/buttons share the same width so sliders align.
@@ -813,7 +828,11 @@ void PhoneCwApplet::updateCompression(float compPeak)
 
 void PhoneCwApplet::updateAlc(float alc)
 {
-    m_alcGauge->setValue(alc);
+    // Single source (MeterModel::swAlcChanged) → both panel mirrors.
+    // HGauge clamps to its construction range, so values outside [-20, 0]
+    // pin at the appropriate end.
+    if (m_alcGaugePhone) m_alcGaugePhone->setValue(alc);
+    if (m_alcGaugeCw)    m_alcGaugeCw->setValue(alc);
 }
 
 bool PhoneCwApplet::eventFilter(QObject* obj, QEvent* ev)

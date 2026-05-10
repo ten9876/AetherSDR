@@ -4420,7 +4420,10 @@ QJsonObject RadioModel::troubleshootingSnapshot() const
     telemetry["supply_volts"] = m_meterModel.supplyVolts();
     telemetry["tx_forward_power_w"] = m_meterModel.fwdPower();
     telemetry["tx_swr"] = m_meterModel.swr();
-    telemetry["alc"] = m_meterModel.alc();
+    // SliceTroubleshootingDialog renders this with the literal label
+    // "HWALC", so keep it pointed at the external Hardware ALC RCA voltage
+    // (m_hwAlc) — the gauge in the Phone/CW applet now uses swAlc().
+    telemetry["alc"] = m_meterModel.hwAlc();
     telemetry["mic_level_dbfs"] = m_meterModel.micLevel();
     telemetry["mic_peak_dbfs"] = m_meterModel.micPeak();
     telemetry["comp_level_db"] = m_meterModel.compLevel();

@@ -3492,7 +3492,7 @@ MainWindow::MainWindow(QWidget* parent)
             }
         });
     }
-    connect(&m_radioModel.meterModel(), &MeterModel::alcChanged,
+    connect(&m_radioModel.meterModel(), &MeterModel::swAlcChanged,
             m_appletPanel->phoneCwApplet(), &PhoneCwApplet::updateAlc);
     // Client-side PC mic metering — radio CODEC meters only see hardware mics.
     // Apply VU-style ballistics: fast attack, slow decay (~20 dB/sec).

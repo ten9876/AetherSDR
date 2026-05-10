@@ -181,7 +181,10 @@ PC Mic Audio (Opus via remote_audio_tx) — arrives with client-side
 │  PATEMP (meter 11)          │  ◄── "PA Temperature" (degC)
 │  src=TX-, fps=0             │
 │  HWALC (meter 3)            │  ◄── "Voltage at Hardware ALC RCA Plug" (dBFS)
-│  src=TX-, fps=20            │
+│  src=TX-, fps=20            │      Permanently 0 without an external HWALC
+│  ALC   (meter 33)           │      connection.  Telemetry-only consumer.
+│  src=TX-, fps=20            │  ◄── "Post-software-ALC SSB peak" (dBFS).
+│                             │      Drives the Phone + CW panel ALC gauges.
 └─────────┬───────────────────┘
           │
           ▼
@@ -194,7 +197,8 @@ PC Mic Audio (Opus via remote_audio_tx) — arrives with client-side
 |----|--------|------|------|-----|-------------|-------------------|
 | 1 | COD- | MICPEAK | dBFS | 40 | Hardware mic peak level | P/CW mic gauge (BAL/LINE/ACC) |
 | 2 | COD- | MIC | dBFS | 20 | Hardware mic average level | P/CW mic gauge (BAL/LINE/ACC) |
-| 3 | TX- | HWALC | dBFS | 20 | HW ALC voltage | P/CW ALC indicator |
+| 3 | TX- | HWALC | dBFS | 20 | External HWALC RCA voltage (zero without external connection) | SliceTroubleshootingDialog telemetry only |
+| 33 | TX- | ALC | dBFS | 20 | Post-software-ALC SSB peak | P/CW ALC gauge (Phone + CW panels, mirrored) |
 | 8 | TX- | FWDPWR | dBm | 20 | Forward power | TX applet, S-Meter power, Tuner |
 | 9 | TX- | REFPWR | dBm | 20 | Reflected power | — |
 | 10 | TX- | SWR | SWR | 20 | Standing wave ratio | TX applet, Tuner |

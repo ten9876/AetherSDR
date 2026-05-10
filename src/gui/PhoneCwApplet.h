@@ -87,9 +87,14 @@ private:
     QSlider*     m_monSlider{nullptr};
     QLabel*      m_monLabel{nullptr};
 
-    // ── CW sub-panel widgets ─────────────────────────────────────────────
+    // ── ALC gauges (mirrored across both Phone and CW panels) ───────────
+    // Both gauges read from the same MeterModel::swAlcChanged source so
+    // operators see the post-software-ALC SSB peak (dBFS) in whichever
+    // panel is active for the current mode.
+    HGauge*      m_alcGaugePhone{nullptr};
+    HGauge*      m_alcGaugeCw{nullptr};
 
-    HGauge*      m_alcGauge{nullptr};
+    // ── CW sub-panel widgets ─────────────────────────────────────────────
 
     QSlider*     m_delaySlider{nullptr};
     QLineEdit*   m_delayEdit{nullptr};
