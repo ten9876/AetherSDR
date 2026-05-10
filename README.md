@@ -49,9 +49,35 @@ AetherSDR brings FlexRadio operation to Linux without Wine or virtual machines. 
 
 ---
 
-## Supported Radios
+## Supported Hardware
 
-Works with any FlexRadio transceiver: FLEX-6300, 6400, 6400M, 6500, 6600, 6600M, 6700, 8400, 8400M, 8600, 8600M, Aurora (AU-510, AU-520), and ML- / CL- / RT-series. Active test target is FLEX-8600 firmware 4.2.18 (SmartSDR protocol v1.4.0.0); earlier 4.x firmware works; v3.x is unsupported.
+Works with any FlexRadio transceiver, including:
+
+- FLEX-6000 series: FLEX-6300, FLEX-6400, FLEX-6400M, FLEX-6500, FLEX-6600, FLEX-6600M, FLEX-6700
+- FLEX-8000 series: FLEX-8400, FLEX-8400M, FLEX-8600, FLEX-8600M
+- Aurora series: AU-510, AU-510M, AU-520, AU-520M
+- ML-, CL-, and RT-series devices
+
+Supported external devices include the 4O3A/FlexRadio PGXL (Power Genius XL)
+power amplifier and TGXL (Tuner Genius XL) antenna tuner.
+
+Active test target is FLEX-8600 firmware 4.2.18 (SmartSDR protocol v1.4.0.0);
+earlier 4.x firmware works; v3.x is unsupported.
+
+## Tested Controller Devices
+
+AetherSDR supports external station-control hardware through USB serial, USB HID,
+MIDI, Stream Deck/StreamController plugins, and generic USB-serial adapters:
+
+- FlexRadio FlexControl USB tuning knob
+- Icom RC-28 USB remote encoder
+- Griffin PowerMate USB knob
+- Contour ShuttleXpress and ShuttlePro v2 jog controllers
+- MIDI controllers with learn mode, profiles, and relative-encoder support
+- Elgato Stream Deck devices through the bundled macOS/Windows Stream Deck plugin
+- Stream Deck devices on Linux through the bundled StreamController plugin
+- USB-serial PTT/CW interfaces for foot switches, straight keys, iambic paddles,
+  amplifier keying lines, and external sequencers
 
 ---
 
@@ -151,7 +177,6 @@ sudo cmake --install build
 
 - [ ] CW ultimatic keyer mode (#416)
 - [ ] Native DAX audio channels on Windows
-- [ ] Stream Deck plugin (in development)
 
 See the full [issue tracker](https://github.com/ten9876/AetherSDR/issues) for all planned features.
 
