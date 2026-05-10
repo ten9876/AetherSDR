@@ -72,6 +72,7 @@ static bool spotMarkersVisuallyEqual(const QVector<SpectrumWidget::SpotMarker>& 
         if (a.callsign != b.callsign
             || std::abs(a.freqMhz - b.freqMhz) > kFrequencyEpsilonMhz
             || a.color != b.color
+            || a.backgroundColor != b.backgroundColor
             || a.dxccColor != b.dxccColor
             || a.source != b.source) {
             return false;
@@ -5186,7 +5187,11 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
         const bool isQrm = (spot.source == QStringLiteral("QRM"));
         if (isQrm) { p.setOpacity(0.3); }
 
-        // Background pill — only draw when override background is enabled (#768)
+        // Background pill — local Override Background color wins when on
+        // (#768).  When off, fall through to the protocol-supplied
+        // `background_color` field if the spot carries one (#2550).  The
+        // #AARRGGBB form encodes alpha directly so no separate opacity
+        // multiplier is applied — the upstream tool's choice is honored.
         if (m_spotOverrideBg) {
             int bgAlpha = m_spotBgOpacity * 255 / 100;
             QColor bgCol = m_spotBgColor;
@@ -5194,6 +5199,14 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
             p.setPen(Qt::NoPen);
             p.setBrush(bgCol);
             p.drawRoundedRect(labelRect, 3, 3);
+        } else if (!spot.backgroundColor.isEmpty()
+                   && spot.backgroundColor.startsWith('#')) {
+            QColor bgCol(spot.backgroundColor);
+            if (bgCol.isValid()) {
+                p.setPen(Qt::NoPen);
+                p.setBrush(bgCol);
+                p.drawRoundedRect(labelRect, 3, 3);
+            }
         }
 
         // Text

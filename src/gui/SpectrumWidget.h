@@ -307,6 +307,9 @@ public:
         QString spotterCallsign;
         QString comment;
         qint64  timestampMs{0};
+        // Protocol-supplied pill color (#AARRGGBB). Honored only when
+        // Override Background is off — see drawSpotMarkers().
+        QString backgroundColor;
     };
     void setSpotMarkers(const QVector<SpotMarker>& markers);
 
