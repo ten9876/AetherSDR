@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QStaticText>
+#include <QVector>
 #include <QWidget>
 
 class QTimer;
@@ -53,6 +55,12 @@ protected:
     ClientGate* m_gate{nullptr};
     bool        m_compact{false};
     float       m_lastInputDb{-120.0f};
+
+    // Cached axis labels — one QStaticText per kMajorTicks entry.  See
+    // ClientCompCurveWidget for the same pattern; mutable because
+    // drawGrid() is const but the cache is hidden state.
+    mutable QVector<QStaticText> m_axisLabels;
+    mutable bool                 m_labelsDirty{true};
 };
 
 } // namespace AetherSDR

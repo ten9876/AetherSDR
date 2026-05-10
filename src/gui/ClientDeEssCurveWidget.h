@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QStaticText>
+#include <QVector>
 #include <QWidget>
 
 class QTimer;
@@ -48,6 +50,13 @@ private:
     QTimer*      m_pollTimer{nullptr};
     bool         m_compact{false};
     float        m_lastScDb{-120.0f};   // smoothed sidechain ball dB
+
+    // Cached axis labels — one QStaticText per kFreqMajor entry.  Font
+    // is fixed at 8 px regardless of compact mode (compact gates label-
+    // draw entirely), so the cache is built once and never invalidated
+    // beyond the initial dirty flag.
+    mutable QVector<QStaticText> m_axisLabels;
+    mutable bool                 m_labelsDirty{true};
 };
 
 } // namespace AetherSDR

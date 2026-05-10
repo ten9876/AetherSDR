@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QStaticText>
+#include <QVector>
 #include <QWidget>
 
 class QTimer;
@@ -73,6 +75,14 @@ protected:
     ClientComp* m_comp{nullptr};
     bool        m_compact{false};
     float       m_lastInputDb{-120.0f};   // smoothed ball position
+
+    // Cached axis labels — one QStaticText per kMajorTicks entry so the
+    // HarfBuzz shaper runs once per (string, font) pair instead of every
+    // 33 ms paint.  Mutable because drawGrid() is const but the cache is
+    // hidden state, not part of the widget's logical model.  Rebuilt on
+    // first paint and on compact-mode flip (font px size changes 7 ↔ 9).
+    mutable QVector<QStaticText> m_axisLabels;
+    mutable bool                 m_labelsDirty{true};
 };
 
 } // namespace AetherSDR

@@ -58,6 +58,7 @@ void ClientGateCurveWidget::setCompactMode(bool on)
 {
     if (on == m_compact) return;
     m_compact = on;
+    m_labelsDirty = true;  // font px size flips 9 ↔ 7
     update();
 }
 
@@ -146,18 +147,33 @@ void ClientGateCurveWidget::drawGrid(QPainter& p, const QRectF& r) const
     f.setPixelSize(m_compact ? 7 : 9);
     p.setFont(f);
 
-    for (float db : kMajorTicks) {
+    if (m_labelsDirty) {
+        m_axisLabels.clear();
+        m_axisLabels.reserve(static_cast<int>(std::size(kMajorTicks)));
+        for (float db : kMajorTicks) {
+            QStaticText st(QString::number(static_cast<int>(db)));
+            st.setPerformanceHint(QStaticText::AggressiveCaching);
+            m_axisLabels.append(std::move(st));
+        }
+        m_labelsDirty = false;
+    }
+
+    const qreal ascent = p.fontMetrics().ascent();
+
+    for (size_t i = 0; i < std::size(kMajorTicks); ++i) {
+        const float db = kMajorTicks[i];
         const float x = dbToX(db);
         p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()));
         const float y = dbToY(db);
         p.drawLine(QPointF(r.left(), y), QPointF(r.right(), y));
 
         if (!m_compact && db != 0.0f && db != kMinDb) {
+            m_axisLabels[i].prepare(p.transform(), f);
             p.setPen(kAxisLabelColor);
-            p.drawText(QPointF(x + 2.0f, r.bottom() - 2.0f),
-                       QString::number(static_cast<int>(db)));
-            p.drawText(QPointF(r.left() + 2.0f, y - 2.0f),
-                       QString::number(static_cast<int>(db)));
+            p.drawStaticText(QPointF(x + 2.0f, r.bottom() - 2.0f - ascent),
+                             m_axisLabels[i]);
+            p.drawStaticText(QPointF(r.left() + 2.0f, y - 2.0f - ascent),
+                             m_axisLabels[i]);
             p.setPen(majorPen);
         }
     }

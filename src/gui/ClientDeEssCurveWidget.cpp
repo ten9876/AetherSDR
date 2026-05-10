@@ -132,18 +132,40 @@ void ClientDeEssCurveWidget::paintEvent(QPaintEvent*)
         p.drawLine(QPointF(r.left(), y), QPointF(r.right(), y));
     }
     p.setPen(QPen(kGridMajorColor, 1.0));
-    for (float f : kFreqMajor) {
-        const float x = hzToX(f);
-        p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()));
-        if (!m_compact) {
-            p.setPen(kAxisLabelColor);
-            QFont font = p.font();
-            font.setPixelSize(8);
-            p.setFont(font);
+    QFont font = p.font();
+    font.setPixelSize(8);
+    p.setFont(font);
+
+    // Build the QStaticText cache once — font is fixed at 8 px regardless
+    // of compact mode, so this set never needs invalidation after the
+    // first paint.  Labels follow kFreqMajor: "100", "500", "1k", etc.
+    if (m_labelsDirty) {
+        m_axisLabels.clear();
+        m_axisLabels.reserve(static_cast<int>(std::size(kFreqMajor)));
+        for (float f : kFreqMajor) {
             const QString lbl = (f >= 1000.0f)
                 ? QString::number(int(f / 1000.0f)) + "k"
                 : QString::number(int(f));
-            p.drawText(QPointF(x + 2.0f, r.bottom() - 2.0f), lbl);
+            QStaticText st(lbl);
+            st.setPerformanceHint(QStaticText::AggressiveCaching);
+            m_axisLabels.append(std::move(st));
+        }
+        m_labelsDirty = false;
+    }
+
+    // drawStaticText anchors at top-left, drawText at the baseline —
+    // subtract ascent so the visual position matches the prior render.
+    const qreal ascent = p.fontMetrics().ascent();
+
+    for (size_t i = 0; i < std::size(kFreqMajor); ++i) {
+        const float f = kFreqMajor[i];
+        const float x = hzToX(f);
+        p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()));
+        if (!m_compact) {
+            m_axisLabels[i].prepare(p.transform(), font);
+            p.setPen(kAxisLabelColor);
+            p.drawStaticText(QPointF(x + 2.0f, r.bottom() - 2.0f - ascent),
+                             m_axisLabels[i]);
             p.setPen(QPen(kGridMajorColor, 1.0));
         }
     }
