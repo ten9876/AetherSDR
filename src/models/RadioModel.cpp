@@ -1670,10 +1670,9 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
                                 sendCmd(cmd);
                         }
 
-                        // Create remote_audio_rx if PC Audio is on OR TCI autostart
-                        // is enabled. Defer briefly so SmartConnect/restored stream
-                        // status can be adopted before we ask the radio for another
-                        // stream. (#1014, #1051, #2037)
+                        // Create remote_audio_rx if PC Audio is enabled. Defer briefly so
+                        // SmartConnect/restored stream status can be adopted before
+                        // we ask the radio for another stream. (#1014, #1051, #1137, #2037)
                         scheduleRxAudioStreamEnsure(QStringLiteral("connect"));
 
                         // Do not claim a dax_tx stream at GUI attach time. SmartSDR DAX
@@ -2470,9 +2469,8 @@ void RadioModel::removeRxAudioStream()
 void RadioModel::scheduleRxAudioStreamEnsure(const QString& reason)
 {
     const bool pcAudio = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
-    const bool autoStartTci = AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
-    if (!pcAudio && !autoStartTci) {
-        qCDebug(lcProtocol) << "RadioModel: PC audio disabled, no TCI — skipping remote_audio_rx";
+    if (!pcAudio) {
+        qCDebug(lcProtocol) << "RadioModel: PC audio disabled — skipping remote_audio_rx";
         if (m_rxAudio.streamId != 0) {
             qCDebug(lcProtocol) << "RadioModel: removing unexpected owned remote_audio_rx while PC audio is disabled";
             removeRxAudioStream();
@@ -2484,12 +2482,11 @@ void RadioModel::scheduleRxAudioStreamEnsure(const QString& reason)
     logRemoteAudioRxSummary(QStringLiteral("ensure scheduled: ") + reason);
     QTimer::singleShot(350, this, [this, reason]() {
         const bool pcAudioNow = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
-        const bool autoStartTciNow = AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
         if (!isConnected()) {
             logRemoteAudioRxSummary(QStringLiteral("ensure canceled: disconnected"));
             return;
         }
-        if (!pcAudioNow && !autoStartTciNow) {
+        if (!pcAudioNow) {
             logRemoteAudioRxSummary(QStringLiteral("ensure canceled: no longer needed"));
             return;
         }
