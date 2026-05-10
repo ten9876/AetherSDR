@@ -7,6 +7,7 @@
 #include <QAbstractItemView>
 #include <QHeaderView>
 #include <QLabel>
+#include <QPushButton>
 #include <QTableWidgetItem>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -29,12 +30,12 @@ QString displayMemoryName(const MemoryEntry& memory)
 MemoryBrowsePanel::MemoryBrowsePanel(QWidget* parent)
     : QWidget(parent)
 {
-    setFixedSize(252, 430);
+    setFixedSize(252, 460);
     setStyleSheet("background: rgba(15, 15, 26, 220); border: 1px solid #304050; border-radius: 3px;");
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(3, 3, 3, 3);
-    root->setSpacing(0);
+    root->setSpacing(4);
 
     m_emptyLabel = new QLabel("No memories are available yet.", this);
     m_emptyLabel->setAlignment(Qt::AlignCenter);
@@ -70,6 +71,22 @@ MemoryBrowsePanel::MemoryBrowsePanel(QWidget* parent)
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }");
     root->addWidget(m_table, 1);
     m_table->hide();
+
+    // "MEM+" button anchored at the bottom of the panel — outside the
+    // scrolling table so it stays visible regardless of scroll position.
+    // Style matches the spectrum overlay menu buttons it replaces.
+    m_addBtn = new QPushButton(QStringLiteral("Add Memory"), this);
+    m_addBtn->setFixedHeight(22);
+    m_addBtn->setStyleSheet(
+        "QPushButton { background: rgba(20, 30, 45, 240); "
+        "border: 1px solid rgba(255, 255, 255, 40); border-radius: 2px; "
+        "color: #c8d8e8; font-size: 11px; font-weight: bold; }"
+        "QPushButton:hover { background: rgba(0, 112, 192, 180); "
+        "border: 1px solid #0090e0; }");
+    m_addBtn->setToolTip("Save the current slice on this panadapter as a memory.");
+    root->addWidget(m_addBtn, 0);
+    connect(m_addBtn, &QPushButton::clicked, this,
+            &MemoryBrowsePanel::quickAddRequested);
 
     connect(m_table, &QTableWidget::cellClicked, this, [this](int row, int) {
         auto* indexItem = m_table->item(row, 0);

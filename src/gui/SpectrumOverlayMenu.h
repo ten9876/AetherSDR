@@ -72,11 +72,6 @@ public:
     // side DSP lives on VfoWidget only, client-side DSP lives on the
     // AetherDSP applet only.
 
-    // Show the target slice letter ('A'-'D') on the MEM buttons so users
-    // know which slice will be saved/recalled.  Pass a null QChar to clear
-    // the badge (no slice on this pan).
-    void setMemoryTargetSliceLetter(QChar letter);
-
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
     void wheelEvent(QWheelEvent* event) override { event->accept(); }
@@ -160,8 +155,7 @@ private:
     static constexpr int kBtnAnt = 3;
     static constexpr int kBtnDisplay = 4;
     static constexpr int kBtnMemoryBrowse = 5;
-    static constexpr int kBtnMemoryAdd = 6;
-    static constexpr int kBtnDax = 7;
+    static constexpr int kBtnDax = 6;
 
     QPushButton* m_toggleBtn{nullptr};
     QVector<QPushButton*> m_menuBtns;

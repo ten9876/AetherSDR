@@ -8326,12 +8326,6 @@ void MainWindow::refreshMemoryBrowsePanel()
             continue;
         if (auto* menu = applet->spectrumWidget()->overlayMenu()) {
             menu->setMemories(m_radioModel.memories());
-            // Update the MEM button badge showing which slice save/recall
-            // will target on this pan — makes the fallback slice visible
-            // when the active slice is on a different pan (#1781).
-            auto* target = preferredMemorySlice(menu->panId());
-            menu->setMemoryTargetSliceLetter(
-                target ? QChar('A' + (target->sliceId() & 3)) : QChar());
         }
     }
 }

@@ -116,9 +116,9 @@ SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
         {"Band",      0, nullptr},   // 2 — toggleBandPanel
         {"ANT",       1, nullptr},   // 3 — toggleAntPanel
         {"Display",   4, nullptr},   // 4 — toggleDisplayPanel
-        {QStringLiteral("MEM\u25b8"), 5, nullptr},   // 6 — toggleMemoryPanel
-        {"MEM+",      6, nullptr},   // 7 — quickAddMemoryRequested
-        {"DAX",       3, nullptr},   // 8 — toggleDaxPanel
+        {"Memory",    5, nullptr},   // 6 — toggleMemoryPanel
+        // MEM+ moved into MemoryBrowsePanel (bottom button — doesn't scroll).
+        {"DAX",       3, nullptr},   // 6 — toggleDaxPanel
     };
 
     for (const auto& def : defs) {
@@ -133,11 +133,6 @@ SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
             connect(btn, &QPushButton::clicked, this, &SpectrumOverlayMenu::toggleDisplayPanel);
         else if (def.specialIdx == 5)
             connect(btn, &QPushButton::clicked, this, &SpectrumOverlayMenu::toggleMemoryPanel);
-        else if (def.specialIdx == 6)
-            connect(btn, &QPushButton::clicked, this, [this]() {
-                hideAllSubPanels();
-                emit quickAddMemoryRequested(m_panId);
-            });
         else if (def.text == "+RX")
             connect(btn, &QPushButton::clicked, this, [this]() { emit addRxClicked(m_panId); });
         else if (def.sig)
@@ -146,14 +141,13 @@ SpectrumOverlayMenu::SpectrumOverlayMenu(QWidget* parent)
     }
 
     // Menu button tooltips
-    if (m_menuBtns.size() >= 8) {
+    if (m_menuBtns.size() >= 7) {
         m_menuBtns[kBtnAddRx]->setToolTip("Add a new receive slice on this panadapter.");
         m_menuBtns[kBtnAddTnf]->setToolTip("Add a tracking notch filter at the current frequency.");
         m_menuBtns[kBtnBand]->setToolTip("Open band selector.");
         m_menuBtns[kBtnAnt]->setToolTip("Open antenna and RF gain controls.");
         m_menuBtns[kBtnDisplay]->setToolTip("Open panadapter and waterfall display settings.");
         m_menuBtns[kBtnMemoryBrowse]->setToolTip("Browse saved memories for quick recall.");
-        m_menuBtns[kBtnMemoryAdd]->setToolTip("Save the current slice on this panadapter as a memory.");
         m_menuBtns[kBtnDax]->setToolTip("Open DAX audio routing channel selector.");
     }
 
@@ -186,17 +180,6 @@ void SpectrumOverlayMenu::setMemories(const QMap<int, MemoryEntry>& memories)
 {
     if (m_memoryPanel)
         m_memoryPanel->setMemories(memories);
-}
-
-void SpectrumOverlayMenu::setMemoryTargetSliceLetter(QChar letter)
-{
-    if (m_menuBtns.size() <= kBtnMemoryAdd) return;
-    const QString browseBase = QStringLiteral("MEM\u25b8");
-    const QString addBase    = QStringLiteral("MEM+");
-    const bool hasTarget = letter.isLetter();
-    const QString suffix = hasTarget ? QString(QChar(' ')) + letter.toUpper() : QString();
-    m_menuBtns[kBtnMemoryBrowse]->setText(browseBase + suffix);
-    m_menuBtns[kBtnMemoryAdd]->setText(addBase + suffix);
 }
 
 // ── Band sub-panel ────────────────────────────────────────────────────────────
@@ -566,6 +549,10 @@ void SpectrumOverlayMenu::buildMemoryPanel()
         hideAllSubPanels();
         emit memoryActivated(memoryIndex, m_panId);
     });
+    connect(m_memoryPanel, &MemoryBrowsePanel::quickAddRequested, this, [this]() {
+        hideAllSubPanels();
+        emit quickAddMemoryRequested(m_panId);
+    });
 }
 
 void SpectrumOverlayMenu::toggleMemoryPanel()
@@ -605,7 +592,7 @@ void SpectrumOverlayMenu::hideAllSubPanels()
     m_memoryPanelVisible = false;
     if (m_memoryPanel) m_memoryPanel->hide();
     for (int idx : {kBtnBand, kBtnAnt, kBtnDisplay,
-                    kBtnMemoryBrowse, kBtnMemoryAdd, kBtnDax}) {
+                    kBtnMemoryBrowse, kBtnDax}) {
         if (idx >= 0 && idx < m_menuBtns.size())
             m_menuBtns[idx]->setStyleSheet(kMenuBtnNormal);
     }

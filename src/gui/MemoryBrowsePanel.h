@@ -5,6 +5,7 @@
 #include <QWidget>
 
 class QLabel;
+class QPushButton;
 class QTableWidget;
 
 namespace AetherSDR {
@@ -20,6 +21,7 @@ public:
 
 signals:
     void memoryActivated(int memoryIndex);
+    void quickAddRequested();
 
 private:
     void populateTable();
@@ -29,6 +31,7 @@ private:
     QMap<int, MemoryEntry> m_memories;
     QLabel* m_emptyLabel{nullptr};
     QTableWidget* m_table{nullptr};
+    QPushButton* m_addBtn{nullptr};
     int m_highlightedMemoryIndex{-1};
 };
 
