@@ -42,12 +42,16 @@
 #include <QElapsedTimer>
 #include "core/LogManager.h"
 #include "core/PerfTelemetry.h"
+#include <QSoundEffect>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <utility>
 
 namespace AetherSDR {
+
+bool SpectrumWidget::s_starstruckMode = false;
+QSoundEffect* SpectrumWidget::s_starstruckSound = nullptr;
 
 static const QColor kAetherBrandBlue(0x00, 0xb4, 0xd8);
 static const QColor kAetherBrandGreen(0x20, 0xc0, 0x60);
@@ -2583,6 +2587,10 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         m_centerMhz = newCenter;
         markOverlayDirty();
         emit centerChangeRequested(newCenter);
+        if (s_starstruckMode && s_starstruckSound
+            && s_starstruckSound->isLoaded() && !s_starstruckSound->isPlaying()) {
+            s_starstruckSound->play();
+        }
         ev->accept();
         return;
     }
@@ -2801,6 +2809,7 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
     if (m_draggingPan) {
         m_draggingPan = false;
         setSpectrumCursor(Qt::CrossCursor);
+        if (s_starstruckSound) s_starstruckSound->stop();
 
         // Single-click-to-tune: if the mouse didn't move during the
         // "pan drag", treat it as a click-to-tune instead
@@ -3015,6 +3024,32 @@ bool SpectrumWidget::event(QEvent* ev)
     }
     return SPECTRUM_BASE_CLASS::event(ev);
 }
+
+// ─── Starstruck easter egg ────────────────────────────────────────────────────
+
+void SpectrumWidget::ensureStarstruckSoundLoaded()
+{
+    if (s_starstruckSound) return;
+    s_starstruckSound = new QSoundEffect(qApp);
+    s_starstruckSound->setSource(QUrl("qrc:/sounds/aetherial.wav"));
+    s_starstruckSound->setVolume(0.03f);
+    // The WAV is a forward+reverse palindrome, so infinite looping while
+    // the drag is held produces a seamless back-and-forth effect.
+    s_starstruckSound->setLoopCount(QSoundEffect::Infinite);
+}
+
+void SpectrumWidget::toggleStarstruckMode()
+{
+    s_starstruckMode = !s_starstruckMode;
+    if (s_starstruckMode) {
+        // Preload so the first drag plays immediately (loading is async).
+        ensureStarstruckSoundLoaded();
+    } else if (s_starstruckSound) {
+        s_starstruckSound->stop();
+    }
+}
+
+// ─── Wheel ────────────────────────────────────────────────────────────────────
 
 void SpectrumWidget::wheelEvent(QWheelEvent* ev)
 {

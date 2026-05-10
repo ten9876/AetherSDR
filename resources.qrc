@@ -11,6 +11,9 @@
         <file alias="iaru-region3.json">resources/bandplans/iaru-region3.json</file>
         <file alias="rac-canada.json">resources/bandplans/rac-canada.json</file>
     </qresource>
+    <qresource prefix="/sounds">
+        <file alias="aetherial.wav">resources/aetherial.wav</file>
+    </qresource>
     <qresource prefix="/help">
         <file alias="getting-started.md">resources/help/getting-started.md</file>
         <file alias="aethersdr-help.md">resources/help/aethersdr-help.md</file>

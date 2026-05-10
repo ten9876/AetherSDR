@@ -1229,6 +1229,12 @@ MainWindow::MainWindow(QWidget* parent)
         toggleMinimalMode(next);
     });
 
+    // Ctrl+Shift+A — starstruck easter egg: toggles pan-drag sound
+    auto* starstruckShortcut = new QShortcut(QKeySequence("Ctrl+Shift+A"), this);
+    connect(starstruckShortcut, &QShortcut::activated, this, []() {
+        SpectrumWidget::toggleStarstruckMode();
+    });
+
     // Restore minimal mode if it was active on last exit
     if (AppSettings::instance().value("MinimalModeEnabled", "False").toString() == "True")
         toggleMinimalMode(true);

@@ -12,6 +12,7 @@
 #include <QLabel>
 
 class QVariantAnimation;
+class QSoundEffect;
 
 #ifdef AETHER_GPU_SPECTRUM
 #include <QRhiWidget>
@@ -428,6 +429,9 @@ protected:
 public:
     void showAddSpotDialog(double freqMhz);
 
+    // Starstruck easter egg: Ctrl+Shift+A toggles the panadapter pan-drag sound.
+    static void toggleStarstruckMode();
+
 private:
     double effectiveGridStepMhz(int widgetWidth) const;
     void drawGrid(QPainter& p, const QRect& r);
@@ -524,6 +528,11 @@ private:
     int m_scrollAccum{0};   // trackpad pixel scroll accumulator (macOS)
     int m_angleAccum{0};    // mouse wheel angle accumulator (#390)
     qint64 m_lastWheelMs{0}; // debounce: timestamp of last accepted wheel step
+
+    // Starstruck easter egg (Ctrl+Shift+A) — shared across all instances
+    static bool s_starstruckMode;
+    static QSoundEffect* s_starstruckSound;
+    static void ensureStarstruckSoundLoaded();
 
     // Panadapter bandwidth zoom limits (MHz), set per-radio model
     double m_minBwMhz{0.010};   // 10 kHz default
