@@ -390,11 +390,11 @@ TitleBar::TitleBar(QWidget* parent)
 
     m_hbox->addSpacing(4);
 
-    auto* dockSep = new QFrame;
-    dockSep->setFixedSize(1, 20);
-    dockSep->setStyleSheet("QFrame { background: #304050; border: none; }");
-    markDragHandle(dockSep);
-    m_hbox->addWidget(dockSep);
+    m_dockSep = new QFrame;
+    m_dockSep->setFixedSize(1, 20);
+    m_dockSep->setStyleSheet("QFrame { background: #304050; border: none; }");
+    markDragHandle(m_dockSep);
+    m_hbox->addWidget(m_dockSep);
 
     m_hbox->addSpacing(4);
 
@@ -1036,6 +1036,12 @@ void TitleBar::setMinimalMode(bool on)
     m_hpSlider->setVisible(!on);
     m_masterLabel->setVisible(!on);
     m_hpLabel->setVisible(!on);
+    // Dock-side selectors lose meaning in minimal mode — no panel
+    // layout to dock or pop out of.
+    if (m_dockLeftLbl)  m_dockLeftLbl->setVisible(!on);
+    if (m_dockRightLbl) m_dockRightLbl->setVisible(!on);
+    if (m_popOutLbl)    m_popOutLbl->setVisible(!on);
+    if (m_dockSep)      m_dockSep->setVisible(!on);
     // Don't touch m_otherTxLabel or m_mfBtn — their visibility is
     // managed by setOtherClientTx() and setMultiFlexStatus() respectively
     updateMaximizeIcon();

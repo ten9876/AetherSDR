@@ -5,6 +5,7 @@
 class QPushButton;
 class QSlider;
 class QLabel;
+class QFrame;
 class QMenuBar;
 class QHBoxLayout;
 class QTimer;
@@ -92,6 +93,7 @@ private:
     QLabel*      m_dockLeftLbl{nullptr};
     QLabel*      m_dockRightLbl{nullptr};
     QLabel*      m_popOutLbl{nullptr};
+    QFrame*      m_dockSep{nullptr};
     bool         m_minimalMode{false};
     bool         m_windowMoveActive{false};
     bool         m_windowMoveUsesSystem{false};
