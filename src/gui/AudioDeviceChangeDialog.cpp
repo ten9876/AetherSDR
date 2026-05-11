@@ -37,7 +37,7 @@ const char* kDialogStyle =
     "QLabel#eyebrow { color: #40ff80; background: transparent; font-weight: bold; }"
     "QLabel#title { color: #ffffff; background: transparent; font-size: 18px; font-weight: bold; }"
     "QLabel#body { color: #c8d8e8; background: transparent; }"
-    "QLabel#sectionLabel { color: #40ff80; background: transparent; font-weight: bold; }"
+    "QLabel#sectionLabel { color: #00b4d8; background: transparent; font-weight: bold; }"
     "QListWidget {"
     "  background: #0a0a14;"
     "  border: 1px solid #304050;"
