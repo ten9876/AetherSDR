@@ -437,6 +437,7 @@ private:
     QPointer<QDialog> m_memoryDialog;
     QPointer<WhatsNewDialog> m_whatsNewDialog;
     QPointer<QDialog> m_dspDialog;
+    QPointer<ProfileManagerDialog> m_profileManagerDialog;
 #ifdef HAVE_MIDI
     QPointer<QDialog> m_midiDialog;
 #endif
