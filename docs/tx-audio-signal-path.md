@@ -11,7 +11,7 @@ branches, metering taps, downmixing, and packetization details, see
 [AetherSDR Audio Pipeline](audio-pipeline.md). This page focuses on how the
 client-shaped PC mic voice stream relates to FlexRadio firmware meters.
 
-## Client-side TX DSP (PooDoo™ Audio, before the radio)
+## Client-side TX DSP (AetherialAudio, before the radio)
 
 Since v0.8.15 AetherSDR applies its own client-side DSP chain to the
 PC mic voice TX stream before VITA/Opus packetization. The radio receives
@@ -23,7 +23,7 @@ DAX/TCI bypasses client voice DSP in `AudioEngine::feedDaxTxAudio()`.
 RADE branches early from `AudioEngine::onTxAudioReady()` and bypasses
 Opus voice TX.
 
-As of v0.8.18 the full **PooDoo™ Audio** chain is in place: seven
+As of v0.8.18 the full **AetherialAudio** chain is in place: seven
 ordered stages, drag-to-reorder inside the CHAIN widget, single-click
 to bypass, double-click to open the floating editor.
 
