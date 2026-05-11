@@ -325,6 +325,7 @@ AudioEngine::AudioEngine(QObject* parent)
                 m_outputDevice = QAudioDevice{};
             }
         }
+        emit outputDeviceChanged();
         if (!m_audioSink) return;
         qCWarning(lcAudio) << "AudioEngine: audio output device list changed, restarting RX (#1361)";
         QMetaObject::invokeMethod(this, [this]() {
@@ -332,6 +333,16 @@ AudioEngine::AudioEngine(QObject* parent)
             stopRxStream();
             startRxStream();
         }, Qt::QueuedConnection);
+    });
+    connect(m_mediaDevices, &QMediaDevices::audioInputsChanged, this, [this]() {
+        if (!m_inputDevice.isNull()) {
+            const auto inputs = QMediaDevices::audioInputs();
+            if (!devicePresent(inputs, m_inputDevice)) {
+                qCWarning(lcAudio) << "AudioEngine: selected input device is no longer available, falling back to the system default";
+                m_inputDevice = QAudioDevice{};
+            }
+        }
+        emit inputDeviceChanged();
     });
 #endif
 
@@ -3952,6 +3963,8 @@ void AudioEngine::setOutputDevice(const QAudioDevice& dev)
         stopRxStream();
         startRxStream();
     }
+
+    emit outputDeviceChanged();
 }
 
 void AudioEngine::setInputDevice(const QAudioDevice& dev)
@@ -3971,6 +3984,8 @@ void AudioEngine::setInputDevice(const QAudioDevice& dev)
         stopTxStream();
         startTxStream(addr, port);
     }
+
+    emit inputDeviceChanged();
 }
 
 #ifdef Q_OS_MAC

@@ -146,6 +146,7 @@ private:
     void audioStopRx();
     void audioStartTx(const QHostAddress& addr, quint16 port);
     void audioStopTx();
+    void updatePcAudioTooltip();
     SliceModel* activeSlice() const;
     static const char* tuneIntentName(TuneIntent intent);
     bool panFollowEnabled() const;
