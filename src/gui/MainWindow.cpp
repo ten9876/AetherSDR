@@ -6579,9 +6579,16 @@ void MainWindow::buildMenuBar()
     // ── Profiles menu ──────────────────────────────────────────────────────
     m_profilesMenu = menuBar()->addMenu("&Profiles");
     auto* profileMgrAct = m_profilesMenu->addAction("Profile Manager...");
-    connect(profileMgrAct, &QAction::triggered, this, [this] {
-        ProfileManagerDialog dlg(&m_radioModel, this);
-        dlg.exec();
+        connect(profileMgrAct, &QAction::triggered, this, [this] {
+        if (!m_profileManagerDialog) {
+            auto* dlg = new ProfileManagerDialog(&m_radioModel, this);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            dlg->setModal(false);
+            m_profileManagerDialog = dlg;
+        }
+        m_profileManagerDialog->show();
+        m_profileManagerDialog->raise();
+        m_profileManagerDialog->activateWindow();
     });
     auto* profileImportExportAct = m_profilesMenu->addAction("Import/Export Profiles...");
     connect(profileImportExportAct, &QAction::triggered, this, [this] {
