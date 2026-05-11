@@ -79,6 +79,7 @@ public:
     void clearDisplay();  // blank spectrum and waterfall on disconnect
     void resetGpuResources();  // tear down GPU pipelines for reparenting (#1240)
     void setConnectionAnimationVisible(bool on, const QString& label = {});
+    void showInterlockNotification(const QString& message, int durationMs = 5000);
 
     // Feed a new FFT frame. bins are scaled dBm values.
     void updateSpectrum(const QVector<float>& binsDbm);
@@ -461,6 +462,7 @@ private:
     void drawDbmScale(QPainter& p, const QRect& specRect);
     void drawTimeScale(QPainter& p, const QRect& wfRect);
     void drawConnectionAnimation(QPainter& p, const QRect& contentRect);
+    void positionInterlockNotification();
     int waterfallStripWidth() const;
     QRect waterfallLiveButtonRect(const QRect& wfRect) const;
     QRect waterfallTimeScaleRect(const QRect& wfRect) const;
@@ -666,6 +668,8 @@ private:
     QString m_connectionAnimationLabel;
     QTimer* m_connectionAnimationTimer{nullptr};
     QElapsedTimer m_connectionAnimationClock;
+    QLabel* m_interlockNotificationLabel{nullptr};
+    QTimer* m_interlockNotificationTimer{nullptr};
 
     // State change detector cache (per-instance, NOT static — multiple
     // panadapters have different values and static vars cause an infinite

@@ -289,6 +289,23 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
     m_tnfHoverPopup->hide();
     m_tnfHoverPopup->raise();
 
+    m_interlockNotificationLabel = new QLabel(this);
+    m_interlockNotificationLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_interlockNotificationLabel->setAlignment(Qt::AlignCenter);
+    m_interlockNotificationLabel->setWordWrap(true);
+    m_interlockNotificationLabel->setStyleSheet(
+        "QLabel { background: rgba(10,10,20,225); color: #d7fbff; "
+        "border: 2px solid #00b4d8; padding: 10px 14px; "
+        "font-size: 13px; font-weight: bold; }");
+    m_interlockNotificationLabel->hide();
+    m_interlockNotificationLabel->raise();
+
+    m_interlockNotificationTimer = new QTimer(this);
+    m_interlockNotificationTimer->setSingleShot(true);
+    connect(m_interlockNotificationTimer, &QTimer::timeout, this, [this]() {
+        m_interlockNotificationLabel->hide();
+    });
+
     // Tune guide auto-hide timer (2-second inactivity timeout)
     m_tuneGuideTimer = new QTimer(this);
     m_tuneGuideTimer->setSingleShot(true);
@@ -466,6 +483,8 @@ VfoWidget* SpectrumWidget::addVfoWidget(int sliceId)
     w->show();
     w->raise();
     m_overlayMenu->raiseAll();  // keep overlay + panels on top of all VFO widgets
+    if (m_interlockNotificationLabel && m_interlockNotificationLabel->isVisible())
+        m_interlockNotificationLabel->raise();
     return w;
 }
 
@@ -484,6 +503,8 @@ void SpectrumWidget::setActiveVfoWidget(int sliceId)
     if (m_vfoWidget) {
         m_vfoWidget->raise();
         m_overlayMenu->raiseAll();  // keep overlay above VFO
+        if (m_interlockNotificationLabel && m_interlockNotificationLabel->isVisible())
+            m_interlockNotificationLabel->raise();
     }
 }
 
@@ -995,6 +1016,35 @@ void SpectrumWidget::setConnectionAnimationVisible(bool on, const QString& label
         m_connectionAnimationTimer->stop();
     }
     markOverlayDirty();
+}
+
+void SpectrumWidget::showInterlockNotification(const QString& message, int durationMs)
+{
+    const QString text = message.trimmed();
+    if (text.isEmpty())
+        return;
+
+    const int availableWidth = qMax(80, width() - 24);
+    const int maxTextWidth = qMax(80, qMin(availableWidth - 36, int(width() * 0.78)));
+    QFont font = m_interlockNotificationLabel->font();
+    font.setPointSize(13);
+    font.setBold(true);
+    m_interlockNotificationLabel->setFont(font);
+
+    const QFontMetrics fm(font);
+    const QRect textBounds = fm.boundingRect(
+        QRect(0, 0, maxTextWidth, 1000),
+        Qt::AlignCenter | Qt::TextWordWrap,
+        text);
+
+    m_interlockNotificationLabel->setText(text);
+    m_interlockNotificationLabel->setFixedSize(
+        qBound(80, textBounds.width() + 36, availableWidth),
+        textBounds.height() + 24);
+    positionInterlockNotification();
+    m_interlockNotificationLabel->show();
+    m_interlockNotificationLabel->raise();
+    m_interlockNotificationTimer->start(qMax(1, durationMs));
 }
 
 void SpectrumWidget::drawConnectionAnimation(QPainter& p, const QRect& contentRect)
@@ -3165,6 +3215,7 @@ void SpectrumWidget::resizeEvent(QResizeEvent* ev)
 
 
     positionZoomButtons();
+    positionInterlockNotification();
 
     // Notify MainWindow so it can re-push xpixels/ypixels to the radio (#1511)
     if (width() >= 100 && height() >= 100)
@@ -3183,6 +3234,16 @@ void SpectrumWidget::positionZoomButtons()
     // Row 0 (above): S | B (segment/band zoom)
     m_zoomSegBtn->move(pad, botY - sz - sz - 2);
     m_zoomBandBtn->move(pad + sz + 2, botY - sz - sz - 2);
+}
+
+void SpectrumWidget::positionInterlockNotification()
+{
+    if (!m_interlockNotificationLabel)
+        return;
+
+    const int x = qMax(0, (width() - m_interlockNotificationLabel->width()) / 2);
+    const int y = qMax(0, (height() - m_interlockNotificationLabel->height()) / 2);
+    m_interlockNotificationLabel->move(x, y);
 }
 
 // ─── Colour map ───────────────────────────────────────────────────────────────
@@ -4219,6 +4280,9 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
         }
     }
 
+    if (m_interlockNotificationLabel && m_interlockNotificationLabel->isVisible())
+        m_interlockNotificationLabel->raise();
+
     if (perfEnabled) {
         PerfTelemetry::instance().recordRender(
             static_cast<double>(PerfTelemetry::nowNs() - perfStartNs) / 1000000.0);
@@ -4430,6 +4494,8 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
     if (m_vfoWidget) {
         m_vfoWidget->raise();
         m_overlayMenu->raiseAll();
+        if (m_interlockNotificationLabel && m_interlockNotificationLabel->isVisible())
+            m_interlockNotificationLabel->raise();
     }
 
     // ── WNB / RF Gain / Prop Forecast indicators (top-right of FFT area) ────

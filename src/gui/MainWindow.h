@@ -175,6 +175,7 @@ private:
     void schedulePanFpsReconcile(const QString& panId, int reportedFps);
     void scheduleWaterfallLineDurationReconcile(const QString& panId, int reportedMs);
     void reassertUnmutedSliceAudioForPan(const QString& panId);
+    void showPanadapterInterlockNotification(const QString& message);
     void setActivePanApplet(PanadapterApplet* applet);
     void routeCwDecoderOutput();  // wire CW decoder to the pan owning the active slice
     SpectrumWidget* spectrumForSlice(SliceModel* s) const;

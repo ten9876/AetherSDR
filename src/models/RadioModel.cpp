@@ -1,4 +1,5 @@
 #include "RadioModel.h"
+#include "BandSettings.h"
 #include "core/CommandParser.h"
 #include "core/AppSettings.h"
 #include "core/CwTrace.h"
@@ -302,20 +303,58 @@ RadioModel::RadioModel(QObject* parent)
         sendCmd(cmd);
     });
 
+    m_transmitModel.setPttPreflight([this](TransmitModel::PttSource source) {
+        m_pendingTransmitPreflightSource = source;
+        return localPttInterlockMessage(source);
+    });
+    connect(&m_transmitModel, &TransmitModel::pttBlocked,
+            this, [this](const QString& message) {
+        m_pendingTransmitPreflightSource = TransmitModel::PttSource::Mox;
+        emitInterlockNotification(
+            message,
+            QStringLiteral("local-ptt:%1").arg(message));
+    });
+
     // Forward transmit model commands to the radio
     connect(&m_transmitModel, &TransmitModel::commandReady, this, [this](const QString& cmd){
+        const QString trimmed = cmd.trimmed();
+        if (trimmed.startsWith(QStringLiteral("transmit set "), Qt::CaseInsensitive)) {
+            const QMap<QString, QString> kvs =
+                CommandParser::parseKVs(trimmed.mid(QStringLiteral("transmit set ").size()));
+            if (kvs.contains(QStringLiteral("filter_low"))
+                && kvs.contains(QStringLiteral("filter_high"))) {
+                const QString message = txFilterFrequencyLimitMessage(
+                    kvs.value(QStringLiteral("filter_low")).toInt(),
+                    kvs.value(QStringLiteral("filter_high")).toInt());
+                if (!message.isEmpty()) {
+                    emitInterlockNotification(
+                        message,
+                        QStringLiteral("tx-filter:%1:%2")
+                            .arg(kvs.value(QStringLiteral("filter_low")),
+                                 kvs.value(QStringLiteral("filter_high"))));
+                }
+            }
+        }
+
         static const QRegularExpression xmitRe(R"(^xmit\s+([01])\s*$)", QRegularExpression::CaseInsensitiveOption);
-        const auto match = xmitRe.match(cmd.trimmed());
+        const auto match = xmitRe.match(trimmed);
         if (match.hasMatch()) {
             const bool tx = (match.captured(1) == "1");
+            if (tx) {
+                armInterlockNotification(m_pendingTransmitPreflightSource);
+                m_pendingTransmitPreflightSource = TransmitModel::PttSource::Mox;
+            }
             m_txRequested = tx;
             if (!tx && m_txAudioGate) {
                 m_txAudioGate = false;
                 emit txAudioGateChanged(false);
             }
         }
-        if (cmd == "transmit tune 1" || cmd == "atu start")
+        if (cmd == "transmit tune 1" || cmd == "atu start") {
+            armInterlockNotification(m_pendingTransmitPreflightSource);
+            m_pendingTransmitPreflightSource = TransmitModel::PttSource::Mox;
             applyTuneInhibit();
+        }
         sendCmd(cmd);
     });
 
@@ -457,6 +496,176 @@ int RadioModel::activeTxSliceNum() const
             return s->sliceId();
     }
     return -1;
+}
+
+SliceModel* RadioModel::txSlice() const
+{
+    for (auto* s : m_slices) {
+        if (s && s->isTxSlice())
+            return s;
+    }
+    return nullptr;
+}
+
+QString RadioModel::localPttInterlockMessage(TransmitModel::PttSource source) const
+{
+    // CAT/DAX PTT callers acknowledge the request before the asynchronous
+    // model path runs, so local preflight must not silently eat their PTT.
+    // Let the radio be authoritative and report any resulting interlock.
+    if (source == TransmitModel::PttSource::Dax)
+        return QString();
+
+    auto* s = txSlice();
+    if (!s)
+        return QStringLiteral("No transmit slice is assigned.");
+
+    const QString mode = s->mode().toUpper();
+    const bool nonVoiceSource = (source == TransmitModel::PttSource::Tune
+                              || source == TransmitModel::PttSource::TciHardware
+                              || source == TransmitModel::PttSource::Dax
+                              || s->sliceId() == m_digitalVoiceTxSliceId);
+    if (!nonVoiceSource
+        && (mode == QStringLiteral("DIGU") || mode == QStringLiteral("DIGL"))) {
+        return QStringLiteral("You cannot transmit voice in DIGU/DIGL mode.");
+    }
+
+    if (source == TransmitModel::PttSource::Tune)
+        return QString();
+
+    return txFilterFrequencyLimitMessage(m_transmitModel.txFilterLow(),
+                                         m_transmitModel.txFilterHigh());
+}
+
+QString RadioModel::txFilterFrequencyLimitMessage(int lowHz, int highHz) const
+{
+    auto* s = txSlice();
+    if (!s)
+        return QString();
+
+    const double carrierMhz = s->frequency();
+    if (carrierMhz <= 0.0)
+        return QString();
+
+    const QString bandName = BandSettings::bandForFrequency(carrierMhz);
+    if (bandName == QStringLiteral("GEN") || bandName == QStringLiteral("WWV"))
+        return QString();
+
+    const BandDef& band = BandSettings::bandDef(bandName);
+    if (band.lowMhz <= 0.0 || band.highMhz <= band.lowMhz)
+        return QString();
+
+    lowHz = qBound(0, lowHz, 9950);
+    highHz = qBound(lowHz + 50, highHz, 10000);
+
+    const QString mode = s->mode().toUpper();
+    double txLowMhz = carrierMhz;
+    double txHighMhz = carrierMhz;
+    if (mode == QStringLiteral("LSB") || mode == QStringLiteral("DIGL")) {
+        txLowMhz = carrierMhz - highHz / 1.0e6;
+        txHighMhz = carrierMhz - lowHz / 1.0e6;
+    } else if (mode == QStringLiteral("USB") || mode == QStringLiteral("DIGU")) {
+        txLowMhz = carrierMhz + lowHz / 1.0e6;
+        txHighMhz = carrierMhz + highHz / 1.0e6;
+    } else if (mode == QStringLiteral("AM") || mode == QStringLiteral("SAM")) {
+        txLowMhz = carrierMhz - highHz / 1.0e6;
+        txHighMhz = carrierMhz + highHz / 1.0e6;
+    } else {
+        return QString();
+    }
+
+    constexpr double kEdgeToleranceMhz = 0.0000005; // 0.5 Hz
+    if (txLowMhz < band.lowMhz - kEdgeToleranceMhz
+        || txHighMhz > band.highMhz + kEdgeToleranceMhz) {
+        return QStringLiteral("Your TX filter overlaps your frequency limits.");
+    }
+
+    return QString();
+}
+
+QString RadioModel::radioInterlockNotificationMessage(const QMap<QString, QString>& kvs) const
+{
+    const QString reason = kvs.value(QStringLiteral("reason")).toUpper();
+    const QString state = kvs.value(QStringLiteral("state")).toUpper();
+
+    auto withDebugName = [reason, state](const QString& message) {
+        const QString debugName = reason.isEmpty() ? state : reason;
+        return debugName.isEmpty()
+            ? message
+            : QStringLiteral("%1 (%2)").arg(message, debugName);
+    };
+
+    if (reason == QStringLiteral("OUT_OF_BAND")
+        || reason == QStringLiteral("TUNED_TOO_FAR")
+        || reason == QStringLiteral("OUT_OF_PA_RANGE")
+        || reason == QStringLiteral("XVTR_RX_ONLY")) {
+        return withDebugName(QStringLiteral("You cannot transmit on this frequency."));
+    }
+
+    if (reason == QStringLiteral("BAD_MODE")) {
+        if (auto* s = txSlice()) {
+            const QString mode = s->mode().toUpper();
+            const bool nonVoiceSource =
+                (m_interlockNotificationSource == TransmitModel::PttSource::Tune
+                 || m_interlockNotificationSource == TransmitModel::PttSource::TciHardware
+                 || m_interlockNotificationSource == TransmitModel::PttSource::Dax
+                 || s->sliceId() == m_digitalVoiceTxSliceId);
+            if (!nonVoiceSource
+                && (mode == QStringLiteral("DIGU") || mode == QStringLiteral("DIGL"))) {
+                return withDebugName(
+                    QStringLiteral("You cannot transmit voice in DIGU/DIGL mode."));
+            }
+        }
+        return withDebugName(QStringLiteral("You cannot transmit in this mode."));
+    }
+
+    if (reason == QStringLiteral("CLIENT_TX_INHIBIT"))
+        return withDebugName(QStringLiteral("Transmit is inhibited for this band."));
+    if (reason == QStringLiteral("NO_TX_ASSIGNED"))
+        return withDebugName(QStringLiteral("No transmit slice is assigned."));
+    if (reason == QStringLiteral("RCA_TXREQ"))
+        return withDebugName(QStringLiteral("External RCA TX request is holding transmit."));
+    if (reason == QStringLiteral("ACC_TXREQ"))
+        return withDebugName(QStringLiteral("External ACC TX request is holding transmit."));
+    if (reason == QStringLiteral("AMP:TG") || reason.contains(QStringLiteral("PG-XL")))
+        return withDebugName(QStringLiteral("Amplifier interlock is blocking transmit."));
+
+    if (state == QStringLiteral("TIMEOUT"))
+        return withDebugName(QStringLiteral("Transmit timed out."));
+    if (state == QStringLiteral("STUCK_INPUT"))
+        return withDebugName(QStringLiteral("PTT input is stuck active."));
+    if (state == QStringLiteral("TX_FAULT"))
+        return withDebugName(QStringLiteral("Transmit interlock fault."));
+
+    return QString();
+}
+
+void RadioModel::armInterlockNotification(TransmitModel::PttSource source)
+{
+    m_interlockNotificationArmedUntilMs = QDateTime::currentMSecsSinceEpoch() + 6000;
+    m_interlockNotificationSource = source;
+}
+
+bool RadioModel::interlockNotificationArmed() const
+{
+    return QDateTime::currentMSecsSinceEpoch() <= m_interlockNotificationArmedUntilMs;
+}
+
+void RadioModel::emitInterlockNotification(const QString& message, const QString& key)
+{
+    const QString trimmed = message.trimmed();
+    if (trimmed.isEmpty())
+        return;
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const QString effectiveKey = key.isEmpty() ? trimmed : key;
+    if (effectiveKey == m_lastInterlockNotificationKey
+        && now - m_lastInterlockNotificationMs < 5000) {
+        return;
+    }
+
+    m_lastInterlockNotificationKey = effectiveKey;
+    m_lastInterlockNotificationMs = now;
+    emit interlockNotificationRequested(trimmed);
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -701,8 +910,20 @@ void RadioModel::forceDisconnect()
     }
 }
 
-void RadioModel::setTransmit(bool tx)
+void RadioModel::setTransmit(bool tx, TransmitModel::PttSource source)
 {
+    if (tx) {
+        const QString message = localPttInterlockMessage(source);
+        if (!message.isEmpty()) {
+            emitInterlockNotification(
+                message,
+                QStringLiteral("local-ptt:%1").arg(message));
+            m_transmitModel.setTransmitting(false);
+            return;
+        }
+        armInterlockNotification(source);
+    }
+
     // Track local intent so we can keep TX gating aligned with user/PTT edges
     // while radio interlock transitions through intermediate states.
     m_txRequested = tx;
@@ -717,6 +938,11 @@ void RadioModel::setTransmit(bool tx)
     }
 
     sendCmd(QString("xmit %1").arg(tx ? 1 : 0));
+}
+
+void RadioModel::setDigitalVoiceTxSlice(int sliceId)
+{
+    m_digitalVoiceTxSliceId = sliceId;
 }
 
 QString RadioModel::audioCompressionParam() const
@@ -1860,6 +2086,12 @@ void RadioModel::onDisconnected()
     m_cwKeyActive = false;
     m_cwxActive = false;
     m_lastInterlockSource.clear();
+    m_lastInterlockNotificationKey.clear();
+    m_lastInterlockNotificationMs = 0;
+    m_interlockNotificationArmedUntilMs = 0;
+    m_pendingTransmitPreflightSource = TransmitModel::PttSource::Mox;
+    m_interlockNotificationSource = TransmitModel::PttSource::Mox;
+    m_digitalVoiceTxSliceId = -1;
     if (m_txAudioGate) {
         m_txAudioGate = false;
         emit txAudioGateChanged(false);
@@ -3547,6 +3779,23 @@ void RadioModel::onStatusReceived(const QString& object,
             if (state != "TRANSMITTING" && !state.contains("REQUESTED")
                 && !state.contains("DELAY")) {
                 m_lastInterlockSource.clear();
+            }
+
+            if (state == QStringLiteral("READY") || state == QStringLiteral("RECEIVE")) {
+                m_lastInterlockNotificationKey.clear();
+                m_lastInterlockNotificationMs = 0;
+                m_interlockNotificationArmedUntilMs = 0;
+                m_interlockNotificationSource = TransmitModel::PttSource::Mox;
+            } else if (interlockNotificationArmed()) {
+                const QString message = radioInterlockNotificationMessage(kvs);
+                if (!message.isEmpty()) {
+                    emitInterlockNotification(
+                        message,
+                        QStringLiteral("radio:%1:%2")
+                            .arg(state, kvs.value(QStringLiteral("reason")).toUpper()));
+                    m_interlockNotificationArmedUntilMs = 0;
+                    m_interlockNotificationSource = TransmitModel::PttSource::Mox;
+                }
             }
         }
         // Emit TX ownership state for title bar indicator
