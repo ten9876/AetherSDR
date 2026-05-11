@@ -37,7 +37,6 @@ const char* kDialogStyle =
     "QLabel#eyebrow { color: #40ff80; background: transparent; font-weight: bold; }"
     "QLabel#title { color: #ffffff; background: transparent; font-size: 18px; font-weight: bold; }"
     "QLabel#body { color: #c8d8e8; background: transparent; }"
-    "QLabel#prompt { color: #8aa8c0; background: transparent; font-weight: bold; }"
     "QLabel#sectionLabel { color: #40ff80; background: transparent; font-weight: bold; }"
     "QListWidget {"
     "  background: #0a0a14;"
@@ -272,10 +271,6 @@ AudioDeviceChangeDialog::AudioDeviceChangeDialog(
     message->setObjectName("body");
     message->setWordWrap(true);
     root->addWidget(message);
-
-    auto* prompt = new QLabel(tr("Please select:"), content);
-    prompt->setObjectName("prompt");
-    root->addWidget(prompt);
 
     m_inputList = new QListWidget(content);
     root->addWidget(buildDeviceSection(QStringLiteral("Input Device"),
