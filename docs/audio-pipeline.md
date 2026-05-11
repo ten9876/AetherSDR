@@ -482,6 +482,30 @@ This route can also lose 6.02 dB when the DAX/TCI source has signal on only one
 side of a stereo pair, because the live code averages the active channel with a
 silent channel.
 
+## Transmit interlocks and audio routes
+
+Transmit interlock notification policy lives in `RadioModel`/`TransmitModel`,
+not in `AudioEngine`, but it depends on the audio route enough that the boundary
+is worth documenting here.
+
+The interlock code distinguishes **PTT source** from **audio route**:
+
+| PTT/audio case | Local preflight behavior | Notes |
+| --- | --- | --- |
+| Local MOX/PTT, PC mic voice path | Blocks `DIGU`/`DIGL` with `You cannot transmit voice in DIGU/DIGL mode.` and checks TX filter overlap before `xmit 1` | This is treated as local voice intent. |
+| Local TUNE/two-tone | Bypasses the `DIGU`/`DIGL` voice warning and local TX-filter-overlap check | The radio can still report frequency or tuner interlocks after tune is requested. |
+| rigctl CAT PTT and TCI `trx` PTT | Bypasses all local PTT preflight | These callers are ACKed before the queued model path runs, so the radio must be authoritative for any resulting interlock. |
+| DAX/TCI audio in `feedDaxTxAudio()` | Bypasses client voice DSP | The audio path alone does not change a local MOX request into a CAT/DAX PTT source. |
+| TCI hardware PTT | Bypasses the `DIGU`/`DIGL` voice warning, but still uses local TX-filter-overlap preflight | This path goes through the local PTT coordinator instead of the ACK-first CAT/TCI command path. |
+| RADE on the TX slice | Bypasses the `DIGU`/`DIGL` voice warning | RADE is digital voice and bypasses the Opus voice path, but local keying is still distinct from CAT/DAX PTT source handling. |
+
+This distinction is intentional. `transmit dax=1` may be auto-enabled for
+digital modes so audio can route through DAX, but a GUI MOX/PTT press is still a
+local PTT request unless it arrives through the CAT/TCI DAX PTT path. Radio
+interlock status notifications are shown only after a local TX, tune, or ATU
+attempt arms the notification window; passive startup or tuning status is
+ignored.
+
 ## Metering and scopes
 
 AetherSDR has local/client meters and radio-provided meters. They are not
