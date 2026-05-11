@@ -2,7 +2,7 @@
 
 #include <QDialog>
 #include <QMap>
-
+#include <QCloseEvent>
 class QTabWidget;
 class QLineEdit;
 class QListWidget;
@@ -25,6 +25,10 @@ private:
     QWidget* buildAutoSaveTab();
     void refreshTab(const QString& type);
 
+protected:
+    void closeEvent(QCloseEvent *event) override;
+
+private:
     RadioModel* m_model;
     QTabWidget* m_tabs;
 
