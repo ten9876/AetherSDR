@@ -91,7 +91,14 @@ QString TciProtocol::generateInitBurst()
     int trxCount = slices.size();
     if (trxCount < 1) trxCount = 1;
     burst += QStringLiteral("trx_count:%1;").arg(trxCount);
-    burst += QStringLiteral("channel_count:1;");
+    // `channels_count` (plural).  The TCI Protocol PDF spec lists this
+    // as `CHANNEL_COUNT` (singular), but the reference implementation
+    // (ars-ka0s/eesdr-tci on PyPI, used as the basis for many TCI
+    // clients including the RF2K-S amplifier firmware) only recognises
+    // the plural form — a singular-form command raises ValueError on
+    // the client and aborts handshake parsing.  Implementation wins
+    // over the PDF.
+    burst += QStringLiteral("channels_count:1;");
 
     // Identify as SunSDR2DX so strict TCI clients (notably RF2K-S amps)
     // that whitelist Expert Electronics device names accept the server.
