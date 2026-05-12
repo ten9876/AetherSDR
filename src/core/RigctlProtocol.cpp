@@ -397,7 +397,7 @@ QString RigctlProtocol::cmdSetPtt(const QString& arg)
             if (slice && !slice->isTxSlice())
                 slice->setTxSlice(true);
         }
-        m_model->setTransmit(tx);
+        m_model->setTransmit(tx, TransmitModel::PttSource::Dax);
     }, Qt::QueuedConnection);
     return rprt(0);
 }

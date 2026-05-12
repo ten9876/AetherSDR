@@ -200,6 +200,33 @@ restarts the RX sink when the setting changes. `MainWindow` allows Bluetooth
 telephony output while PC mic capture is selected, so a headset selected for PC
 mic operation is not forcibly moved away from the telephony profile.
 
+### Audio device hotplug handling
+
+`MainWindow` owns Qt audio device change monitoring because user prompting must
+run on the GUI thread. `QMediaDevices::audioInputsChanged()` and
+`QMediaDevices::audioOutputsChanged()` are debounced before any action is taken.
+When at least one new device appears, AetherSDR shows a selection dialog with
+the current input/output highlighted, newly detected devices marked, and system
+defaults available as explicit choices.
+
+Accepting the dialog queues `AudioEngine::setInputDevice()` and
+`AudioEngine::setOutputDevice()` onto the audio worker thread. Those setters are
+the only place that persists the chosen device IDs and restarts the affected
+`QAudioSource`/`QAudioSink` paths. Cancel leaves the current selection alone
+unless the selected device disappeared during the same change batch, in which
+case AetherSDR falls back to the system default device without prompting.
+
+When the accepted selection changes the input device while the radio mic source
+is `PC`, `MainWindow` immediately re-arms PC mic capture by restarting the local
+`QAudioSource` on the selected device. The radio mic source is not toggled and
+no hardware-mic fallback route is used.
+
+The same local re-arm applies when an input device is removed while PC mic
+capture is active. If the selected input disappeared, the selection is cleared
+so `AudioEngine::startTxStream()` opens the current system default. If AetherSDR
+was already following the system default, the TX source is still restarted so Qt
+binds the capture stream to the replacement endpoint.
+
 ## Local sidetone and Quindar local output
 
 CW sidetone and Quindar local monitor output are independent local paths:
@@ -476,6 +503,30 @@ This is still a DAX/TCI digital bypass. It does not apply voice DSP, PC mic
 gain, Quindar tones, or the final voice limiter. Balanced stereo DAX/TCI tones
 continue to average as before; one-sided virtual/aggregate sources keep full
 level instead of losing 6.02 dB.
+
+## Transmit interlocks and audio routes
+
+Transmit interlock notification policy lives in `RadioModel`/`TransmitModel`,
+not in `AudioEngine`, but it depends on the audio route enough that the boundary
+is worth documenting here.
+
+The interlock code distinguishes **PTT source** from **audio route**:
+
+| PTT/audio case | Local preflight behavior | Notes |
+| --- | --- | --- |
+| Local MOX/PTT, PC mic voice path | Blocks `DIGU`/`DIGL` with `You cannot transmit voice in DIGU/DIGL mode.` and checks TX filter overlap before `xmit 1` | This is treated as local voice intent. |
+| Local TUNE/two-tone | Bypasses the `DIGU`/`DIGL` voice warning and local TX-filter-overlap check | The radio can still report frequency or tuner interlocks after tune is requested. |
+| rigctl CAT PTT and TCI `trx` PTT | Bypasses all local PTT preflight | These callers are ACKed before the queued model path runs, so the radio must be authoritative for any resulting interlock. |
+| DAX/TCI audio in `feedDaxTxAudio()` | Bypasses client voice DSP | The audio path alone does not change a local MOX request into a CAT/DAX PTT source. |
+| TCI hardware PTT | Bypasses the `DIGU`/`DIGL` voice warning, but still uses local TX-filter-overlap preflight | This path goes through the local PTT coordinator instead of the ACK-first CAT/TCI command path. |
+| RADE on the TX slice | Bypasses the `DIGU`/`DIGL` voice warning | RADE is digital voice and bypasses the Opus voice path, but local keying is still distinct from CAT/DAX PTT source handling. |
+
+This distinction is intentional. `transmit dax=1` may be auto-enabled for
+digital modes so audio can route through DAX, but a GUI MOX/PTT press is still a
+local PTT request unless it arrives through the CAT/TCI DAX PTT path. Radio
+interlock status notifications are shown only after a local TX, tune, or ATU
+attempt arms the notification window; passive startup or tuning status is
+ignored.
 
 ## Metering and scopes
 
