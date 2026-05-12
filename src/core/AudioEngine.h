@@ -465,6 +465,8 @@ signals:
     void rxPostChainScopeReady(const QByteArray& monoFloat32Pcm, int sampleRate);
     void radioTransmittingChanged(bool tx);
     void mutedChanged(bool muted);                          // local audio output mute state
+    void inputDeviceChanged();
+    void outputDeviceChanged();
     void txBypassChanged(bool on);                          // master TX BYPASS state
     void rxBypassChanged(bool on);                          // master RX BYPASS state
     // Fired by saveClientReverbSettings() after any reverb param

@@ -3957,6 +3957,8 @@ void AudioEngine::setOutputDevice(const QAudioDevice& dev)
         stopRxStream();
         startRxStream();
     }
+
+    emit outputDeviceChanged();
 }
 
 void AudioEngine::setInputDevice(const QAudioDevice& dev)
@@ -3976,6 +3978,8 @@ void AudioEngine::setInputDevice(const QAudioDevice& dev)
         stopTxStream();
         startTxStream(addr, port);
     }
+
+    emit inputDeviceChanged();
 }
 
 #ifdef Q_OS_MAC

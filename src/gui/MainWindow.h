@@ -148,6 +148,7 @@ private:
     void audioStopRx();
     void audioStartTx(const QHostAddress& addr, quint16 port);
     void audioStopTx();
+    void updatePcAudioTooltip();
     void setupAudioDeviceChangeMonitor();
     void scheduleAudioDeviceChangeCheck();
     void handleAudioDeviceListChanged();

@@ -5954,6 +5954,32 @@ void MainWindow::setPaTempDisplayUnit(bool useFahrenheit)
 // ─── Audio thread helpers (#502) ─────────────────────────────────────────────
 // These invoke AudioEngine methods on the audio worker thread.
 
+void MainWindow::updatePcAudioTooltip()
+{
+    if (!m_titleBar || !m_audio)
+        return;
+
+    auto describeDevice = [](const QAudioDevice& selected,
+                             const QAudioDevice& defaultDevice) {
+        const bool usingDefault = selected.isNull();
+        const QAudioDevice device = usingDefault ? defaultDevice : selected;
+        const QString name = device.description().trimmed();
+
+        if (device.isNull() || name.isEmpty())
+            return MainWindow::tr("Unavailable");
+
+        return usingDefault
+            ? MainWindow::tr("%1 (system default)").arg(name)
+            : name;
+    };
+
+    const QAudioDevice inputDevice = m_audio->inputDevice();
+    const QAudioDevice outputDevice = m_audio->outputDevice();
+    m_titleBar->setPcAudioDevices(
+        describeDevice(inputDevice, QMediaDevices::defaultAudioInput()),
+        describeDevice(outputDevice, QMediaDevices::defaultAudioOutput()));
+}
+
 void MainWindow::audioStartRx()
 {
     QMetaObject::invokeMethod(m_audio, &AudioEngine::startRxStream);
@@ -7266,6 +7292,11 @@ void MainWindow::buildUI()
     m_titleBar = new TitleBar(this);
     // Embed the menu bar into the title bar (left side)
     m_titleBar->setMenuBar(menuBar());
+    updatePcAudioTooltip();
+    connect(m_audio, &AudioEngine::inputDeviceChanged,
+            this, &MainWindow::updatePcAudioTooltip, Qt::QueuedConnection);
+    connect(m_audio, &AudioEngine::outputDeviceChanged,
+            this, &MainWindow::updatePcAudioTooltip, Qt::QueuedConnection);
     connect(m_titleBar, &TitleBar::multiFlexClicked, this, [this] {
         MultiFlexDialog dlg(&m_radioModel, this);
         dlg.exec();
