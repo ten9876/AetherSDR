@@ -201,6 +201,16 @@ int main(int argc, char* argv[])
     // Load XML settings (auto-migrates from QSettings on first run)
     AetherSDR::AppSettings::instance().load();
 
+    // One-shot migration: drop dead SHistorySoftEdgeDb key whose
+    // consumer was removed in #2549.
+    {
+        auto& s = AetherSDR::AppSettings::instance();
+        if (s.contains("SHistorySoftEdgeDb")) {
+            s.remove("SHistorySoftEdgeDb");
+            s.save();
+        }
+    }
+
     // Load slice color overrides (must be after AppSettings::load)
     AetherSDR::SliceColorManager::instance().load();
 
