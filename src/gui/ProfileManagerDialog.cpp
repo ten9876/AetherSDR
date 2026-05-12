@@ -1,7 +1,11 @@
 #include "ProfileManagerDialog.h"
+#include "FramelessResizer.h"
+#include "FramelessWindowTitleBar.h"
+#include "core/AppSettings.h"
 #include "models/RadioModel.h"
 #include "models/TransmitModel.h"
-#include "AppSettings.h"
+
+#include <QCloseEvent>
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -11,6 +15,7 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QMessageBox>
+#include <QRect>
 
 namespace AetherSDR {
 
@@ -41,7 +46,19 @@ ProfileManagerDialog::ProfileManagerDialog(RadioModel* model, QWidget* parent)
     setMinimumSize(460, 400);
     setStyleSheet(kDialogStyle);
 
-    auto* root = new QVBoxLayout(this);
+    auto* outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(0);
+
+    m_titleBar = new FramelessWindowTitleBar(QStringLiteral("Profile Manager"), this);
+    outer->addWidget(m_titleBar);
+
+    auto* bodyWidget = new QWidget(this);
+    auto* root = new QVBoxLayout(bodyWidget);
+    root->setContentsMargins(9, 9, 9, 9);
+    root->setSpacing(9);
+    m_bodyLayout = root;
+    outer->addWidget(bodyWidget, 1);
 
     m_tabs = new QTabWidget;
 
@@ -76,6 +93,10 @@ ProfileManagerDialog::ProfileManagerDialog(RadioModel* model, QWidget* parent)
     closeRow->addWidget(closeBtn);
     root->addLayout(closeRow);
 
+    FramelessResizer::install(this);
+    setFramelessMode(
+        AppSettings::instance().value("FramelessWindow", "True").toString() == "True");
+
     // Listen for profile list updates
     connect(model, &RadioModel::globalProfilesChanged, this, [this] {
         refreshTab("global");
@@ -86,7 +107,36 @@ ProfileManagerDialog::ProfileManagerDialog(RadioModel* model, QWidget* parent)
     connect(&model->transmitModel(), &TransmitModel::micProfileListChanged, this, [this] {
         refreshTab("mic");
     });
-    restoreGeometry(AppSettings::instance()->value("ProfileManagerDialogGeometry").toByteArray());
+    // Geometry persistence — AppSettings serializes via XML strings, so
+    // window geometry round-trips through base64 to preserve binary data.
+    // Matches the project convention used by MainWindow{Geometry,State}.
+    const QString geomB64 = AppSettings::instance()
+        .value("ProfileManagerDialogGeometry").toString();
+    if (!geomB64.isEmpty())
+        restoreGeometry(QByteArray::fromBase64(geomB64.toLatin1()));
+}
+
+void ProfileManagerDialog::setFramelessMode(bool on)
+{
+    const QRect geom = geometry();
+    const bool wasVisible = isVisible();
+
+    Qt::WindowFlags flags = (windowFlags() & ~Qt::WindowType_Mask) | Qt::Dialog;
+    flags.setFlag(Qt::FramelessWindowHint, on);
+    setWindowFlags(flags);
+    if (wasVisible) {
+        setGeometry(geom);
+    }
+
+    if (m_titleBar) {
+        m_titleBar->setVisible(on);
+    }
+    if (m_bodyLayout) {
+        m_bodyLayout->setContentsMargins(9, on ? 7 : 9, 9, 9);
+    }
+    if (wasVisible) {
+        show();
+    }
 }
 
 QWidget* ProfileManagerDialog::buildProfileTab(const QString& type,
@@ -262,8 +312,11 @@ void ProfileManagerDialog::refreshTab(const QString& type)
     }
 }
 
-void ProfileManagerDialog::closeEvent(QCloseEvent *event) {
-    AppSettings::instance()->setValue("ProfileManagerDialogGeometry", saveGeometry());
+void ProfileManagerDialog::closeEvent(QCloseEvent* event)
+{
+    auto& s = AppSettings::instance();
+    s.setValue("ProfileManagerDialogGeometry", saveGeometry().toBase64());
+    s.save();
     QDialog::closeEvent(event);
 }
 

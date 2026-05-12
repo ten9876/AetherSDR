@@ -73,6 +73,7 @@ class AppletPanel;
 class BandPlanManager;
 class NetworkDiagnosticsHistory;
 class WhatsNewDialog;
+class ProfileManagerDialog;
 class CwxPanel;
 class DvkPanel;
 #ifdef HAVE_RADE
@@ -146,6 +147,7 @@ private:
     void audioStopRx();
     void audioStartTx(const QHostAddress& addr, quint16 port);
     void audioStopTx();
+    void updatePcAudioTooltip();
     SliceModel* activeSlice() const;
     static const char* tuneIntentName(TuneIntent intent);
     bool panFollowEnabled() const;
@@ -434,6 +436,7 @@ private:
     QPointer<QDialog> m_radioSetupDialog;
     QPointer<QDialog> m_networkDiagnosticsDialog;
     QPointer<QDialog> m_propDashboardDialog;
+    QPointer<QDialog> m_txBandDialog;
     QPointer<QDialog> m_memoryDialog;
     QPointer<WhatsNewDialog> m_whatsNewDialog;
     QPointer<QDialog> m_dspDialog;

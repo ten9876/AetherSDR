@@ -2,7 +2,9 @@
 
 #include <QDialog>
 #include <QMap>
-#include <QCloseEvent>
+
+class QCloseEvent;
+class QVBoxLayout;
 class QTabWidget;
 class QLineEdit;
 class QListWidget;
@@ -18,6 +20,10 @@ class ProfileManagerDialog : public QDialog {
 
 public:
     explicit ProfileManagerDialog(RadioModel* model, QWidget* parent = nullptr);
+    void setFramelessMode(bool on);
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     QWidget* buildProfileTab(const QString& type, const QStringList& profiles,
@@ -25,12 +31,10 @@ private:
     QWidget* buildAutoSaveTab();
     void refreshTab(const QString& type);
 
-protected:
-    void closeEvent(QCloseEvent *event) override;
-
-private:
     RadioModel* m_model;
     QTabWidget* m_tabs;
+    QWidget* m_titleBar{nullptr};
+    QVBoxLayout* m_bodyLayout{nullptr};
 
     // Per-tab widgets (indexed by type: "global", "transmit", "mic")
     struct TabWidgets {
