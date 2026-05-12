@@ -53,6 +53,36 @@ TxApplet::TxApplet(QWidget* parent)
     hide();
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     buildUI();
+
+    // PEP peak-hold ballistics — 50 ms tick advances decay after the 2 s
+    // hold window, matching SmartSDR's peak-hold bar and the RX S-meter
+    // peak-hold pattern in SMeterWidget. (#2561)
+    m_peakTick.setInterval(50);
+    connect(&m_peakTick, &QTimer::timeout, this, [this]() {
+        if (!m_peakHoldRunning) {
+            m_peakTick.stop();
+            return;
+        }
+        const qint64 elapsedMs = m_peakHoldTimer.elapsed();
+        constexpr qint64 kHoldMs = 2000;
+        if (elapsedMs <= kHoldMs)
+            return;
+        // After the hold, decay the peak toward the current smoothed value
+        // at a rate scaled to the gauge full-scale so the visual feel
+        // (~2.5 s from peak to floor) stays consistent across barefoot
+        // (120 W gauge) and Aurora 500 W exciter (600 W gauge).  Set by
+        // setPowerScale; defaults to the barefoot 48 W/s.
+        const float decaySecs = static_cast<float>(elapsedMs - kHoldMs) / 1000.0f;
+        const float decayed = m_peakDecayStart - m_peakDecayWattsPerSec * decaySecs;
+        if (decayed <= m_smoothedPower) {
+            m_peakPower = m_smoothedPower;
+            m_peakHoldRunning = false;
+            m_peakTick.stop();
+        } else {
+            m_peakPower = decayed;
+        }
+        static_cast<HGauge*>(m_fwdGauge)->setPeakValue(m_peakPower);
+    });
 }
 
 void TxApplet::buildUI()
@@ -497,8 +527,35 @@ void TxApplet::syncAtuIndicators()
 
 void TxApplet::updateMeters(float fwdPower, float swr)
 {
+    m_smoothedPower = fwdPower;
     static_cast<HGauge*>(m_fwdGauge)->setValue(fwdPower);
     static_cast<HGauge*>(m_swrGauge)->setValue(swr);
+}
+
+void TxApplet::updatePeakPower(float fwdPowerInstant)
+{
+    if (fwdPowerInstant > m_peakPower) {
+        m_peakPower = fwdPowerInstant;
+        m_peakDecayStart = fwdPowerInstant;
+        m_peakHoldTimer.restart();
+        m_peakHoldRunning = true;
+        if (!m_peakTick.isActive())
+            m_peakTick.start();
+        static_cast<HGauge*>(m_fwdGauge)->setPeakValue(m_peakPower);
+    }
+}
+
+void TxApplet::setTransmitting(bool tx)
+{
+    if (!tx) {
+        // Drop the peak-hold tick to zero immediately on un-key so a held
+        // PEP reading does not linger across overs. (#2561)
+        m_peakPower = 0.0f;
+        m_peakDecayStart = 0.0f;
+        m_peakHoldRunning = false;
+        m_peakTick.stop();
+        static_cast<HGauge*>(m_fwdGauge)->setPeakValue(0.0f);
+    }
 }
 
 void TxApplet::setPowerScale(int maxWatts, bool hasAmplifier)
@@ -507,16 +564,23 @@ void TxApplet::setPowerScale(int maxWatts, bool hasAmplifier)
     // TX applet always shows exciter (barefoot) power.
     // Amplified output power is shown in the AMP applet.
     auto* gauge = static_cast<HGauge*>(m_fwdGauge);
+    float gaugeFullScaleW = 0.0f;
     if (maxWatts > 100) {
         // Aurora (500 W): 0–600 W, red > 500 W
         gauge->setRange(0.0f, 600.0f, 500.0f,
             {{0, "0"}, {100, "100"}, {200, "200"}, {300, "300"},
              {400, "400"}, {500, "500"}, {600, "600"}});
+        gaugeFullScaleW = 600.0f;
     } else {
         // Barefoot: 0–120 W, red > 100 W
         gauge->setRange(0.0f, 120.0f, 100.0f,
             {{0, "0"}, {40, "40"}, {80, "80"}, {100, "100"}, {120, "120"}});
+        gaugeFullScaleW = 120.0f;
     }
+    // Scale peak-hold decay to the gauge full-scale (~2.5 s from full to
+    // zero) so the visual feel is the same whether the rig is barefoot
+    // or an Aurora 500 W exciter. (#2561)
+    m_peakDecayWattsPerSec = gaugeFullScaleW / 2.5f;
 }
 
 } // namespace AetherSDR

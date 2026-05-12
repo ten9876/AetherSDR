@@ -5,6 +5,9 @@
 #include "models/RadioModel.h"
 #include "models/TransmitModel.h"
 
+#include <QCloseEvent>
+#include <QMoveEvent>
+#include <QResizeEvent>
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -106,6 +109,7 @@ ProfileManagerDialog::ProfileManagerDialog(RadioModel* model, QWidget* parent)
     connect(&model->transmitModel(), &TransmitModel::micProfileListChanged, this, [this] {
         refreshTab("mic");
     });
+    restoreGeometryFromSettings();
 }
 
 void ProfileManagerDialog::setFramelessMode(bool on)
@@ -302,6 +306,51 @@ void ProfileManagerDialog::refreshTab(const QString& type)
         if (p == active)
             tw.list->setCurrentItem(item);
     }
+}
+
+// Geometry persistence — AppSettings serializes via XML strings, so window
+// geometry round-trips through base64 to preserve binary data.  Matches the
+// project convention used by MainWindow{Geometry,State}.  Save fires on
+// close (guaranteed persistence on clean exit) AND on each move/resize
+// (crash-resilient: if AetherSDR is force-quit, the last known position is
+// already in AppSettings).
+void ProfileManagerDialog::saveGeometryToSettings()
+{
+    auto& s = AppSettings::instance();
+    s.setValue("ProfileManagerDialogGeometry", saveGeometry().toBase64());
+}
+
+void ProfileManagerDialog::restoreGeometryFromSettings()
+{
+    const QString geomB64 = AppSettings::instance()
+        .value("ProfileManagerDialogGeometry").toString();
+    if (geomB64.isEmpty()) return;
+    // Restore triggers move/resize events; flag those as restore-driven so
+    // they don't immediately overwrite the value we just loaded.
+    m_restoringGeometry = true;
+    restoreGeometry(QByteArray::fromBase64(geomB64.toLatin1()));
+    m_restoringGeometry = false;
+}
+
+void ProfileManagerDialog::closeEvent(QCloseEvent* event)
+{
+    saveGeometryToSettings();
+    // Flush to disk on close.  Move/resize saves are in-memory only; the
+    // close-time save is the canonical persistence point.
+    AppSettings::instance().save();
+    QDialog::closeEvent(event);
+}
+
+void ProfileManagerDialog::moveEvent(QMoveEvent* event)
+{
+    QDialog::moveEvent(event);
+    if (!m_restoringGeometry) saveGeometryToSettings();
+}
+
+void ProfileManagerDialog::resizeEvent(QResizeEvent* event)
+{
+    QDialog::resizeEvent(event);
+    if (!m_restoringGeometry) saveGeometryToSettings();
 }
 
 } // namespace AetherSDR

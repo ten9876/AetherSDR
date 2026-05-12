@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QWidget>
+#include <QTimer>
+#include <QElapsedTimer>
 
 class QPushButton;
 class QLabel;
@@ -35,6 +37,11 @@ public:
 
 public slots:
     void updateMeters(float fwdPower, float swr);
+    // Capture raw pre-smoothed FWDPWR for PEP peak-hold tick. (#2561)
+    void updatePeakPower(float fwdPowerInstant);
+    // Reset the peak-hold tick when TX ends so a held peak does not linger
+    // across overs. (#2561)
+    void setTransmitting(bool tx);
     void setPowerScale(int maxWatts, bool hasAmplifier);
 
 private:
@@ -84,6 +91,22 @@ public:
 private:
 
     bool m_updatingFromModel{false};
+
+    // PEP peak-hold for the FWDPWR gauge — mirrors the SMeterWidget RX
+    // peak-hold pattern.  The peak captures the highest pre-smoothed FWDPWR
+    // sample, holds for ~2 s, then decays linearly toward the current
+    // smoothed reading.  See HGauge::setPeakValue for the tick rendering and
+    // SMeterWidget.cpp peak hold for the prior-art ballistics. (#2561)
+    float m_smoothedPower{0.0f};
+    float m_peakPower{0.0f};
+    float m_peakDecayStart{0.0f};
+    // Decay rate scaled to the gauge full-scale by setPowerScale so the
+    // ~2.5 s visual feel stays consistent across rig classes.  Default
+    // matches barefoot (120 W / 2.5 s) for the pre-connect case.
+    float m_peakDecayWattsPerSec{48.0f};
+    QElapsedTimer m_peakHoldTimer;
+    bool m_peakHoldRunning{false};
+    QTimer m_peakTick;
 };
 
 } // namespace AetherSDR

@@ -75,6 +75,7 @@ class AppletPanel;
 class BandPlanManager;
 class NetworkDiagnosticsHistory;
 class WhatsNewDialog;
+class ProfileManagerDialog;
 class CwxPanel;
 class DvkPanel;
 #ifdef HAVE_RADE
@@ -456,6 +457,7 @@ private:
     QPointer<QDialog> m_memoryDialog;
     QPointer<WhatsNewDialog> m_whatsNewDialog;
     QPointer<QDialog> m_dspDialog;
+    QPointer<ProfileManagerDialog> m_profileManagerDialog;
 #ifdef HAVE_MIDI
     QPointer<QDialog> m_midiDialog;
 #endif
