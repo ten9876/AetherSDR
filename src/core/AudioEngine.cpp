@@ -34,6 +34,11 @@
 #endif
 #include "Resampler.h"
 
+#ifdef Q_OS_MAC
+#include <CoreAudio/CoreAudio.h>
+#include <CoreFoundation/CoreFoundation.h>
+#endif
+
 #include <cmath>
 #include <limits>
 #include <QIODevice>
@@ -45,6 +50,7 @@
 #include <QThread>
 #include <algorithm>
 #include <cstring>
+#include <optional>
 
 namespace AetherSDR {
 
@@ -73,6 +79,163 @@ bool devicePresent(const QList<QAudioDevice>& devices, const QAudioDevice& targe
         return device.id() == target.id();
     });
 }
+
+#ifdef Q_OS_MAC
+AudioObjectPropertyAddress macAudioAddress(AudioObjectPropertySelector selector,
+                                           AudioObjectPropertyScope scope = kAudioObjectPropertyScopeGlobal)
+{
+    return AudioObjectPropertyAddress{selector, scope, kAudioObjectPropertyElementMain};
+}
+
+template <typename T>
+std::optional<T> readMacAudioScalar(AudioObjectID object,
+                                    AudioObjectPropertySelector selector,
+                                    AudioObjectPropertyScope scope = kAudioObjectPropertyScopeGlobal)
+{
+    AudioObjectPropertyAddress address = macAudioAddress(selector, scope);
+    if (!AudioObjectHasProperty(object, &address)) {
+        return std::nullopt;
+    }
+
+    T value{};
+    UInt32 size = sizeof(value);
+    const OSStatus status = AudioObjectGetPropertyData(object, &address, 0, nullptr, &size, &value);
+    if (status != noErr || size != sizeof(value)) {
+        return std::nullopt;
+    }
+
+    return value;
+}
+
+template <typename T>
+QList<T> readMacAudioArray(AudioObjectID object,
+                           AudioObjectPropertySelector selector,
+                           AudioObjectPropertyScope scope = kAudioObjectPropertyScopeGlobal)
+{
+    AudioObjectPropertyAddress address = macAudioAddress(selector, scope);
+    if (!AudioObjectHasProperty(object, &address)) {
+        return {};
+    }
+
+    UInt32 size = 0;
+    OSStatus status = AudioObjectGetPropertyDataSize(object, &address, 0, nullptr, &size);
+    if (status != noErr || size == 0 || (size % sizeof(T)) != 0) {
+        return {};
+    }
+
+    QList<T> values(size / sizeof(T));
+    status = AudioObjectGetPropertyData(object, &address, 0, nullptr, &size, values.data());
+    if (status != noErr) {
+        return {};
+    }
+
+    values.resize(size / sizeof(T));
+    return values;
+}
+
+std::optional<AudioDeviceID> macAudioDeviceForUid(const QByteArray& uid)
+{
+    if (uid.isEmpty()) {
+        return std::nullopt;
+    }
+
+    CFStringRef uidString = CFStringCreateWithBytes(kCFAllocatorDefault,
+                                                    reinterpret_cast<const UInt8*>(uid.constData()),
+                                                    uid.size(),
+                                                    kCFStringEncodingUTF8,
+                                                    false);
+    if (!uidString) {
+        return std::nullopt;
+    }
+
+    AudioDeviceID deviceId = kAudioObjectUnknown;
+    AudioValueTranslation translation{};
+    translation.mInputData = &uidString;
+    translation.mInputDataSize = sizeof(uidString);
+    translation.mOutputData = &deviceId;
+    translation.mOutputDataSize = sizeof(deviceId);
+
+    AudioObjectPropertyAddress address = macAudioAddress(kAudioHardwarePropertyDeviceForUID);
+    UInt32 size = sizeof(translation);
+    const OSStatus status = AudioObjectGetPropertyData(kAudioObjectSystemObject,
+                                                       &address,
+                                                       0,
+                                                       nullptr,
+                                                       &size,
+                                                       &translation);
+    CFRelease(uidString);
+
+    if (status != noErr || deviceId == kAudioObjectUnknown) {
+        return std::nullopt;
+    }
+
+    return deviceId;
+}
+
+bool isMacBluetoothLowRate(int rate)
+{
+    return rate == 8000 || rate == 16000 || rate == AudioEngine::DEFAULT_SAMPLE_RATE;
+}
+
+std::optional<int> macBluetoothNativeInputRate(const QAudioDevice& qtDevice)
+{
+    const auto deviceId = macAudioDeviceForUid(qtDevice.id());
+    if (!deviceId) {
+        return std::nullopt;
+    }
+
+    const auto transport = readMacAudioScalar<UInt32>(*deviceId, kAudioDevicePropertyTransportType);
+    if (!transport
+        || (*transport != kAudioDeviceTransportTypeBluetooth
+            && *transport != kAudioDeviceTransportTypeBluetoothLE)) {
+        return std::nullopt;
+    }
+
+    bool hasHighRate = false;
+    int exactLowRate = 0;
+    const QList<AudioValueRange> nominalRanges = readMacAudioArray<AudioValueRange>(
+        *deviceId,
+        kAudioDevicePropertyAvailableNominalSampleRates);
+    for (const AudioValueRange& range : nominalRanges) {
+        if ((range.mMinimum <= 44100.0 && range.mMaximum >= 44100.0)
+            || (range.mMinimum <= 48000.0 && range.mMaximum >= 48000.0)) {
+            hasHighRate = true;
+        }
+
+        const int minRate = static_cast<int>(std::lround(range.mMinimum));
+        const int maxRate = static_cast<int>(std::lround(range.mMaximum));
+        if (minRate == maxRate && isMacBluetoothLowRate(minRate)) {
+            exactLowRate = std::max(exactLowRate, minRate);
+        }
+    }
+
+    if (hasHighRate) {
+        return std::nullopt;
+    }
+
+    const auto nominalRate = readMacAudioScalar<Float64>(*deviceId, kAudioDevicePropertyNominalSampleRate);
+    const int roundedNominal = nominalRate ? static_cast<int>(std::lround(*nominalRate)) : 0;
+    if (isMacBluetoothLowRate(roundedNominal)) {
+        return roundedNominal;
+    }
+
+    if (exactLowRate > 0) {
+        return exactLowRate;
+    }
+
+    return std::nullopt;
+}
+
+QList<int> macTxInputRateCandidates(const QAudioDevice& qtDevice)
+{
+    QList<int> rates;
+    if (const auto nativeRate = macBluetoothNativeInputRate(qtDevice)) {
+        rates << *nativeRate;
+    }
+    rates << 48000 << 44100 << AudioEngine::DEFAULT_SAMPLE_RATE;
+    return rates;
+}
+#endif
 }
 
 void AudioEngine::emitScopeFromFloat32Stereo(const QByteArray& pcm,
@@ -3383,13 +3546,14 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
         << dev.minimumChannelCount() << "-" << dev.maximumChannelCount() << "ch";
 
     // Negotiate the best sample rate for TX mic input.
-    // macOS: prefer 48kHz — Core Audio claims 24kHz support but its internal
-    // resampler produces gravelly artifacts at non-standard rates. Let r8brain
-    // handle the 48k→24k conversion instead (clean 2:1 integer-ratio downsample).
+    // macOS: prefer 48kHz for general devices, but open Bluetooth headset
+    // inputs at their HAL-native low rate when CoreAudio reports no high-rate
+    // capture mode. That avoids a hidden native->48k conversion before the
+    // app's normal radio-native conversion.
     // Linux/Windows: prefer 24kHz (radio native — no resampling needed).
     bool formatFound = false;
 #ifdef Q_OS_MAC
-    constexpr int rates[] = {48000, 44100, 24000};
+    const QList<int> rates = macTxInputRateCandidates(dev);
 #else
     constexpr int rates[] = {24000, 48000, 44100};
 #endif
@@ -3417,7 +3581,7 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
 
     if (!formatFound) {
         qCWarning(lcAudio) << "AudioEngine: input device supports no usable format"
-            << "(tried 24/48/44.1 kHz, stereo and mono)";
+            << "(tried preferred platform rates, stereo and mono)";
         return false;
     }
 
@@ -3432,7 +3596,7 @@ bool AudioEngine::startTxStream(const QHostAddress& radioAddress, quint16 radioP
 
     // Create polyphase resampler for high-quality rate conversion
     if (m_txNeedsResample)
-        m_txResampler = std::make_unique<Resampler>(m_txInputRate, 24000, 16384);
+        m_txResampler = std::make_unique<Resampler>(m_txInputRate, DEFAULT_SAMPLE_RATE, 16384);
     else
         m_txResampler.reset();
 

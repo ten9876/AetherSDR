@@ -275,7 +275,10 @@ flowchart TD
 `AudioEngine::startTxStream()` negotiates PC mic capture as Int16:
 
 - The requested format starts as 24 kHz, stereo, Int16.
-- macOS prefers sample rates in this order: 48 kHz, 44.1 kHz, then 24 kHz.
+- macOS prefers sample rates in this order for general devices: 48 kHz,
+  44.1 kHz, then 24 kHz. For Bluetooth headset inputs that CoreAudio reports
+  as native 8, 16, or 24 kHz-only, AetherSDR opens the mic at that native rate
+  first and then uses its normal radio-native conversion when needed.
 - Linux and other non-Windows platforms prefer 24 kHz, then 48 kHz, then
   44.1 kHz.
 - Stereo is tried before mono for each sample rate.
