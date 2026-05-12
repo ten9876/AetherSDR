@@ -2541,9 +2541,7 @@ bool RadioModel::handleRemoteAudioRxStreamStatus(const QString& object,
     }
 
     const bool pcAudio = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
-    const bool autoStartTci = AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
-    const bool streamNeeded = pcAudio || autoStartTci;
-    if (!streamNeeded && m_rxAudio.streamId != 0
+    if (!pcAudio && m_rxAudio.streamId != 0
         && (action == RadioStatusOwnership::RemoteAudioRxAction::Adopted
             || action == RadioStatusOwnership::RemoteAudioRxAction::Updated)) {
         qCDebug(lcProtocol) << "RadioModel: removing restored remote_audio_rx because PC audio is disabled";
@@ -4320,7 +4318,6 @@ QJsonObject RadioModel::troubleshootingSnapshot() const
     radio["audio_outputs"] = audioOutputs;
 
     const bool pcAudioSetting = AppSettings::instance().value("PcAudioEnabled", "True").toString() == "True";
-    const bool autoStartTci = AppSettings::instance().value("AutoStartTCI", "False").toString() == "True";
     QJsonObject remoteAudioRx;
     remoteAudioRx["stream_id"] = m_rxAudio.streamId == 0
         ? QJsonValue()
@@ -4333,13 +4330,10 @@ QJsonObject RadioModel::troubleshootingSnapshot() const
     remoteAudioRx["owned_by_us"] = m_rxAudio.clientHandle != 0 && m_rxAudio.clientHandle == ourClientHandle();
     remoteAudioRx["compression"] = m_rxAudio.compression;
     remoteAudioRx["pc_audio_setting"] = pcAudioSetting;
-    remoteAudioRx["auto_start_tci"] = autoStartTci;
-    remoteAudioRx["stream_expected"] = pcAudioSetting || autoStartTci;
+    remoteAudioRx["stream_expected"] = pcAudioSetting;
     remoteAudioRx["routing_note"] = pcAudioSetting
         ? QStringLiteral("PC Audio is enabled; an owned remote_audio_rx stream should exist and the local RX sink should be running.")
-        : (autoStartTci
-               ? QStringLiteral("PC Audio is disabled, but AutoStartTCI requires remote_audio_rx for TCI audio while the local RX sink stays off.")
-               : QStringLiteral("PC Audio and AutoStartTCI are disabled; no remote_audio_rx stream is expected."));
+        : QStringLiteral("PC Audio is disabled; no remote_audio_rx stream is expected. TCI clients route audio via DAX, not via remote_audio_rx (#1137).");
     radio["remote_audio_rx"] = remoteAudioRx;
 
     QJsonObject filterSharpness;
