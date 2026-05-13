@@ -1,4 +1,5 @@
 #include "RadioSetupDialog.h"
+#include "CwDecodeSettings.h"
 #include "FramelessResizer.h"
 #include "FramelessWindowTitleBar.h"
 #include "GuardedSlider.h"
@@ -1308,18 +1309,25 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         });
         grid->addWidget(syncBtn, 1, 5);
 
-        // CW Decode overlay toggle
+        // CW Decode — independent RX / TX toggles (#2417).  RX keeps the
+        // legacy behaviour of decoding the received CW slice; TX decodes
+        // the operator's own keying via the client-side sidetone, useful
+        // as a self-training tool for paddle / bug timing.  MainWindow
+        // re-evaluates run state and the AudioEngine TX-decode tap on
+        // dialog close via refreshCwDecodeState().
         auto* decodeLbl = new QLabel("Decode:");
         decodeLbl->setStyleSheet(kLabelStyle);
         grid->addWidget(decodeLbl, 2, 4);
-        bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
-        auto* decodeBtn = mkTogBtn("On", decodeOn);
-        connect(decodeBtn, &QPushButton::toggled, this, [](bool on) {
-            auto& s = AppSettings::instance();
-            s.setValue("CwDecodeOverlay", on ? "True" : "False");
-            s.save();
+        auto* rxDecodeBtn = mkTogBtn("RX", CwDecodeSettings::rxEnabled());
+        auto* txDecodeBtn = mkTogBtn("TX", CwDecodeSettings::txEnabled());
+        connect(rxDecodeBtn, &QPushButton::toggled, this, [](bool on) {
+            CwDecodeSettings::setRxEnabled(on);
         });
-        grid->addWidget(decodeBtn, 2, 5);
+        connect(txDecodeBtn, &QPushButton::toggled, this, [](bool on) {
+            CwDecodeSettings::setTxEnabled(on);
+        });
+        grid->addWidget(rxDecodeBtn, 2, 5);
+        grid->addWidget(txDecodeBtn, 2, 6);
 
 
 

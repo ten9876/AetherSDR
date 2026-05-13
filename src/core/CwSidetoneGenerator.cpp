@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+
+#include <QVarLengthArray>
 
 namespace AetherSDR {
 
@@ -87,11 +90,20 @@ void CwSidetoneGenerator::setSampleRateHz(int hz) noexcept
 
 bool CwSidetoneGenerator::process(float* out, int frames) noexcept
 {
+    const bool tapSet = static_cast<bool>(m_sampleTap);
+
     if (!m_enabled.load(std::memory_order_relaxed)) {
         // Disabled — bring state back to idle on next block so a flip-on
         // mid-keying starts cleanly from silence.
         if (m_state != State::Idle)
             reset();
+        if (tapSet) {
+            // Mirror silence to the TX-decode tap so the downstream
+            // decoder's timeline doesn't jump forward across the gap.
+            QVarLengthArray<float, 1024> silence(frames);
+            std::memset(silence.data(), 0, frames * sizeof(float));
+            m_sampleTap(silence.data(), frames, m_sampleRateHz);
+        }
         return false;
     }
 
@@ -144,8 +156,14 @@ bool CwSidetoneGenerator::process(float* out, int frames) noexcept
         break;
     }
 
-    if (m_state == State::Idle && !keyDown)
+    if (m_state == State::Idle && !keyDown) {
+        if (tapSet) {
+            QVarLengthArray<float, 1024> silence(frames);
+            std::memset(silence.data(), 0, frames * sizeof(float));
+            m_sampleTap(silence.data(), frames, m_sampleRateHz);
+        }
         return false;
+    }
 
     const double phaseInc = kTwoPi * pitch / m_sampleRateHz;
     // Constant-power pan: equal perceived loudness across the L↔R sweep.
@@ -153,6 +171,11 @@ bool CwSidetoneGenerator::process(float* out, int frames) noexcept
     const float gainL = std::cos(pan * static_cast<float>(kPiOver2));
     const float gainR = std::sin(pan * static_cast<float>(kPiOver2));
     bool wroteAny = false;
+
+    // Mono mirror buffer for the TX-decode tap.  Stack-allocated up to
+    // ~4 KB; falls back to heap for unusually large blocks.
+    QVarLengthArray<float, 1024> tapBuf;
+    if (tapSet) tapBuf.resize(frames);
 
     for (int i = 0; i < frames; ++i) {
         float env = 0.0f;
@@ -183,12 +206,15 @@ bool CwSidetoneGenerator::process(float* out, int frames) noexcept
             static_cast<float>(std::sin(m_phase));
         out[2 * i + 0] += sample * gainL;  // L
         out[2 * i + 1] += sample * gainR;  // R
+        if (tapSet) tapBuf[i] = sample;
 
         m_phase += phaseInc;
         if (m_phase >= kTwoPi) m_phase -= kTwoPi;
 
         if (env > 0.0f) wroteAny = true;
     }
+
+    if (tapSet) m_sampleTap(tapBuf.data(), frames, m_sampleRateHz);
 
     m_lastPitchHz = pitch;
     return wroteAny;

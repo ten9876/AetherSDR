@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 
 namespace AetherSDR {
 
@@ -55,6 +56,19 @@ public:
     // Reset state machine to idle (e.g., on disconnect).  Audio-thread.
     void reset() noexcept;
 
+    // Optional sample mirror — when set, every process() block also
+    // delivers the pre-pan mono sidetone signal (same envelope and
+    // pitch the operator hears) to this callback.  Used by the TX
+    // decode path (#2417) to feed ggmorse with the operator's own
+    // keying timing without tapping the RF/audio path on the radio.
+    // The callback runs on the audio thread; the implementation must
+    // be lock-free and short.  Set once at construction time before
+    // process() is first called from the sink — not safe to swap
+    // while audio is running.
+    using SampleTap =
+        std::function<void(const float* monoSamples, int frames, int sampleRateHz)>;
+    void setSampleTap(SampleTap tap) noexcept { m_sampleTap = std::move(tap); }
+
 private:
     enum class State : uint8_t { Idle, RampUp, Sustain, RampDown };
 
@@ -72,6 +86,13 @@ private:
     int      m_rampLength{240};     // recomputed from m_shapingMs
     double   m_phase{0.0};          // sine phase accumulator
     float    m_lastPitchHz{600.0f}; // for change detection (smooth transitions)
+
+    // Mirror sink for the TX decode path (#2417).  Holds null until
+    // AudioEngine plugs in its TX-decoder feeder.  When non-null, every
+    // process() block fills a small mono buffer and hands it off — even
+    // through silent stretches — so the downstream decoder sees a
+    // continuous timeline of envelope-shaped key down/up samples.
+    SampleTap m_sampleTap;
 };
 
 } // namespace AetherSDR

@@ -430,6 +430,21 @@ public:
     // routing and PhoneCwApplet UI bindings.
     CwSidetoneGenerator* cwSidetone() { return m_cwSidetone.get(); }
 
+    // Enable/disable the TX-side CW-decode tap (#2417).  When enabled,
+    // the sidetone generator's mono signal is mirrored — downsampled
+    // from 48 kHz to 24 kHz stereo float — and emitted via
+    // txDecodeAudioReady() so MainWindow can hand it to CwDecoder.
+    // The tap is also gated by sidetone enable; if the operator has
+    // turned local sidetone off there is nothing to decode.
+    void setCwDecodeTxTapEnabled(bool on)
+    {
+        m_cwDecodeTxTapEnabled.store(on, std::memory_order_relaxed);
+    }
+    bool isCwDecodeTxTapEnabled() const
+    {
+        return m_cwDecodeTxTapEnabled.load(std::memory_order_relaxed);
+    }
+
 public slots:
     // Receives stripped PCM from PanadapterStream::audioDataReady().
     void feedAudioData(const QByteArray& pcm);
@@ -447,6 +462,13 @@ signals:
     void dfnrEnabledChanged(bool on);
     void txRawPcmReady(const QByteArray& pcm);  // raw 24kHz stereo int16 PCM for RADEEngine
     void txPacketReady(const QByteArray& vitaPacket);  // VITA-49 TX packet for PanadapterStream
+    // Sidetone-tapped audio for the TX-side CW decoder (#2417).  Emitted
+    // from the audio thread; receivers should connect via Qt::AutoConnection
+    // (which becomes queued across threads) so feedAudio() lands on the
+    // decoder's thread.  Format: 24 kHz stereo float32 — same as the
+    // RX panStream::audioDataReady() path so CwDecoder::feedAudio()
+    // accepts it without a separate adapter.
+    void txDecodeAudioReady(const QByteArray& pcm24kStereoFloat);
 
     void pcMicLevelChanged(float peakDbfs, float avgDbfs);  // client-side PC mic metering
     void scopeSamplesReady(const QByteArray& monoFloat32Pcm, int sampleRate, bool tx);
@@ -611,6 +633,11 @@ private:
     std::unique_ptr<Resampler> m_rxResamplerR;      // 24k→48k for R channel — kept in sync with m_rxResampler
     std::unique_ptr<Resampler> m_radeRxResampler;   // separate 24k→48k for RADE decoded speech
     std::unique_ptr<CwSidetoneGenerator> m_cwSidetone;  // local CW sidetone, mixed into RX drain
+    // Atomic gate for the TX-side CW decode tap (#2417).  Flipped from
+    // MainWindow on MOX / CwDecodeTxEnabled changes; checked on the
+    // sidetone audio thread so the mirror lambda can return cheaply
+    // when TX-decode is off.
+    std::atomic<bool> m_cwDecodeTxTapEnabled{false};
     bool  m_txNeedsResample{false};      // TX: input rate != 24kHz, needs resampling
     bool  m_txInputMono{false};          // TX: legacy convenience mirror of m_txInputChannels == 1
     int   m_txInputChannels{2};          // TX: actual negotiated input channel count

@@ -373,6 +373,26 @@ void PanadapterApplet::appendCwText(const QString& text, float cost)
     m_cwText->moveCursor(QTextCursor::End);
 }
 
+void PanadapterApplet::appendCwTextTx(const QString& text, float cost)
+{
+    // TX-side decoded keying (#2417).  Same confidence filter as the RX
+    // path, but rendered in a distinct cyan-ish color with a "[TX] "
+    // prefix per call so the operator can visually separate their own
+    // sending from incoming CW when both directions feed the same panel.
+    if (cost >= m_cwCostThreshold) return;
+
+    QString clean = text;
+    clean.replace('\n', ' ');
+    if (clean.trimmed().isEmpty()) return;
+
+    constexpr const char* kTxColor = "#5fc8ff";
+    m_cwText->moveCursor(QTextCursor::End);
+    m_cwText->insertHtml(
+        QString("<span style=\"color:%1\">[TX] %2</span> ")
+            .arg(QLatin1String(kTxColor), clean.toHtmlEscaped()));
+    m_cwText->moveCursor(QTextCursor::End);
+}
+
 void PanadapterApplet::setCwStats(float pitchHz, float speedWpm)
 {
     if (pitchHz > 0 && speedWpm > 0)
