@@ -167,6 +167,26 @@ the common pitfalls that have hit real PRs, and the existing dialogs to
 use as reference. Tracked for cleanup in #2605 (`PersistentDialog` base
 class).
 
+Any new popout window, floating tool window, or `QDialog` must respect the
+global `FramelessWindow` setting unless there is a specific reason not to.
+Use the existing frameless helpers instead of custom window chrome:
+
+- Add a `FramelessWindowTitleBar` at the top of the dialog/window layout.
+- Install `FramelessResizer::install(this)` for resizable popouts.
+- Add `setFramelessMode(bool on)` using the same pattern as
+  `NetworkDiagnosticsDialog`: capture geometry, toggle
+  `Qt::FramelessWindowHint`, restore geometry only if the window was already
+  visible, show again only if it was already visible, and hide/show the custom
+  title bar based on the setting.
+- Initialize from `AppSettings::instance().value("FramelessWindow", "True")`.
+- Do not use `QSettings`.
+
+Do not manually move first-show dialogs to `(0,0)` or restore constructor-time
+geometry. For first show, either let Qt/window-manager placement handle it, or
+use the same placement behavior as the closest existing dialog. If centering is
+explicitly required, do it deliberately after the dialog has a valid size and
+document why.
+
 ### Settings Persistence (AppSettings — NOT QSettings)
 
 **IMPORTANT:** Do NOT use `QSettings` anywhere in AetherSDR. All client-side
