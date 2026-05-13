@@ -1,18 +1,17 @@
 #include "AudioDeviceChangeDialog.h"
+#include "FramelessResizer.h"
+#include "FramelessWindowTitleBar.h"
+#include "core/AppSettings.h"
 
 #include <QAudioDevice>
 #include <QColor>
-#include <QCursor>
 #include <QFrame>
 #include <QFont>
-#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QMediaDevices>
 #include <QPushButton>
-#include <QScreen>
-#include <QShowEvent>
 #include <QStringList>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -245,6 +244,9 @@ AudioDeviceChangeDialog::AudioDeviceChangeDialog(
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
 
+    m_titleBar = new FramelessWindowTitleBar(windowTitle(), this);
+    outer->addWidget(m_titleBar);
+
     auto* header = new QFrame(this);
     header->setObjectName("audioDeviceHeader");
     auto* headerLayout = new QVBoxLayout(header);
@@ -264,6 +266,7 @@ AudioDeviceChangeDialog::AudioDeviceChangeDialog(
     auto* root = new QVBoxLayout(content);
     root->setContentsMargins(18, 16, 18, 18);
     root->setSpacing(10);
+    m_bodyLayout = root;
 
     auto* message = new QLabel(tr(
         "Select the PC microphone input and speaker output AetherSDR should use."),
@@ -319,24 +322,31 @@ AudioDeviceChangeDialog::AudioDeviceChangeDialog(
     outer->addWidget(content);
 
     resize(560, sizeHint().height());
+    FramelessResizer::install(this);
+    setFramelessMode(
+        AppSettings::instance().value("FramelessWindow", "True").toString() == "True");
 }
 
-void AudioDeviceChangeDialog::showEvent(QShowEvent* event)
+void AudioDeviceChangeDialog::setFramelessMode(bool on)
 {
-    QDialog::showEvent(event);
+    const QRect geom = geometry();
+    const bool wasVisible = isVisible();
 
-    QScreen* screen = nullptr;
-    if (parentWidget() && parentWidget()->windowHandle())
-        screen = parentWidget()->windowHandle()->screen();
-    if (!screen)
-        screen = QGuiApplication::screenAt(QCursor::pos());
-    if (!screen)
-        screen = QGuiApplication::primaryScreen();
-    if (!screen)
-        return;
-
-    const QRect area = screen->availableGeometry();
-    move(area.center() - rect().center());
+    Qt::WindowFlags flags = (windowFlags() & ~Qt::WindowType_Mask) | Qt::Dialog;
+    flags.setFlag(Qt::FramelessWindowHint, on);
+    setWindowFlags(flags);
+    if (wasVisible) {
+        setGeometry(geom);
+    }
+    if (m_titleBar) {
+        m_titleBar->setVisible(on);
+    }
+    if (m_bodyLayout) {
+        m_bodyLayout->setContentsMargins(18, on ? 14 : 16, 18, 18);
+    }
+    if (wasVisible) {
+        show();
+    }
 }
 
 QAudioDevice AudioDeviceChangeDialog::selectedDevice(

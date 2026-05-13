@@ -6,7 +6,8 @@
 #include <QList>
 
 class QListWidget;
-class QShowEvent;
+class QVBoxLayout;
+class QWidget;
 
 namespace AetherSDR {
 
@@ -22,14 +23,14 @@ public:
 
     QAudioDevice selectedInputDevice() const;
     QAudioDevice selectedOutputDevice() const;
-
-protected:
-    void showEvent(QShowEvent* event) override;
+    void setFramelessMode(bool on);
 
 private:
     QAudioDevice selectedDevice(const QListWidget* list,
                                 const QList<QAudioDevice>& devices) const;
 
+    QWidget* m_titleBar{nullptr};
+    QVBoxLayout* m_bodyLayout{nullptr};
     QListWidget* m_inputList{nullptr};
     QListWidget* m_outputList{nullptr};
     QList<QAudioDevice> m_inputDevices;
