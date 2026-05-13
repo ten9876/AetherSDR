@@ -80,7 +80,7 @@ void PanFloatingWindow::setFramelessMode(bool on)
         flags &= ~Qt::FramelessWindowHint;
     }
     setWindowFlags(flags);
-    setGeometry(geom);
+    if (wasVisible) setGeometry(geom);
     if (wasVisible) show();
 }
 
