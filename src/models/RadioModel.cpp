@@ -2231,6 +2231,14 @@ void RadioModel::onDisconnected()
     }
     m_radioTransmitting = false;
     emit radioTransmittingChanged(false);
+    if (m_profileDatabaseImporting) {
+        m_profileDatabaseImporting = false;
+        emit profileDatabaseImportingChanged(false);
+    }
+    if (m_profileDatabaseExporting) {
+        m_profileDatabaseExporting = false;
+        emit profileDatabaseExportingChanged(false);
+    }
     m_transmitModel.setTransmitting(false);
     m_transmitModel.resetState();
     m_meterModel.clear();
@@ -2728,6 +2736,43 @@ void RadioModel::sendCommand(const QString& cmd)
 void RadioModel::sendCmdPublic(const QString& cmd, ResponseCallback cb)
 {
     sendCmd(cmd, cb);
+}
+
+void RadioModel::requestFileUploadPort(qint64 size, const QString& uploadKind,
+                                        ResponseCallback cb)
+{
+    qCInfo(lcProtocol).noquote()
+        << "RadioModel: file upload requested"
+        << QStringLiteral("kind=%1").arg(uploadKind)
+        << QStringLiteral("bytes=%1").arg(size);
+    sendCmd(QStringLiteral("file upload %1 %2").arg(size).arg(uploadKind), cb);
+}
+
+void RadioModel::requestFileDownloadPort(const QString& downloadKind, ResponseCallback cb)
+{
+    qCInfo(lcProtocol).noquote()
+        << "RadioModel: file download requested"
+        << QStringLiteral("kind=%1").arg(downloadKind);
+    sendCmd(QStringLiteral("file download %1").arg(downloadKind), cb);
+}
+
+void RadioModel::refreshProfiles()
+{
+    sendCmd(QStringLiteral("profile global info"));
+    sendCmd(QStringLiteral("profile global list"));
+    sendCmd(QStringLiteral("profile global current"));
+    sendCmd(QStringLiteral("profile tx list"));
+    sendCmd(QStringLiteral("profile tx current"));
+    sendCmd(QStringLiteral("profile mic list"));
+    sendCmd(QStringLiteral("profile mic current"));
+}
+
+bool RadioModel::isProfileTransferBlocked() const
+{
+    return m_radioTransmitting
+        || m_txRequested
+        || m_transmitModel.isMox()
+        || m_transmitModel.isTuning();
 }
 
 void RadioModel::requestLocalPtt()
@@ -4500,9 +4545,22 @@ void RadioModel::handleProfileStatus(const QString& object,
     // Profile list/current with space-containing names are handled by
     // handleProfileStatusRaw() via onMessageReceived().  This fallback
     // handles any remaining profile status keys that don't have spaces
-    // (e.g. "profile all unsaved_changes_tx=0").
+    // (e.g. "profile importing=1", "profile exporting=0").
     Q_UNUSED(object);
-    Q_UNUSED(kvs);
+    if (kvs.contains(QStringLiteral("importing"))) {
+        const bool importing = kvs.value(QStringLiteral("importing")) == QLatin1String("1");
+        if (m_profileDatabaseImporting != importing) {
+            m_profileDatabaseImporting = importing;
+            emit profileDatabaseImportingChanged(importing);
+        }
+    }
+    if (kvs.contains(QStringLiteral("exporting"))) {
+        const bool exporting = kvs.value(QStringLiteral("exporting")) == QLatin1String("1");
+        if (m_profileDatabaseExporting != exporting) {
+            m_profileDatabaseExporting = exporting;
+            emit profileDatabaseExportingChanged(exporting);
+        }
+    }
 }
 
 void RadioModel::handleProfileStatusRaw(const QString& profileType,
@@ -4517,6 +4575,23 @@ void RadioModel::handleProfileStatusRaw(const QString& profileType,
 
     const QString key = rawBody.left(eq).trimmed();
     const QString val = rawBody.mid(eq + 1).trimmed();
+
+    if (key == QLatin1String("importing")) {
+        const bool importing = val == QLatin1String("1");
+        if (m_profileDatabaseImporting != importing) {
+            m_profileDatabaseImporting = importing;
+            emit profileDatabaseImportingChanged(importing);
+        }
+        return;
+    }
+    if (key == QLatin1String("exporting")) {
+        const bool exporting = val == QLatin1String("1");
+        if (m_profileDatabaseExporting != exporting) {
+            m_profileDatabaseExporting = exporting;
+            emit profileDatabaseExportingChanged(exporting);
+        }
+        return;
+    }
 
     if (profileType == "tx") {
         if (key == "list") {

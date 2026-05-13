@@ -43,6 +43,7 @@ find_package(Qt6 6.2 REQUIRED COMPONENTS
     Multimedia
     Test
 )
+find_package(ZLIB REQUIRED)
 option(REQUIRE_SERIALPORT "Fail if Qt6 SerialPort is not found (use for release builds)" OFF)
 # Note: on Windows the SerialPortController uses raw Win32 WaitCommEvent for
 # DSR/CTS edge detection (FTDI VCP drivers don't refresh
@@ -460,6 +461,7 @@ set(CORE_SOURCES
     src/core/PgxlConnection.cpp
     src/core/FirmwareUploader.cpp
     src/core/DvkWavTransfer.cpp
+    src/core/ProfileTransfer.cpp
     src/core/QsoRecorder.cpp
     src/core/FirmwareStager.cpp
     src/core/OleCompoundFile.cpp
@@ -562,6 +564,7 @@ set(GUI_SOURCES
     src/gui/AmpApplet.cpp
     src/gui/MeterApplet.cpp
     src/gui/ProfileManagerDialog.cpp
+    src/gui/ProfileImportExportDialog.cpp
     src/gui/PanadapterApplet.cpp
     src/gui/PanadapterStack.cpp
     src/gui/PanLayoutDialog.cpp
@@ -799,6 +802,7 @@ target_link_libraries(AetherSDR PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::Multimedia
+    ZLIB::ZLIB
     ${CMAKE_DL_LIBS}   # dlopen/dlsym for tolerant X11 error handler (#1839)
 )
 
@@ -1262,6 +1266,13 @@ target_include_directories(tx_mic_channel_normalizer_test PRIVATE
 )
 target_link_libraries(tx_mic_channel_normalizer_test PRIVATE Qt6::Core)
 add_test(NAME tx_mic_channel_normalizer_test COMMAND tx_mic_channel_normalizer_test)
+
+add_executable(profile_transfer_test
+    tests/profile_transfer_test.cpp
+)
+target_include_directories(profile_transfer_test PRIVATE src)
+target_link_libraries(profile_transfer_test PRIVATE Qt6::Core)
+add_test(NAME profile_transfer_test COMMAND profile_transfer_test)
 
 add_executable(client_gate_test
     tests/client_gate_test.cpp

@@ -79,6 +79,7 @@
 #include "AmpApplet.h"
 #include "MeterApplet.h"
 #include "ProfileManagerDialog.h"
+#include "ProfileImportExportDialog.h"
 #include "SupportDialog.h"
 #include "SliceTroubleshootingDialog.h"
 #include "ShortcutDialog.h"
@@ -6884,7 +6885,15 @@ void MainWindow::buildMenuBar()
     });
     auto* profileImportExportAct = m_profilesMenu->addAction("Import/Export Profiles...");
     connect(profileImportExportAct, &QAction::triggered, this, [this] {
-        // TODO: open import/export dialog
+        if (!m_profileImportExportDialog) {
+            auto* dlg = new ProfileImportExportDialog(&m_radioModel, this);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            dlg->setFramelessMode(framelessWindowEnabled());
+            m_profileImportExportDialog = dlg;
+        }
+        m_profileImportExportDialog->show();
+        m_profileImportExportDialog->raise();
+        m_profileImportExportDialog->activateWindow();
     });
     m_profilesMenu->addSeparator();
 
@@ -11474,6 +11483,8 @@ void MainWindow::setFramelessWindow(bool on)
         dlg->setFramelessMode(on);
     if (m_profileManagerDialog)
         m_profileManagerDialog->setFramelessMode(on);
+    if (m_profileImportExportDialog)
+        m_profileImportExportDialog->setFramelessMode(on);
 #ifdef HAVE_MIDI
     if (auto* dlg = qobject_cast<MidiMappingDialog*>(m_midiDialog)) {
         dlg->setFramelessMode(on);
