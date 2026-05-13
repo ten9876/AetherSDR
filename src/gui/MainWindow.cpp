@@ -3190,6 +3190,10 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->txApplet(), &TxApplet::setTransmitting);
     m_appletPanel->txApplet()->setTransmitModel(&m_radioModel.transmitModel());
     m_appletPanel->txApplet()->setTunerModel(&m_radioModel.tunerModel());
+    // ATU right-click → pre-tune dialog needs RadioModel for slice access
+    // and BandPlanManager for region-correct band edges. (#2624)
+    m_appletPanel->txApplet()->setRadioModel(&m_radioModel);
+    m_appletPanel->txApplet()->setBandPlanManager(m_bandPlanMgr);
     m_appletPanel->rxApplet()->setRadioModel(&m_radioModel);
     m_appletPanel->rxApplet()->setTransmitModel(&m_radioModel.transmitModel());
 

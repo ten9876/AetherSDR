@@ -182,6 +182,9 @@ public:
     void atuStart();
     void atuBypass();
     void setAtuMemories(bool on);
+    // Clears the radio's entire ATU memory database. FlexLib's ATUClearMemories
+    // sends "atu clear"; the radio acknowledges with R|0| only — no status echo.
+    void atuClearMemories();
     void loadProfile(const QString& name);
     void setApdEnabled(bool on);
     void setApdSamplerPort(const QString& txAnt, const QString& port);

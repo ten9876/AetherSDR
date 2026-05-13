@@ -1,12 +1,17 @@
 #include "TxApplet.h"
+#include "AtuPreTuneDialog.h"
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "HGauge.h"
+#include "models/RadioModel.h"
 #include "models/TransmitModel.h"
 #include "models/TunerModel.h"
 
+#include <QAction>
 #include <QPushButton>
 #include <QLabel>
+#include <QMenu>
+#include <QMessageBox>
 #include <QSlider>
 #include <QComboBox>
 #include <QVBoxLayout>
@@ -221,6 +226,12 @@ void TxApplet::buildUI()
         m_atuBtn->setFixedHeight(22);
         m_atuBtn->setAccessibleName("ATU tune");
         m_atuBtn->setAccessibleDescription("Start automatic antenna tuner");
+        // Right-click on the ATU button exposes the pre-tune sweep and
+        // Clear ATU Memories actions. Matches SmartSDR Windows's hidden
+        // right-click menu on this button. (#2624)
+        m_atuBtn->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_atuBtn, &QPushButton::customContextMenuRequested,
+                this, &TxApplet::showAtuContextMenu);
         row->addWidget(m_atuBtn);
 
         m_memBtn = new QPushButton("MEM");
@@ -556,6 +567,70 @@ void TxApplet::setTransmitting(bool tx)
         m_peakTick.stop();
         static_cast<HGauge*>(m_fwdGauge)->setPeakValue(0.0f);
     }
+}
+
+void TxApplet::setRadioModel(RadioModel* radio)
+{
+    m_radioModel = radio;
+}
+
+void TxApplet::setBandPlanManager(BandPlanManager* bandPlan)
+{
+    m_bandPlanMgr = bandPlan;
+}
+
+void TxApplet::showAtuContextMenu(const QPoint& pos)
+{
+    QMenu menu(m_atuBtn);
+
+    auto* preTune = menu.addAction(QString::fromUtf8("Pre-tune bands\xE2\x80\xA6"));
+    const bool memOn = m_model && m_model->memoriesEnabled();
+    preTune->setEnabled(memOn);
+    if (!memOn)
+        preTune->setToolTip("Enable MEM before running the pre-tune sweep.");
+    connect(preTune, &QAction::triggered, this, &TxApplet::openPreTuneDialog);
+
+    auto* clearMem = menu.addAction(QString::fromUtf8("Clear ATU memories\xE2\x80\xA6"));
+    connect(clearMem, &QAction::triggered,
+            this, &TxApplet::confirmAndClearAtuMemories);
+
+    menu.exec(m_atuBtn->mapToGlobal(pos));
+}
+
+void TxApplet::openPreTuneDialog()
+{
+    if (!m_radioModel || !m_bandPlanMgr || !m_model) return;
+    if (!m_model->memoriesEnabled()) return;
+
+    if (!m_preTuneDialog) {
+        m_preTuneDialog = new AtuPreTuneDialog(m_radioModel, m_bandPlanMgr,
+                                               this->window());
+        connect(m_preTuneDialog, &QObject::destroyed,
+                this, [this]() { m_preTuneDialog = nullptr; });
+        m_preTuneDialog->setAttribute(Qt::WA_DeleteOnClose);
+    }
+    m_preTuneDialog->show();
+    m_preTuneDialog->raise();
+    m_preTuneDialog->activateWindow();
+}
+
+void TxApplet::confirmAndClearAtuMemories()
+{
+    if (!m_model) return;
+    QMessageBox box(this->window());
+    box.setWindowTitle("Clear ATU memories");
+    box.setIcon(QMessageBox::Warning);
+    box.setText("Clear the radio's entire ATU memory database?");
+    box.setInformativeText(
+        "This removes every stored ATU tune for every band on every antenna. "
+        "The next transmission on any untuned frequency will require a live "
+        "tune cycle.\n\n"
+        "FlexLib has no per-band clear; this is an all-or-nothing operation.");
+    auto* clearBtn = box.addButton("Clear all bands", QMessageBox::DestructiveRole);
+    box.addButton("Cancel", QMessageBox::RejectRole);
+    box.exec();
+    if (box.clickedButton() == clearBtn)
+        m_model->atuClearMemories();
 }
 
 void TxApplet::setPowerScale(int maxWatts, bool hasAmplifier)

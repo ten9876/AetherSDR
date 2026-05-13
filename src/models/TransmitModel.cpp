@@ -450,6 +450,15 @@ void TransmitModel::setAtuMemories(bool on)
     emit commandReady(QString("atu set memories_enabled=%1").arg(on ? 1 : 0));
 }
 
+void TransmitModel::atuClearMemories()
+{
+    // FlexLib Radio.cs:11055-11060 confirms "atu clear" wipes the entire
+    // ATU memory database. There is no per-band variant and no status echo;
+    // the only visible side effect is that subsequent using_mem=1 flags
+    // stop appearing on previously-stored frequencies. (#2624)
+    emit commandReady("atu clear");
+}
+
 void TransmitModel::loadProfile(const QString& name)
 {
     emit commandReady(QString("profile tx load \"%1\"").arg(name));
