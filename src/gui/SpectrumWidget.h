@@ -385,8 +385,10 @@ public:
     void setSpotBgColor(const QColor& c) { m_spotBgColor = c; update(); }
     void setSpotBgOpacity(int pct) { m_spotBgOpacity = pct; update(); }
     void setTransmitting(bool tx) {
-        if (tx && !m_transmitting)
+        if (tx && !m_transmitting) {
             m_preTxAutoBlack = m_autoBlackThresh;  // save before TX
+            m_lastFftRowMs = 0;  // (#2666) first TX row scrolls immediately
+        }
         if (!tx && m_transmitting) {
             m_autoBlackThresh = m_preTxAutoBlack;  // restore after TX
             m_hasNativeWaterfall = false;  // force FFT fallback until tiles resume
@@ -626,6 +628,10 @@ private:
     WfColorScheme m_wfColorScheme{WfColorScheme::Default};
     float m_autoBlackThresh{145.0f}; // client-side auto-black: tracked noise floor
     int   m_wfLineDuration{100};     // ms per waterfall row
+    // Pacing timestamp for FFT-derived waterfall rows so TX (and the RX
+    // FFT-fallback path after native tiles time out) scrolls at the same
+    // line_duration cadence as RX native tiles (#2666).
+    qint64 m_lastFftRowMs{0};
 
     // Waterfall colour range for FFT-derived fallback (dBm).
     float m_wfMinDbm{-130.0f};

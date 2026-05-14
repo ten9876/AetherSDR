@@ -852,6 +852,8 @@ void SpectrumWidget::setWfLineDuration(int ms) {
     s.save();
     // Re-calibrate the time scale for the new rate
     resetWfTimeScale();
+    // (#2666) Apply the new cadence to FFT-derived rows on the next frame
+    m_lastFftRowMs = 0;
 }
 
 void SpectrumWidget::setSquelchLine(bool visible, int level)
@@ -3544,6 +3546,17 @@ void SpectrumWidget::pushWaterfallRow(const QVector<float>& bins, int destWidth,
 
     const int h = m_waterfall.height();
     if (h <= 1) return;
+
+    // Throttle FFT-derived rows to the radio's line_duration cadence so the
+    // TX waterfall (and the RX FFT-fallback path) scroll at the same rate as
+    // RX native tiles. FFT frames arrive at the panadapter fps (e.g. 25),
+    // which is ~2.5× faster than the default 100 ms/row line_duration; without
+    // this gate, TX scrolls visibly faster than RX (#2666). Native RX tiles
+    // bypass this path entirely via updateWaterfallRow().
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_lastFftRowMs != 0 && (now - m_lastFftRowMs) < m_wfLineDuration)
+        return;
+    m_lastFftRowMs = now;
 
     Q_UNUSED(tileLowMhz);
     Q_UNUSED(tileHighMhz);
