@@ -3,6 +3,8 @@
 #include "FramelessResizer.h"
 #include "core/AppSettings.h"
 #include "models/BandPlanManager.h"
+#include "models/MeterModel.h"
+#include "models/PanadapterModel.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
@@ -116,6 +118,8 @@ AtuPreTuneDialog::AtuPreTuneDialog(RadioModel* radio,
     connect(m_settleTimer, &QTimer::timeout, this, [this]() {
         if (!m_radio) return;
         m_waitingForAtu = true;
+        m_tuneLastSwr = 0.0f;
+        m_swrTracking = true;
         m_timeoutTimer->start(kPerPointTimeoutMs);
         m_radio->transmitModel().atuStart();
     });
@@ -151,6 +155,16 @@ AtuPreTuneDialog::AtuPreTuneDialog(RadioModel* radio,
     if (m_radio) {
         connect(&m_radio->transmitModel(), &TransmitModel::atuStateChanged,
                 this, &AtuPreTuneDialog::onAtuStateChanged);
+        // Sample SWR while waiting for ATU terminal state.  The radio
+        // resets SWR to exactly 1.0 in the final meter packet of each tune
+        // cycle (right before the terminal status arrives) even at full
+        // forward power — track the most recent reading > 1.001 so we
+        // report the settled post-tune SWR, not the reset artifact. (#2624)
+        connect(&m_radio->meterModel(), &MeterModel::txMetersChanged,
+                this, [this](float, float swr) {
+            if (m_swrTracking && swr > 1.001f)
+                m_tuneLastSwr = swr;
+        });
     }
 
     setFramelessMode(AppSettings::instance().value("FramelessWindow", "True").toString() == "True");
@@ -268,10 +282,7 @@ void AtuPreTuneDialog::buildSweepPage()
     m_continueAfterFailBtn = new QPushButton("Continue", m_sweepPage);
     m_continueAfterFailBtn->setVisible(false);
     m_abortBtn = new QPushButton("ABORT", m_sweepPage);
-    m_abortBtn->setStyleSheet(
-        "QPushButton { background: #802020; border: 1px solid #c03030; "
-        "color: #fff; padding: 4px 12px; font-weight: bold; }"
-        "QPushButton:hover { background: #903030; }");
+    setAbortButtonAbortMode();
     row->addWidget(m_tuneBtn);
     row->addWidget(m_skipBtn);
     row->addWidget(m_continueAfterFailBtn);
@@ -375,12 +386,25 @@ void AtuPreTuneDialog::onStartClicked()
         m_tuneBtn->setVisible(false);
         m_skipBtn->setVisible(false);
         m_continueAfterFailBtn->setVisible(false);
-        m_abortBtn->setText("Close");
+        setAbortButtonCloseMode();
         m_pages->setCurrentWidget(m_sweepPage);
         return;
     }
     SliceModel* txSlice = m_radio->slice(m_txSliceId);
     m_originalSliceFreqMhz = txSlice ? txSlice->frequency() : 0.0;
+
+    // Capture the TX slice's panadapter view so it can be restored when
+    // the sweep ends — pan is zoomed out to full-band view per band. (#2624)
+    m_originalPanId.clear();
+    m_originalPanCenterMhz = 0.0;
+    m_originalPanBandwidthMhz = 0.0;
+    if (txSlice) {
+        m_originalPanId = txSlice->panId();
+        if (auto* pan = m_radio->panadapter(m_originalPanId)) {
+            m_originalPanCenterMhz = pan->centerMhz();
+            m_originalPanBandwidthMhz = pan->bandwidthMhz();
+        }
+    }
 
     m_mode = static_cast<Mode>(m_modeCombo->currentData().toInt());
 
@@ -397,6 +421,8 @@ void AtuPreTuneDialog::onStartClicked()
             p.freqMhz  = f;
             p.indexInBand = i;
             p.totalInBand = total;
+            p.bandLowMhz  = row.lowMhz;
+            p.bandHighMhz = row.highMhz;
             m_points.append(p);
         }
     }
@@ -407,7 +433,7 @@ void AtuPreTuneDialog::onStartClicked()
         m_tuneBtn->setVisible(false);
         m_skipBtn->setVisible(false);
         m_continueAfterFailBtn->setVisible(false);
-        m_abortBtn->setText("Close");
+        setAbortButtonCloseMode();
         return;
     }
 
@@ -419,7 +445,7 @@ void AtuPreTuneDialog::onStartClicked()
     m_sweepActive = true;
 
     m_pages->setCurrentWidget(m_sweepPage);
-    m_abortBtn->setText("ABORT");
+    setAbortButtonAbortMode();
     beginNextPoint();
 }
 
@@ -449,6 +475,32 @@ void AtuPreTuneDialog::beginNextPoint()
         return;
     }
     const Point& p = m_points[m_currentIndex];
+
+    // On first point of each band, zoom the panadapter out to the full-band
+    // view so the operator sees the whole band being swept rather than the
+    // slice-local zoom from before the sweep started. (#2624)
+    //
+    // Mirror MainWindow::applyPanRangeRequest's optimistic-update pattern:
+    // push center+bandwidth together onto the PanadapterModel BEFORE sending
+    // the radio command so SpectrumWidget reprojects both FFT and waterfall
+    // in one shot.  Skipping the optimistic update produced the same
+    // FFT-changes-but-waterfall-doesn't bug the canonical path was written
+    // to avoid.
+    const bool firstOfBand = (m_currentIndex == 0)
+        || (m_points[m_currentIndex - 1].bandName != p.bandName);
+    if (firstOfBand && !m_originalPanId.isEmpty() && p.bandHighMhz > p.bandLowMhz) {
+        const double center = (p.bandLowMhz + p.bandHighMhz) / 2.0;
+        const double width  = (p.bandHighMhz - p.bandLowMhz) * 1.10;
+        const QString centerStr = QString::number(center, 'f', 6);
+        const QString widthStr  = QString::number(width,  'f', 6);
+        if (auto* pan = m_radio->panadapter(m_originalPanId)) {
+            pan->applyPanStatus({{"center", centerStr},
+                                 {"bandwidth", widthStr}});
+        }
+        m_radio->sendCommand(
+            QString("display pan set %1 center=%2 bandwidth=%3")
+                .arg(m_originalPanId, centerStr, widthStr));
+    }
 
     // Move slice to target. SliceModel::setFrequency uses autopan=0 — no recenter.
     if (SliceModel* s = m_radio->slice(m_txSliceId))
@@ -525,6 +577,7 @@ void AtuPreTuneDialog::onPerPointTimeout()
 {
     if (!m_waitingForAtu) return;
     m_waitingForAtu = false;
+    m_swrTracking = false;
     m_failCount++;
     m_consecutiveFailBypass = 0;
     m_sweepResult->setText(
@@ -540,18 +593,28 @@ void AtuPreTuneDialog::onAtuStateChanged()
     const ATUStatus s = m_radio->transmitModel().atuStatus();
 
     const bool success     = (s == ATUStatus::Successful || s == ATUStatus::OK);
+    const bool bypass      = (s == ATUStatus::Bypass);
     const bool failBypass  = (s == ATUStatus::FailBypass);
     const bool fail        = (s == ATUStatus::Fail);
     const bool aborted     = (s == ATUStatus::Aborted);
-    if (!(success || failBypass || fail || aborted)) return;
+    if (!(success || bypass || failBypass || fail || aborted)) return;
 
     m_waitingForAtu = false;
+    m_swrTracking = false;
     m_timeoutTimer->stop();
 
-    if (success) {
+    const QString swrTag = (m_tuneLastSwr > 0.0f)
+        ? QString("  SWR %1:1").arg(m_tuneLastSwr, 0, 'f', 2)
+        : QString();
+
+    if (success || bypass) {
+        // TUNE_BYPASS after IN_PROGRESS means the ATU completed its cycle
+        // and decided no inductors were needed — with MEM on the radio
+        // still writes a memory entry, so it counts as a successful pre-tune.
         m_successCount++;
         m_consecutiveFailBypass = 0;
-        m_sweepResult->setText("Tune OK.");
+        m_sweepResult->setText(
+            (bypass ? "Tune OK (bypass)." : "Tune OK.") + swrTag);
         beginNextPoint();
         return;
     }
@@ -579,9 +642,12 @@ void AtuPreTuneDialog::onAtuStateChanged()
 
 void AtuPreTuneDialog::showFailControls(bool failBypass)
 {
-    m_sweepResult->setText(failBypass
+    const QString swrTag = (m_tuneLastSwr > 0.0f)
+        ? QString("  SWR %1:1").arg(m_tuneLastSwr, 0, 'f', 2)
+        : QString();
+    m_sweepResult->setText((failBypass
         ? "Tune failed and ATU bypassed. Continue or Abort."
-        : "Tune failed. Continue or Abort.");
+        : "Tune failed. Continue or Abort.") + swrTag);
     m_tuneBtn->setVisible(false);
     m_skipBtn->setVisible(false);
     m_continueAfterFailBtn->setVisible(true);
@@ -592,6 +658,23 @@ void AtuPreTuneDialog::setStepControlsEnabled(bool enabled)
 {
     if (m_tuneBtn) m_tuneBtn->setEnabled(enabled);
     if (m_skipBtn) m_skipBtn->setEnabled(enabled);
+}
+
+void AtuPreTuneDialog::setAbortButtonAbortMode()
+{
+    if (!m_abortBtn) return;
+    m_abortBtn->setText("ABORT");
+    m_abortBtn->setStyleSheet(
+        "QPushButton { background: #802020; border: 1px solid #c03030; "
+        "color: #fff; padding: 4px 12px; font-weight: bold; }"
+        "QPushButton:hover { background: #903030; }");
+}
+
+void AtuPreTuneDialog::setAbortButtonCloseMode()
+{
+    if (!m_abortBtn) return;
+    m_abortBtn->setText("Close");
+    m_abortBtn->setStyleSheet(QString());
 }
 
 void AtuPreTuneDialog::finishSweep(const QString& summaryExtra)
@@ -606,7 +689,7 @@ void AtuPreTuneDialog::finishSweep(const QString& summaryExtra)
     m_tuneBtn->setVisible(false);
     m_skipBtn->setVisible(false);
     m_continueAfterFailBtn->setVisible(false);
-    m_abortBtn->setText("Close");
+    setAbortButtonCloseMode();
 
     m_sweepStatus->setText("Sweep complete.");
     m_sweepResult->setText(
@@ -622,6 +705,20 @@ void AtuPreTuneDialog::restoreOriginalFrequency()
     if (m_originalSliceFreqMhz <= 0.0) return;
     if (SliceModel* s = m_radio->slice(m_txSliceId))
         s->setFrequency(m_originalSliceFreqMhz);
+
+    // Restore the panadapter zoom captured at sweep start — same
+    // optimistic-update pattern used for band transitions.
+    if (!m_originalPanId.isEmpty() && m_originalPanBandwidthMhz > 0.0) {
+        const QString centerStr = QString::number(m_originalPanCenterMhz, 'f', 6);
+        const QString widthStr  = QString::number(m_originalPanBandwidthMhz, 'f', 6);
+        if (auto* pan = m_radio->panadapter(m_originalPanId)) {
+            pan->applyPanStatus({{"center", centerStr},
+                                 {"bandwidth", widthStr}});
+        }
+        m_radio->sendCommand(
+            QString("display pan set %1 center=%2 bandwidth=%3")
+                .arg(m_originalPanId, centerStr, widthStr));
+    }
 }
 
 } // namespace AetherSDR

@@ -73,6 +73,8 @@ private:
     void restoreOriginalFrequency();
     void setStepControlsEnabled(bool enabled);
     void showFailControls(bool failBypass);
+    void setAbortButtonAbortMode();
+    void setAbortButtonCloseMode();
 
     RadioModel*       m_radio{nullptr};
     BandPlanManager*  m_bandPlan{nullptr};
@@ -104,6 +106,8 @@ private:
         double  freqMhz{0.0};
         int     indexInBand{0};
         int     totalInBand{0};
+        double  bandLowMhz{0.0};
+        double  bandHighMhz{0.0};
     };
     QVector<Point> m_points;
     int m_currentIndex{-1};
@@ -111,6 +115,9 @@ private:
 
     int m_txSliceId{-1};
     double m_originalSliceFreqMhz{0.0};
+    QString m_originalPanId;
+    double  m_originalPanCenterMhz{0.0};
+    double  m_originalPanBandwidthMhz{0.0};
 
     QTimer* m_settleTimer{nullptr};
     QTimer* m_timeoutTimer{nullptr};
@@ -121,6 +128,13 @@ private:
     int m_skipCount{0};
     int m_failCount{0};
     int m_consecutiveFailBypass{0};
+
+    // Most recent non-reset SWR reading observed while waitingForAtu is
+    // true.  The radio's final meter packet of each tune cycle resets SWR
+    // to exactly 1.0 at full forward power — we track readings > 1.001 so
+    // the report reflects the settled post-tune SWR. (#2624)
+    float m_tuneLastSwr{0.0f};
+    bool  m_swrTracking{false};
 };
 
 } // namespace AetherSDR
