@@ -422,6 +422,54 @@ AudioEngine::AudioEngine(QObject* parent)
     , m_cwSidetone(std::make_unique<CwSidetoneGenerator>(48000))
     , m_clientQuindarTone(std::make_unique<ClientQuindarTone>())
 {
+    // TX-side CW decode mirror (#2417).  Plug the sidetone generator's
+    // per-block tap into a downsampler + signal emitter; gated on the
+    // m_cwDecodeTxTapEnabled atomic so MainWindow can flip TX-decode on
+    // and off without rebuilding any audio plumbing.  Runs on the
+    // sidetone audio thread.
+    m_cwSidetone->setSampleTap(
+        [this](const float* mono, int frames, int sampleRateHz) {
+            if (!m_cwDecodeTxTapEnabled.load(std::memory_order_relaxed))
+                return;
+            if (frames <= 0 || sampleRateHz <= 0) return;
+            // CwDecoder::feedAudio expects 24 kHz stereo float32 — the
+            // same shape PanadapterStream::audioDataReady() emits on
+            // the RX side.  Decimate 48→24 by averaging consecutive
+            // pairs; the sidetone is a single sine well below 12 kHz
+            // so the cheap two-tap LPF is sufficient for ggmorse.  For
+            // sample rates that are not an integer multiple of 24 kHz
+            // (rare — only when the device forced a 44.1 kHz negotiation),
+            // fall back to nearest-neighbour stepping.
+            constexpr int kTargetHz = 24000;
+            QByteArray buf;
+            if (sampleRateHz == 48000) {
+                const int outFrames = frames / 2;
+                if (outFrames <= 0) return;
+                buf.resize(outFrames * 2 * static_cast<int>(sizeof(float)));
+                auto* out = reinterpret_cast<float*>(buf.data());
+                for (int i = 0; i < outFrames; ++i) {
+                    const float s = 0.5f * (mono[2 * i] + mono[2 * i + 1]);
+                    out[2 * i]     = s;  // L
+                    out[2 * i + 1] = s;  // R
+                }
+            } else {
+                const double step =
+                    static_cast<double>(sampleRateHz) / kTargetHz;
+                const int outFrames =
+                    static_cast<int>(static_cast<double>(frames) / step);
+                if (outFrames <= 0) return;
+                buf.resize(outFrames * 2 * static_cast<int>(sizeof(float)));
+                auto* out = reinterpret_cast<float*>(buf.data());
+                for (int i = 0; i < outFrames; ++i) {
+                    const int srcIdx = static_cast<int>(i * step);
+                    const float s = mono[std::min(srcIdx, frames - 1)];
+                    out[2 * i]     = s;
+                    out[2 * i + 1] = s;
+                }
+            }
+            emit txDecodeAudioReady(buf);
+        });
+
     // Prepare client DSP at the native 24 kHz rate. Sink resampling is
     // handled separately after EQ — EQ always runs at radio-native rate.
     m_clientEqRx->prepare(DEFAULT_SAMPLE_RATE);

@@ -37,6 +37,11 @@ public:
     void setFloatingState(bool floating);  // switch pop-out ↔ dock icon
     void setCwPanelVisible(bool visible);
     void appendCwText(const QString& text, float cost = 0.0f);
+    // TX-side decoded text (#2417): rendered with a [TX] prefix and a
+    // distinct color so the operator can tell their own keying apart
+    // from received CW when both directions are decoded into the same
+    // panel.
+    void appendCwTextTx(const QString& text, float cost = 0.0f);
     void setCwStats(float pitchHz, float speedWpm);
     void clearCwText();
     QPushButton* lockPitchButton() const { return m_lockPitchBtn; }
@@ -78,6 +83,12 @@ private:
     QLabel*       m_pitchMinValLabel{nullptr};
     QLabel*       m_pitchMaxValLabel{nullptr};
     float         m_cwCostThreshold{0.70f};
+
+    // Last CW text source — used by appendCwText / appendCwTextTx so the
+    // [TX] prefix is inserted once per TX burst, not per ggmorse chunk
+    // (#2417).
+    enum class CwTextSource { None, Rx, Tx };
+    CwTextSource  m_lastCwTextSource{CwTextSource::None};
 };
 
 } // namespace AetherSDR

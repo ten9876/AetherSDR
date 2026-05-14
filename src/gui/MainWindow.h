@@ -79,6 +79,7 @@ class BandPlanManager;
 class NetworkDiagnosticsHistory;
 class WhatsNewDialog;
 class ProfileManagerDialog;
+class ProfileImportExportDialog;
 class CwxPanel;
 class DvkPanel;
 #ifdef HAVE_RADE
@@ -194,6 +195,10 @@ private:
     void showPanadapterInterlockNotification(const QString& message);
     void setActivePanApplet(PanadapterApplet* applet);
     void routeCwDecoderOutput();  // wire CW decoder to the pan owning the active slice
+    // Recompute the CW decoder's run state, panel visibility, and the
+    // AudioEngine TX tap based on current AppSettings + MOX + slice mode.
+    // Called on MOX change, RX/TX toggle change, and dialog close (#2417).
+    void refreshCwDecodeState();
     SpectrumWidget* spectrumForSlice(SliceModel* s) const;
     void wireVfoWidget(VfoWidget* w, SliceModel* s);
     // Push the active RX slice's filter passband (converted from
@@ -341,6 +346,11 @@ private:
     PgxlConnection    m_pgxlConn;        // direct TCP 9008 to PGXL for telemetry
     BandPlanManager*  m_bandPlanMgr{nullptr};
     CwDecoder         m_cwDecoder;
+    // Dedicated TX-side decoder (#2417).  Fed from AudioEngine's
+    // sidetone mirror; emits decoded text routed to the panel via
+    // PanadapterApplet::appendCwTextTx so the operator can tell TX
+    // self-decode apart from RX in the shared text view.
+    CwDecoder         m_cwDecoderTx;
     DxClusterClient*   m_dxCluster{nullptr};
     DxClusterClient*   m_rbnClient{nullptr};
 #ifdef HAVE_MQTT
@@ -474,6 +484,7 @@ private:
     QPointer<WhatsNewDialog> m_whatsNewDialog;
     QPointer<QDialog> m_dspDialog;
     QPointer<ProfileManagerDialog> m_profileManagerDialog;
+    QPointer<ProfileImportExportDialog> m_profileImportExportDialog;
 #ifdef HAVE_MIDI
     QPointer<QDialog> m_midiDialog;
 #endif

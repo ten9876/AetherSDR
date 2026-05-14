@@ -9,6 +9,7 @@
 #include <QSlider>
 #include <QEvent>
 #include <QLabel>
+#include <QDateTime>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPushButton>
@@ -368,8 +369,38 @@ void PanadapterApplet::appendCwText(const QString& text, float cost)
     else                   color = "#ff4040";
 
     m_cwText->moveCursor(QTextCursor::End);
+    // Switching back from TX → RX inserts a separator space so the [TX]
+    // burst and the following RX text don't run together (#2417).
+    if (m_lastCwTextSource == CwTextSource::Tx)
+        m_cwText->insertHtml(QStringLiteral(" "));
+    m_lastCwTextSource = CwTextSource::Rx;
     m_cwText->insertHtml(QString("<span style=\"color:%1\">%2</span>")
         .arg(color, clean.toHtmlEscaped()));
+    m_cwText->moveCursor(QTextCursor::End);
+}
+
+void PanadapterApplet::appendCwTextTx(const QString& text, float cost)
+{
+    // TX-side decoded keying (#2417).  Same confidence filter as the RX
+    // path; rendered in a distinct cyan color so the operator can tell
+    // their own sending apart from incoming CW when both directions feed
+    // the same panel.  No textual marker — color alone is the signal.
+    if (cost >= m_cwCostThreshold) return;
+
+    QString clean = text;
+    clean.replace('\n', ' ');
+    if (clean.trimmed().isEmpty()) return;
+
+    constexpr const char* kTxColor = "#5fc8ff";
+    m_cwText->moveCursor(QTextCursor::End);
+    // Separator space on Rx→Tx boundary so the two colored runs don't
+    // visually merge.  None→Tx (panel empty) gets no leading space.
+    if (m_lastCwTextSource == CwTextSource::Rx)
+        m_cwText->insertHtml(QStringLiteral(" "));
+    m_lastCwTextSource = CwTextSource::Tx;
+    m_cwText->insertHtml(
+        QString("<span style=\"color:%1\">%2</span>")
+            .arg(QLatin1String(kTxColor), clean.toHtmlEscaped()));
     m_cwText->moveCursor(QTextCursor::End);
 }
 
@@ -382,6 +413,7 @@ void PanadapterApplet::setCwStats(float pitchHz, float speedWpm)
 void PanadapterApplet::clearCwText()
 {
     m_cwText->clear();
+    m_lastCwTextSource = CwTextSource::None;
 }
 
 bool PanadapterApplet::eventFilter(QObject* obj, QEvent* ev)

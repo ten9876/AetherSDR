@@ -93,6 +93,43 @@ void CwDecoder::lockSpeed(bool lock)
                    << m_speed.load() << "WPM";
 }
 
+void CwDecoder::setKnownParameters(float pitchHz, float speedWpm)
+{
+    if (pitchHz <= 0.0f || speedWpm <= 0.0f) return;
+
+    const bool unchanged = qFuzzyCompare(m_pitch.load(), pitchHz)
+        && qFuzzyCompare(m_speed.load(), speedWpm)
+        && m_pitchLocked && m_speedLocked;
+    if (unchanged) return;
+
+    // Lock both pitch and speed to the P/CW applet values.  The local
+    // CWX keyer / iambic keyer / etc. all run at the slider WPM, so
+    // sidetone is generated at exactly that rate — ggmorse with both
+    // values locked gets a reliable unit length and correctly classifies
+    // 1u / 3u / 7u gaps so inter-word boundaries become " " separators.
+    m_pitch = pitchHz;
+    m_speed = speedWpm;
+    m_pitchLocked = true;
+    m_speedLocked = true;
+
+    // Widen pitch range to comfortably include the known value (default
+    // is 500–700 Hz but operators commonly use 700 / 750 / 800).  Also
+    // drives ggmorse's internal HPF cutoff.
+    constexpr float kPitchRangePad = 150.0f;
+    m_pitchRangeMin = std::max(100.0f, pitchHz - kPitchRangePad);
+    m_pitchRangeMax = pitchHz + kPitchRangePad;
+
+    if (!m_ggmorse) return;
+    GGMorse::ParametersDecode dp = GGMorse::getDefaultParametersDecode();
+    dp.frequency_hz = pitchHz;
+    dp.speed_wpm = speedWpm;
+    dp.frequencyRangeMin_hz = m_pitchRangeMin;
+    dp.frequencyRangeMax_hz = m_pitchRangeMax;
+    m_ggmorse->setParametersDecode(dp);
+    qCDebug(lcDsp) << "CwDecoder: known params pitch=" << pitchHz
+                   << "Hz speed=" << speedWpm << "WPM";
+}
+
 void CwDecoder::setPitchRange(int minHz, int maxHz)
 {
     m_pitchRangeMin = static_cast<float>(minHz);

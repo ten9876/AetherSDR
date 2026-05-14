@@ -11,6 +11,9 @@ class QComboBox;
 
 namespace AetherSDR {
 
+class AtuPreTuneDialog;
+class BandPlanManager;
+class RadioModel;
 class TransmitModel;
 class TunerModel;
 
@@ -35,6 +38,12 @@ public:
     void setTransmitModel(TransmitModel* model);
     void setTunerModel(TunerModel* tuner);
 
+    // Wire the dialog dependencies for the ATU right-click menu — band plan
+    // for sweep frequency derivation and the RadioModel for slice access
+    // and command routing. (#2624)
+    void setRadioModel(RadioModel* radio);
+    void setBandPlanManager(BandPlanManager* bandPlan);
+
 public slots:
     void updateMeters(float fwdPower, float swr);
     // Capture raw pre-smoothed FWDPWR for PEP peak-hold tick. (#2561)
@@ -48,8 +57,16 @@ private:
     void buildUI();
     void syncFromModel();
     void syncAtuIndicators();
+    // Right-click menu on the ATU button — exposes Pre-tune Bands and
+    // Clear ATU Memories. Pre-tune is grayed when MEM is off. (#2624)
+    void showAtuContextMenu(const QPoint& pos);
+    void openPreTuneDialog();
+    void confirmAndClearAtuMemories();
 
     TransmitModel* m_model{nullptr};
+    RadioModel*       m_radioModel{nullptr};
+    BandPlanManager*  m_bandPlanMgr{nullptr};
+    AtuPreTuneDialog* m_preTuneDialog{nullptr};
 
     // Frequency at which the ATU last reported a successful tune.
     // Used to gate the second-click → bypass behaviour: a click on the ATU

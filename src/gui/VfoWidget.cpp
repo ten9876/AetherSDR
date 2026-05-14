@@ -567,14 +567,17 @@ void VfoWidget::buildUI()
             // Context-aware parsing: on XVTR bands, accept higher freqs
             const bool onXvtr = m_slice &&
                 (m_slice->rxAntenna().startsWith("XVT") || m_slice->frequency() > 54.0);
-            const double maxMhz = onXvtr ? 450.0 : 54.0;
+            const double maxMhz = onXvtr ? 50000.0 : 54.0;
 
             if (onXvtr) {
-                // XVTR freqs always start with 3 digits (100-450 MHz).
-                // Insert decimal after 3rd digit for bare integers:
+                // 3-digit-band convenience: on 2m/70cm a bare integer like
                 //   1446 → 144.6, 14696 → 146.96, 144600 → 144.600
-                if (ok && freqMhz > 450.0 && !clean.contains('.')) {
-                    // Bare integer — insert decimal after 3rd digit
+                // Only fire when slice is in 100-999 MHz range; for 23cm
+                // and microwave bands a bare integer is the MHz itself
+                // (e.g. 1296 on 23cm means 1296 MHz, not 129.6 MHz).
+                const double sliceMhz = m_slice->frequency();
+                const bool threeDigitBand = sliceMhz >= 100.0 && sliceMhz < 1000.0;
+                if (ok && threeDigitBand && freqMhz > 450.0 && !clean.contains('.')) {
                     int digits = clean.length();
                     if (digits >= 4) {
                         clean.insert(3, '.');

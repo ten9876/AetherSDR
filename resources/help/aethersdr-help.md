@@ -64,7 +64,9 @@ This is the operational configuration menu. It contains most dialogs that affect
 This menu manages operating profiles.
 
 - `Profile Manager...` is the main profile dialog.
-- `Import/Export Profiles...` is reserved for profile transfer workflows.
+- `Import/Export Profiles...` creates and restores SmartSDR-compatible `.ssdr_cfg` radio database packages. Export defaults to Global, TX, and MIC profiles, with optional Memories, Preferences, TNF, XVTR, and USB Cables. Import can replace same-name profiles, including defaults; export a backup first before restoring a package.
+- `.ssdr_cfg` packages are firmware-sensitive. Avoid importing packages from newer firmware into older radio firmware. Packages that include Preferences may close or reopen slices, panadapters, and other persisted radio resources.
+- Profile database transfer requires a direct LAN connection in this build; SmartLink/WAN import/export is disabled with an explanatory message.
 - Below the separator, global profiles are listed dynamically and can be loaded directly.
 
 ### `View`

@@ -1,4 +1,6 @@
 #include "MainWindow.h"
+
+#include "CwDecodeSettings.h"
 #ifdef HAVE_MQTT
 #include "MqttApplet.h"
 #endif
@@ -80,6 +82,7 @@
 #include "MeterApplet.h"
 #include "PersistentDialog.h"
 #include "ProfileManagerDialog.h"
+#include "ProfileImportExportDialog.h"
 #include "SupportDialog.h"
 #include "SliceTroubleshootingDialog.h"
 #include "ShortcutDialog.h"
@@ -1104,6 +1107,12 @@ MainWindow::MainWindow(QWidget* parent)
         // installed across frameless toggles — when the system frame is
         // back on, the platform owns resize and our filter no-ops.
         FramelessResizer::install(this);
+
+        // One-shot migration: collapse the legacy "CwDecodeOverlay" flat
+        // key into the nested AppSettings["CwDecoder"] blob (#2417).  The
+        // legacy key only encoded RX-side decode; the new blob also holds
+        // the independent TX-side toggle.
+        CwDecodeSettings::migrateLegacy();
 
         // One-shot migration: remove persisted per-slice audio mute state.
         // The radio does not persist audio_mute, so restoring it from
@@ -2721,8 +2730,37 @@ MainWindow::MainWindow(QWidget* parent)
     // Audio feed is global (same audio for all pans).
     // Text/stats output is routed to the pan owning the active slice
     // via routeCwDecoderOutput(), which re-wires on active slice change (#864).
+    //
+    // RX feed is gated on CwDecodeSettings::rxEnabled() (#2417).  Cheap
+    // per-packet check so the toggle can flip live from the dialog
+    // without disconnecting/reconnecting signal wiring.
     connect(m_radioModel.panStream(), &PanadapterStream::audioDataReady,
-            &m_cwDecoder, &CwDecoder::feedAudio);
+            &m_cwDecoder, [this](const QByteArray& pcm) {
+                if (CwDecodeSettings::rxEnabled())
+                    m_cwDecoder.feedAudio(pcm);
+            });
+
+    // TX-side CW decoder feed (#2417): AudioEngine taps the sidetone
+    // generator's mono signal, downsamples 48→24 kHz, and emits the
+    // same stereo float32 shape CwDecoder::feedAudio() already accepts.
+    // Routed to the dedicated TX decoder so RX and TX decoded text are
+    // distinguishable in the panel.  The tap self-gates on
+    // AudioEngine::m_cwDecodeTxTapEnabled, which we flip from the
+    // moxChanged handler below.
+    connect(m_audio, &AudioEngine::txDecodeAudioReady,
+            &m_cwDecoderTx, &CwDecoder::feedAudio);
+
+    // Flip the TX-decode tap (and start the decoder if needed) on every
+    // MOX edge.  Cheap; refreshCwDecodeState() does all the gating.
+    connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
+            this, [this](bool) { refreshCwDecodeState(); });
+
+    // Push P/CW applet's Pitch + Speed into the TX decoder live (#2417).
+    // phoneStateChanged is the bulk-update signal that covers cw_pitch /
+    // cw_speed status echoes; refreshCwDecodeState() forwards only when
+    // TX-decode is on, so calling it on every phoneStateChanged is cheap.
+    connect(&m_radioModel.transmitModel(), &TransmitModel::phoneStateChanged,
+            this, [this]() { refreshCwDecodeState(); });
 
     // ── AF gain from applet panel → radio per-slice audio_level ─────────
     connect(m_appletPanel->rxApplet(), &RxApplet::afGainChanged, this, [this](int v) {
@@ -3191,6 +3229,10 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->txApplet(), &TxApplet::setTransmitting);
     m_appletPanel->txApplet()->setTransmitModel(&m_radioModel.transmitModel());
     m_appletPanel->txApplet()->setTunerModel(&m_radioModel.tunerModel());
+    // ATU right-click → pre-tune dialog needs RadioModel for slice access
+    // and BandPlanManager for region-correct band edges. (#2624)
+    m_appletPanel->txApplet()->setRadioModel(&m_radioModel);
+    m_appletPanel->txApplet()->setBandPlanManager(m_bandPlanMgr);
     m_appletPanel->rxApplet()->setRadioModel(&m_radioModel);
     m_appletPanel->rxApplet()->setTransmitModel(&m_radioModel.transmitModel());
 
@@ -6223,13 +6265,9 @@ void MainWindow::buildMenuBar()
                 m_flexControl->setInvertDirection(fcInvert);
             });
 #endif
-            // Re-evaluate CW decode overlay visibility
-            bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
-            auto* s = activeSlice();
-            if (s) {
-                bool isCw = (s->mode() == "CW" || s->mode() == "CWL");
-                if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
-            }
+            // Re-evaluate CW decode panel and TX tap from the dialog's
+            // RX/TX toggles, plus run state vs current slice mode (#2417).
+            refreshCwDecodeState();
 
             // If audio compression changed, recreate the RX audio stream
             QString newComp = m_radioModel.audioCompressionParam();
@@ -6877,7 +6915,15 @@ void MainWindow::buildMenuBar()
     });
     auto* profileImportExportAct = m_profilesMenu->addAction("Import/Export Profiles...");
     connect(profileImportExportAct, &QAction::triggered, this, [this] {
-        // TODO: open import/export dialog
+        if (!m_profileImportExportDialog) {
+            auto* dlg = new ProfileImportExportDialog(&m_radioModel, this);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            dlg->setFramelessMode(framelessWindowEnabled());
+            m_profileImportExportDialog = dlg;
+        }
+        m_profileImportExportDialog->show();
+        m_profileImportExportDialog->raise();
+        m_profileImportExportDialog->activateWindow();
     });
     m_profilesMenu->addSeparator();
 
@@ -7693,16 +7739,16 @@ void MainWindow::buildUI()
             setActivePanApplet(applet);
 
         // Show/hide CW decode panel based on the new active pan's slice mode
+        // — driven through refreshCwDecodeState() so the panel on the
+        // landed pan picks up the same RX/TX toggle gating the active
+        // slice does (#2417).
         for (auto* sl : m_radioModel.slices()) {
             if (sl->panId() == panId) {
-                bool isCw = (sl->mode() == "CW" || sl->mode() == "CWL");
-                bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
+                const bool isCw = (sl->mode() == "CW" || sl->mode() == "CWL");
+                const bool anyOn = CwDecodeSettings::anyEnabled();
                 if (auto* applet = m_panStack->panadapter(panId))
-                    applet->setCwPanelVisible(isCw && decodeOn);
-                if (isCw && !m_cwDecoder.isRunning())
-                    m_cwDecoder.start();
-                else if (!isCw && m_cwDecoder.isRunning())
-                    m_cwDecoder.stop();
+                    applet->setCwPanelVisible(isCw && anyOn);
+                refreshCwDecodeState();
                 break;
             }
         }
@@ -8877,15 +8923,9 @@ void MainWindow::onSliceAdded(SliceModel* s)
             // Deferred CW decoder restart after profile load (#305).
             // Mode status arrives asynchronously — by the time setActiveSlice
             // runs, the slice may still have its default mode (not CW).
-            // Re-check after status has settled.
-            auto* sl = activeSlice();
-            if (sl) {
-                bool isCw = (sl->mode() == "CW" || sl->mode() == "CWL");
-                bool decodeOn = settings.value("CwDecodeOverlay", "True").toString() == "True";
-                if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
-                if (isCw && !m_cwDecoder.isRunning())
-                    m_cwDecoder.start();
-            }
+            // Re-check after status has settled.  refreshCwDecodeState()
+            // centralises the panel/run/TX-tap gating (#2417).
+            refreshCwDecodeState();
         });
     }
 
@@ -9101,15 +9141,11 @@ void MainWindow::onSliceAdded(SliceModel* s)
         // Update spectrum overlay with new mode (for RTTY mark/space lines)
         pushSliceOverlay(s);
 
-        // Show/hide CW decode panel and start/stop decoder
+        // Show/hide CW decode panel and start/stop decoder.  Centralised
+        // through refreshCwDecodeState() so the RX/TX toggle pair and
+        // MOX state share one decision tree (#2417).
         if (s->sliceId() == m_activeSliceId) {
-            bool isCw = (mode == "CW" || mode == "CWL");
-            bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
-            if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
-            if (isCw && !m_cwDecoder.isRunning())
-                m_cwDecoder.start();
-            else if (!isCw && m_cwDecoder.isRunning())
-                m_cwDecoder.stop();
+            refreshCwDecodeState();
 
             // Update CWX/DVK indicator availability for new mode
             updateKeyerAvailability(mode);
@@ -9614,14 +9650,10 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
     // Route CW decoder output to the pan owning this slice (#864)
     routeCwDecoderOutput();
 
-    // Show/hide CW decode panel for the active slice's current mode
-    bool isCw = (s->mode() == "CW" || s->mode() == "CWL");
-    bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
-    if (m_cwDecoderApplet) m_cwDecoderApplet->setCwPanelVisible(isCw && decodeOn);
-    if (isCw && !m_cwDecoder.isRunning())
-        m_cwDecoder.start();
-    else if (!isCw && m_cwDecoder.isRunning())
-        m_cwDecoder.stop();
+    // Show/hide CW decode panel for the active slice's current mode —
+    // delegates through the shared decision tree so the RX/TX toggle
+    // pair and MOX state stay coherent (#2417).
+    refreshCwDecodeState();
 
     // Update CWX/DVK indicator availability for this slice's mode
     updateKeyerAvailability(s->mode());
@@ -9762,6 +9794,8 @@ void MainWindow::routeCwDecoderOutput()
     if (m_cwDecoderApplet) {
         disconnect(&m_cwDecoder, &CwDecoder::textDecoded,
                    m_cwDecoderApplet, &PanadapterApplet::appendCwText);
+        disconnect(&m_cwDecoderTx, &CwDecoder::textDecoded,
+                   m_cwDecoderApplet, &PanadapterApplet::appendCwTextTx);
         disconnect(&m_cwDecoder, &CwDecoder::statsUpdated,
                    m_cwDecoderApplet, &PanadapterApplet::setCwStats);
         if (auto* pb = m_cwDecoderApplet->lockPitchButton())
@@ -9774,6 +9808,8 @@ void MainWindow::routeCwDecoderOutput()
                    &m_cwDecoder, &CwDecoder::setPitchRange);
         disconnect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
                    &m_cwDecoder, &CwDecoder::stop);
+        disconnect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
+                   &m_cwDecoderTx, &CwDecoder::stop);
     }
 
     m_cwDecoderApplet = target;
@@ -9782,6 +9818,10 @@ void MainWindow::routeCwDecoderOutput()
     if (m_cwDecoderApplet) {
         connect(&m_cwDecoder, &CwDecoder::textDecoded,
                 m_cwDecoderApplet, &PanadapterApplet::appendCwText);
+        // TX-side decoded text routes to a separate slot so the panel
+        // can render it with a [TX] prefix and distinct color (#2417).
+        connect(&m_cwDecoderTx, &CwDecoder::textDecoded,
+                m_cwDecoderApplet, &PanadapterApplet::appendCwTextTx);
         connect(&m_cwDecoder, &CwDecoder::statsUpdated,
                 m_cwDecoderApplet, &PanadapterApplet::setCwStats);
         connect(m_cwDecoderApplet->lockPitchButton(), &QPushButton::toggled,
@@ -9792,7 +9832,73 @@ void MainWindow::routeCwDecoderOutput()
                 &m_cwDecoder, &CwDecoder::setPitchRange);
         connect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
                 &m_cwDecoder, &CwDecoder::stop);
+        connect(m_cwDecoderApplet, &PanadapterApplet::cwPanelCloseRequested,
+                &m_cwDecoderTx, &CwDecoder::stop);
     }
+}
+
+// Recompute the CW decoder run state, panel visibility, and the
+// AudioEngine TX-side sidetone tap (#2417).  Single chokepoint so the
+// independent RX/TX toggles, MOX edges, and slice-mode changes all
+// converge on the same decision tree.
+void MainWindow::refreshCwDecodeState()
+{
+    const bool rxOn = CwDecodeSettings::rxEnabled();
+    const bool txOn = CwDecodeSettings::txEnabled();
+    const bool anyOn = rxOn || txOn;
+
+    auto* s = activeSlice();
+    const bool isCw = s && (s->mode() == "CW" || s->mode() == "CWL");
+
+    // Panel is visible only in CW receive mode — the operator's CW
+    // text view is anchored to a CW slice's panadapter.  TX-side
+    // decode is shown in the same panel, so if there's no CW slice in
+    // view, there's no panel either.
+    if (m_cwDecoderApplet)
+        m_cwDecoderApplet->setCwPanelVisible(isCw && anyOn);
+
+    // RX decoder runs only when RX-decode is on and the operator is
+    // listening to a CW slice.  Non-CW slices feed unrelated audio,
+    // and the panel is hidden anyway.
+    const bool shouldRunRx = isCw && rxOn;
+    if (shouldRunRx && !m_cwDecoder.isRunning())
+        m_cwDecoder.start();
+    else if (!shouldRunRx && m_cwDecoder.isRunning())
+        m_cwDecoder.stop();
+
+    // TX decoder runs whenever TX-decode is enabled — the worker
+    // sleeps on its ring buffer between transmissions, so leaving it
+    // up costs almost nothing and avoids a start/stop hiccup on every
+    // MOX edge.
+    if (txOn && !m_cwDecoderTx.isRunning())
+        m_cwDecoderTx.start();
+    else if (!txOn && m_cwDecoderTx.isRunning())
+        m_cwDecoderTx.stop();
+
+    // Feed the TX decoder the operator's known pitch + speed from the
+    // P/CW applet rather than letting ggmorse auto-detect — for TX-self
+    // decode we already know exactly what's being keyed, and detection
+    // off the short sidetone bursts is unreliable (gave 55 WPM readouts
+    // and fragmented single-letter output on 20 WPM keying). (#2417)
+    if (txOn) {
+        const auto& tm = m_radioModel.transmitModel();
+        if (tm.cwPitch() > 0 && tm.cwSpeed() > 0)
+            m_cwDecoderTx.setKnownParameters(
+                static_cast<float>(tm.cwPitch()),
+                static_cast<float>(tm.cwSpeed()));
+    }
+
+    // Gate the sidetone tap solely on txOn.  An earlier version also AND'd
+    // with isMox() || isTransmitting() but CLAUDE.md is explicit: the
+    // radio never sends mox= in transmit status, and CW keying goes
+    // through the netcw UDP stream which doesn't necessarily flip the
+    // interlock state machine either — so any MOX-based gate would
+    // suppress the tap during CW keying.  The sidetone generator already
+    // self-gates: it only produces audio bursts when the operator is
+    // keying, and fills silence buffers between.  ggmorse handles the
+    // silence fine.
+    if (m_audio)
+        m_audio->setCwDecodeTxTapEnabled(txOn);
 }
 
 void MainWindow::schedulePanFpsReconcile(const QString& panId, int reportedFps)
@@ -11465,6 +11571,12 @@ void MainWindow::setFramelessWindow(bool on)
         dlg->setFramelessMode(on);
     if (auto* dlg = qobject_cast<MemoryDialog*>(m_memoryDialog))
         dlg->setFramelessMode(on);
+    // Profile Import/Export hasn't been migrated to PersistentDialog yet
+    // (#2605 follow-up), so it still needs an explicit cast.  Profile
+    // Manager IS on PersistentDialog and propagates via m_persistentDialogs
+    // below.
+    if (m_profileImportExportDialog)
+        m_profileImportExportDialog->setFramelessMode(on);
 #ifdef HAVE_MIDI
     if (auto* dlg = qobject_cast<MidiMappingDialog*>(m_midiDialog)) {
         dlg->setFramelessMode(on);
@@ -13611,13 +13723,7 @@ void MainWindow::activateRADE(int sliceId)
     connect(m_radeEngine, &RADEEngine::rxSpeechReady,
             m_audio, &AudioEngine::feedDecodedSpeech, Qt::QueuedConnection);
 
-    // On platforms without a DAX audio bridge (Windows, Linux without PipeWire),
-    // startDax() is not compiled in so no dax_rx stream is ever created. RADE
-    // needs those VITA-49 IF audio packets regardless of whether a DAX bridge
-    // is in use — create the stream directly so feedRxAudio() gets called.
-    // If TCI already created a stream for this channel, reuse it rather than
-    // creating a duplicate (which would cause RADEEngine to receive double audio).
-#if !defined(Q_OS_MAC) && !defined(HAVE_PIPEWIRE)
+    // If TCI or another path already registered a stream — RADE rides it.
     {
         SliceModel* radeSlice = m_radioModel.slice(sliceId);
         int daxCh = radeSlice ? radeSlice->daxChannel() : 0;
@@ -13651,7 +13757,6 @@ void MainWindow::activateRADE(int sliceId)
                        << "has no DAX channel assigned — RX audio will not flow";
         }
     }
-#endif
 
     // Restore client-side mic gain for RADE. The radio's mic input is unused in
     // RADE mode so PcMicGain applies regardless of the current mic_selection.
@@ -13727,7 +13832,6 @@ void MainWindow::deactivateRADE()
                    m_radeEngine, nullptr);
         disconnect(m_radeEngine, &RADEEngine::rxSpeechReady,
                    m_audio, nullptr);
-#if !defined(Q_OS_MAC) && !defined(HAVE_PIPEWIRE)
         if (m_radeDaxStreamId) {
             // Only send stream remove if TCI has no active clients. If TCI is
             // connected it may have borrowed this stream — removing it would
@@ -13735,7 +13839,8 @@ void MainWindow::deactivateRADE()
             // that case. TODO: replace with proper ref-counting in PanadapterStream
             // so any creator/borrower can safely release independently (#stream-lifecycle).
             bool tciActive = m_tciServer && m_tciServer->clientCount() > 0;
-            if (!tciActive) {
+            bool daxBridgeActive = (m_daxBridge != nullptr);
+            if (!tciActive && !daxBridgeActive) {
                 m_radioModel.panStream()->unregisterDaxStream(m_radeDaxStreamId);
                 if (m_radioModel.isConnected()) {
                     m_radioModel.sendCommand(
@@ -13746,7 +13851,6 @@ void MainWindow::deactivateRADE()
             m_radeDaxStreamId = 0;
         }
         disconnect(m_radeDaxStreamConn);
-#endif
         // Stop on the worker thread, then shut down the thread
         QMetaObject::invokeMethod(m_radeEngine, &RADEEngine::stop,
                                   Qt::BlockingQueuedConnection);

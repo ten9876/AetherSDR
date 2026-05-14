@@ -1,4 +1,5 @@
 #include "RadioSetupDialog.h"
+#include "CwDecodeSettings.h"
 #include "FramelessResizer.h"
 #include "FramelessWindowTitleBar.h"
 #include "GuardedSlider.h"
@@ -261,7 +262,8 @@ void RadioSetupDialog::setFramelessMode(bool on)
     Qt::WindowFlags flags = (windowFlags() & ~Qt::WindowType_Mask) | Qt::Dialog;
     flags.setFlag(Qt::FramelessWindowHint, on);
     setWindowFlags(flags);
-    setGeometry(geom);
+    if (wasVisible)
+        setGeometry(geom);
     if (m_titleBar)
         m_titleBar->setVisible(on);
     if (m_bodyLayout)
@@ -972,24 +974,30 @@ QWidget* RadioSetupDialog::buildTxTab()
             return edit;
         };
 
-        auto connectTimingField = [&](QLineEdit* edit, const QString& key) {
-            connect(edit, &QLineEdit::editingFinished, this, [this, edit, key] {
+        // Scale factor lets the same helper drive both 1:1 ms fields and
+        // the seconds-displayed timeout field which the radio still
+        // expects in ms (FlexLib Radio.cs:7463 — "in milliseconds").
+        auto connectTimingField = [&](QLineEdit* edit, const QString& key, int scale = 1) {
+            connect(edit, &QLineEdit::editingFinished, this, [this, edit, key, scale] {
                 int val = qMax(0, edit->text().toInt());
                 edit->setText(QString::number(val));
-                m_model->sendCommand(QString("interlock set %1=%2").arg(key).arg(val));
+                m_model->sendCommand(QString("interlock set %1=%2").arg(key).arg(val * scale));
             });
         };
 
         auto* accTxEdit   = addTimingField(0, 0, "ACC TX:",       tx.accTxDelay());
         auto* txDelayEdit = addTimingField(0, 1, "TX Delay:",      tx.txDelay());
         auto* tx1Edit     = addTimingField(1, 0, "RCA TX1:",       tx.tx1Delay());
-        auto* timeoutEdit = addTimingField(1, 1, "Timeout(min):",  tx.interlockTimeout());
+        // Timeout stored on the radio in milliseconds (FlexLib Radio.cs:7463);
+        // display in whole seconds for readability — minutes lose too much
+        // resolution for short-cycle TOT settings.
+        auto* timeoutEdit = addTimingField(1, 1, "Timeout (sec):", tx.interlockTimeout() / 1000);
         auto* tx2Edit     = addTimingField(2, 0, "RCA TX2:",       tx.tx2Delay());
 
         connectTimingField(accTxEdit,   "acc_tx_delay");
         connectTimingField(txDelayEdit, "tx_delay");
         connectTimingField(tx1Edit,     "tx1_delay");
-        connectTimingField(timeoutEdit, "timeout");
+        connectTimingField(timeoutEdit, "timeout", 1000);
         connectTimingField(tx2Edit,     "tx2_delay");
 
         // TX Profile dropdown (below Timeout, right column)
@@ -1308,18 +1316,25 @@ QWidget* RadioSetupDialog::buildPhoneCwTab()
         });
         grid->addWidget(syncBtn, 1, 5);
 
-        // CW Decode overlay toggle
+        // CW Decode — independent RX / TX toggles (#2417).  RX keeps the
+        // legacy behaviour of decoding the received CW slice; TX decodes
+        // the operator's own keying via the client-side sidetone, useful
+        // as a self-training tool for paddle / bug timing.  MainWindow
+        // re-evaluates run state and the AudioEngine TX-decode tap on
+        // dialog close via refreshCwDecodeState().
         auto* decodeLbl = new QLabel("Decode:");
         decodeLbl->setStyleSheet(kLabelStyle);
         grid->addWidget(decodeLbl, 2, 4);
-        bool decodeOn = AppSettings::instance().value("CwDecodeOverlay", "True").toString() == "True";
-        auto* decodeBtn = mkTogBtn("On", decodeOn);
-        connect(decodeBtn, &QPushButton::toggled, this, [](bool on) {
-            auto& s = AppSettings::instance();
-            s.setValue("CwDecodeOverlay", on ? "True" : "False");
-            s.save();
+        auto* rxDecodeBtn = mkTogBtn("RX", CwDecodeSettings::rxEnabled());
+        auto* txDecodeBtn = mkTogBtn("TX", CwDecodeSettings::txEnabled());
+        connect(rxDecodeBtn, &QPushButton::toggled, this, [](bool on) {
+            CwDecodeSettings::setRxEnabled(on);
         });
-        grid->addWidget(decodeBtn, 2, 5);
+        connect(txDecodeBtn, &QPushButton::toggled, this, [](bool on) {
+            CwDecodeSettings::setTxEnabled(on);
+        });
+        grid->addWidget(rxDecodeBtn, 2, 5);
+        grid->addWidget(txDecodeBtn, 2, 6);
 
 
 

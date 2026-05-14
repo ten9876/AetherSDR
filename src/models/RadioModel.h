@@ -402,6 +402,8 @@ signals:
     void interlockNotificationRequested(const QString& message);
     // Emitted when global profile list or active profile changes.
     void globalProfilesChanged();
+    void profileDatabaseImportingChanged(bool importing);
+    void profileDatabaseExportingChanged(bool exporting);
     // Emitted on each successful ping response from the radio.
     void pingReceived();
     // Generic status relay — for dialogs that need to listen for specific objects.
@@ -421,6 +423,14 @@ public:
 
     // Send a command with a response callback (for firmware uploader, etc.)
     void sendCmdPublic(const QString& cmd, std::function<void(int code, const QString& body)> cb);
+    void requestFileUploadPort(qint64 size, const QString& uploadKind,
+                               std::function<void(int code, const QString& body)> cb);
+    void requestFileDownloadPort(const QString& downloadKind,
+                                 std::function<void(int code, const QString& body)> cb);
+    void refreshProfiles();
+    bool isProfileTransferBlocked() const;
+    bool profileDatabaseImporting() const { return m_profileDatabaseImporting; }
+    bool profileDatabaseExporting() const { return m_profileDatabaseExporting; }
 
     // Radio software version string (from discovery broadcast, e.g. "4.1.5")
     QString softwareVersion() const { return m_version; }
@@ -692,6 +702,8 @@ private:
     QMap<int, MemoryEntry> m_memories;
     QStringList m_globalProfiles;
     QString     m_activeGlobalProfile;
+    bool        m_profileDatabaseImporting{false};
+    bool        m_profileDatabaseExporting{false};
     RadioStatusOwnership::RemoteAudioRxTracking m_rxAudio;
     struct DaxStreamDebugState {
         QString type;

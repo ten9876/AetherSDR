@@ -845,7 +845,9 @@ void PropDashboardDialog::setFramelessMode(bool on)
     Qt::WindowFlags flags = (windowFlags() & ~Qt::WindowType_Mask) | Qt::Dialog;
     flags.setFlag(Qt::FramelessWindowHint, on);
     setWindowFlags(flags);
-    setGeometry(geom);
+    if (wasVisible) {
+        setGeometry(geom);
+    }
     if (m_titleBar) {
         m_titleBar->setVisible(on);
     }

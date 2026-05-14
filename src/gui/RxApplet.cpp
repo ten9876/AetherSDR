@@ -472,9 +472,13 @@ void RxApplet::buildUI()
                 double freqMhz = clean.toDouble(&ok);
                 const bool onXvtr = m_slice &&
                     (m_slice->rxAntenna().startsWith("XVT") || m_slice->frequency() > 54.0);
-                const double maxMhz = onXvtr ? 450.0 : 54.0;
+                const double maxMhz = onXvtr ? 50000.0 : 54.0;
                 if (onXvtr) {
-                    if (ok && freqMhz > 450.0 && !clean.contains('.')) {
+                    // 3-digit-band convenience (2m/70cm): 1446 → 144.6.
+                    // Skip for 23cm/microwave — 1296 means 1296 MHz.
+                    const double sliceMhz = m_slice->frequency();
+                    const bool threeDigitBand = sliceMhz >= 100.0 && sliceMhz < 1000.0;
+                    if (ok && threeDigitBand && freqMhz > 450.0 && !clean.contains('.')) {
                         int digits = clean.length();
                         if (digits >= 4) {
                             clean.insert(3, '.');
