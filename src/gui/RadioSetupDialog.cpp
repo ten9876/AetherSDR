@@ -972,29 +972,30 @@ QWidget* RadioSetupDialog::buildTxTab()
             return edit;
         };
 
-        auto connectTimingField = [&](QLineEdit* edit, const QString& key) {
-            connect(edit, &QLineEdit::editingFinished, this, [this, edit, key] {
+        // Scale factor lets the same helper drive both 1:1 ms fields and
+        // the seconds-displayed timeout field which the radio still
+        // expects in ms (FlexLib Radio.cs:7463 — "in milliseconds").
+        auto connectTimingField = [&](QLineEdit* edit, const QString& key, int scale = 1) {
+            connect(edit, &QLineEdit::editingFinished, this, [this, edit, key, scale] {
                 int val = qMax(0, edit->text().toInt());
                 edit->setText(QString::number(val));
-                m_model->sendCommand(QString("interlock set %1=%2").arg(key).arg(val));
+                m_model->sendCommand(QString("interlock set %1=%2").arg(key).arg(val * scale));
             });
         };
 
         auto* accTxEdit   = addTimingField(0, 0, "ACC TX:",       tx.accTxDelay());
         auto* txDelayEdit = addTimingField(0, 1, "TX Delay:",      tx.txDelay());
         auto* tx1Edit     = addTimingField(1, 0, "RCA TX1:",       tx.tx1Delay());
-        auto* timeoutEdit = addTimingField(1, 1, "Timeout (min):",  tx.interlockTimeout() / 60000);
+        // Timeout stored on the radio in milliseconds (FlexLib Radio.cs:7463);
+        // display in whole seconds for readability — minutes lose too much
+        // resolution for short-cycle TOT settings.
+        auto* timeoutEdit = addTimingField(1, 1, "Timeout (sec):", tx.interlockTimeout() / 1000);
         auto* tx2Edit     = addTimingField(2, 0, "RCA TX2:",       tx.tx2Delay());
 
         connectTimingField(accTxEdit,   "acc_tx_delay");
         connectTimingField(txDelayEdit, "tx_delay");
         connectTimingField(tx1Edit,     "tx1_delay");
-        // timeout is stored in ms on the radio; display and edit in whole minutes
-        connect(timeoutEdit, &QLineEdit::editingFinished, this, [this, timeoutEdit] {
-            int minutes = qMax(0, timeoutEdit->text().toInt());
-            timeoutEdit->setText(QString::number(minutes));
-            m_model->sendCommand(QString("interlock set timeout=%1").arg(minutes * 60000));
-        });
+        connectTimingField(timeoutEdit, "timeout", 1000);
         connectTimingField(tx2Edit,     "tx2_delay");
 
         // TX Profile dropdown (below Timeout, right column)
