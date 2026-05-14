@@ -9,12 +9,21 @@
 #ifdef HAVE_RADE
 extern "C" {
 #include "rade_api.h"
+#include "rade_text.h"
 #include "lpcnet.h"
 #include "fargan.h"
 }
 #endif
 
 namespace AetherSDR {
+
+#ifdef HAVE_RADE
+static void radeTextCallbackFn(rade_text_t, const char *txt, int len, void *state)
+{
+    auto *engine = static_cast<RADEEngine*>(state);
+    emit engine->eooCallsignReceived(QString::fromUtf8(txt, len));
+}
+#endif
 
 RADEEngine::RADEEngine(QObject* parent)
     : QObject(parent)
@@ -66,10 +75,17 @@ bool RADEEngine::start()
     m_rxAccum.clear();
     m_synced = false;
 
+    m_radeText = rade_text_create();
+    if (m_radeText) {
+        rade_text_set_rx_callback(m_radeText, radeTextCallbackFn, this);
+    } else {
+        qCWarning(lcRade) << "RADEEngine: rade_text_create() failed — EOO callsign decode disabled";
+    }
+
     int n_features = rade_n_features_in_out(m_rade);
     int n_tx_out = rade_n_tx_out(m_rade);
     int nin = rade_nin(m_rade);
-    qCInfo(lcRade) << "RADEEngine: started — n_features=" << n_features
+    qCDebug(lcRade) << "RADEEngine: started — n_features=" << n_features
             << "n_tx_out=" << n_tx_out << "nin=" << nin;
     return true;
 #else
@@ -91,6 +107,10 @@ void RADEEngine::stop()
         delete static_cast<FARGANState*>(m_fargan);
         m_fargan = nullptr;
     }
+    if (m_radeText) {
+        rade_text_destroy(m_radeText);
+        m_radeText = nullptr;
+    }
 
     rade_close(m_rade);
     m_rade = nullptr;
@@ -102,7 +122,7 @@ void RADEEngine::stop()
     m_synced = false;
     m_farganWarmedUp = false;
 
-    qCInfo(lcRade) << "RADEEngine: stopped";
+    qCDebug(lcRade) << "RADEEngine: stopped";
 #endif
 }
 
@@ -237,6 +257,14 @@ void RADEEngine::feedRxAudio(int channel, const QByteArray& pcm)
 
         // Remove consumed samples
         m_rxAccum.remove(0, nin * sizeof(RADE_COMP));
+
+        if (has_eoo && m_radeText) {
+            qCDebug(lcRade) << "RADEEngine: EOO frame received — decoding callsign (LDPC+CRC)";
+            // eoo_out contains n_eoo_bits floats in IQIQI order; symSize = n_eoo_bits/2
+            rade_text_rx(m_radeText, eoo_out.data(),
+                         static_cast<int>(eoo_out.size()) / 2);
+            // decoded callsign fires radeTextCallbackFn → eooCallsignReceived signal
+        }
 
         // 4. If features available, synthesize speech via FARGAN
         if (n_out > 0) {

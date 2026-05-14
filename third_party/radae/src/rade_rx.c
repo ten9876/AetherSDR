@@ -173,7 +173,7 @@ int rade_rx_process(rade_rx_state *rx, float *features_out, float *eoo_out, cons
     if (rx->nin > 0)
     {
         memmove(rx->rx_buf, &rx->rx_buf[rx->nin], sizeof(RADE_COMP) * (buf_size - rx->nin));
-        memcpy(&rx->rx_buf[buf_size - rx->nin - 1], rx_samples, sizeof(RADE_COMP) * rx->nin);
+        memcpy(&rx->rx_buf[buf_size - rx->nin], rx_samples, sizeof(RADE_COMP) * rx->nin);
     }
 
     /* State machine processing */

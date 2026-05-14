@@ -60,6 +60,10 @@ public slots:
     void updateRxSnr(float snrDb);
     void updateRxSynced(bool synced);
 
+    // Feed decoded far-end callsign from RADEEngine::eooCallsignReceived.
+    // Included in the next rx_report sent to qso.freedv.org.
+    void updateRxCallsign(const QString& callsign);
+
 private slots:
     void onWsConnected();
     void onWsDisconnected();
@@ -109,6 +113,7 @@ private:
     double  m_myFreqMhz{0.0};
     float   m_lastSnr{-99.0f};
     bool    m_radeSynced{false};
+    QString m_rxCallsign;
 
     std::atomic<bool> m_connected{false};
     bool    m_intentionalDisconnect{false};

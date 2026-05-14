@@ -37,8 +37,15 @@
 #ifndef __RADE_DSP__
 #define __RADE_DSP__
 
-#include "rade_api.h"
 #include <math.h>
+
+#ifndef __RADE_COMP__
+#define __RADE_COMP__
+typedef struct {
+  float real;
+  float imag;
+} RADE_COMP;
+#endif
 
 #ifdef __cplusplus
 extern "C" {

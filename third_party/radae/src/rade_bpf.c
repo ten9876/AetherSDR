@@ -87,8 +87,8 @@ void rade_bpf_process(rade_bpf *bpf, RADE_COMP *y, const RADE_COMP *x, int n) {
 
     /* Process each sample */
     for (int i = 0; i < n; i++) {
-        /* Mix down to baseband: x_bb = x * exp(-j*alpha*(i+1)) */
-        phase = rade_cmul(bpf->phase, rade_cexp(-bpf->alpha*(i+1)));
+        /* Mix down to baseband using incremental phase (avoids per-sample sinf/cosf) */
+        phase = rade_cmul(phase, phase_inc);
         RADE_COMP x_bb = rade_cmul(x[i], phase);
 
         /* Shift filter memory and add new sample */
@@ -107,9 +107,6 @@ void rade_bpf_process(rade_bpf *bpf, RADE_COMP *y, const RADE_COMP *x, int n) {
         y[i] = rade_cmul(y_bb, cconj_phase);
     }
 
-    /* Save phase state for next call
-       Normalize to prevent drift */
-    float phase_mag = rade_cabs(phase);
-    bpf->phase.real = phase.real; // / phase_mag;
-    bpf->phase.imag = phase.imag; // / phase_mag;
+    /* Save phase state for next call */
+    bpf->phase = phase;
 }

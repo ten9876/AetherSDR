@@ -140,6 +140,12 @@ if(ENABLE_RADE AND EXISTS "${RADE_DIR}/src/rade_api.h")
         ${RADE_DIR}/src/rade_dec_data.c
         ${RADE_DIR}/src/kiss_fft.c
         ${RADE_DIR}/src/kiss_fftr.c
+        # codec2-derived LDPC + GP-interleaver for EOO callsign (rade_text)
+        ${RADE_DIR}/src/mpdecode_core.c
+        ${RADE_DIR}/src/gp_interleaver.c
+        ${RADE_DIR}/src/HRA_56_56.c
+        ${RADE_DIR}/src/ldpc_codes.c
+        ${RADE_DIR}/src/rade_text.c
     )
     if(MSVC)
         set(RADE_WARN_FLAG "/w")

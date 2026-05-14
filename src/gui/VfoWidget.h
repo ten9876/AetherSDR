@@ -75,6 +75,7 @@ public:
     void setRadeSynced(bool synced);
     void setRadeSnr(float snrDb);
     void setRadeFreqOffset(float hz);
+    void setRadeCallsign(const QString& callsign);
 #endif
 
 Q_SIGNALS:
@@ -327,8 +328,12 @@ private:
     QComboBox* m_daxCmb{nullptr};
 
 #ifdef HAVE_RADE
-    QLabel* m_radeStatusLabel{nullptr};
-    bool    m_radeActive{false};
+    QLabel*  m_radeStatusLabel{nullptr};   // freq row: "RADE ●" badge only
+    QWidget* m_radeInfoRow{nullptr};        // info row: callsign + SNR + offset
+    QLabel*  m_radeCallsignLabel{nullptr};  // hidden until EOO received
+    QLabel*  m_radeSnrLabel{nullptr};       // "12dB" or "---"
+    QLabel*  m_radeOffsetLabel{nullptr};    // "+125Hz" — hidden when no data
+    bool     m_radeActive{false};
 #endif
 
     static constexpr int WIDGET_W = 252;

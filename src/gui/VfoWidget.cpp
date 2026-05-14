@@ -603,7 +603,7 @@ void VfoWidget::buildUI()
         m_freqStack->setCurrentIndex(0);
     });
 
-    // ── Frequency row: [RADE label] [stretch] [frequency] ────────────────
+    // ── Frequency row: [RADE badge] [stretch] [frequency] ───────────────
     {
         auto* freqRow = new QHBoxLayout;
         freqRow->setContentsMargins(0, 0, 0, 0);
@@ -622,6 +622,45 @@ void VfoWidget::buildUI()
         freqRow->addWidget(m_freqStack);
         root->addLayout(freqRow);
     }
+
+#ifdef HAVE_RADE
+    // ── RADE info row: [callsign] [SNR] [offset] [stretch] ──────────────
+    // Hidden when RADE inactive; appears below frequency, above S-meter.
+    {
+        m_radeInfoRow = new QWidget;
+        m_radeInfoRow->setAttribute(Qt::WA_TranslucentBackground);
+        m_radeInfoRow->setFixedHeight(16);
+        m_radeInfoRow->hide();
+
+        auto* infoLayout = new QHBoxLayout(m_radeInfoRow);
+        infoLayout->setContentsMargins(0, 0, 0, 0);
+        infoLayout->setSpacing(6);
+
+        const QString infoStyle =
+            "QLabel { color: #8090a0; font-size: 10px;"
+            " background: transparent; border: none; padding: 0; margin: 0; }";
+
+        m_radeCallsignLabel = new QLabel;
+        m_radeCallsignLabel->setStyleSheet(
+            "QLabel { color: #00b4d8; font-size: 10px; font-weight: bold;"
+            " background: transparent; border: none; padding: 0; margin: 0; }");
+        m_radeCallsignLabel->hide();
+        infoLayout->addWidget(m_radeCallsignLabel);
+
+        m_radeSnrLabel = new QLabel("---");
+        m_radeSnrLabel->setStyleSheet(infoStyle);
+        infoLayout->addWidget(m_radeSnrLabel);
+
+        m_radeOffsetLabel = new QLabel;
+        m_radeOffsetLabel->setStyleSheet(infoStyle);
+        m_radeOffsetLabel->hide();
+        infoLayout->addWidget(m_radeOffsetLabel);
+
+        infoLayout->addStretch(1);
+
+        root->addWidget(m_radeInfoRow);
+    }
+#endif
 
     // ── S-meter + dBm row (75/25 split) ────────────────────────────────────
     // S-meter bar is painted in paintEvent; spacer reserves its space.
@@ -3824,40 +3863,71 @@ void VfoWidget::setRadeActive(bool on)
     m_radeActive = on;
     if (m_radeStatusLabel) {
         m_radeStatusLabel->setVisible(on);
-        if (!on) m_radeStatusLabel->setText("");
+        if (!on) {
+            m_radeStatusLabel->setText("");
+        }
     }
+    if (m_radeInfoRow) {
+        m_radeInfoRow->setVisible(on);
+        if (!on) {
+            m_radeSnrLabel->setText("---");
+            m_radeSnrLabel->setStyleSheet(
+                "QLabel { color: #8090a0; font-size: 10px;"
+                " background: transparent; border: none; padding: 0; margin: 0; }");
+            m_radeOffsetLabel->hide();
+            m_radeCallsignLabel->hide();
+        }
+    }
+    resize(sizeHint());
 }
 
 void VfoWidget::setRadeSynced(bool synced)
 {
-    if (!m_radeActive || !m_radeStatusLabel) return;
-    if (synced)
-        m_radeStatusLabel->setText("RADE <font color='#00ff88'>\u25CF</font> ---");
-    else
-        m_radeStatusLabel->setText("RADE <font color='#505050'>\u25CB</font> ---");
+    if (!m_radeActive) return;
+    const QString led = synced ? "<font color='#00ff88'>\u25CF</font>"
+                               : "<font color='#505050'>\u25CB</font>";
+    m_radeStatusLabel->setText("RADE " + led);
+    if (!synced) {
+        m_radeSnrLabel->setStyleSheet(
+            "QLabel { color: #8090a0; font-size: 10px;"
+            " background: transparent; border: none; padding: 0; margin: 0; }");
+        m_radeSnrLabel->setText("---");
+        m_radeOffsetLabel->hide();
+    } else {
+        // New sync acquired \u2014 clear callsign from previous transmission
+        m_radeCallsignLabel->setText({});
+        m_radeCallsignLabel->hide();
+    }
 }
 
 void VfoWidget::setRadeSnr(float snrDb)
 {
-    if (!m_radeActive || !m_radeStatusLabel) return;
-    QString color = (snrDb < 5.0f) ? "#e0e040" : "#00ff88";
-    m_radeStatusLabel->setText(
-        QString("RADE <font color='%1'>\u25CF</font> %2dB")
-            .arg(color)
-            .arg(static_cast<int>(snrDb)));
+    if (!m_radeActive || !m_radeSnrLabel) return;
+    const QString color = (snrDb < 5.0f) ? "#e0e040" : "#00ff88";
+    m_radeSnrLabel->setStyleSheet(
+        QString("QLabel { color: %1; font-size: 10px;"
+                " background: transparent; border: none; padding: 0; margin: 0; }")
+            .arg(color));
+    m_radeSnrLabel->setText(QString("%1dB").arg(static_cast<int>(snrDb)));
 }
 
 void VfoWidget::setRadeFreqOffset(float hz)
 {
-    if (!m_radeActive || !m_radeStatusLabel) return;
-    // Append freq offset to existing text
-    QString current = m_radeStatusLabel->text();
-    int dbPos = current.indexOf("dB");
-    if (dbPos > 0) {
-        QString base = current.left(dbPos + 2);
-        QString sign = (hz >= 0) ? "+" : "";
-        m_radeStatusLabel->setText(
-            QString("%1 %2%3Hz").arg(base, sign).arg(static_cast<int>(hz)));
+    if (!m_radeActive || !m_radeOffsetLabel) return;
+    const QString sign = (hz >= 0) ? "+" : "";
+    m_radeOffsetLabel->setText(QString("%1%2Hz").arg(sign).arg(static_cast<int>(hz)));
+    m_radeOffsetLabel->show();
+}
+
+void VfoWidget::setRadeCallsign(const QString& callsign)
+{
+    if (!m_radeCallsignLabel) return;
+    if (callsign.isEmpty()) {
+        m_radeCallsignLabel->setText({});
+        m_radeCallsignLabel->hide();
+    } else {
+        m_radeCallsignLabel->setText(callsign);
+        m_radeCallsignLabel->show();
     }
 }
 #endif
