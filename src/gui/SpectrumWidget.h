@@ -98,8 +98,17 @@ public:
     void setDbmRange(float minDbm, float maxDbm);
 
     // Noise floor auto-adjust: position (0=top, 100=bottom), enable on/off.
-    void setNoiseFloorPosition(int pos) { m_noiseFloorPosition = pos; }
-    void setNoiseFloorEnable(bool on)   { m_noiseFloorEnable = on; }
+    void setNoiseFloorPosition(int pos) {
+        m_noiseFloorPosition = pos;
+        refreshNoiseFloorTarget();
+    }
+    void setNoiseFloorEnable(bool on) {
+        m_noiseFloorEnable = on;
+        resetNoiseFloorBaseline();
+        // Five fresh frames after enable so we lock onto the current
+        // floor without smoothing from a stale value.
+        m_noiseFloorFreshFrameCount = on ? 5 : 0;
+    }
 
     // Two-pass trimmed-mean noise floor from live FFT bins (dBm), EMA-smoothed.
     // Pass 1 computes the overall mean; pass 2 averages only bins ≤ mean so
@@ -524,6 +533,35 @@ private:
     bool anyDragActive() const;
     void publishPerfDragState() const;
 
+    // Two-pass trimmed-mean noise-floor estimator: pass 1 takes the
+    // overall mean across the bins (stride-sampled for speed), pass 2
+    // averages only bins ≤ that mean.  Signal peaks inflate the pass-1
+    // mean and therefore exclude themselves from pass 2, leaving the
+    // flat noise baseline that a human eye reads as the "noise floor"
+    // on the scope.
+    float estimateNoiseFloorDbm(const QVector<float>& bins) const;
+
+    // Update the smoothed-baseline tracker for the noise-floor auto-
+    // adjust path.  Per-frame, asymmetric smoothing (drops follow
+    // quickly, rises slowly), with a candidate-state transient filter
+    // so brief upward spikes (lightning crashes) don't pull the lock.
+    void updateNoiseFloorBaseline(const QVector<float>& bins, bool forceBaseline);
+    // Adjust m_refLevel toward the target so the smoothed noise floor
+    // sits at m_noiseFloorPosition.  Pans the dB range (keeps span
+    // fixed) rather than zooming it (existing zoom-when-floor-moves
+    // semantic was jarring — span changes shifted signal visual heights
+    // every time the floor drifted).
+    void applyNoiseFloorAutoAdjust(qint64 nowMs);
+    void moveRefLevelToward(float targetRef, qint64 nowMs);
+    void sendNoiseFloorRangeCommand(qint64 nowMs, bool force);
+    // Reset the baseline tracker — called on any input change (zoom,
+    // band switch, manual dBm drag) so the next frame re-acquires
+    // rather than smooths from a stale value.
+    void resetNoiseFloorBaseline();
+    // Re-capture the target frac (m_noiseFloorPosition) — called when
+    // the user changes the position slider or finishes a dBm drag.
+    void refreshNoiseFloorTarget();
+
     // Helper: find overlay index for a sliceId, or -1.
     int overlayIndex(int sliceId) const;
     // Helper: find active overlay (or nullptr).
@@ -574,6 +612,23 @@ private:
     bool  m_noiseFloorEnable{false};
     int   m_noiseFloorPosition{75};  // 0=top, 100=bottom
     int   m_noiseFloorFrameCount{0};
+    // Noise-floor auto-adjust state machine (per-frame baseline tracker
+    // with asymmetric smoothing + transient rejection — keeps the floor
+    // visually pinned at m_noiseFloorPosition without chasing lightning
+    // crashes).
+    bool   m_noiseFloorBaselineValid{false};
+    bool   m_noiseFloorTargetValid{false};
+    float  m_noiseFloorBaselineDbm{-1000.0f};
+    float  m_noiseFloorTargetFrac{0.75f};
+    qint64 m_noiseFloorLastSampleMs{0};
+    qint64 m_noiseFloorLastMotionMs{0};
+    qint64 m_noiseFloorLastCommandMs{0};
+    float  m_noiseFloorLastCommandRef{-1000.0f};
+    bool   m_noiseFloorCandidateValid{false};
+    float  m_noiseFloorCandidateDbm{-1000.0f};
+    qint64 m_noiseFloorCandidateStartMs{0};
+    int    m_noiseFloorCandidateFrames{0};
+    int    m_noiseFloorFreshFrameCount{0};
 
     // Percentile EWMA used for the amber floor overlay line and auto-squelch.
     // Tracked separately from m_measuredNoiseFloorDbm (two-pass trimmed mean)

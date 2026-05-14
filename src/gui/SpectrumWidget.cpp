@@ -390,6 +390,7 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
         }
         m_centerMhz = newCenter;
         m_bandwidthMhz = newBw;
+        resetNoiseFloorBaseline();
         markOverlayDirty();
         emit frequencyRangeChangeRequested(newCenter, newBw);
     };
@@ -743,6 +744,223 @@ bool SpectrumWidget::anyDragActive() const {
 void SpectrumWidget::publishPerfDragState() const {
     PerfTelemetry::instance().setDragActive(anyDragActive());
 }
+
+float SpectrumWidget::estimateNoiseFloorDbm(const QVector<float>& bins) const
+{
+    if (bins.isEmpty()) return -1000.0f;
+
+    // Stride-sample to cap work at ~512 reads even on very wide pans.
+    const int stride = std::max(1, static_cast<int>(bins.size() / 512));
+    float sum = 0.0f;
+    int count = 0;
+    for (int i = 0; i < bins.size(); i += stride) {
+        const float v = bins[i];
+        if (std::isfinite(v)) { sum += v; ++count; }
+    }
+    if (count <= 0) return -1000.0f;
+
+    const float mean = sum / static_cast<float>(count);
+    float baselineSum = 0.0f;
+    int baselineCount = 0;
+    for (int i = 0; i < bins.size(); i += stride) {
+        const float v = bins[i];
+        if (std::isfinite(v) && v <= mean) { baselineSum += v; ++baselineCount; }
+    }
+    return (baselineCount > 0) ? baselineSum / static_cast<float>(baselineCount) : mean;
+}
+
+void SpectrumWidget::resetNoiseFloorBaseline()
+{
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    m_noiseFloorBaselineDbm = -1000.0f;
+    m_noiseFloorBaselineValid = false;
+    m_noiseFloorTargetValid = false;
+    m_noiseFloorLastSampleMs = 0;
+    m_noiseFloorLastMotionMs = nowMs - 100;
+    m_noiseFloorLastCommandMs = 0;
+    m_noiseFloorLastCommandRef = m_refLevel;
+    m_noiseFloorCandidateValid = false;
+    m_noiseFloorCandidateDbm = -1000.0f;
+    m_noiseFloorCandidateStartMs = 0;
+    m_noiseFloorCandidateFrames = 0;
+    m_noiseFloorFreshFrameCount = m_noiseFloorEnable ? 5 : 0;
+}
+
+void SpectrumWidget::refreshNoiseFloorTarget()
+{
+    // Target frac comes from the slider (0=top, 100=bottom).  We
+    // capture it here so subsequent baseline movement steers m_refLevel
+    // toward keeping the floor at that fraction.
+    if (m_noiseFloorEnable) {
+        m_noiseFloorTargetFrac = std::clamp(m_noiseFloorPosition / 100.0f, 0.02f, 0.98f);
+        m_noiseFloorTargetValid = true;
+        m_noiseFloorLastMotionMs = QDateTime::currentMSecsSinceEpoch();
+        m_noiseFloorLastCommandMs = 0;
+        m_noiseFloorLastCommandRef = m_refLevel;
+    } else {
+        m_noiseFloorTargetValid = false;
+    }
+}
+
+void SpectrumWidget::updateNoiseFloorBaseline(const QVector<float>& bins, bool forceBaseline)
+{
+    if (!m_noiseFloorEnable || m_transmitting || bins.isEmpty()) return;
+
+    const float frameFloor = estimateNoiseFloorDbm(bins);
+    if (frameFloor <= -500.0f || m_dynamicRange <= 0.0f) return;
+
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+
+    if (!m_noiseFloorBaselineValid || m_noiseFloorLastSampleMs <= 0 || forceBaseline) {
+        // Cold-acquire: force the baseline to this frame's reading.
+        m_noiseFloorBaselineDbm = frameFloor;
+        m_noiseFloorBaselineValid = true;
+        m_noiseFloorLastSampleMs = nowMs;
+        m_noiseFloorCandidateValid = false;
+        m_noiseFloorCandidateFrames = 0;
+    } else {
+        // Asymmetric smoothing with candidate-state transient rejection.
+        // Large upward shifts must persist 16 frames / 1.2 s before
+        // being adopted (defeats lightning crashes); downward shifts
+        // adopt in 2 frames / 70 ms.
+        const float baselineDelta = frameFloor - m_noiseFloorBaselineDbm;
+        const float baselineDeltaAbs = std::abs(baselineDelta);
+        constexpr float kTransientShiftDb = 4.0f;
+        if (baselineDeltaAbs > kTransientShiftDb) {
+            const bool sameCandidate =
+                m_noiseFloorCandidateValid
+                && ((frameFloor - m_noiseFloorCandidateDbm) * baselineDelta >= 0.0f
+                    || std::abs(frameFloor - m_noiseFloorCandidateDbm) < kTransientShiftDb);
+            if (!sameCandidate) {
+                m_noiseFloorCandidateValid = true;
+                m_noiseFloorCandidateDbm = frameFloor;
+                m_noiseFloorCandidateStartMs = nowMs;
+                m_noiseFloorCandidateFrames = 1;
+                m_noiseFloorLastSampleMs = nowMs;
+                return;
+            }
+            m_noiseFloorCandidateDbm =
+                0.65f * m_noiseFloorCandidateDbm + 0.35f * frameFloor;
+            ++m_noiseFloorCandidateFrames;
+
+            const qint64 candidateAgeMs = nowMs - m_noiseFloorCandidateStartMs;
+            const bool upward = baselineDelta > 0.0f;
+            const int requiredFrames = upward ? 16 : 2;
+            const qint64 requiredAgeMs = upward ? 1200 : 70;
+            const bool keepWaiting = upward
+                ? (m_noiseFloorCandidateFrames < requiredFrames
+                   || candidateAgeMs < requiredAgeMs)
+                : (m_noiseFloorCandidateFrames < requiredFrames
+                   && candidateAgeMs < requiredAgeMs);
+            if (keepWaiting) {
+                m_noiseFloorLastSampleMs = nowMs;
+                return;
+            }
+        } else {
+            m_noiseFloorCandidateValid = false;
+            m_noiseFloorCandidateFrames = 0;
+        }
+
+        const float elapsedSec = std::clamp(
+            static_cast<float>(nowMs - m_noiseFloorLastSampleMs) / 1000.0f,
+            0.001f, 1.0f);
+        float tauSec = 2.5f;
+        if (baselineDeltaAbs > 20.0f)      tauSec = 0.08f;
+        else if (baselineDeltaAbs > 10.0f) tauSec = 0.15f;
+        else if (baselineDeltaAbs > 5.0f)  tauSec = 0.35f;
+        else if (baselineDeltaAbs < 0.60f) tauSec = 8.0f;
+        if (baselineDelta < -1.0f)       tauSec = std::min(tauSec, 0.12f);
+        else if (baselineDelta > 1.0f)   tauSec = std::max(tauSec, 1.2f);
+
+        const float alpha = 1.0f - std::exp(-elapsedSec / tauSec);
+        m_noiseFloorBaselineDbm =
+            (1.0f - alpha) * m_noiseFloorBaselineDbm + alpha * frameFloor;
+        m_noiseFloorLastSampleMs = nowMs;
+        if (baselineDeltaAbs > kTransientShiftDb) {
+            m_noiseFloorCandidateValid = false;
+            m_noiseFloorCandidateFrames = 0;
+        }
+    }
+
+    if (!m_noiseFloorTargetValid) {
+        refreshNoiseFloorTarget();
+        if (!m_noiseFloorTargetValid) return;
+    }
+
+    if (m_draggingDbm || m_pendingDbmRangeEcho) return;
+
+    applyNoiseFloorAutoAdjust(nowMs);
+}
+
+void SpectrumWidget::applyNoiseFloorAutoAdjust(qint64 nowMs)
+{
+    // Pan: keep span fixed, slide refLevel so the smoothed baseline
+    // sits at the user-chosen fraction.  (The earlier zoom-based
+    // approach changed span every time the floor moved, which made
+    // signal heights jump visually.)
+    const float desiredRef = m_noiseFloorBaselineDbm
+        + m_noiseFloorTargetFrac * m_dynamicRange;
+    const float clampedRef = std::max(desiredRef, kMinDisplayDbm + m_dynamicRange);
+    if (std::abs(clampedRef - m_refLevel) < 0.45f) return;
+
+    moveRefLevelToward(clampedRef, nowMs);
+}
+
+void SpectrumWidget::moveRefLevelToward(float targetRef, qint64 nowMs)
+{
+    if (m_noiseFloorLastMotionMs <= 0) m_noiseFloorLastMotionMs = nowMs;
+
+    const float delta = targetRef - m_refLevel;
+    const float deltaAbs = std::abs(delta);
+    if (deltaAbs < 0.45f) {
+        m_refLevel = targetRef;
+        sendNoiseFloorRangeCommand(nowMs, true);
+        return;
+    }
+
+    const float elapsedSec = std::clamp(
+        static_cast<float>(nowMs - m_noiseFloorLastMotionMs) / 1000.0f,
+        0.001f, 0.1f);
+    m_noiseFloorLastMotionMs = nowMs;
+
+    float tauSec = 0.24f;
+    if (deltaAbs > 30.0f)      tauSec = 0.12f;
+    else if (deltaAbs > 15.0f) tauSec = 0.16f;
+    if (delta < 0.0f) {
+        tauSec = 0.10f;
+        if (deltaAbs > 30.0f)      tauSec = 0.06f;
+        else if (deltaAbs > 15.0f) tauSec = 0.08f;
+    }
+
+    const float alpha = 1.0f - std::exp(-elapsedSec / tauSec);
+    m_refLevel += delta * alpha;
+    if (std::abs(targetRef - m_refLevel) < 0.12f) m_refLevel = targetRef;
+
+    markOverlayDirty();
+    sendNoiseFloorRangeCommand(nowMs, m_refLevel == targetRef);
+}
+
+void SpectrumWidget::sendNoiseFloorRangeCommand(qint64 nowMs, bool force)
+{
+    if (!m_noiseFloorEnable || m_dynamicRange <= 0.0f) return;
+
+    constexpr qint64 kCommandIntervalMs = 150;
+    constexpr float kCommandThresholdDb = 0.75f;
+    if (!force) {
+        if (m_noiseFloorLastCommandMs > 0
+            && nowMs - m_noiseFloorLastCommandMs < kCommandIntervalMs) return;
+        if (m_noiseFloorLastCommandRef > -500.0f
+            && std::abs(m_refLevel - m_noiseFloorLastCommandRef) < kCommandThresholdDb) return;
+    } else if (m_noiseFloorLastCommandRef > -500.0f
+               && std::abs(m_refLevel - m_noiseFloorLastCommandRef) < 0.05f) {
+        return;
+    }
+
+    m_noiseFloorLastCommandMs = nowMs;
+    m_noiseFloorLastCommandRef = m_refLevel;
+    emit dbmRangeChangeRequested(m_refLevel - m_dynamicRange, m_refLevel);
+}
+
 void SpectrumWidget::setShowTuneGuides(bool on) {
     m_showTuneGuides = on;
     if (!on) {
@@ -1535,6 +1753,7 @@ void SpectrumWidget::setFrequencyRange(double centerMhz, double bandwidthMhz)
         }
         m_centerMhz       = centerMhz;
         m_panCenterTarget = centerMhz;
+        resetNoiseFloorBaseline();
         markOverlayDirty();
         return;
     }
@@ -1631,6 +1850,7 @@ void SpectrumWidget::setDbmRange(float minDbm, float maxDbm)
     m_refLevel     = ref;
     m_dynamicRange = dyn;
     m_resetFftSmoothingOnNextFrame = true;
+    resetNoiseFloorBaseline();
     markOverlayDirty();
 }
 
@@ -1810,63 +2030,27 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
     // the flat green line a human eye reads as the noise floor on the scope.
     // This is robust even on a very crowded band (40-50% bins occupied).
     if (!spectrumBins->isEmpty()) {
-        // Pass 1 — overall mean (sampled every 4th bin for speed)
-        float sum = 0.0f;
-        int   cnt = 0;
-        for (int j = 0; j < spectrumBins->size(); j += 4) { sum += (*spectrumBins)[j]; ++cnt; }
-        const float mean = sum / cnt;
-
-        // Pass 2 — average only noise bins (≤ mean), which excludes signal peaks
-        float noiseSum = 0.0f;
-        int   noiseCnt = 0;
-        for (int j = 0; j < spectrumBins->size(); j += 4) {
-            if ((*spectrumBins)[j] <= mean) { noiseSum += (*spectrumBins)[j]; ++noiseCnt; }
-        }
-        const float frameFloor = (noiseCnt > 0) ? noiseSum / noiseCnt : mean;
-
+        const float frameFloor = estimateNoiseFloorDbm(*spectrumBins);
         constexpr float kAlpha = 0.05f;  // ~20-frame window ≈ 0.8 s at 25 fps
         m_measuredNoiseFloorDbm = (m_measuredNoiseFloorDbm <= -500.0f)
             ? frameFloor
             : m_measuredNoiseFloorDbm * (1.0f - kAlpha) + frameFloor * kAlpha;
     }
 
-    // Noise floor auto-adjust: every 10 frames, measure noise floor and
-    // adjust min_dbm so it sits at the user's chosen position.
-    if (m_noiseFloorEnable && !m_transmitting && !m_smoothed.isEmpty()) {
-        if (++m_noiseFloorFrameCount >= 10) {
-            m_noiseFloorFrameCount = 0;
-
-            // Compute noise floor as 20th percentile of smoothed bins
-            QVector<float> sorted = m_smoothed;
-            std::sort(sorted.begin(), sorted.end());
-            int idx = sorted.size() / 5;  // 20th percentile
-            float noiseFloor = sorted[idx];
-
-            // Position: 0 = noise at top, 100 = noise at bottom
-            // noiseFloor should appear at (position/100) of the way down
-            float frac = m_noiseFloorPosition / 100.0f;
-            // noiseFloor maps to frac in the display:
-            //   frac = (refLevel - noiseFloor) / dynamicRange
-            //   => dynamicRange = (refLevel - noiseFloor) / frac
-            // Keep refLevel (max_dbm) fixed, adjust min_dbm
-            if (frac > 0.05f && frac < 0.95f) {
-                float newRange = (m_refLevel - noiseFloor) / frac;
-                newRange = std::clamp(newRange, 20.0f, 150.0f);
-                float newMin = std::max(m_refLevel - newRange, kMinDisplayDbm);
-                newRange = m_refLevel - newMin;
-                // Only adjust if change is significant (> 1 dB)
-                float currentMin = m_refLevel - m_dynamicRange;
-                if (std::abs(newMin - currentMin) > 1.0f) {
-                    // Optimistic update: suppress re-firing on subsequent FFT frames
-                    // while waiting for the radio to confirm and echo the new range.
-                    // Without this, every FFT frame would re-emit until the echo-back
-                    // arrives, producing a burst of identical display pan set commands.
-                    m_dynamicRange = newRange;
-                    emit dbmRangeChangeRequested(newMin, m_refLevel);
-                }
-            }
-        }
-    }
+    // Noise-floor auto-adjust (the existing Display → Floor slider).
+    // Per-frame baseline tracking with asymmetric smoothing (fast on
+    // drops, slow on rises) and a candidate-state transient filter so
+    // brief upward spikes — lightning crashes, key-up edge clicks —
+    // don't pull the lock.  Pans m_refLevel to keep the smoothed floor
+    // at m_noiseFloorPosition; span stays fixed (replaces the earlier
+    // zoom-when-floor-moves behaviour that changed signal visual heights
+    // every time the floor drifted).  Algorithm cherry-picked from
+    // rfoust's PR #2643 work and consolidated into this existing path.
+    const bool useFreshLockFrame =
+        m_noiseFloorFreshFrameCount > 0 && !spectrumBins->isEmpty();
+    updateNoiseFloorBaseline(useFreshLockFrame ? *spectrumBins : m_smoothed,
+                             useFreshLockFrame);
+    if (useFreshLockFrame) --m_noiseFloorFreshFrameCount;
 
     // ── Auto-squelch: own two-pass trimmed-mean noise floor ───────────────
     // Independent copy of the floor measurement — not borrowed from the
@@ -2381,6 +2565,7 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
                     m_refLevel = bottom + m_dynamicRange;
                 }
                 markOverlayDirty();
+                refreshNoiseFloorTarget();
                 emit dbmRangeChangeRequested(bottom, m_refLevel);
                 ev->accept();
                 return;
@@ -2821,6 +3006,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
         }
         m_bandwidthMhz = newBw;
         m_centerMhz = zoomCenter;
+        resetNoiseFloorBaseline();
         markOverlayDirty();
         // Keep center and bandwidth coupled while dragging. Sending only the
         // bandwidth and waiting to send center on release caused the radio and
@@ -3061,6 +3247,7 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
         m_draggingDbm = false;
         setSpectrumCursor(Qt::CrossCursor);
         m_resetFftSmoothingOnNextFrame = true;
+        refreshNoiseFloorTarget();
         emit dbmRangeDragFinished(m_pendingMinDbm, m_pendingMaxDbm);
         ev->accept();
         return;
@@ -3303,6 +3490,7 @@ bool SpectrumWidget::event(QEvent* ev)
             }
             m_bandwidthMhz = newBw;
             m_centerMhz = newCenter;
+            resetNoiseFloorBaseline();
             markOverlayDirty();
             emit frequencyRangeChangeRequested(newCenter, newBw);
             return true;
