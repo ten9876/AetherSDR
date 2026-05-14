@@ -83,6 +83,12 @@ private:
     QLabel*       m_pitchMinValLabel{nullptr};
     QLabel*       m_pitchMaxValLabel{nullptr};
     float         m_cwCostThreshold{0.70f};
+
+    // Last CW text source — used by appendCwText / appendCwTextTx so the
+    // [TX] prefix is inserted once per TX burst, not per ggmorse chunk
+    // (#2417).
+    enum class CwTextSource { None, Rx, Tx };
+    CwTextSource  m_lastCwTextSource{CwTextSource::None};
 };
 
 } // namespace AetherSDR

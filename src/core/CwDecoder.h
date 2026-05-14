@@ -39,6 +39,13 @@ public:
     void lockPitch(bool lock);
     void lockSpeed(bool lock);
     void setPitchRange(int minHz, int maxHz);
+
+    // Force pitch + speed to specific values and lock both — used by the
+    // TX-side decoder (#2417) where the operator's keying parameters are
+    // known from PhoneCwApplet rather than detected from the audio.
+    // Calling this while a decode is in progress reconfigures ggmorse
+    // immediately; subsequent calls are no-ops if the values are unchanged.
+    void setKnownParameters(float pitchHz, float speedWpm);
     bool isPitchLocked() const { return m_pitchLocked; }
     bool isSpeedLocked() const { return m_speedLocked; }
 

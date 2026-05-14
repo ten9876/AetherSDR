@@ -71,13 +71,16 @@ void CwxLocalKeyer::encode(const QString& text, int wpm)
     bool firstChar = true;
     for (QChar ch : text.toUpper()) {
         if (ch == ' ') {
-            // Word gap = 7 units total.  Already have CharGap (3 units)
-            // queued from the previous character; subtract that and emit
-            // a 4-unit WordGap so total spacing reads as 7.
-            if (!m_elements.isEmpty() && m_elements.back() == Element::CharGap)
-                m_elements.removeLast();
+            // Word gap = 7 units total = WordGap (4u, added here) +
+            // CharGap (3u, added by the next letter via the !firstChar
+            // branch below).  Critically, do NOT reset firstChar to true:
+            // doing so would suppress that next CharGap and leave only
+            // 4u of silence, which falls inside ggmorse's 3u
+            // inter-character classification window and erases word
+            // boundaries on the TX decode panel (#2417).  4u + 3u = 7u
+            // also matches standard CW timing for the local sidetone
+            // listener.
             m_elements.enqueue(Element::WordGap);
-            firstChar = true;
             continue;
         }
         const auto it = tbl.find(ch);

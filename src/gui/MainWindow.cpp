@@ -2753,6 +2753,13 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_radioModel.transmitModel(), &TransmitModel::moxChanged,
             this, [this](bool) { refreshCwDecodeState(); });
 
+    // Push P/CW applet's Pitch + Speed into the TX decoder live (#2417).
+    // phoneStateChanged is the bulk-update signal that covers cw_pitch /
+    // cw_speed status echoes; refreshCwDecodeState() forwards only when
+    // TX-decode is on, so calling it on every phoneStateChanged is cheap.
+    connect(&m_radioModel.transmitModel(), &TransmitModel::phoneStateChanged,
+            this, [this]() { refreshCwDecodeState(); });
+
     // ── AF gain from applet panel → radio per-slice audio_level ─────────
     connect(m_appletPanel->rxApplet(), &RxApplet::afGainChanged, this, [this](int v) {
         if (auto* s = activeSlice()) s->setAudioGain(v);
@@ -9862,14 +9869,30 @@ void MainWindow::refreshCwDecodeState()
     else if (!txOn && m_cwDecoderTx.isRunning())
         m_cwDecoderTx.stop();
 
-    // AudioEngine self-gates the sidetone tap on this flag.  Only fire
-    // it during TX so RX-only operators never see [TX] noise during
-    // their listening windows.
-    const bool txActive =
-        m_radioModel.transmitModel().isMox() ||
-        m_radioModel.transmitModel().isTransmitting();
+    // Feed the TX decoder the operator's known pitch + speed from the
+    // P/CW applet rather than letting ggmorse auto-detect — for TX-self
+    // decode we already know exactly what's being keyed, and detection
+    // off the short sidetone bursts is unreliable (gave 55 WPM readouts
+    // and fragmented single-letter output on 20 WPM keying). (#2417)
+    if (txOn) {
+        const auto& tm = m_radioModel.transmitModel();
+        if (tm.cwPitch() > 0 && tm.cwSpeed() > 0)
+            m_cwDecoderTx.setKnownParameters(
+                static_cast<float>(tm.cwPitch()),
+                static_cast<float>(tm.cwSpeed()));
+    }
+
+    // Gate the sidetone tap solely on txOn.  An earlier version also AND'd
+    // with isMox() || isTransmitting() but CLAUDE.md is explicit: the
+    // radio never sends mox= in transmit status, and CW keying goes
+    // through the netcw UDP stream which doesn't necessarily flip the
+    // interlock state machine either — so any MOX-based gate would
+    // suppress the tap during CW keying.  The sidetone generator already
+    // self-gates: it only produces audio bursts when the operator is
+    // keying, and fills silence buffers between.  ggmorse handles the
+    // silence fine.
     if (m_audio)
-        m_audio->setCwDecodeTxTapEnabled(txOn && txActive);
+        m_audio->setCwDecodeTxTapEnabled(txOn);
 }
 
 void MainWindow::schedulePanFpsReconcile(const QString& panId, int reportedFps)
