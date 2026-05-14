@@ -31,6 +31,16 @@ jobs:
       - name: Install Ninja, Inno Setup, and LLVM
         run: choco install ninja innosetup llvm -y
 
+      - name: Install zlib via vcpkg
+        run: |
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $vcpkgRoot) { $vcpkgRoot = "C:\vcpkg" }
+          $triplet = "x64-windows"
+          & "$vcpkgRoot\vcpkg.exe" install "zlib:$triplet"
+          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VCPKG_TARGET_TRIPLET=$triplet" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CMAKE_TOOLCHAIN_FILE=$vcpkgRoot\scripts\buildsystems\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       # Each third-party dep is cached against the hash of its setup
       # script (which pins the version), so cache invalidates the moment
       # we bump a version.  Skips the upstream download + build entirely
@@ -81,7 +91,7 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DMQTT_TLS=OFF
+          cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DMQTT_TLS=OFF -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" -DVCPKG_TARGET_TRIPLET="$env:VCPKG_TARGET_TRIPLET"
 
       - name: Build Opus (RADE dependency)
         # ExternalProject dependency ordering via BUILD_BYPRODUCTS is correct,
@@ -105,6 +115,10 @@ jobs:
           }
           if (Test-Path "third_party\hidapi\bin\hidapi.dll") {
             copy third_party\hidapi\bin\hidapi.dll deploy\
+          }
+          $zlibBin = Join-Path $env:VCPKG_ROOT "installed\$env:VCPKG_TARGET_TRIPLET\bin"
+          if (Test-Path $zlibBin) {
+            Get-ChildItem $zlibBin -Filter "zlib*.dll" | Copy-Item -Destination deploy\ -Force
           }
           if (Test-Path "third_party\deepfilter\lib\windows-x86_64\deepfilter.dll") {
             copy third_party\deepfilter\lib\windows-x86_64\deepfilter.dll deploy\

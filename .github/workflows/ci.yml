@@ -99,6 +99,17 @@ jobs:
         with:
           arch: x64
 
+      - name: Install zlib via vcpkg
+        shell: pwsh
+        run: |
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $vcpkgRoot) { $vcpkgRoot = "C:\vcpkg" }
+          $triplet = "x64-windows"
+          & "$vcpkgRoot\vcpkg.exe" install "zlib:$triplet"
+          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VCPKG_TARGET_TRIPLET=$triplet" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CMAKE_TOOLCHAIN_FILE=$vcpkgRoot\scripts\buildsystems\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       # Verify sccache can actually compile through the backend.  GitHub
       # Actions Cache occasionally has outages; when that happens, sccache's
       # GHA backend can't read/write and every compile through sccache
@@ -128,7 +139,9 @@ jobs:
           $cargs = @(
             "-B","build","-G","Ninja",
             "-DCMAKE_BUILD_TYPE=Release",
-            "-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded"
+            "-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded",
+            "-DCMAKE_TOOLCHAIN_FILE=$env:CMAKE_TOOLCHAIN_FILE",
+            "-DVCPKG_TARGET_TRIPLET=$env:VCPKG_TARGET_TRIPLET"
           )
           if ($launcher) {
             $cargs += "-DCMAKE_C_COMPILER_LAUNCHER=sccache"
