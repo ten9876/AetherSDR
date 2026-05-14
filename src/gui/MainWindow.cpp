@@ -8958,8 +8958,10 @@ void MainWindow::onSliceAdded(SliceModel* s)
         m_radioModel.sendCommand(QString("slice set %1 tx=1").arg(s->sliceId()));
 
     // Keep the radio-side TX DAX flag aligned when the TX slice or mode changes.
-    // SmartSDR DAX on Windows owns the dax_tx stream itself, so only hosted
-    // DAX platforms create/route the local stream here.
+    // SmartSDR DAX2 on Windows owns both the dax_tx stream and the radio's
+    // `transmit dax` flag, so Windows is a no-op here — AetherSDR must not
+    // toggle that flag on slice-mode transitions (e.g. band-stack restore)
+    // because doing so parks DAX2's TX Stream in Busy. (#2315)
     auto updateDaxTxMode = [this]() {
         bool isDigital = false;
         int txSliceId = -1;
@@ -8973,22 +8975,25 @@ void MainWindow::onSliceAdded(SliceModel* s)
             }
         }
         // Digital modes need dax=1 for TX audio routing through DAX, but only
-        // on platforms where some component actually feeds the radio audio
-        // for that route — hosted DAX (macOS / PipeWire) or SmartSDR DAX2
-        // on Windows.  Linux non-PipeWire builds have no DAX feed available,
-        // so leave the radio's dax flag alone to keep digital TX on the
-        // physical mic input. (#2273)
-#if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE) || defined(Q_OS_WIN)
-        m_radioModel.transmitModel().setDax(isDigital);
-#endif
-
+        // on platforms where AetherSDR actually owns the dax_tx feed — hosted
+        // DAX (macOS / PipeWire).  Linux non-PipeWire builds have no DAX feed
+        // available, so leave the radio's dax flag alone to keep digital TX
+        // on the physical mic input. (#2273)
+        //
+        // Windows is intentionally excluded: SmartSDR DAX2 owns the radio's
+        // `transmit dax` flag and the dax_tx stream.  Toggling it from slice-
+        // mode changes (e.g. band-stack restore flipping the slice from DIGU
+        // back to USB during a band switch) sends `transmit set dax=0`, which
+        // parks DAX2's TX Stream in Busy and silently breaks digital TX until
+        // the user re-arms it from the DAX2 window.  Let the user manage that
+        // state via DAX2 — matches SmartSDR Console behavior. (#2315)
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)
+        m_radioModel.transmitModel().setDax(isDigital);
         m_audio->setDaxTxMode(isDigital);
         if (isDigital)
             m_radioModel.ensureDaxTxStream(DaxTxRequestReason::HostedDaxBridge);
-#elif defined(Q_OS_WIN)
-        if (isDigital)
-            m_radioModel.ensureDaxTxStream(DaxTxRequestReason::ExternalDaxRouteOnly);
+#else
+        Q_UNUSED(isDigital);
 #endif
 
 #ifdef HAVE_RADE
@@ -8997,6 +9002,8 @@ void MainWindow::onSliceAdded(SliceModel* s)
         // would hijack voice TX on the actual TX slice.
         if (m_radeSliceId >= 0 && m_radeEngine && m_radeEngine->isActive())
             m_audio->setRadeMode(txSliceId == m_radeSliceId);
+#else
+        Q_UNUSED(txSliceId);
 #endif
     };
     connect(s, &SliceModel::modeChanged, this, updateDaxTxMode);
