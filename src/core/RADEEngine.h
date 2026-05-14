@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QByteArray>
+#include <QString>
 #include <memory>
 
 #ifdef HAVE_RADE
@@ -9,6 +10,8 @@ struct rade;
 struct LPCNetEncState;
 // FARGANState is defined in fargan.h (opus), included only in .cpp
 // Use void* here to avoid pulling in opus headers
+// rade_text_t is typedef void* in the C header — mirror it here to avoid pulling in C headers
+using rade_text_t = void*;
 #endif
 
 namespace AetherSDR {
@@ -54,12 +57,14 @@ signals:
     void syncChanged(bool synced);
     void snrChanged(float snrDb);
     void freqOffsetChanged(float hz);
+    void eooCallsignReceived(const QString& callsign);
 
 private:
 #ifdef HAVE_RADE
     struct rade*         m_rade{nullptr};
     LPCNetEncState*      m_lpcnetEnc{nullptr};
     void*                m_fargan{nullptr};  // actually FARGANState*, opaque here
+    rade_text_t          m_radeText{nullptr}; // EOO callsign encoder/decoder
     bool                 m_synced{false};
 
     // TX accumulation: 12 frames of NB_TOTAL_FEATURES = 432 floats

@@ -42,24 +42,6 @@
 #include <stdio.h>
 
 #include "rade_api.h"
-#include "rade_tx.h"
-#include "rade_rx.h"
-
-/*---------------------------------------------------------------------------*\
-                           RADE CONTEXT
-\*---------------------------------------------------------------------------*/
-
-struct rade {
-    int flags;
-    int auxdata;
-    int bottleneck;
-
-    /* Transmitter state */
-    rade_tx_state tx;
-
-    /* Receiver state */
-    rade_rx_state rx;
-};
 
 /*---------------------------------------------------------------------------*\
                         INITIALIZATION
@@ -172,6 +154,50 @@ RADE_EXPORT void rade_tx_set_eoo_bits(struct rade *r, float eoo_bits[]) {
     assert(r != NULL);
     assert(eoo_bits != NULL);
     rade_tx_state_set_eoo_bits(&r->tx, eoo_bits);
+}
+
+RADE_EXPORT void rade_tx_set_eoo_callsign(struct rade *r, const char *callsign) {
+    assert(r != NULL);
+    assert(callsign != NULL);
+    assert(rade_tx_n_eoo_bits(&r->tx) >= RADE_EOO_CALLSIGN_MAX * 7);
+
+    int src_len = (int)strlen(callsign);
+    for (int i = 0; i < RADE_EOO_CALLSIGN_MAX; i++) {
+        unsigned char c = (i < src_len) ? (unsigned char)callsign[i] : ' ';
+        /* Store 7 bits MSB-first (+1.0 = 1, -1.0 = 0) */
+        for (int b = 0; b < 7; b++) {
+            int bit = (c >> (6 - b)) & 1;
+            r->tx.eoo_bits[i * 7 + b] = bit ? 1.0f : -1.0f;
+        }
+    }
+}
+
+RADE_EXPORT int rade_rx_get_eoo_callsign(const float *eoo_bits, int n_eoo_bits,
+                                          char *callsign_out) {
+    assert(eoo_bits != NULL);
+    assert(callsign_out != NULL);
+
+    if (n_eoo_bits < RADE_EOO_CALLSIGN_MAX * 7) {
+        callsign_out[0] = '\0';
+        return 0;
+    }
+
+    for (int i = 0; i < RADE_EOO_CALLSIGN_MAX; i++) {
+        unsigned char c = 0;
+        for (int b = 0; b < 7; b++) {
+            int bit = (eoo_bits[i * 7 + b] > 0.0f) ? 1 : 0;
+            c |= (unsigned char)(bit << (6 - b));
+        }
+        callsign_out[i] = (char)c;
+    }
+    callsign_out[RADE_EOO_CALLSIGN_MAX] = '\0';
+
+    /* Trim trailing spaces */
+    int len = RADE_EOO_CALLSIGN_MAX;
+    while (len > 0 && callsign_out[len - 1] == ' ')
+        callsign_out[--len] = '\0';
+
+    return len;
 }
 
 int rade_tx(struct rade *r, RADE_COMP tx_out[], float features_in[]) {

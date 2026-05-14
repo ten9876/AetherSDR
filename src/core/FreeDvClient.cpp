@@ -519,19 +519,47 @@ void FreeDvClient::updateRxSnr(float snrDb)
 void FreeDvClient::updateRxSynced(bool synced)
 {
     m_radeSynced = synced;
-    if (!synced) m_lastSnr = -99.0f;
+    if (!synced) {
+        m_lastSnr = -99.0f;
+        if (!m_rxCallsign.isEmpty()) {
+            qCDebug(lcDxCluster) << "FreeDvClient: sync lost — clearing rx callsign" << m_rxCallsign;
+        }
+        m_rxCallsign.clear();
+    }
+}
+
+void FreeDvClient::updateRxCallsign(const QString& callsign)
+{
+    qCDebug(lcDxCluster) << "FreeDvClient: EOO callsign received:" << callsign
+                        << "reporting=" << m_reportingEnabled
+                        << "connected=" << m_connected.load()
+                        << "synced=" << m_radeSynced
+                        << "snr=" << m_lastSnr;
+    m_rxCallsign = callsign;
+
+    // Send an immediate rx_report on EOO receipt — do not wait for the 1-second
+    // timer. The EOO frame is the last frame of the transmission; sync drops
+    // within ~100–500ms afterward, which clears m_rxCallsign before the timer
+    // can fire. Reporting is not gated on m_radeSynced here because we just
+    // decoded a valid callsign from the signal, so clearly reception was good.
+    if (!m_reportingEnabled || !m_connected.load()) return;
+    if (m_lastSnr <= -99.0f) return;
+    qCDebug(lcDxCluster) << "FreeDvClient: sending immediate rx_report for EOO callsign" << callsign;
+    sendEvent("rx_report", QJsonObject{
+        {"callsign", m_rxCallsign},
+        {"mode",     QString("RADEV1")},
+        {"snr",      static_cast<int>(m_lastSnr)}
+    });
 }
 
 void FreeDvClient::onSnrTimer()
 {
     if (!m_reportingEnabled || !m_connected.load() || !m_radeSynced) return;
     if (m_lastSnr <= -99.0f) return;
-    // callsign is the station being received. RADE v1 has no embedded callsign,
-    // so we send empty string. The server may silently drop these; rx_report is
-    // included now so the infrastructure is in place when callsign identification
-    // is added (e.g. user-entered or future RADE signalling).
+    qCDebug(lcDxCluster) << "FreeDvClient: periodic rx_report — callsign='"
+                         << m_rxCallsign << "' snr=" << m_lastSnr;
     sendEvent("rx_report", QJsonObject{
-        {"callsign", QString()},
+        {"callsign", m_rxCallsign},
         {"mode",     QString("RADEV1")},
         {"snr",      static_cast<int>(m_lastSnr)}
     });

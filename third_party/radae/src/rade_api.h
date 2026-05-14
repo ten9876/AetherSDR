@@ -71,6 +71,9 @@ typedef struct {
 } RADE_COMP;
 #endif
 
+#include "rade_tx.h"
+#include "rade_rx.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -91,6 +94,18 @@ RADE_EXPORT void rade_initialize(void);
 
 // Should be called when done with RADE.
 RADE_EXPORT void rade_finalize(void);
+
+struct rade {
+    int flags;
+    int auxdata;
+    int bottleneck;
+
+    /* Transmitter state */
+    rade_tx_state tx;
+
+    /* Receiver state */
+    rade_rx_state rx;
+};
 
 // note single context only in this version, one context has one Tx, and one Rx
 RADE_EXPORT struct rade *rade_open(char model_file[], int flags);
@@ -113,6 +128,24 @@ RADE_EXPORT int rade_tx(struct rade *r, RADE_COMP tx_out[], float features_in[])
 // Set the rade_n_eoo_bits() bits to be sent in the EOO frame, which are
 // in +/- 1 float form (note NOT 1 or 0)
 RADE_EXPORT void rade_tx_set_eoo_bits(struct rade *r, float eoo_bits[]);
+
+// Maximum callsign length (not including null terminator).
+// 8 characters × 7 bits = 56 bits, well within the 180 available EOO bits.
+#define RADE_EOO_CALLSIGN_MAX 8
+
+// Encode a callsign string into the EOO bits ready for transmission.
+// callsign must be a null-terminated ASCII string of at most
+// RADE_EOO_CALLSIGN_MAX characters.  Only the first
+// RADE_EOO_CALLSIGN_MAX*7 bits of the stored EOO array are overwritten;
+// remaining EOO bits are left unchanged.
+RADE_EXPORT void rade_tx_set_eoo_callsign(struct rade *r, const char *callsign);
+
+// Decode a callsign from received EOO soft-decision bits.
+// eoo_bits: array of n_eoo_bits floats in +/-1 form (as returned by rade_rx()).
+// callsign_out: caller-supplied buffer of at least RADE_EOO_CALLSIGN_MAX+1 bytes.
+// Returns the number of characters written, not counting the null terminator.
+RADE_EXPORT int rade_rx_get_eoo_callsign(const float *eoo_bits, int n_eoo_bits,
+                                          char *callsign_out);
 
 // call this for the final frame at the end of over
 // returns the number of RADE_COMP samples written to tx_eoo_out[] 

@@ -671,6 +671,7 @@ private:
     quint32 m_radeDaxStreamId{0};
     QMetaObject::Connection m_radeDaxStreamConn;
     QMetaObject::Connection m_freedvMoxConn;
+    QString m_lastRadeRxCallsign;
     void activateRADE(int sliceId);
     void deactivateRADE();
     void startFreeDvReporting(int sliceId);
