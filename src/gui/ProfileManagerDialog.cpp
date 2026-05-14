@@ -1,13 +1,7 @@
 #include "ProfileManagerDialog.h"
-#include "FramelessResizer.h"
-#include "FramelessWindowTitleBar.h"
-#include "core/AppSettings.h"
 #include "models/RadioModel.h"
 #include "models/TransmitModel.h"
 
-#include <QCloseEvent>
-#include <QMoveEvent>
-#include <QResizeEvent>
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -17,7 +11,6 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QMessageBox>
-#include <QRect>
 
 namespace AetherSDR {
 
@@ -42,25 +35,16 @@ static const QString kDialogStyle =
     "QCheckBox::indicator:checked { background: #00b4d8; }";
 
 ProfileManagerDialog::ProfileManagerDialog(RadioModel* model, QWidget* parent)
-    : QDialog(parent), m_model(model)
+    : PersistentDialog("Profile Manager", "ProfileManagerDialogGeometry", parent),
+      m_model(model)
 {
-    setWindowTitle("Profile Manager");
     setMinimumSize(460, 400);
     setStyleSheet(kDialogStyle);
 
-    auto* outer = new QVBoxLayout(this);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(0);
-
-    m_titleBar = new FramelessWindowTitleBar(QStringLiteral("Profile Manager"), this);
-    outer->addWidget(m_titleBar);
-
-    auto* bodyWidget = new QWidget(this);
-    auto* root = new QVBoxLayout(bodyWidget);
-    root->setContentsMargins(9, 9, 9, 9);
+    // PersistentDialog::setFramelessMode() owns the body layout's contents
+    // margins (9 / 9-or-7 / 9 / 9 depending on frameless chrome state).
+    auto* root = new QVBoxLayout(bodyWidget());
     root->setSpacing(9);
-    m_bodyLayout = root;
-    outer->addWidget(bodyWidget, 1);
 
     m_tabs = new QTabWidget;
 
@@ -95,10 +79,6 @@ ProfileManagerDialog::ProfileManagerDialog(RadioModel* model, QWidget* parent)
     closeRow->addWidget(closeBtn);
     root->addLayout(closeRow);
 
-    FramelessResizer::install(this);
-    setFramelessMode(
-        AppSettings::instance().value("FramelessWindow", "True").toString() == "True");
-
     // Listen for profile list updates
     connect(model, &RadioModel::globalProfilesChanged, this, [this] {
         refreshTab("global");
@@ -109,30 +89,6 @@ ProfileManagerDialog::ProfileManagerDialog(RadioModel* model, QWidget* parent)
     connect(&model->transmitModel(), &TransmitModel::micProfileListChanged, this, [this] {
         refreshTab("mic");
     });
-    restoreGeometryFromSettings();
-}
-
-void ProfileManagerDialog::setFramelessMode(bool on)
-{
-    const QRect geom = geometry();
-    const bool wasVisible = isVisible();
-
-    Qt::WindowFlags flags = (windowFlags() & ~Qt::WindowType_Mask) | Qt::Dialog;
-    flags.setFlag(Qt::FramelessWindowHint, on);
-    setWindowFlags(flags);
-    if (wasVisible) {
-        setGeometry(geom);
-    }
-
-    if (m_titleBar) {
-        m_titleBar->setVisible(on);
-    }
-    if (m_bodyLayout) {
-        m_bodyLayout->setContentsMargins(9, on ? 7 : 9, 9, 9);
-    }
-    if (wasVisible) {
-        show();
-    }
 }
 
 QWidget* ProfileManagerDialog::buildProfileTab(const QString& type,
@@ -306,51 +262,6 @@ void ProfileManagerDialog::refreshTab(const QString& type)
         if (p == active)
             tw.list->setCurrentItem(item);
     }
-}
-
-// Geometry persistence — AppSettings serializes via XML strings, so window
-// geometry round-trips through base64 to preserve binary data.  Matches the
-// project convention used by MainWindow{Geometry,State}.  Save fires on
-// close (guaranteed persistence on clean exit) AND on each move/resize
-// (crash-resilient: if AetherSDR is force-quit, the last known position is
-// already in AppSettings).
-void ProfileManagerDialog::saveGeometryToSettings()
-{
-    auto& s = AppSettings::instance();
-    s.setValue("ProfileManagerDialogGeometry", saveGeometry().toBase64());
-}
-
-void ProfileManagerDialog::restoreGeometryFromSettings()
-{
-    const QString geomB64 = AppSettings::instance()
-        .value("ProfileManagerDialogGeometry").toString();
-    if (geomB64.isEmpty()) return;
-    // Restore triggers move/resize events; flag those as restore-driven so
-    // they don't immediately overwrite the value we just loaded.
-    m_restoringGeometry = true;
-    restoreGeometry(QByteArray::fromBase64(geomB64.toLatin1()));
-    m_restoringGeometry = false;
-}
-
-void ProfileManagerDialog::closeEvent(QCloseEvent* event)
-{
-    saveGeometryToSettings();
-    // Flush to disk on close.  Move/resize saves are in-memory only; the
-    // close-time save is the canonical persistence point.
-    AppSettings::instance().save();
-    QDialog::closeEvent(event);
-}
-
-void ProfileManagerDialog::moveEvent(QMoveEvent* event)
-{
-    QDialog::moveEvent(event);
-    if (!m_restoringGeometry) saveGeometryToSettings();
-}
-
-void ProfileManagerDialog::resizeEvent(QResizeEvent* event)
-{
-    QDialog::resizeEvent(event);
-    if (!m_restoringGeometry) saveGeometryToSettings();
 }
 
 } // namespace AetherSDR

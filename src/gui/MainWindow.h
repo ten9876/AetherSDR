@@ -3,6 +3,7 @@
 #include "models/RadioModel.h"
 #include "models/BandSettings.h"
 #include "models/AntennaGeniusModel.h"
+#include "core/AppSettings.h"
 #include "core/RadioDiscovery.h"
 #include "core/AudioEngine.h"
 #include "core/RigctlServer.h"
@@ -63,6 +64,8 @@ class QMediaDevices;
 
 #include "gui/ClientEqApplet.h"   // ClientEqApplet::Path enum used in
                                    // onEqCutoffsDragRequested signature.
+#include "gui/PersistentDialog.h" // showOrRaisePersistent template needs
+                                   // PersistentDialog visible at point of use.
 
 namespace AetherSDR {
 
@@ -222,6 +225,17 @@ private:
     // to AppSettings("FramelessWindow"). When on, users move/close the
     // window via keyboard shortcuts or taskbar.
     void setFramelessWindow(bool on);
+
+    // Lazy-construct + show + raise + activate for a PersistentDialog
+    // subclass.  Collapses the ~10-line "if slot raise else new+setAttribute+
+    // setFramelessMode+assign+show" boilerplate at every menu callback into
+    // a one-liner.  Auto-registers the dialog so setFramelessWindow() can
+    // propagate the frameless toggle without an explicit qobject_cast branch.
+    //
+    // Slot must be typed QPointer<ConcreteDialog> so the ctor args match.
+    // Example: showOrRaisePersistent(m_profileManagerDialog, &m_radioModel);
+    template <class T, class... Args>
+    void showOrRaisePersistent(QPointer<T>& slot, Args&&... ctorArgs);
 
     // Reorder the main splitter so the applet panel sits on the left or
     // right of the panadapter stack.  Wired from the dock-side icons in
@@ -464,6 +478,13 @@ private:
     QPointer<QDialog> m_midiDialog;
 #endif
 
+    // Tracks every PersistentDialog created via showOrRaisePersistent() so
+    // setFramelessWindow() can propagate the frameless toggle without an
+    // explicit per-dialog qobject_cast branch.  QPointer entries auto-null on
+    // dialog destruction (QSet::insert handles deduplication on null QPointer
+    // re-creation by removing them on iteration via removeIf below).
+    QList<QPointer<PersistentDialog>> m_persistentDialogs;
+
     // Menus
     QMenu*           m_profilesMenu{nullptr};
     QAction*         m_txBandAction{nullptr};
@@ -673,5 +694,21 @@ private:
     void stopDax();
 #endif
 };
+
+template <class T, class... Args>
+void MainWindow::showOrRaisePersistent(QPointer<T>& slot, Args&&... ctorArgs)
+{
+    if (!slot) {
+        auto* dlg = new T(std::forward<Args>(ctorArgs)..., this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setFramelessMode(
+            AppSettings::instance().value("FramelessWindow", "True").toString() == "True");
+        slot = dlg;
+        m_persistentDialogs.append(QPointer<PersistentDialog>(dlg));
+    }
+    slot->show();
+    slot->raise();
+    slot->activateWindow();
+}
 
 } // namespace AetherSDR
