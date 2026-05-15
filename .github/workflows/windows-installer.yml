@@ -31,15 +31,8 @@ jobs:
       - name: Install Ninja, Inno Setup, and LLVM
         run: choco install ninja innosetup llvm -y
 
-      - name: Install zlib via vcpkg
-        run: |
-          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
-          if (-not $vcpkgRoot) { $vcpkgRoot = "C:\vcpkg" }
-          $triplet = "x64-windows"
-          & "$vcpkgRoot\vcpkg.exe" install "zlib:$triplet"
-          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "VCPKG_TARGET_TRIPLET=$triplet" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "CMAKE_TOOLCHAIN_FILE=$vcpkgRoot\scripts\buildsystems\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
+      # zlib is bundled under third_party/zlib (1.3.1) — no vcpkg install
+      # needed; CMake builds zlibstatic from source.  (#2651)
 
       # Each third-party dep is cached against the hash of its setup
       # script (which pins the version), so cache invalidates the moment
@@ -116,10 +109,8 @@ jobs:
           if (Test-Path "third_party\hidapi\bin\hidapi.dll") {
             copy third_party\hidapi\bin\hidapi.dll deploy\
           }
-          $zlibBin = Join-Path $env:VCPKG_ROOT "installed\$env:VCPKG_TARGET_TRIPLET\bin"
-          if (Test-Path $zlibBin) {
-            Get-ChildItem $zlibBin -Filter "zlib*.dll" | Copy-Item -Destination deploy\ -Force
-          }
+          # zlib is statically linked from third_party/zlib (#2651) — no
+          # DLL copy needed; zlibstatic is baked into AetherSDR.exe.
           if (Test-Path "third_party\deepfilter\lib\windows-x86_64\deepfilter.dll") {
             copy third_party\deepfilter\lib\windows-x86_64\deepfilter.dll deploy\
           }

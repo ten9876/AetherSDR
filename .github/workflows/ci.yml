@@ -99,16 +99,8 @@ jobs:
         with:
           arch: x64
 
-      - name: Install zlib via vcpkg
-        shell: pwsh
-        run: |
-          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
-          if (-not $vcpkgRoot) { $vcpkgRoot = "C:\vcpkg" }
-          $triplet = "x64-windows"
-          & "$vcpkgRoot\vcpkg.exe" install "zlib:$triplet"
-          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "VCPKG_TARGET_TRIPLET=$triplet" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "CMAKE_TOOLCHAIN_FILE=$vcpkgRoot\scripts\buildsystems\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
+      # zlib is bundled under third_party/zlib (1.3.1) — no vcpkg install
+      # needed; CMake builds zlibstatic from source.  (#2651)
 
       # Verify sccache can actually compile through the backend.  GitHub
       # Actions Cache occasionally has outages; when that happens, sccache's

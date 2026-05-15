@@ -155,3 +155,19 @@ protocol.
   Copyright (c) 2021 Expert Electronics (EE)
   License: MIT
   Spec:    https://github.com/ExpertSDR3/TCI
+
+
+13. zlib — Compression Library
+-------------------------------
+Bundled at third_party/zlib/ (v1.3.1) for raw-deflate decompression of
+.ssdr_cfg profile import/export ZIP packages.  Vendored from the upstream
+GitHub release (sha256
+9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23) so the
+version is identical on Linux, macOS, and Windows.  Previously, Linux/macOS
+linked the system zlib and Windows pulled it via vcpkg; bundling unifies the
+three paths per the constitution's Technology Constraint preferring bundled
+libraries.  See #2651.
+
+  Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler
+  License: zlib license (permissive, similar to MIT)
+  Source:  https://github.com/madler/zlib

@@ -43,7 +43,14 @@ find_package(Qt6 6.2 REQUIRED COMPONENTS
     Multimedia
     Test
 )
-find_package(ZLIB REQUIRED)
+# zlib is bundled under third_party/zlib (1.3.1) for parity with the
+# libmosquitto bundling pattern (#699) and per the constitution's
+# Technology Constraint preferring bundled libraries over package
+# managers.  The vcpkg dependency on Windows + system-zlib on Linux/macOS
+# is gone — single source-of-truth across all platforms. (#2651)
+set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "Disable zlib examples" FORCE)
+set(SKIP_INSTALL_ALL ON CACHE BOOL "Don't install zlib" FORCE)
+add_subdirectory(third_party/zlib EXCLUDE_FROM_ALL)
 option(REQUIRE_SERIALPORT "Fail if Qt6 SerialPort is not found (use for release builds)" OFF)
 # Note: on Windows the SerialPortController uses raw Win32 WaitCommEvent for
 # DSR/CTS edge detection (FTDI VCP drivers don't refresh
@@ -811,7 +818,7 @@ target_link_libraries(AetherSDR PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::Multimedia
-    ZLIB::ZLIB
+    zlibstatic           # bundled third_party/zlib 1.3.1
     ${CMAKE_DL_LIBS}   # dlopen/dlsym for tolerant X11 error handler (#1839)
 )
 
