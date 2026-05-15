@@ -160,7 +160,7 @@ void FloatingContainerWindow::setFramelessMode(bool on)
         flags &= ~Qt::FramelessWindowHint;
     }
     setWindowFlags(flags);
-    setGeometry(geom);
+    if (wasVisible) setGeometry(geom);
     if (wasVisible) show();
 }
 
@@ -177,7 +177,7 @@ void FloatingContainerWindow::setAlwaysOnTop(bool on)
         flags &= ~Qt::WindowStaysOnTopHint;
     }
     setWindowFlags(flags);
-    setGeometry(geom);
+    if (wasVisible) setGeometry(geom);
     if (wasVisible) show();
 }
 
