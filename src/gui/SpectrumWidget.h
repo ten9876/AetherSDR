@@ -370,6 +370,13 @@ public:
     bool smartSpotFilter() const     { return m_smartSpotFilter; }
     void setSmartSpotFilterOpacity(int pct) { m_smartSpotFilterOpacity = std::clamp(pct, 0, 100); update(); }
     void setSmartSpotFilterDelayS(int s)    { m_smartSpotFilterDelayS  = std::max(0, s); }
+    // Match window between a DX-cluster spot and an S-History voice
+    // detection (Hz, clamped to 100–5000).  ±this many Hz around each
+    // S-History center counts as a match.  Tight = fewer false confirms
+    // on crowded phone bands; loose = better tolerance for cluster
+    // operators who spot the QRG they tuned through rather than the
+    // exact carrier.  (#2609)
+    void setSmartSpotFilterMatchHz(int hz)  { m_smartSpotFilterMatchHz = std::clamp(hz, 100, 5000); }
     // When on, click-to-tune on a SHistory/QRM marker rounds the target to
     // the nearest multiple of stepSize().  Compensates for the inherent
     // detector edge-bin imprecision (typically 100–300 Hz off carrier).
@@ -869,6 +876,7 @@ private:
     qint64 m_smartSpotFilterEnabledMs{0};
     int    m_smartSpotFilterOpacity{80};
     int    m_smartSpotFilterDelayS{30};
+    int    m_smartSpotFilterMatchHz{1000};  // ±Hz to count as a spot↔S-History match (#2609)
     QHash<QString, qint64> m_spotConfirmedMs; // key = callsign@freqKHz → last confirmed ms
     QVector<SpotMarker> m_sHistoryMarkers;
     int  m_spotFontSize{16};

@@ -123,6 +123,10 @@ signals:
     void sHistoryQrmToggled(bool on);
     void smartSpotOpacityChanged(int pct);
     void smartSpotDelayChanged(int seconds);
+    // Match window between a DX-cluster spot and an S-History voice
+    // detection (Hz, 100–5000).  Wired through MainWindow to every pan's
+    // SpectrumWidget::setSmartSpotFilterMatchHz(). (#2609)
+    void smartSpotMatchHzChanged(int hz);
 
 private:
     void buildClusterTab(QTabWidget* tabs);

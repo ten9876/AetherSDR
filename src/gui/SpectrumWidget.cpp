@@ -5746,13 +5746,15 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
                                    mu.contains("JS8")  || mu.contains("PSK") ||
                                    mu.contains("RTTY") || mu.contains("WSPR");
             if (!isDigital) {
-                constexpr double kMatchMhz = 0.001; // ±1 kHz of detected signal start
+                // ±N Hz of detected signal start — user-configurable via the
+                // "Filter Match Window" slider in SpotHub Display. (#2609)
+                const double matchMhz = m_smartSpotFilterMatchHz / 1.0e6;
                 constexpr qint64 kConfirmGraceMs = 120000; // 2 min grace after last confirmation
                 const QString spotKey = spot.callsign + QChar('@') +
                                         QString::number(qRound(spot.freqMhz * 1000.0));
                 bool matched = false;
                 for (double shFreq : sHistVoiceFreqs) {
-                    if (std::abs(spot.freqMhz - shFreq) <= kMatchMhz) {
+                    if (std::abs(spot.freqMhz - shFreq) <= matchMhz) {
                         matched = true;
                         break;
                     }

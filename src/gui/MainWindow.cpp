@@ -6392,6 +6392,11 @@ void MainWindow::buildMenuBar()
             for (auto* a : m_panStack->allApplets())
                 a->spectrumWidget()->setSmartSpotFilterDelayS(seconds);
         });
+        connect(dlg, &DxClusterDialog::smartSpotMatchHzChanged, this,
+                [this](int hz) {
+            for (auto* a : m_panStack->allApplets())
+                a->spectrumWidget()->setSmartSpotFilterMatchHz(hz);
+        });
         connect(dlg, &DxClusterDialog::connectRequested,
                 this, [this](const QString& host, quint16 port, const QString& call) {
             QMetaObject::invokeMethod(m_dxCluster, [=] { m_dxCluster->connectToCluster(host, port, call); });
@@ -10101,6 +10106,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         AppSettings::instance().value("SmartSpotFilterOpacity", 80).toInt());
     sw->setSmartSpotFilterDelayS(
         AppSettings::instance().value("SmartSpotFilterDelayS", 30).toInt());
+    sw->setSmartSpotFilterMatchHz(
+        AppSettings::instance().value("SmartSpotFilterMatchHz", 1000).toInt());
 
     // Apply current prop forecast state to this (possibly new) panadapter
     if (m_propForecast) {

@@ -33,6 +33,26 @@
 
 namespace AetherSDR {
 
+// GuardedSlider variant that resets to a stored default on left
+// double-click.  Used for the Filter Match Window slider (#2609) so
+// the operator can snap back to the 1 kHz default without dragging.
+class ResetOnDoubleClickSlider : public GuardedSlider {
+public:
+    using GuardedSlider::GuardedSlider;
+    void setResetValue(int v) { m_resetValue = v; }
+protected:
+    void mouseDoubleClickEvent(QMouseEvent* ev) override {
+        if (ev->button() == Qt::LeftButton) {
+            setValue(m_resetValue);
+            ev->accept();
+            return;
+        }
+        GuardedSlider::mouseDoubleClickEvent(ev);
+    }
+private:
+    int m_resetValue{0};
+};
+
 // Shared DSP-style toggle for every checkable button in SpotHub
 // (matches kDspToggle in VfoWidget.cpp so the chrome reads the same as
 // the NB / NR / ANF buttons in the VFO panel).  Dark inset by default,
@@ -2522,6 +2542,40 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
             emit smartSpotDelayChanged(v);
         });
         shGrid->addLayout(ssDelRow, shr++, 1);
+
+        // Smart Spot Filter — Match window (100–5000 Hz). (#2609)
+        // Uses ResetOnDoubleClickSlider so a left double-click snaps the
+        // value back to the 1 kHz default without dragging.
+        const int ssMatch = AppSettings::instance()
+            .value("SmartSpotFilterMatchHz", 1000).toInt();
+        shGrid->addWidget(new QLabel("Filter Match Window:"), shr, 0);
+        auto* ssMatchRow = new QHBoxLayout;
+        auto* ssMatchSlider = new ResetOnDoubleClickSlider(Qt::Horizontal);
+        ssMatchSlider->setRange(100, 5000);
+        ssMatchSlider->setSingleStep(50);
+        ssMatchSlider->setPageStep(500);
+        ssMatchSlider->setValue(std::clamp(ssMatch, 100, 5000));
+        ssMatchSlider->setResetValue(1000);
+        ssMatchSlider->setToolTip(
+            "± frequency window around each S-History voice detection\n"
+            "that counts as a match with a DX-cluster spot.\n"
+            "Tight (100–500 Hz): fewer false confirms on crowded phone\n"
+            "  bands where spots are stacked close.\n"
+            "Default (1000 Hz): SSB voice / typical cluster spot precision.\n"
+            "Loose (2000–5000 Hz): tolerates cluster ops who spot the QRG\n"
+            "  they tuned through rather than the precise carrier.\n"
+            "Double-click to reset to 1000 Hz.");
+        auto* ssMatchValue = new QLabel(QString("± %1 Hz").arg(ssMatchSlider->value()));
+        ssMatchValue->setFixedWidth(60);
+        ssMatchValue->setAlignment(Qt::AlignRight);
+        ssMatchRow->addWidget(ssMatchSlider);
+        ssMatchRow->addWidget(ssMatchValue);
+        connect(ssMatchSlider, &QSlider::valueChanged, this, [this, ssMatchValue, save](int v) {
+            ssMatchValue->setText(QString("± %1 Hz").arg(v));
+            save("SmartSpotFilterMatchHz", QString::number(v));
+            emit smartSpotMatchHzChanged(v);
+        });
+        shGrid->addLayout(ssMatchRow, shr++, 1);
 
         rightCol->addLayout(shGrid);
         rightCol->addStretch();
