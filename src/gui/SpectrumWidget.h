@@ -638,6 +638,7 @@ private:
     // Squelch threshold overlay line
     bool  m_squelchLineVisible{false};
     int   m_squelchLevel{0};             // 0-100 radio squelch_level units
+    QTimer* m_squelchLineHideTimer{nullptr}; // auto-hides yellow line 3 s after enable/adjust (manual SQL only)
     bool  m_autoSquelchEnabled{false};
     float m_sqlNoiseFloorDbm{-999.0f};  // auto-squelch own two-pass trimmed-mean EWMA
     // dBm above noise floor for auto-squelch suggestion (5-20, default 10)

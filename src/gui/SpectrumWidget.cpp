@@ -316,6 +316,17 @@ SpectrumWidget::SpectrumWidget(QWidget* parent)
         markOverlayDirty();
     });
 
+    // SQL threshold line auto-hide (manual SQL only — see setSquelchLine).
+    // Shows for 3 s on enable or slider movement; slider re-adjust resets it.
+    // Auto SQL pins the line at the tracked level so the timer is skipped.
+    m_squelchLineHideTimer = new QTimer(this);
+    m_squelchLineHideTimer->setSingleShot(true);
+    m_squelchLineHideTimer->setInterval(3000);
+    connect(m_squelchLineHideTimer, &QTimer::timeout, this, [this]() {
+        m_squelchLineVisible = false;
+        markOverlayDirty();
+    });
+
     m_connectionAnimationTimer = new QTimer(this);
     m_connectionAnimationTimer->setInterval(40);
     connect(m_connectionAnimationTimer, &QTimer::timeout, this, [this]() {
@@ -1079,6 +1090,15 @@ void SpectrumWidget::setSquelchLine(bool visible, int level)
     m_squelchLineVisible = visible;
     m_squelchLevel       = level;
     markOverlayDirty();
+    // Manual SQL: 3 s auto-hide; each slider adjustment restarts the timer.
+    // Auto SQL: line stays pinned to the tracked floor level — no timer.
+    if (m_squelchLineHideTimer) {
+        if (visible && !m_autoSquelchEnabled) {
+            m_squelchLineHideTimer->start();
+        } else {
+            m_squelchLineHideTimer->stop();
+        }
+    }
 }
 
 void SpectrumWidget::drawAutoSqlFloor(QPainter& p, const QRect& specRect)
@@ -1103,6 +1123,10 @@ void SpectrumWidget::setAutoSquelchEnable(bool on)
     m_autoSquelchEnabled   = on;
     m_sqlNoiseFloorDbm     = -999.0f;  // cold-start the floor EWMA on each enable
     m_lastAutoSquelchLevel = -1;
+    if (on && m_squelchLineHideTimer) {
+        // Auto pins the line — cancel any pending manual auto-hide.
+        m_squelchLineHideTimer->stop();
+    }
 }
 
 void SpectrumWidget::setAutoSqlMarginDb(int dBm)
