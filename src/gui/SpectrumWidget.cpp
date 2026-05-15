@@ -5681,6 +5681,7 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
     const int startY = specRect.top() + specRect.height() * m_spotStartPct / 100;
     const int th = fm.height() + 2;
     const int maxBottom = startY + th * m_spotMaxLevels;
+    constexpr int SPOT_LABEL_GAP = 2;  // inter-label gap added to collision geometry
 
     // Track label positions to avoid overlap and for click detection
     QVector<QRect> placed;
@@ -5720,8 +5721,8 @@ void SpectrumWidget::drawSpotMarkers(QPainter& p, const QRect& specRect)
         while (collision) {
             collision = false;
             for (const auto& r : placed) {
-                if (labelRect.intersects(r)) {
-                    labelRect.moveTop(r.bottom() + 1);
+                if (labelRect.intersects(r.adjusted(0, -SPOT_LABEL_GAP, 0, SPOT_LABEL_GAP))) {
+                    labelRect.moveTop(r.bottom() + SPOT_LABEL_GAP + 1);
                     collision = true;
                     break;
                 }
