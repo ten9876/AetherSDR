@@ -7405,6 +7405,13 @@ void MainWindow::buildUI()
     // applet panel; clicking the inactive-side icon moves it there (and
     // shows it if hidden).
     auto handleDockClick = [this](bool wantLeft) {
+        // If currently floating, dock back first so the float window is
+        // torn down via the canonical path; otherwise reparenting the
+        // contents into the splitter leaves an empty float window alive
+        // and visible (the "black box" in #2584).
+        if (m_appletPanelFloatWindow) {
+            toggleAppletPanelFloating(false);
+        }
         const bool dockedLeft = AppSettings::instance()
             .value("AppletPanelDockedLeft", "False").toString() == "True";
         const bool visible = m_appletPanel && m_appletPanel->isVisible();
