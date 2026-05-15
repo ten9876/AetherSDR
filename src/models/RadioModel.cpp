@@ -3961,14 +3961,28 @@ void RadioModel::onStatusReceived(const QString& object,
                 m_interlockNotificationArmedUntilMs = 0;
                 m_interlockNotificationSource = TransmitModel::PttSource::Mox;
             } else if (interlockNotificationArmed()) {
-                const QString message = radioInterlockNotificationMessage(kvs);
-                if (!message.isEmpty()) {
-                    emitInterlockNotification(
-                        message,
-                        QStringLiteral("radio:%1:%2")
-                            .arg(state, kvs.value(QStringLiteral("reason")).toUpper()));
-                    m_interlockNotificationArmedUntilMs = 0;
-                    m_interlockNotificationSource = TransmitModel::PttSource::Mox;
+                // The radio reports interlock state as a sequence: PTT_REQUESTED
+                // (with reason=AMP:TG while it waits for the amp/tuner relay
+                // chain to settle) → TRANSMITTING (reason cleared, tx_allowed=1)
+                // → UNKEY_REQUESTED (reason=AMP:TG again on the way back to
+                // RECEIVE).  The PTT_REQUESTED / UNKEY_REQUESTED states are
+                // transitional — TX is proceeding, not blocked.  The radio
+                // tells us this explicitly via tx_allowed=1.  Only fire the
+                // user-facing popup when the radio says TX is actually denied
+                // (tx_allowed=0), which is the only case where the operator
+                // needs to do something about the interlock.
+                const QString txAllowed = kvs.value(QStringLiteral("tx_allowed"));
+                const bool txDenied = (txAllowed == QStringLiteral("0"));
+                if (txDenied) {
+                    const QString message = radioInterlockNotificationMessage(kvs);
+                    if (!message.isEmpty()) {
+                        emitInterlockNotification(
+                            message,
+                            QStringLiteral("radio:%1:%2")
+                                .arg(state, kvs.value(QStringLiteral("reason")).toUpper()));
+                        m_interlockNotificationArmedUntilMs = 0;
+                        m_interlockNotificationSource = TransmitModel::PttSource::Mox;
+                    }
                 }
             }
         }
