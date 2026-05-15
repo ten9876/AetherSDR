@@ -216,11 +216,7 @@ constexpr int kSwrSweepTuneStopWaitMs = 350;
 constexpr int kSwrSweepTuneStopTimeoutMs = 1800;
 constexpr int kSwrSweepTgxlRestoreTimeoutMs = 3500;
 constexpr int kSwrSweepMaxPoints = 260;
-constexpr int kSwrSweepMinPowerW = 1;
-constexpr int kSwrSweepDefaultPowerW = 1;
-constexpr int kSwrSweepMaxPowerW = 10;
 constexpr double kMemoryRevealTargetToleranceMhz = 0.000001;
-constexpr const char* kSwrSweepPowerSettingKey = "SwrSweepPowerWatts";
 
 QList<QByteArray> audioDeviceIds(const QList<QAudioDevice>& devices)
 {
@@ -10902,26 +10898,6 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         s.setValue(sw->settingsKey("DisplayRfGain"), QString::number(gain));
         s.save();
     });
-    const int savedSweepPower = qBound(
-        kSwrSweepMinPowerW,
-        AppSettings::instance().value(kSwrSweepPowerSettingKey,
-                                      QString::number(kSwrSweepDefaultPowerW)).toInt(),
-        kSwrSweepMaxPowerW);
-    menu->setSwrSweepPowerWatts(savedSweepPower);
-    connect(menu, &SpectrumOverlayMenu::swrSweepPowerChanged,
-            this, [this, menu](int watts) {
-        watts = qBound(kSwrSweepMinPowerW, watts, kSwrSweepMaxPowerW);
-        auto& s = AppSettings::instance();
-        s.setValue(kSwrSweepPowerSettingKey, QString::number(watts));
-        s.save();
-        for (auto* applet : m_panStack ? m_panStack->allApplets() : QList<PanadapterApplet*>{}) {
-            auto* otherMenu = applet && applet->spectrumWidget()
-                ? applet->spectrumWidget()->overlayMenu()
-                : nullptr;
-            if (otherMenu && otherMenu != menu)
-                otherMenu->setSwrSweepPowerWatts(watts);
-        }
-    });
     connect(menu, &SpectrumOverlayMenu::swrSweepStartRequested,
             this, &MainWindow::startSwrSweep);
     connect(menu, &SpectrumOverlayMenu::swrSweepClearRequested,
@@ -12965,8 +12941,6 @@ void MainWindow::startSwrSweep(int requestedSliceId, int sweepPowerWatts)
 {
     if (m_swrSweep.running)
         return;
-
-    sweepPowerWatts = qBound(kSwrSweepMinPowerW, sweepPowerWatts, kSwrSweepMaxPowerW);
 
     if (!m_radioModel.isConnected()) {
         QMessageBox::warning(this, tr("SWR Sweep"),

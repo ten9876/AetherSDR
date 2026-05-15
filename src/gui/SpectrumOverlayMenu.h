@@ -63,7 +63,6 @@ public:
     void setWnbState(bool on, int level);
     void setRfGain(int gain);
     void setRfGainRange(int low, int high, int step);
-    void setSwrSweepPowerWatts(int watts);
 
     // Populate XVTR band sub-panel
     struct XvtrBand { QString name; double rfFreqMhz; };
@@ -123,7 +122,6 @@ signals:
     // Emitted when RF gain slider changes (panadapter-level).
     void rfGainChanged(int gain);
     void swrSweepStartRequested(int sliceId, int sweepPowerWatts);
-    void swrSweepPowerChanged(int watts);
     void swrSweepClearRequested();
     // NB Waterfall Blanker (#277)
     void wfBlankerEnabledChanged(bool on);
@@ -184,8 +182,6 @@ private:
     QLabel*      m_wnbLabel{nullptr};
     QPushButton* m_swrStartBtn{nullptr};
     QPushButton* m_swrClearBtn{nullptr};
-    QSlider*     m_swrPowerSlider{nullptr};
-    QLabel*      m_swrPowerLabel{nullptr};
 
     // DAX sub-panel
     QWidget*   m_daxPanel{nullptr};
