@@ -6252,14 +6252,12 @@ void MainWindow::buildMenuBar()
     auto* radioSetup = settingsMenu->addAction("Radio Setup...");
     radioSetup->setMenuRole(QAction::PreferencesRole);  // macOS: appears in app menu as Preferences (#883, #1013)
     connect(radioSetup, &QAction::triggered, this, [this] {
-        // Snapshot compression setting before the dialog (re)opens so the
-        // finished-lambda can detect a change.  WA_DeleteOnClose nulls
-        // m_radioSetupDialog on close, so `wasFresh` is true on every
-        // subsequent open and prevComp captures the *current* value each
-        // time (#2769).
+        // Snapshot compression setting before dialog opens.  The dialog is
+        // constructed lazily and destroys itself on close (WA_DeleteOnClose
+        // via showOrRaisePersistent), so each fresh open captures the
+        // current value — matching the pre-migration behavior (#2769).
+        const QString prevComp = m_radioModel.audioCompressionParam();
         const bool wasFresh = !m_radioSetupDialog;
-        QString prevComp = wasFresh ? m_radioModel.audioCompressionParam() : QString();
-
         showOrRaisePersistent(m_radioSetupDialog, &m_radioModel, m_audio,
                               &m_tgxlConn, &m_pgxlConn, &m_antennaGenius);
         if (wasFresh && m_radioSetupDialog) {
@@ -8372,7 +8370,9 @@ void MainWindow::onConnectionStateChanged(bool connected)
         }
 #endif
         // Populate XVTR bands after radio status settles, and refresh
-        // whenever XVTR config changes (add/remove/rename). (#571)
+        // whenever XVTR config changes (add/remove/rename). (#571)  Also
+        // pushes the radio's built-in transverter capabilities so the
+        // band menu surfaces 4m/2m on FLEX-6500 / FLEX-6700 (#695).
         auto refreshXvtr = [this]() {
             if (!m_radioModel.isConnected()) return;
             QVector<SpectrumOverlayMenu::XvtrBand> xvtrBands;
@@ -8380,8 +8380,12 @@ void MainWindow::onConnectionStateChanged(bool connected)
                 if (x.isValid)
                     xvtrBands.append({x.name, x.rfFreq});
             }
-            for (auto* applet : m_panStack->allApplets())
-                applet->spectrumWidget()->overlayMenu()->setXvtrBands(xvtrBands);
+            const ModelCapabilities caps = m_radioModel.capabilities();
+            for (auto* applet : m_panStack->allApplets()) {
+                auto* menu = applet->spectrumWidget()->overlayMenu();
+                menu->setRadioCapabilities(caps);
+                menu->setXvtrBands(xvtrBands);
+            }
         };
         QTimer::singleShot(2000, this, refreshXvtr);
         connect(&m_radioModel, &RadioModel::infoChanged, this, refreshXvtr);

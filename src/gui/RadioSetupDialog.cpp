@@ -173,7 +173,6 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
     setStyleSheet("QDialog { background: #0f0f1a; }");
 
     auto* layout = new QVBoxLayout(bodyWidget());
-    layout->setContentsMargins(9, 9, 9, 9);
 
     auto* tabs = new QTabWidget;
     m_tabs = tabs;
@@ -235,7 +234,7 @@ RadioSetupDialog::RadioSetupDialog(RadioModel* model, AudioEngine* audio,
 void RadioSetupDialog::closeEvent(QCloseEvent* event)
 {
     // Persist any uncommitted "user cleared IP" edits in the Peripherals
-    // tab before the base class fires geometry-save + close.
+    // tab before the base class flushes geometry to AppSettings.
     for (const auto& saver : m_peripheralRowSavers)
         saver();
     PersistentDialog::closeEvent(event);
