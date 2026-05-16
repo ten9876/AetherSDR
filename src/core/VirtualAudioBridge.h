@@ -41,14 +41,15 @@ public:
 
     bool open();
     void close();
-    bool isOpen() const { return m_open; }
+    bool isOpen() const { return m_open.load(std::memory_order_acquire); }
 
     // DAX output gain (0.0–1.0). Default 0.25 (≈ -12 dB) to avoid
     // overloading digital-mode software like WSJT-X.
     void setGain(float g) { m_gain = std::clamp(g, 0.0f, 1.0f); }
     void setChannelGain(int channel, float g) {
         if (channel >= 1 && channel <= NUM_CHANNELS)
-            m_channelGain[channel - 1] = std::clamp(g, 0.0f, 1.0f);
+            m_channelGain[channel - 1].store(std::clamp(g, 0.0f, 1.0f),
+                                             std::memory_order_relaxed);
     }
     void setTxGain(float g) { m_txGain = std::clamp(g, 0.0f, 1.0f); }
     float gain() const { return m_gain; }
@@ -80,9 +81,14 @@ private:
         uint32_t peakBacklogSamples{0};
     };
 
-    bool m_open{false};
-    float m_gain{0.5f};  // -6 dB default
-    float m_channelGain[NUM_CHANNELS]{0.5f, 0.5f, 0.5f, 0.5f};
+    // m_open and m_channelGain are read on PanadapterStream's network thread
+    // when feedDaxAudio runs via Qt::DirectConnection (the cross-platform DAX
+    // RX fast path) and written from the GUI thread (open()/close(),
+    // DaxApplet slider).  std::atomic gives the formal happens-before guarantee
+    // that plain bool/float load/store would lack on weakly-ordered archs.
+    std::atomic_bool m_open{false};
+    float m_gain{0.5f};  // -6 dB default — GUI-only
+    std::atomic<float> m_channelGain[NUM_CHANNELS]{0.5f, 0.5f, 0.5f, 0.5f};
     float m_txGain{0.5f};
 
     // RX channels (radio → apps)
@@ -98,9 +104,20 @@ private:
     static QString shmName(int channel);
     void logRxTimingSummary(int channel, DaxShmBlock* block, RxTimingStats& stats);
 
-    bool     m_transmitting{false};
+    std::atomic_bool m_transmitting{false};
     QTimer*  m_silenceTimer{nullptr};
     QElapsedTimer m_silenceElapsed;   // tracks wall-clock time for accurate silence fill
+
+    // Wall-clock timestamp (ms) of the most recent real DAX RX packet on any
+    // channel.  Written lock-free from the audio fast path (feedDaxAudio,
+    // potentially on PanadapterStream's network thread); read by the
+    // GUI-thread silence timer to decide when to self-stop.  Replaces the
+    // old in-feedDaxAudio QTimer::stop() which was unsafe to call cross-thread.
+    std::atomic<qint64> m_lastAudioMs{0};
+
+    // Best-effort diagnostics — currently only touched by feedDaxAudio /
+    // logRxTimingSummary on the same thread.  If a future GUI-thread
+    // inspector reads these, expect torn 64-bit values; atomic-ify then.
     RxTimingStats m_rxTiming[NUM_CHANNELS];
 };
 
