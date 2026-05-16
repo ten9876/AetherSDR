@@ -98,7 +98,8 @@ public:
     int     rcaTxReqPolarity() const { return m_rcaTxReqPolarity; }
     int     maxPowerLevel()  const { return m_maxPowerLevel; }
     void    setMaxPowerLevel(int w) { if (m_maxPowerLevel != w) { m_maxPowerLevel = w; emit maxPowerLevelChanged(w); } }
-    QString tuneMode()       const { return m_tuneMode; }
+    QString tuneMode()        const { return m_tuneMode; }
+    QString txSliceMode()     const { return m_txSliceMode; }
     bool    showTxInWaterfall() const { return m_showTxInWaterfall; }
 
     // ── APD getters ─────────────────────────────────────────────────────────
@@ -252,6 +253,9 @@ signals:
     void apdSamplerChanged(const QString& txAnt);
     void apdEqualizerResetReceived();
     void maxPowerLevelChanged(int maxWatts);
+    // Emitted when the radio reports the TX slice mode (e.g. "FDVU", "FDVL", "USB").
+    // Value is empty string until the first transmit status is received.
+    void txSliceModeChanged(const QString& mode);
     void commandReady(const QString& cmd);
     void pttBlocked(const QString& message);
     // Quindar active-phase signal (#2262).  Emitted on the GUI thread
@@ -338,6 +342,7 @@ private:
     int     m_rcaTxReqPolarity{0};
     int     m_maxPowerLevel{100};
     QString m_tuneMode{"single_tone"};
+    QString m_txSliceMode;   // empty until first transmit status; "FDVU", "FDVL", "USB", etc.
     bool    m_showTxInWaterfall{false};
 
     // ATU state

@@ -30,6 +30,7 @@ void TransmitModel::resetState()
     m_memoriesEnabled = false;
     m_usingMemory = false;
     m_showTxInWaterfall = false;
+    m_txSliceMode.clear();
 
     emit apdStateChanged();
     emit moxChanged(false);
@@ -219,6 +220,10 @@ void TransmitModel::applyTransmitStatus(const QMap<QString, QString>& kvs)
     if (kvs.contains("show_tx_in_waterfall")) {
         bool v = kvs["show_tx_in_waterfall"] == "1";
         if (m_showTxInWaterfall != v) { m_showTxInWaterfall = v; changed = true; }
+    }
+    if (kvs.contains("tx_slice_mode")) {
+        QString v = kvs["tx_slice_mode"];
+        if (m_txSliceMode != v) { m_txSliceMode = v; changed = true; emit txSliceModeChanged(v); }
     }
 
     if (changed) emit stateChanged();
