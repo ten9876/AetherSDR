@@ -9218,6 +9218,12 @@ void MainWindow::onSliceAdded(SliceModel* s)
                     QMetaObject::invokeMethod(m_audio, [this]() { m_audio->setDfnrEnabled(false); });
             }
         }
+#ifdef HAVE_RADE
+        if (mode.startsWith("FDV"))
+            activateFdvDisplay(s->sliceId());
+        else if (m_fdvDisplaySliceId == s->sliceId())
+            deactivateFdvDisplay();
+#endif
     });
 
     // Update RTTY mark/space lines on spectrum when mark/shift changes
@@ -9266,6 +9272,12 @@ void MainWindow::onSliceAdded(SliceModel* s)
 
     // NR2/RN2/RADE are now wired permanently in wireVfoWidget — no
     // special handling needed here for active slice timing.
+
+#ifdef HAVE_RADE
+    // Reconnect scenario: slice may already be in FDVU/FDVL when AetherSDR connects
+    if (s->mode().startsWith("FDV"))
+        activateFdvDisplay(s->sliceId());
+#endif
 
     // Show DIV button on dual-SCU radios
     {
@@ -9362,6 +9374,9 @@ void MainWindow::onSliceRemoved(int id)
     // If the RADE slice was closed, deactivate RADE
     if (id == m_radeSliceId)
         deactivateRADE();
+    // If the FreeDV display slice was closed, deactivate the FDV display
+    if (id == m_fdvDisplaySliceId)
+        deactivateFdvDisplay();
 #endif
 
     // If the split TX slice was closed, disable split
@@ -13763,6 +13778,90 @@ void MainWindow::onRadeSliceModeChanged(const QString& mode)
     // if the mode leaves that family so audio_mute is always restored.
     if (mode != "DIGU" && mode != "DIGL")
         deactivateRADE();
+}
+
+void MainWindow::activateFdvDisplay(int sliceId)
+{
+    if (m_fdvDisplaySliceId == sliceId)
+        return;
+
+    if (m_fdvDisplaySliceId >= 0)
+        deactivateFdvDisplay();
+
+    m_fdvDisplaySliceId = sliceId;
+
+    auto* s = m_radioModel.slice(sliceId);
+    if (!s) return;
+
+    if (auto* sw = spectrumForSlice(s)) {
+        if (auto* vfo = sw->vfoWidget(sliceId)) {
+            vfo->setRadeActive(true, QStringLiteral("FreeDV"));
+            vfo->setRadeSynced(false);
+        }
+    }
+
+    m_fdvSnrMeterIndex = m_radioModel.meterModel()
+                             .findMeter("EXT_WVF", "FreeDV_SNR");
+
+    connect(&m_radioModel.meterModel(), &MeterModel::meterUpdated,
+            this, &MainWindow::onFdvMeterUpdated,
+            Qt::UniqueConnection);
+    connect(&m_radioModel, &RadioModel::metersChanged,
+            this, &MainWindow::onFdvMetersChanged,
+            Qt::UniqueConnection);
+
+    m_fdvSynced = false;
+    qCInfo(lcGui) << "MainWindow: FreeDV display activated on slice" << sliceId;
+}
+
+void MainWindow::deactivateFdvDisplay()
+{
+    if (m_fdvDisplaySliceId < 0)
+        return;
+
+    if (auto* s = m_radioModel.slice(m_fdvDisplaySliceId)) {
+        if (auto* sw = spectrumForSlice(s)) {
+            if (auto* vfo = sw->vfoWidget(m_fdvDisplaySliceId))
+                vfo->setRadeActive(false);
+        }
+    }
+
+    disconnect(&m_radioModel.meterModel(), &MeterModel::meterUpdated,
+               this, &MainWindow::onFdvMeterUpdated);
+    disconnect(&m_radioModel, &RadioModel::metersChanged,
+               this, &MainWindow::onFdvMetersChanged);
+
+    m_fdvDisplaySliceId = -1;
+    m_fdvSnrMeterIndex  = -1;
+    m_fdvSynced         = false;
+    qCInfo(lcGui) << "MainWindow: FreeDV display deactivated";
+}
+
+void MainWindow::onFdvMeterUpdated(int index, float value)
+{
+    if (index != m_fdvSnrMeterIndex || m_fdvDisplaySliceId < 0)
+        return;
+
+    auto* s = m_radioModel.slice(m_fdvDisplaySliceId);
+    if (!s) return;
+    auto* sw = spectrumForSlice(s);
+    if (!sw) return;
+    auto* vfo = sw->vfoWidget(m_fdvDisplaySliceId);
+    if (!vfo) return;
+
+    const bool synced = (value > -98.9f);
+    if (synced != m_fdvSynced) {
+        m_fdvSynced = synced;
+        vfo->setRadeSynced(synced);
+    }
+    if (synced)
+        vfo->setRadeSnr(value);
+}
+
+void MainWindow::onFdvMetersChanged()
+{
+    m_fdvSnrMeterIndex = m_radioModel.meterModel()
+                             .findMeter("EXT_WVF", "FreeDV_SNR");
 }
 
 void MainWindow::startFreeDvReporting(int sliceId)

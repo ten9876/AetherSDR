@@ -3996,8 +3996,9 @@ bool VfoWidget::eventFilter(QObject* obj, QEvent* event)
 // ── RADE status indicator ─────────────────────────────────────────────────
 
 #ifdef HAVE_RADE
-void VfoWidget::setRadeActive(bool on)
+void VfoWidget::setRadeActive(bool on, const QString& label)
 {
+    m_radeLabel = label;
     m_radeActive = on;
     if (m_radeStatusLabel) {
         m_radeStatusLabel->setVisible(on);
@@ -4024,7 +4025,7 @@ void VfoWidget::setRadeSynced(bool synced)
     if (!m_radeActive) return;
     const QString led = synced ? "<font color='#00ff88'>\u25CF</font>"
                                : "<font color='#505050'>\u25CB</font>";
-    m_radeStatusLabel->setText("RADE " + led);
+    m_radeStatusLabel->setText(m_radeLabel + " " + led);
     if (!synced) {
         m_radeSnrLabel->setStyleSheet(
             "QLabel { color: #8090a0; font-size: 10px;"

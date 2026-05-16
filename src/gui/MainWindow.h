@@ -713,6 +713,14 @@ private:
     void onRadeSliceModeChanged(const QString& mode);
     void startFreeDvReporting(int sliceId);
     void stopFreeDvReporting(int sliceId);
+    // FreeDV Docker waveform sync/SNR display state
+    int  m_fdvDisplaySliceId{-1};
+    int  m_fdvSnrMeterIndex{-1};
+    bool m_fdvSynced{false};
+    void activateFdvDisplay(int sliceId);
+    void deactivateFdvDisplay();
+    void onFdvMeterUpdated(int index, float value);
+    void onFdvMetersChanged();
 #endif
 
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)

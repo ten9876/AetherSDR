@@ -84,7 +84,7 @@ public:
     void setCollapsed(bool collapsed);
 
 #ifdef HAVE_RADE
-    void setRadeActive(bool on);
+    void setRadeActive(bool on, const QString& label = QStringLiteral("RADE"));
     void setRadeSynced(bool synced);
     void setRadeSnr(float snrDb);
     void setRadeFreqOffset(float hz);
@@ -353,6 +353,7 @@ private:
     QLabel*  m_radeSnrLabel{nullptr};       // "12dB" or "---"
     QLabel*  m_radeOffsetLabel{nullptr};    // "+125Hz" — hidden when no data
     bool     m_radeActive{false};
+    QString  m_radeLabel{"RADE"};          // badge prefix: "RADE" or "FreeDV"
 #endif
 
     static constexpr int WIDGET_W = 252;
