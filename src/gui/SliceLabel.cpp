@@ -83,8 +83,13 @@ void drawSliceBadge(QPainter& p, const QRect& rect,
 
     QFont subFont = mainFont;
     // Subscript ~70% of main font, floored at 7px so it stays readable
-    // on the smallest badge sites (spectrum markers).
-    subFont.setPixelSize(std::max(7, (mainFont.pixelSize() * 7) / 10));
+    // on the smallest badge sites.  Callers that set their badge font
+    // via setPointSize() rather than setPixelSize() get -1 from
+    // pixelSize(); fall back to the line height so the subscript still
+    // scales with the visible letter.
+    int mainPx = mainFont.pixelSize();
+    if (mainPx <= 0) mainPx = QFontMetrics(mainFont).height();
+    subFont.setPixelSize(std::max(7, (mainPx * 7) / 10));
 
     const QFontMetrics fmMain(mainFont);
     const QFontMetrics fmSub(subFont);

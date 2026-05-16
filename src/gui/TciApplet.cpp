@@ -83,6 +83,7 @@ void TciApplet::buildUI()
         m_rxStatus[i] = new QLabel(QStringLiteral("\u2014"));
         m_rxStatus[i]->setStyleSheet(kStatusLabel);
         m_rxStatus[i]->setFixedWidth(40);
+        m_rxStatus[i]->setTextFormat(Qt::RichText);  // slice letter may be HTML (#2606)
         row->addWidget(m_rxStatus[i]);
 
         m_rxMeter[i] = new MeterSlider;
@@ -115,6 +116,7 @@ void TciApplet::buildUI()
         m_txStatus = new QLabel(QStringLiteral("\u2014"));
         m_txStatus->setStyleSheet(kStatusLabel);
         m_txStatus->setFixedWidth(40);
+        m_txStatus->setTextFormat(Qt::RichText);  // slice letter may be HTML (#2606)
         row->addWidget(m_txStatus);
 
         m_txMeter = new MeterSlider;
@@ -262,7 +264,6 @@ void TciApplet::setRadioModel(RadioModel* model)
         for (auto* sl : m_model->slices()) {
             int ch = sl->daxChannel();
             if (ch >= 1 && ch <= kChannels) {
-                m_rxStatus[ch - 1]->setTextFormat(Qt::RichText);
                 m_rxStatus[ch - 1]->setText(
                     QString("Slice %1").arg(
                         SliceLabel::richText(sl->sliceId(), sl->letter())));
@@ -285,7 +286,6 @@ void TciApplet::setRadioModel(RadioModel* model)
         }
         for (auto* s : m_model->slices()) {
             if (s->isTxSlice()) {
-                m_txStatus->setTextFormat(Qt::RichText);
                 m_txStatus->setText(
                     QString("Slice %1").arg(
                         SliceLabel::richText(s->sliceId(), s->letter())));

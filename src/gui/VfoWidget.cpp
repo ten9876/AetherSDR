@@ -422,6 +422,7 @@ void VfoWidget::buildUI()
     m_sliceBadge->setFixedSize(20, 20);
     m_sliceBadge->setAlignment(Qt::AlignCenter);
     m_sliceBadge->setCursor(Qt::PointingHandCursor);
+    m_sliceBadge->setTextFormat(Qt::RichText);  // slice letter may be HTML (#2606)
     m_sliceBadge->setStyleSheet(
         "QLabel { background: #0070c0; color: #ffffff; "
         "border-radius: 3px; font-weight: bold; font-size: 11px; }");
@@ -2988,7 +2989,6 @@ void VfoWidget::syncFromSlice()
     }
     // Slice badge — display follows SliceLetterDisplay AppSettings (#2606).
     const int id = m_slice->sliceId();
-    m_sliceBadge->setTextFormat(Qt::RichText);
     m_sliceBadge->setText(SliceLabel::richText(id, m_slice->letter()));
     // Colour pairs with the visible letter: in Global mode that's the
     // global sliceId; in RadioIndexed mode it's the letter index so the

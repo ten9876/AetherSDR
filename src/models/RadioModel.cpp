@@ -921,6 +921,10 @@ void RadioModel::applyKnownGuiClients(const QStringList& handles,
         m_clientStations.clear();
         m_clientInfoMap.clear();
         m_startupClientConnections.clear();
+        // Foreign-slot dimming markers belong to per-handle state; clear
+        // them alongside so a re-sync doesn't carry stale Multi-Flex
+        // occupancy across the reset (#2606).
+        m_foreignSliceOwners.clear();
     }
 
     for (int i = 0; i < handles.size(); ++i) {
@@ -1681,6 +1685,10 @@ void RadioModel::peekForMultiFlexConflictThen(std::function<void()> continuation
         it = (it.key() != ours) ? m_clientInfoMap.erase(it) : std::next(it);
     }
     m_clientStations.clear();
+    // Foreign-slot markers are rebuilt from fresh client/slice statuses
+    // after the resub below; clear them so the tab row doesn't show
+    // pre-reconnect dim placeholders during the gap (#2606).
+    m_foreignSliceOwners.clear();
 
     // Subscribe to radio and client topics early — before client gui — to get
     // mf_enable and the live connected-client list directly from the radio.
@@ -2310,6 +2318,7 @@ void RadioModel::onDisconnected()
     m_clientStations.clear();
     m_clientInfoMap.clear();
     m_announcedClientConnections.clear();
+    m_foreignSliceOwners.clear();  // #2606: drop Multi-Flex slot markers on full reset
     m_startupClientConnections.clear();
     m_clientConnectionNoticeTimer.invalidate();
     emit otherClientsChanged(0, {});
@@ -3326,6 +3335,23 @@ void RadioModel::onStatusReceived(const QString& object,
                 m_clientInfoMap.remove(handle);
                 m_announcedClientConnections.remove(handle);
                 m_startupClientConnections.remove(handle);
+                // Drop any foreign-slot markers tied to the disconnecting
+                // handle so the RX-applet tab row stops dimming slots the
+                // client no longer owns.  A graceful disconnect usually
+                // also produces `slice N removed=1` echoes which would
+                // clear these, but hard/abrupt drops don't — covering both
+                // paths here is harmless and avoids stale dim markers
+                // (#2606).
+                auto it = m_foreignSliceOwners.begin();
+                while (it != m_foreignSliceOwners.end()) {
+                    if (it.value() == handle) {
+                        const int sliceId = it.key();
+                        it = m_foreignSliceOwners.erase(it);
+                        emit slotOccupancyChanged(sliceId);
+                    } else {
+                        ++it;
+                    }
+                }
                 emitOtherClientsChanged();
             } else if (action == "connected" || kvs.contains("connected")) {
                 QString program = cleanClientText(kvs.value("program", "Unknown"));

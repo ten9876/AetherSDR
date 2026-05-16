@@ -291,6 +291,7 @@ void RxApplet::buildUI()
         m_sliceBadge = new QLabel("A");
         m_sliceBadge->setFixedSize(20, 20);
         m_sliceBadge->setAlignment(Qt::AlignCenter);
+        m_sliceBadge->setTextFormat(Qt::RichText);  // slice letter may be HTML (#2606)
         m_sliceBadge->setStyleSheet(
             "QLabel { background: #0070c0; color: #ffffff; "
             "border-radius: 3px; font-weight: bold; font-size: 11px; }");
@@ -1339,6 +1340,11 @@ void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSl
 {
     if (m_sliceBtns.isEmpty()) return;
 
+    // Slot states drive both the QSS dynamic property and the per-button
+    // configuration branch below.  Scoped to the function so the dispatch
+    // is a typed switch rather than string compares.
+    enum class SlotState { Ours, Foreign, Empty };
+
     // Build a map: slot index → SliceModel* for open slices we own.
     QMap<int, SliceModel*> slotToSlice;
     for (auto* s : slices)
@@ -1398,6 +1404,12 @@ void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSl
     // stylesheet rebuild + setStyleSheet() on every refresh when nothing
     // colour-relevant changed (the loop runs on slot occupancy + letter
     // signals, both of which fire often).
+    //
+    // Cache key is intentionally colour-index-only.  State transitions
+    // (ours / foreign / empty) at the same colour index are handled by
+    // the `slotState` dynamic property + QSS attribute selectors via the
+    // unpolish/polish call at the bottom of the loop — so the stylesheet
+    // string itself doesn't need to change for those.
     auto applyStyleIfChanged = [](QToolButton* btn, int colourIdx,
                                    const QString& stylesheet) {
         const QVariant prev = btn->property("colourIdx");
@@ -1413,9 +1425,9 @@ void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSl
         // and what state it's in.
         int slotId = -1;
         SliceModel* ourSlice = nullptr;
-        const char* state = "empty";
+        SlotState state = SlotState::Empty;
         // The displayed sequential letter for empty slots in RadioIndexed
-        // mode — only meaningful when state == "empty" && radioIdx.
+        // mode — only meaningful when state == Empty && radioIdx.
         QChar emptyLetter('?');
 
         if (radioIdx) {
@@ -1424,28 +1436,28 @@ void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSl
             if (btnPos < ownedN) {
                 slotId = ownedSlots[btnPos];
                 ourSlice = slotToSlice[slotId];
-                state = "ours";
+                state = SlotState::Ours;
             } else if (btnPos < ownedN + emptyN) {
                 slotId = emptySlots[btnPos - ownedN];
-                state = "empty";
+                state = SlotState::Empty;
                 emptyLetter = QChar('A' + btnPos);  // sequential after owned
             } else if (btnPos < ownedN + emptyN + foreignSlots.size()) {
                 slotId = foreignSlots[btnPos - ownedN - emptyN];
-                state = "foreign";
+                state = SlotState::Foreign;
             }
         } else {
             // Global mode: button position == global slot id (original).
             slotId = btnPos;
             if (slotToSlice.contains(btnPos)) {
                 ourSlice = slotToSlice[btnPos];
-                state = "ours";
+                state = SlotState::Ours;
             } else if (m_radioModel && m_radioModel->isSlotForeign(btnPos)) {
-                state = "foreign";
+                state = SlotState::Foreign;
             }
         }
 
         // Apply text + state-specific bits.
-        if (qstrcmp(state, "ours") == 0) {
+        if (state == SlotState::Ours) {
             btn->setText(SliceLabel::unicodeForm(slotId, ourSlice->letter()));
             btn->setEnabled(true);
             btn->setProperty("sliceId", slotId);
@@ -1460,7 +1472,7 @@ void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSl
             // Colour pairs with the displayed letter in RadioIndexed mode.
             const int colourIdx = SliceLabel::displayColorIndex(slotId, ourSlice->letter());
             applyStyleIfChanged(btn, colourIdx, buildButtonStyle(colourIdx));
-        } else if (qstrcmp(state, "foreign") == 0) {
+        } else if (state == SlotState::Foreign) {
             // Foreign slots always render as "—" so they're visually
             // distinguishable from empty slots even with the dim styling
             // — colour-blind users couldn't separate grey/dim letters
@@ -1639,7 +1651,6 @@ void RxApplet::connectSlice(SliceModel* s)
     // ── Header ─────────────────────────────────────────────────────────────
 
     // Slice badge — display follows SliceLetterDisplay AppSettings (#2606).
-    m_sliceBadge->setTextFormat(Qt::RichText);
     m_sliceBadge->setText(SliceLabel::richText(s->sliceId(), s->letter()));
     const int sid = s->sliceId();
     // Colour pairs with the visible letter — see SliceLabel::displayColorIndex.
@@ -1665,7 +1676,6 @@ void RxApplet::connectSlice(SliceModel* s)
     // index_letter after slice creation (#2606).
     connect(s, &SliceModel::letterChanged, this,
             [this, s](const QString&) {
-        m_sliceBadge->setTextFormat(Qt::RichText);
         m_sliceBadge->setText(SliceLabel::richText(s->sliceId(), s->letter()));
         // Tab row also needs to pick up the new letter on the active
         // slice's button.

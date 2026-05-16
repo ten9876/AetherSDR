@@ -50,6 +50,7 @@ PanadapterApplet::PanadapterApplet(QWidget* parent)
     m_titleLabel = new QLabel("Slice A");
     m_titleLabel->setStyleSheet("QLabel { background: transparent; color: #8aa8c0; "
                                 "font-size: 10px; font-weight: bold; }");
+    m_titleLabel->setTextFormat(Qt::RichText);  // slice letter may be HTML (#2606)
     barLayout->addWidget(m_titleLabel);
     barLayout->addStretch();
 
@@ -328,7 +329,6 @@ void PanadapterApplet::setFloatingState(bool floating)
 
 void PanadapterApplet::setSliceId(int id, const QString& perClientLetter)
 {
-    m_titleLabel->setTextFormat(Qt::RichText);
     m_titleLabel->setText(
         QString("Slice %1").arg(SliceLabel::richText(id, perClientLetter)));
 }

@@ -90,6 +90,7 @@ void DaxApplet::buildUI()
         m_daxRxStatus[i] = new QLabel(QStringLiteral("\u2014"));
         m_daxRxStatus[i]->setStyleSheet(kStatusLabel);
         m_daxRxStatus[i]->setFixedWidth(40);
+        m_daxRxStatus[i]->setTextFormat(Qt::RichText);  // slice letter may be HTML (#2606)
         row->addWidget(m_daxRxStatus[i]);
 
         m_daxRxMeter[i] = new MeterSlider;
@@ -121,6 +122,7 @@ void DaxApplet::buildUI()
     m_daxTxStatus = new QLabel(QStringLiteral("\u2014"));
     m_daxTxStatus->setStyleSheet(kStatusLabel);
     m_daxTxStatus->setFixedWidth(40);
+    m_daxTxStatus->setTextFormat(Qt::RichText);  // slice letter may be HTML (#2606)
     txRow->addWidget(m_daxTxStatus);
 
     m_daxTxMeter = new MeterSlider;
@@ -160,7 +162,6 @@ void DaxApplet::setRadioModel(RadioModel* model)
             for (auto* sl : m_model->slices()) {
                 int ch = sl->daxChannel();
                 if (ch >= 1 && ch <= kChannels) {
-                    m_daxRxStatus[ch - 1]->setTextFormat(Qt::RichText);
                     m_daxRxStatus[ch - 1]->setText(
                         QString("Slice %1").arg(
                             SliceLabel::richText(sl->sliceId(), sl->letter())));
@@ -177,7 +178,6 @@ void DaxApplet::setRadioModel(RadioModel* model)
         }
         for (auto* s : m_model->slices()) {
             if (s->isTxSlice()) {
-                m_daxTxStatus->setTextFormat(Qt::RichText);
                 m_daxTxStatus->setText(
                     QString("Slice %1").arg(
                         SliceLabel::richText(s->sliceId(), s->letter())));
