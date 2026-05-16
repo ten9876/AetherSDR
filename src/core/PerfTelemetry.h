@@ -10,6 +10,8 @@
 
 namespace AetherSDR {
 
+class PerfTelemetryTestAccess;
+
 class PerfTelemetry final {
 public:
     enum class FrameKind {
@@ -121,6 +123,8 @@ private:
     std::atomic_bool m_wasEnabled{false};
     std::atomic_bool m_dragActive{false};
     std::atomic<int> m_waterfallLineDurationMs{0};
+
+    friend class PerfTelemetryTestAccess;
 };
 
 } // namespace AetherSDR
