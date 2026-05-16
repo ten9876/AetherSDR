@@ -1,5 +1,6 @@
 #include "EqApplet.h"
 #include "GuardedSlider.h"
+#include "core/AppSettings.h"
 
 #include <QPushButton>
 #include <QLabel>
@@ -8,6 +9,8 @@
 #include <QHBoxLayout>
 #include <QSignalBlocker>
 #include <QPainter>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <cmath>
 
 namespace AetherSDR {
@@ -91,6 +94,15 @@ EqApplet::EqApplet(QWidget* parent)
 
 void EqApplet::buildUI()
 {
+    // Restore last-selected RX/TX view from settings (Principle V: nested
+    // JSON per feature). Defaults to TX so first-launch behavior is unchanged.
+    {
+        auto& s = AppSettings::instance();
+        const QJsonObject cfg = QJsonDocument::fromJson(
+            s.value("EqApplet", "{}").toString().toUtf8()).object();
+        m_showTx = cfg.value("showTx").toBool(true);
+    }
+
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
@@ -139,6 +151,7 @@ void EqApplet::buildUI()
 
         m_rxBtn = new QPushButton("RX");
         m_rxBtn->setCheckable(true);
+        m_rxBtn->setChecked(!m_showTx);
         m_rxBtn->setFixedSize(36, 22);
         m_rxBtn->setAccessibleName("RX equalizer");
         m_rxBtn->setAccessibleDescription("Show receive equalizer bands");
@@ -147,7 +160,7 @@ void EqApplet::buildUI()
 
         m_txBtn = new QPushButton("TX");
         m_txBtn->setCheckable(true);
-        m_txBtn->setChecked(true);  // start on TX view
+        m_txBtn->setChecked(m_showTx);
         m_txBtn->setFixedSize(36, 22);
         m_txBtn->setAccessibleName("TX equalizer");
         m_txBtn->setAccessibleDescription("Show transmit equalizer bands");
@@ -159,12 +172,14 @@ void EqApplet::buildUI()
             m_showTx = false;
             m_rxBtn->setChecked(true);
             m_txBtn->setChecked(false);
+            persistViewSelection();
             syncFromModel();
         });
         connect(m_txBtn, &QPushButton::clicked, this, [this]() {
             m_showTx = true;
             m_txBtn->setChecked(true);
             m_rxBtn->setChecked(false);
+            persistViewSelection();
             syncFromModel();
         });
 
@@ -293,6 +308,17 @@ void EqApplet::buildUI()
 
         vbox->addLayout(row);
     }
+}
+
+void EqApplet::persistViewSelection()
+{
+    auto& s = AppSettings::instance();
+    QJsonObject cfg = QJsonDocument::fromJson(
+        s.value("EqApplet", "{}").toString().toUtf8()).object();
+    cfg["showTx"] = m_showTx;
+    s.setValue("EqApplet", QString::fromUtf8(
+        QJsonDocument(cfg).toJson(QJsonDocument::Compact)));
+    s.save();
 }
 
 // ── Model binding ────────────────────────────────────────────────────────────

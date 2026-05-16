@@ -30,6 +30,7 @@ private:
     void buildUI();
     void syncFromModel();
     void updateActiveHighlight();
+    void persistViewSelection();
 
     EqualizerModel* m_model{nullptr};
     bool m_updatingFromModel{false};
