@@ -1,6 +1,7 @@
 #pragma once
 
-#include <QDialog>
+#include "PersistentDialog.h"
+
 #include <QLabel>
 #include <QTimer>
 #include <QEvent>
@@ -10,16 +11,14 @@
 
 class QNetworkAccessManager;
 class QFrame;
-class QVBoxLayout;
 
 namespace AetherSDR {
 
-class PropDashboardDialog : public QDialog {
+class PropDashboardDialog : public PersistentDialog {
     Q_OBJECT
 
 public:
     explicit PropDashboardDialog(PropForecastClient* client, QWidget* parent = nullptr);
-    void setFramelessMode(bool on);
 
 private:
     bool eventFilter(QObject* obj, QEvent* ev) override;
@@ -31,8 +30,6 @@ private:
     static QString kpColor(double kp);
 
     PropForecastClient* m_client;
-    QWidget* m_titleBar{nullptr};
-    QVBoxLayout* m_bodyLayout{nullptr};
     QNetworkAccessManager* m_nam{nullptr};
     QTimer m_refreshTimer;
 

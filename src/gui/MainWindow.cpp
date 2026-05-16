@@ -5514,17 +5514,7 @@ QJsonObject MainWindow::buildControlDevicesSnapshot() const
 
 void MainWindow::showPropDashboard()
 {
-    if (!m_propDashboardDialog) {
-        auto* dlg = new PropDashboardDialog(m_propForecast, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        dlg->setModal(false);
-        dlg->setWindowModality(Qt::NonModal);
-        m_propDashboardDialog = dlg;
-    }
-
-    m_propDashboardDialog->show();
-    m_propDashboardDialog->raise();
-    m_propDashboardDialog->activateWindow();
+    showOrRaisePersistent(m_propDashboardDialog, m_propForecast);
 }
 
 void MainWindow::beginSliderShortcutLease(QAbstractSlider* slider)
@@ -11631,8 +11621,6 @@ void MainWindow::setFramelessWindow(bool on)
         m_appletPanel->containerManager()->setFramelessMode(on);
     if (m_connPanel)
         m_connPanel->setFramelessMode(on);
-    if (auto* dlg = qobject_cast<PropDashboardDialog*>(m_propDashboardDialog))
-        dlg->setFramelessMode(on);
     if (auto* dlg = qobject_cast<RadioSetupDialog*>(m_radioSetupDialog))
         dlg->setFramelessMode(on);
     if (m_txBandDialog) {

@@ -1,7 +1,5 @@
 #include "PropDashboardDialog.h"
 #include "core/AppSettings.h"
-#include "FramelessResizer.h"
-#include "FramelessWindowTitleBar.h"
 
 #include <QColor>
 #include <QDateTime>
@@ -367,9 +365,10 @@ QString PropDashboardDialog::kpColor(double kp)
 }
 
 PropDashboardDialog::PropDashboardDialog(PropForecastClient* client, QWidget* parent)
-    : QDialog(parent), m_client(client)
+    : PersistentDialog(QStringLiteral("HF Propagation Dashboard"),
+                       QStringLiteral("PropDashboardDialogGeometry"), parent),
+      m_client(client)
 {
-    setWindowTitle("HF Propagation Dashboard");
     setStyleSheet(kDialogStyle);
 
     const QScreen* screen = parentWidget() && parentWidget()->screen()
@@ -385,20 +384,9 @@ PropDashboardDialog::PropDashboardDialog(PropForecastClient* client, QWidget* pa
 
     m_nam = new QNetworkAccessManager(this);
 
-    auto* outer = new QVBoxLayout(this);
-    outer->setContentsMargins(0, 0, 0, 0);
-    outer->setSpacing(0);
-
-    auto* titleBar = new FramelessWindowTitleBar(QStringLiteral("HF Propagation Dashboard"), this);
-    m_titleBar = titleBar;
-    outer->addWidget(titleBar);
-
-    auto* bodyWidget = new QWidget(this);
-    auto* root = new QVBoxLayout(bodyWidget);
+    auto* root = new QVBoxLayout(bodyWidget());
     root->setContentsMargins(10, 10, 10, 10);
     root->setSpacing(10);
-    m_bodyLayout = root;
-    outer->addWidget(bodyWidget, 1);
 
     auto* scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
@@ -831,32 +819,6 @@ PropDashboardDialog::PropDashboardDialog(PropForecastClient* client, QWidget* pa
         fetchImages();
     });
     m_refreshTimer.start();
-
-    FramelessResizer::install(this);
-    setFramelessMode(
-        AppSettings::instance().value("FramelessWindow", "True").toString() == "True");
-}
-
-void PropDashboardDialog::setFramelessMode(bool on)
-{
-    const QRect geom = geometry();
-    const bool wasVisible = isVisible();
-
-    Qt::WindowFlags flags = (windowFlags() & ~Qt::WindowType_Mask) | Qt::Dialog;
-    flags.setFlag(Qt::FramelessWindowHint, on);
-    setWindowFlags(flags);
-    if (wasVisible) {
-        setGeometry(geom);
-    }
-    if (m_titleBar) {
-        m_titleBar->setVisible(on);
-    }
-    if (m_bodyLayout) {
-        m_bodyLayout->setContentsMargins(10, on ? 8 : 10, 10, 10);
-    }
-    if (wasVisible) {
-        show();
-    }
 }
 
 void PropDashboardDialog::fetchImages()
