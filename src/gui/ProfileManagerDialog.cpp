@@ -103,10 +103,15 @@ QWidget* ProfileManagerDialog::buildProfileTab(const QString& type,
     nameEdit->setPlaceholderText("New Profile Name");
     vbox->addWidget(nameEdit);
 
-    // Buttons: Load, Save, Delete
+    // Buttons: Load, Save/Create, Delete.
+    // FlexLib (Radio.cs:8394, 8435) marks `profile transmit/mic save` obsolete
+    // with `error: true` — only the global profile supports an explicit overwrite
+    // command. TX/Mic profiles update via autosave instead, so the button on
+    // those tabs is labelled "Create" to reflect what the radio actually does.
     auto* btnRow = new QHBoxLayout;
     auto* loadBtn = new QPushButton("Load");
-    auto* saveBtn = new QPushButton("Save");
+    const bool isGlobal = (type == "global");
+    auto* saveBtn = new QPushButton(isGlobal ? "Save" : "Create");
     auto* deleteBtn = new QPushButton("Delete");
 
     loadBtn->setEnabled(false);
@@ -116,6 +121,16 @@ QWidget* ProfileManagerDialog::buildProfileTab(const QString& type,
     btnRow->addWidget(saveBtn);
     btnRow->addWidget(deleteBtn);
     vbox->addLayout(btnRow);
+
+    if (!isGlobal) {
+        auto* note = new QLabel(
+            "Updates to existing profiles save automatically — enable\n"
+            "Auto-Save (next tab) so changes follow the active profile.\n"
+            "Create makes a new profile; it does not overwrite an existing one.");
+        note->setStyleSheet("QLabel { color: #6888a0; font-size: 11px; }");
+        note->setWordWrap(true);
+        vbox->addWidget(note);
+    }
 
     // Profile list
     auto* list = new QListWidget;
@@ -165,8 +180,10 @@ QWidget* ProfileManagerDialog::buildProfileTab(const QString& type,
             m_model->sendCommand(QString("profile mic load \"%1\"").arg(name));
     });
 
-    // Save button — saves current state under the name in the text field
-    // (or the selected list item if field is empty)
+    // Save/Create button — Global truly saves (creates or overwrites); TX/Mic
+    // can only create (FlexLib Radio.cs:8394, 8435). For TX/Mic, refuse to
+    // silently no-op against an existing name: explain the autosave model so
+    // the user knows their updates aren't being captured.
     connect(saveBtn, &QPushButton::clicked, this, [this, type, nameEdit, list] {
         QString name = nameEdit->text().trimmed();
         if (name.isEmpty()) {
@@ -175,12 +192,32 @@ QWidget* ProfileManagerDialog::buildProfileTab(const QString& type,
         }
         if (name.isEmpty()) return;
 
-        if (type == "global")
+        if (type == "global") {
             m_model->sendCommand(QString("profile global save \"%1\"").arg(name));
-        else if (type == "transmit")
-            m_model->sendCommand(QString("profile transmit create \"%1\"").arg(name));
-        else if (type == "mic")
-            m_model->sendCommand(QString("profile mic create \"%1\"").arg(name));
+        } else {
+            bool exists = false;
+            for (int i = 0; i < list->count(); ++i) {
+                if (list->item(i)->text() == name) { exists = true; break; }
+            }
+            if (exists) {
+                const QString kind = (type == "transmit") ? "TX" : "Mic";
+                const QString autoState = m_model->autoSave() ? "ON" : "OFF";
+                QMessageBox::information(this, "Profile already exists",
+                    QString("A %1 profile named \"%2\" already exists.\n\n"
+                            "The radio cannot overwrite %1 profiles directly. "
+                            "Updates are captured by Auto-Save (currently %3) "
+                            "while the profile is active.\n\n"
+                            "To replace this profile, delete it first and then "
+                            "Create it again, or enable Auto-Save on the "
+                            "next tab so future changes follow it automatically.")
+                        .arg(kind, name, autoState));
+                return;
+            }
+            if (type == "transmit")
+                m_model->sendCommand(QString("profile transmit create \"%1\"").arg(name));
+            else
+                m_model->sendCommand(QString("profile mic create \"%1\"").arg(name));
+        }
 
         nameEdit->clear();
         // Radio will push updated list via status
