@@ -11501,7 +11501,15 @@ void MainWindow::setAppletPanelDockedLeft(bool left)
     // setFixedWidth(260) then visibly caps but leaves the remainder as
     // an unallocated blank strip.  Reassign sizes by widget identity using
     // the panel's actual maximum width (== fixed width).
-    const int total = m_splitter->width();
+    //
+    // When called during buildUI() (issue #2704: restart with
+    // AppletPanelDockedLeft=True), the splitter isn't laid out yet and
+    // m_splitter->width() is 0 — falling back to the MainWindow's width()
+    // matches the source buildUI() itself uses for its initial centerWidth,
+    // so the panstack gets its slot instead of being squeezed to a sliver.
+    int total = m_splitter->width();
+    if (total <= 0)
+        total = width();
     if (total > 0) {
         const int appletW = m_appletPanel->maximumWidth();
         const int centerW = qMax(200, total - appletW);
