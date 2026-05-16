@@ -14,6 +14,8 @@
 #include <QKeyEvent>
 #include <QPainter>
 #include <QScrollBar>
+#include <QContextMenuEvent>
+#include <QMenu>
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QTimer>
@@ -28,6 +30,8 @@ public:
     {
         recalcSize();
     }
+
+    QString text() const { return m_text; }
 
     void resizeEvent(QResizeEvent*) override { recalcSize(); }
 
@@ -417,6 +421,7 @@ void CwxPanel::sendBuffer()
         // Add painted bubble to history scroll area
         QString ts = QDateTime::currentDateTime().toString("HH:mm:ss");
         auto* bubble = new CwxBubble(text, ts, m_historyContainer);
+        bubble->installEventFilter(this);
         m_historyLayout->addWidget(bubble);
         // Keep scrolled to bottom
         QTimer::singleShot(10, this, [this]() {
@@ -479,5 +484,51 @@ bool AetherSDR::CwxPanel::eventFilter(QObject* obj, QEvent* event)
             return true;
         }
     }
+    // Context menu on history bubbles
+    if (auto* bubble = dynamic_cast<CwxBubble*>(obj)) {
+        if (event->type() == QEvent::ContextMenu) {
+            auto* ce = static_cast<QContextMenuEvent*>(event);
+            QMenu menu(this);
+            menu.setStyleSheet(
+                "QMenu { background: #1a2a3a; color: #c8d8e8; border: 1px solid #304050; }"
+                "QMenu::item:selected { background: #00b4d8; color: #000; }");
+            QAction* resendAction = menu.addAction("Resend");
+            menu.addSeparator();
+            QAction* clearAction  = menu.addAction("Clear History");
+            QAction* chosen = menu.exec(ce->globalPos());
+            if (chosen == resendAction) {
+                resendText(bubble->text());
+            } else if (chosen == clearAction) {
+                clearHistory();
+            }
+            return true;
+        }
+    }
+
     return QWidget::eventFilter(obj, event);
+}
+
+void AetherSDR::CwxPanel::resendText(const QString& text)
+{
+    if (!m_model || !m_historyLayout || text.isEmpty()) { return; }
+    QString ts = QDateTime::currentDateTime().toString("HH:mm:ss");
+    auto* bubble = new CwxBubble(text, ts, m_historyContainer);
+    bubble->installEventFilter(this);
+    m_historyLayout->addWidget(bubble);
+    QTimer::singleShot(10, this, [this]() {
+        auto* sb = m_historyScroll->verticalScrollBar();
+        sb->setValue(sb->maximum());
+    });
+    m_model->send(text);
+}
+
+void AetherSDR::CwxPanel::clearHistory()
+{
+    if (!m_historyLayout) { return; }
+    // Index 0 is the stretch spacer added in buildSendView(); indices 1+ are bubbles.
+    while (m_historyLayout->count() > 1) {
+        QLayoutItem* item = m_historyLayout->takeAt(1);
+        delete item->widget();
+        delete item;
+    }
 }

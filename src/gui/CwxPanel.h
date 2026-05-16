@@ -55,6 +55,8 @@ private:
     void showSendView();
     void showSetupView();
     void sendBuffer();
+    void resendText(const QString& text);
+    void clearHistory();
     void onKeyPress(const QString& text);
 
     CwxModel*       m_model{nullptr};
