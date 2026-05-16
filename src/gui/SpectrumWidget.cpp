@@ -3318,6 +3318,19 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
                     setSpectrumCursor(Qt::PointingHandCursor);
                 else
                     setSpectrumCursor(Qt::SizeVerCursor);
+                // Surface the Ctrl-drag span-zoom affordance (#2724).
+                const QRect stripRect(stripX, 0, DBM_STRIP_W, specH);
+                static const QString tip = QStringLiteral(
+                    "<b>dBm scale</b><br>"
+                    "Drag &mdash; pan reference level<br>"
+#ifdef Q_OS_MAC
+                    "Ctrl-drag or &#8984;-drag &mdash; zoom span (anchor at bottom)<br>"
+#else
+                    "Ctrl-drag &mdash; zoom span (anchor at bottom)<br>"
+#endif
+                    "&#9650; / &#9660; &mdash; &plusmn;10 dB steps");
+                QToolTip::showText(ev->globalPosition().toPoint() + QPoint(0, 20),
+                                   tip, this, stripRect);
             } else {
                 // Check if hovering over a filter edge or inactive slice marker
                 bool foundCursor = false;
