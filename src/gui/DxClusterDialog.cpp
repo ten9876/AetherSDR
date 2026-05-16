@@ -1,4 +1,5 @@
 #include "DxClusterDialog.h"
+#include "DxClusterStartupCommandsDialog.h"
 #include "GuardedSlider.h"
 #include "core/DxClusterClient.h"
 #include "core/AppSettings.h"
@@ -716,6 +717,21 @@ void DxClusterDialog::buildClusterTab(QTabWidget* tabs)
         s.save();
     });
     btnRow->addWidget(m_autoConnectBtn);
+
+    // Startup-commands editor: writes "DxClusterStartupCommands" which
+    // DxClusterClient::sendStartupCommands() replays after every login
+    // (#2683).
+    auto* startupBtn = new QPushButton("Startup Commands…");
+    startupBtn->setToolTip(
+        "Edit cluster commands sent automatically after every login.\n"
+        "One command per line — e.g. SET/NAME, SET/QTH, ACCEPT/SPOT.");
+    startupBtn->setStyleSheet(kSpotHubToggle);
+    connect(startupBtn, &QPushButton::clicked, this, [this] {
+        DxClusterStartupCommandsDialog::edit(
+            "DX Cluster Startup Commands",
+            "DxClusterStartupCommands", this);
+    });
+    btnRow->addWidget(startupBtn);
     btnRow->addStretch();
 
     m_statusLabel = new QLabel("Disconnected");
@@ -904,6 +920,21 @@ void DxClusterDialog::buildRbnTab(QTabWidget* tabs)
         s.save();
     });
     btnRow->addWidget(m_rbnAutoConnectBtn);
+
+    // Startup-commands editor (RBN instance — independent AppSettings key
+    // from the DX-cluster tab, see MainWindow setStartupCommandsKey wiring
+    // for the corresponding backend hook).
+    auto* rbnStartupBtn = new QPushButton("Startup Commands…");
+    rbnStartupBtn->setToolTip(
+        "Edit RBN cluster commands sent automatically after every login.\n"
+        "One command per line — e.g. SET/NAME, SET/QTH, ACCEPT/SPOT.");
+    rbnStartupBtn->setStyleSheet(kSpotHubToggle);
+    connect(rbnStartupBtn, &QPushButton::clicked, this, [this] {
+        DxClusterStartupCommandsDialog::edit(
+            "RBN Startup Commands",
+            "RbnStartupCommands", this);
+    });
+    btnRow->addWidget(rbnStartupBtn);
     btnRow->addStretch();
 
     m_rbnStatusLabel = new QLabel("Disconnected");

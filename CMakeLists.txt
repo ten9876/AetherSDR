@@ -569,6 +569,7 @@ set(GUI_SOURCES
     src/gui/ClientRxDspApplet.cpp
     src/gui/DspParamPopup.cpp
     src/gui/DxClusterDialog.cpp
+    src/gui/DxClusterStartupCommandsDialog.cpp
     src/gui/CwxPanel.cpp
     src/gui/BandStackPanel.cpp
     src/gui/FramelessWindowTitleBar.cpp
