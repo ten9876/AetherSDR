@@ -56,7 +56,14 @@ public:
     void updateSplitBadge(bool isTxSlice, bool splitActive);
 
     // Flag direction hint for deconfliction.
-    enum FlagDir { Auto, ForceLeft, ForceRight };
+    //   Auto/ForceLeft/ForceRight participate in the 20-px edge-clip flip:
+    //   if the panel would overrun the spectrum edge, it flips to the other
+    //   side so the panel stays visible.
+    //   LockLeft/LockRight disable that flip and hold the requested side
+    //   even if the panel overruns the edge. Used by split pairs so the
+    //   RX/TX panels stay on their opposite sides instead of collapsing
+    //   onto the same side when the pair is near a pan edge (#2663).
+    enum FlagDir { Auto, ForceLeft, ForceRight, LockLeft, LockRight };
 
     // Reposition relative to VFO marker x coordinate.
     void updatePosition(int vfoX, int specTop, FlagDir dir = Auto);

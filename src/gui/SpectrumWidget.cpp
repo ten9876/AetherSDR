@@ -4877,14 +4877,17 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 if (vfos[j].sliceId == vfos[i].splitPartner) { pi = j; break; }
             }
             if (pi < 0) continue;
+            // Split partners stay locked to opposite sides regardless of
+            // edge proximity (#2663).  Flipping a partner when near an
+            // edge would collapse both panels onto the same side and the
+            // RX/TX panels would visually overlap; the panadapter is the
+            // user's spatial frame and the side-locking is the whole point
+            // of the split affordance.  The outward-facing panel may clip
+            // the pan edge — the user pans toward center to read it.
             int leftIdx  = (vfos[i].x <= vfos[pi].x) ? i : pi;
             int rightIdx = (leftIdx == i) ? pi : i;
-            dirMap[vfos[leftIdx].sliceId]  = VfoWidget::ForceLeft;
-            dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceRight;
-            if (vfos[leftIdx].x < panelW)
-                dirMap[vfos[leftIdx].sliceId] = VfoWidget::ForceRight;
-            if (vfos[rightIdx].x + panelW > specW)
-                dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceLeft;
+            dirMap[vfos[leftIdx].sliceId]  = VfoWidget::LockLeft;
+            dirMap[vfos[rightIdx].sliceId] = VfoWidget::LockRight;
         }
 
         for (const auto& so : m_sliceOverlays) {
@@ -5094,17 +5097,17 @@ void SpectrumWidget::paintEvent(QPaintEvent* ev)
             }
             if (pi < 0) continue;
 
-            // Left partner flies left, right partner flies right
+            // Left partner flies left, right partner flies right.
+            // Split partners stay locked to opposite sides regardless of
+            // edge proximity (#2663).  Flipping a partner when near an
+            // edge would collapse both panels onto the same side and the
+            // RX/TX panels would visually overlap.  The outward-facing
+            // panel may clip the pan edge — the user pans toward center
+            // to read it.  Mirrors the GPU path block above.
             int leftIdx  = (vfos[i].x <= vfos[pi].x) ? i : pi;
             int rightIdx = (leftIdx == i) ? pi : i;
-            dirMap[vfos[leftIdx].sliceId]  = VfoWidget::ForceLeft;
-            dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceRight;
-
-            // Edge clamp
-            if (vfos[leftIdx].x < panelW)
-                dirMap[vfos[leftIdx].sliceId] = VfoWidget::ForceRight;
-            if (vfos[rightIdx].x + panelW > specW)
-                dirMap[vfos[rightIdx].sliceId] = VfoWidget::ForceLeft;
+            dirMap[vfos[leftIdx].sliceId]  = VfoWidget::LockLeft;
+            dirMap[vfos[rightIdx].sliceId] = VfoWidget::LockRight;
         }
 
         // Second pass: assign remaining (non-split) VFOs

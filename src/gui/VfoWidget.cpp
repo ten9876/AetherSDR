@@ -2154,10 +2154,15 @@ void VfoWidget::updatePosition(int vfoX, int specTop, FlagDir dir)
 {
     const int w = width();
     bool onLeft = true;
+    // Split pairs pass LockLeft/LockRight so the panels stay on their
+    // outward-facing sides even when one is near a pan edge. Without
+    // the lock, the edge-clip flip below would collapse both panels
+    // onto the same side and they would visually overlap (#2663).
+    const bool lockedSide = (dir == LockLeft || dir == LockRight);
 
-    if (dir == ForceLeft) {
+    if (dir == ForceLeft || dir == LockLeft) {
         onLeft = true;
-    } else if (dir == ForceRight) {
+    } else if (dir == ForceRight || dir == LockRight) {
         onLeft = false;
     } else {
         // Auto: use mode-based default
@@ -2177,16 +2182,18 @@ void VfoWidget::updatePosition(int vfoX, int specTop, FlagDir dir)
     int x;
     if (onLeft) {
         x = vfoX - w;
-        // Flip to right only when clearly clipping the left edge
-        if (x < -kEdgeHysteresis) {
+        // Flip to right only when clearly clipping the left edge.
+        // Split pairs (lockedSide) skip the flip so RX/TX stay opposite.
+        if (!lockedSide && x < -kEdgeHysteresis) {
             x = vfoX;
             onLeft = false;
         }
     } else {
         x = vfoX;
-        // Flip to left only when clearly clipping the right edge
+        // Flip to left only when clearly clipping the right edge.
+        // Split pairs (lockedSide) skip the flip so RX/TX stay opposite.
         const int parentW = parentWidget() ? parentWidget()->width() : INT_MAX;
-        if (x + w > parentW + kEdgeHysteresis) {
+        if (!lockedSide && x + w > parentW + kEdgeHysteresis) {
             x = vfoX - w;
             onLeft = true;
         }
