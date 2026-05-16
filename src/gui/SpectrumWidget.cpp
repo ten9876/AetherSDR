@@ -6478,6 +6478,8 @@ void SpectrumWidget::showSpotClusterPopup(const SpotCluster& cluster, const QPoi
                 emit spotTriggered(spot.index);
             } else {
                 emit frequencyClicked(spot.freqMhz);
+                // Mirror direct-click path so the radio sees the spot click (#2680, #341)
+                emit spotTriggered(spot.index);
             }
         });
     }
