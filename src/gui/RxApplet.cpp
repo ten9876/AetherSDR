@@ -1394,6 +1394,18 @@ void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSl
             .arg(color);
     };
 
+    // Cache the last applied colour index per button so we skip the
+    // stylesheet rebuild + setStyleSheet() on every refresh when nothing
+    // colour-relevant changed (the loop runs on slot occupancy + letter
+    // signals, both of which fire often).
+    auto applyStyleIfChanged = [](QToolButton* btn, int colourIdx,
+                                   const QString& stylesheet) {
+        const QVariant prev = btn->property("colourIdx");
+        if (prev.isValid() && prev.toInt() == colourIdx) return;
+        btn->setProperty("colourIdx", colourIdx);
+        btn->setStyleSheet(stylesheet);
+    };
+
     for (int btnPos = 0; btnPos < m_sliceBtns.size(); ++btnPos) {
         auto* btn = m_sliceBtns[btnPos];
 
@@ -1447,7 +1459,7 @@ void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSl
             btn->setChecked(slotId == activeSliceId);
             // Colour pairs with the displayed letter in RadioIndexed mode.
             const int colourIdx = SliceLabel::displayColorIndex(slotId, ourSlice->letter());
-            btn->setStyleSheet(buildButtonStyle(colourIdx));
+            applyStyleIfChanged(btn, colourIdx, buildButtonStyle(colourIdx));
         } else if (qstrcmp(state, "foreign") == 0) {
             // Foreign slots always render as "—" so they're visually
             // distinguishable from empty slots even with the dim styling
@@ -1468,7 +1480,7 @@ void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSl
                                       .arg(QChar('A' + slotId)).arg(owner));
             // Foreign keeps its global slot colour as the base palette;
             // the slotState QSS override paints it in the dim grey scheme.
-            btn->setStyleSheet(buildButtonStyle(slotId));
+            applyStyleIfChanged(btn, slotId, buildButtonStyle(slotId));
         } else {
             // Empty / available slot.  In Global mode show the global
             // letter for the slot.  In RadioIndexed mode show the
@@ -1492,7 +1504,7 @@ void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSl
             btn->setProperty("sliceId", QVariant());
             btn->setProperty("slotState", "empty");
             btn->setToolTip(QString("Slot %1 — empty").arg(QChar('A' + colourPos)));
-            btn->setStyleSheet(buildButtonStyle(colourIdx));
+            applyStyleIfChanged(btn, colourIdx, buildButtonStyle(colourIdx));
         }
         // Force a stylesheet re-evaluation so the slotState property change
         // is picked up by the QSS attribute selectors.

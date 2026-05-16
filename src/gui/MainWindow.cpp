@@ -6295,6 +6295,14 @@ void MainWindow::buildMenuBar()
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
                 m_txBandAction, &QAction::trigger);
+        // Same Multi-Flex display-mode refresh wiring as the primary
+        // Radio Setup entrypoint — keep both code paths in sync so a
+        // toggle from the Serial shortcut still triggers a live repaint.
+        connect(dlg, &RadioSetupDialog::sliceLetterDisplayModeChanged,
+                this, [this]() {
+            for (auto* s : m_radioModel.slices())
+                s->emitLetterRefresh();
+        });
         if (auto* tabs = dlg->findChild<QTabWidget*>()) {
             for (int i = 0; i < tabs->count(); ++i) {
                 if (tabs->tabText(i) == "Serial") {

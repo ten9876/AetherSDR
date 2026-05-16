@@ -1274,6 +1274,14 @@ target_include_directories(slice_label_test PRIVATE src)
 target_link_libraries(slice_label_test PRIVATE Qt6::Gui)
 add_test(NAME slice_label_test COMMAND slice_label_test)
 
+add_executable(slice_model_letter_test
+    tests/slice_model_letter_test.cpp
+    src/models/SliceModel.cpp
+)
+target_include_directories(slice_model_letter_test PRIVATE src)
+target_link_libraries(slice_model_letter_test PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME slice_model_letter_test COMMAND slice_model_letter_test)
+
 add_executable(client_quindar_test
     tests/client_quindar_test.cpp
     src/core/ClientQuindarTone.cpp

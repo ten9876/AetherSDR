@@ -2667,7 +2667,9 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
             if (!m_offScreenRects[oi].isNull() &&
                 m_offScreenRects[oi].contains(QPoint(mx, y))) {
                 const auto& so = m_sliceOverlays[oi];
-                const QChar letter = QChar('A' + (so.sliceId % kSliceColorCount));
+                // Follow display mode so menu labels match the pill above (#2606).
+                const QString letter =
+                    SliceLabel::unicodeForm(so.sliceId, so.perClientLetter);
                 QMenu menu(this);
                 menu.addAction(QString("Close Slice %1").arg(letter), this,
                     [this, id = so.sliceId]{ emit sliceCloseRequested(id); });
@@ -2808,12 +2810,18 @@ void SpectrumWidget::mousePressEvent(QMouseEvent* ev)
                 menu.addSeparator();
                 int closestSlice = -1;
                 int closestDist = INT_MAX;
+                QString closestLetter;
                 for (const auto& so : m_sliceOverlays) {
                     int dist = std::abs(mx - mhzToX(so.freqMhz));
-                    if (dist < closestDist) { closestDist = dist; closestSlice = so.sliceId; }
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        closestSlice = so.sliceId;
+                        closestLetter = so.perClientLetter;
+                    }
                 }
                 if (closestSlice >= 0) {
-                    const QChar letter = QChar('A' + (closestSlice & 3));
+                    const QString letter =
+                        SliceLabel::unicodeForm(closestSlice, closestLetter);
                     menu.addAction(QString("Close Slice %1").arg(letter), this,
                         [this, closestSlice]{ emit sliceCloseRequested(closestSlice); });
                 }
@@ -6651,7 +6659,12 @@ void SpectrumWidget::drawOffScreenSlices(QPainter& p, const QRect& specRect)
 
         const bool isRight = (so.freqMhz > endMhz);
         const QColor col = sliceColorForOverlay(so);
-        const QChar letter = QChar('A' + (so.sliceId % kSliceColorCount));
+        // Letter on the off-screen pill follows the same display mode as
+        // the marker colour: per-client letter (with Unicode subscript)
+        // in RadioIndexed mode, global letter in Global mode (#2606).
+        QString letter = SliceLabel::unicodeForm(so.sliceId, so.perClientLetter);
+        if (letter.isEmpty())
+            letter = QString(QChar('A' + (so.sliceId % kSliceColorCount)));
 
         long long hz = static_cast<long long>(std::round(so.freqMhz * 1e6));
         int mhzPart = static_cast<int>(hz / 1000000);
