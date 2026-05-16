@@ -97,7 +97,7 @@ public:
     // Update the dBm range used for the waterfall colour map and spectrum Y axis.
     void setDbmRange(float minDbm, float maxDbm);
 
-    // Noise floor auto-adjust: position (0=top, 100=bottom), enable on/off.
+    // Noise floor auto-adjust: position (1=top, 99=bottom), enable on/off.
     // Both setters persist to AppSettings (per-pan keys DisplayNoiseFloor*)
     // so the state and value survive launch.
     void setNoiseFloorPosition(int pos);
@@ -622,7 +622,7 @@ private:
 
     // Noise floor auto-adjust
     bool  m_noiseFloorEnable{false};
-    int   m_noiseFloorPosition{75};  // 0=top, 100=bottom
+    int   m_noiseFloorPosition{75};  // 1=top, 99=bottom
     int   m_noiseFloorFrameCount{0};
     // Noise-floor auto-adjust state machine (per-frame baseline tracker
     // with asymmetric smoothing + transient rejection — keeps the floor
