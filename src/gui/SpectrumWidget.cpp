@@ -886,6 +886,8 @@ void SpectrumWidget::refreshNoiseFloorTarget(bool captureCurrentScale)
 bool SpectrumWidget::captureNoiseFloorTargetFromCurrentScale(bool notify)
 {
     if (m_dynamicRange <= 0.0f) {
+        qDebug() << "SpectrumWidget: noise-floor capture skipped — "
+                    "dynamic range not yet valid";
         return false;
     }
 
@@ -901,6 +903,8 @@ bool SpectrumWidget::captureNoiseFloorTargetFromCurrentScale(bool notify)
         baselineDbm = m_measuredNoiseFloorDbm;
     }
     if (baselineDbm <= -500.0f) {
+        qDebug() << "SpectrumWidget: noise-floor capture skipped — "
+                    "no baseline (bins empty, cached invalid, measured invalid)";
         return false;
     }
 
