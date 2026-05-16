@@ -102,6 +102,7 @@ public:
     // so the state and value survive launch.
     void setNoiseFloorPosition(int pos);
     void setNoiseFloorEnable(bool on);
+    void reacquireNoiseFloorLock();
 
     // Two-pass trimmed-mean noise floor from live FFT bins (dBm), EMA-smoothed.
     // Pass 1 computes the overall mean; pass 2 averages only bins ≤ mean so
@@ -173,7 +174,13 @@ public:
     int  rfGainValue() const { return m_rfGainValue; }
     bool wideActive()  const { return m_wideActive; }
     void setWnbActive(bool on) { m_wnbActive = on; markOverlayDirty(); }
-    void setRfGain(int gain) { m_rfGainValue = gain; markOverlayDirty(); }
+    void setRfGain(int gain) {
+        if (m_rfGainValue != gain) {
+            m_rfGainValue = gain;
+            reacquireNoiseFloorLock();
+        }
+        markOverlayDirty();
+    }
     void setWideActive(bool on) {
         if (m_wideActive != on) {
             m_wideActive = on;
@@ -442,6 +449,7 @@ signals:
     // Emitted when the user adjusts the dBm scale (drag or arrows).
     void dbmRangeChangeRequested(float minDbm, float maxDbm);
     void dbmRangeDragFinished(float minDbm, float maxDbm);
+    void noiseFloorPositionResolved(int pos);
     // TNF signals
     void tnfCreateRequested(double freqMhz);
     void tnfMoveRequested(int id, double newFreqMhz);
@@ -560,9 +568,10 @@ private:
     // band switch, manual dBm drag) so the next frame re-acquires
     // rather than smooths from a stale value.
     void resetNoiseFloorBaseline();
-    // Re-capture the target frac (m_noiseFloorPosition) — called when
-    // the user changes the position slider or finishes a dBm drag.
-    void refreshNoiseFloorTarget();
+    // Re-capture the target frac. Slider changes use m_noiseFloorPosition;
+    // manual dBm-scale changes can capture the floor's current screen position.
+    void refreshNoiseFloorTarget(bool captureCurrentScale = false);
+    bool captureNoiseFloorTargetFromCurrentScale(bool notify);
 
     // Helper: find overlay index for a sliceId, or -1.
     int overlayIndex(int sliceId) const;
@@ -601,6 +610,7 @@ private:
     float m_dynamicRange{100.0f};   // dB range shown in spectrum (-50 to -150)
     bool  m_resetFftSmoothingOnNextFrame{false};
     bool  m_pendingDbmRangeEcho{false};
+    qint64 m_pendingDbmRangeEchoStartMs{0};
     int   m_holdFftUpdatesAfterDbmRelease{0};
     float m_dbmReleasePreviewOffset{0.0f};
     float m_pendingMinDbm{0.0f};

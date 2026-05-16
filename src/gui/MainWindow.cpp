@@ -10052,7 +10052,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         bool active{false};
         float minDbm{0.0f};
         float maxDbm{0.0f};
+        qint64 requestedMs{0};
     };
+    constexpr qint64 kDbmRangePendingTimeoutMs = 2000;
     auto pendingDbm = std::make_shared<PendingDbmRange>();
     auto dbmMatches = [](float leftMin, float leftMax, float rightMin, float rightMax) {
         return std::abs(leftMin - rightMin) < 0.01f
@@ -10139,10 +10141,19 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 sw, [sw, pendingDbm, dbmMatches, setStreamDbmRange](float minDbm, float maxDbm) {
             if (pendingDbm->active) {
                 if (!dbmMatches(minDbm, maxDbm, pendingDbm->minDbm, pendingDbm->maxDbm)) {
-                    setStreamDbmRange(pendingDbm->minDbm, pendingDbm->maxDbm, true);
-                    return;
+                    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+                    if (pendingDbm->requestedMs > 0
+                        && nowMs - pendingDbm->requestedMs > kDbmRangePendingTimeoutMs) {
+                        pendingDbm->active = false;
+                        pendingDbm->requestedMs = 0;
+                    } else {
+                        setStreamDbmRange(pendingDbm->minDbm, pendingDbm->maxDbm, true);
+                        return;
+                    }
+                } else {
+                    pendingDbm->active = false;
+                    pendingDbm->requestedMs = 0;
                 }
-                pendingDbm->active = false;
             }
             if (sw->isDraggingDbmScale()) {
                 return;
@@ -10265,6 +10276,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         pendingDbm->active = true;
         pendingDbm->minDbm = minDbm;
         pendingDbm->maxDbm = maxDbm;
+        pendingDbm->requestedMs = QDateTime::currentMSecsSinceEpoch();
         setStreamDbmRange(minDbm, maxDbm, true);
         sendDbmRangeCommand(minDbm, maxDbm);
     });
@@ -10273,6 +10285,7 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         pendingDbm->active = true;
         pendingDbm->minDbm = minDbm;
         pendingDbm->maxDbm = maxDbm;
+        pendingDbm->requestedMs = QDateTime::currentMSecsSinceEpoch();
         setStreamDbmRange(minDbm, maxDbm, true);
         sendDbmRangeCommand(minDbm, maxDbm);
     });
@@ -10392,6 +10405,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             sw, &SpectrumWidget::setNoiseFloorPosition);
     connect(menu, &SpectrumOverlayMenu::noiseFloorEnableChanged,
             sw, &SpectrumWidget::setNoiseFloorEnable);
+    connect(sw, &SpectrumWidget::noiseFloorPositionResolved,
+            menu, &SpectrumOverlayMenu::syncNoiseFloorPosition);
 
     // ── Auto-squelch wiring ───────────────────────────────────────────────
     // RxApplet signals → per-pan spectrum widget
@@ -11233,6 +11248,13 @@ void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
     connect(s, &SliceModel::audioPanChanged, this, [this, sliceId](int v) {
         if (sliceId == m_activeSliceId)
             m_audio->setRxPan(v);
+    });
+    connect(s, &SliceModel::rxAntennaChanged, this, [this, sliceId](const QString&) {
+        if (auto* sl = m_radioModel.slice(sliceId)) {
+            if (auto* sw = spectrumForSlice(sl)) {
+                sw->reacquireNoiseFloorLock();
+            }
+        }
     });
 
     // Wire slice data into widget
