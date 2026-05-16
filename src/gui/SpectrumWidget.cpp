@@ -3324,8 +3324,12 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
                 else
                     setSpectrumCursor(Qt::SizeVerCursor);
                 // Surface the Ctrl-drag span-zoom affordance (#2724).
+                // Use a plain string literal (not QStringLiteral) so the
+                // platform-conditional #ifdef block sits at the preprocessor
+                // level rather than inside a macro call — MSVC strictly
+                // rejects preprocessor directives inside macro arguments.
                 const QRect stripRect(stripX, 0, DBM_STRIP_W, specH);
-                static const QString tip = QStringLiteral(
+                static const QString tip =
                     "<b>dBm scale</b><br>"
                     "Drag &mdash; pan reference level<br>"
 #ifdef Q_OS_MAC
@@ -3333,7 +3337,7 @@ void SpectrumWidget::mouseMoveEvent(QMouseEvent* ev)
 #else
                     "Ctrl-drag &mdash; zoom span (anchor at bottom)<br>"
 #endif
-                    "&#9650; / &#9660; &mdash; &plusmn;10 dB steps");
+                    "&#9650; / &#9660; &mdash; &plusmn;10 dB steps";
                 QToolTip::showText(ev->globalPosition().toPoint() + QPoint(0, 20),
                                    tip, this, stripRect);
             } else {
