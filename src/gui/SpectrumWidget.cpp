@@ -58,7 +58,6 @@ static const QColor kAetherBrandBlue(0x00, 0xb4, 0xd8);
 static const QColor kAetherBrandGreen(0x20, 0xc0, 0x60);
 static const QColor kConnectionTextColor(0xd8, 0xe6, 0xf0);
 static constexpr float kMinDisplayDbm = -180.0f;
-static constexpr qint64 kDbmRangeEchoTimeoutMs = 2000;
 
 static bool spotMarkersVisuallyEqual(const QVector<SpectrumWidget::SpotMarker>& lhs,
                                      const QVector<SpectrumWidget::SpotMarker>& rhs)
@@ -597,6 +596,8 @@ void SpectrumWidget::reacquireNoiseFloorLock() {
     resetNoiseFloorBaseline();
     // Antenna changes can take several FFT frames to settle after the
     // slice command, so keep cold-acquiring long enough to catch the new floor.
+    // 30 frames ≈ 1 s of cold-acquire at the default 30 Hz FFT update rate —
+    // long enough for the antenna change to settle through the radio.
     m_noiseFloorFreshFrameCount = 30;
     m_measuredNoiseFloorDbm = -1000.0f;
 }
@@ -930,7 +931,7 @@ void SpectrumWidget::updateNoiseFloorBaseline(const QVector<float>& bins, bool f
     const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
     if (m_pendingDbmRangeEcho
         && m_pendingDbmRangeEchoStartMs > 0
-        && nowMs - m_pendingDbmRangeEchoStartMs > kDbmRangeEchoTimeoutMs) {
+        && nowMs - m_pendingDbmRangeEchoStartMs > kDbmRangeHandshakeTimeoutMs) {
         m_pendingDbmRangeEcho = false;
         m_pendingDbmRangeEchoStartMs = 0;
     }
@@ -1979,7 +1980,7 @@ void SpectrumWidget::setDbmRange(float minDbm, float maxDbm)
         if (!matchesPending) {
             const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
             if (m_pendingDbmRangeEchoStartMs <= 0
-                || nowMs - m_pendingDbmRangeEchoStartMs <= kDbmRangeEchoTimeoutMs) {
+                || nowMs - m_pendingDbmRangeEchoStartMs <= kDbmRangeHandshakeTimeoutMs) {
                 return;
             }
         }
