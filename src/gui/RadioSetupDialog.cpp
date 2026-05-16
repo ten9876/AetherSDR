@@ -1090,10 +1090,16 @@ QWidget* RadioSetupDialog::buildTxTab()
         grid->addWidget(tmLbl, 1, 0);
         auto* tmCmb = new QComboBox;
         tmCmb->addItems({"Single Tone", "Two Tone"});
-        tmCmb->setCurrentText(tx.tuneMode() == "single_tone" ? "Single Tone" : "Two Tone");
+        // Seed from the persisted preference (#2696) — the radio drops
+        // tune_mode across power cycles, so the saved value is the user's
+        // intent and matches what the connect-time resend asks the radio
+        // for. Falls back to single_tone if AppSettings is empty.
+        const QString seedMode = TransmitModel::savedTuneMode();
+        tmCmb->setCurrentText(seedMode == "single_tone" ? "Single Tone" : "Two Tone");
         AetherSDR::applyComboStyle(tmCmb);
         connect(tmCmb, &QComboBox::currentTextChanged, this, [this](const QString& text) {
             QString mode = (text == "Single Tone") ? "single_tone" : "two_tone";
+            TransmitModel::saveTuneMode(mode);
             m_model->sendCommand("transmit set tune_mode=" + mode);
         });
         grid->addWidget(tmCmb, 1, 1);

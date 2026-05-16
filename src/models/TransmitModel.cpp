@@ -1,7 +1,10 @@
 #include "TransmitModel.h"
+#include "core/AppSettings.h"
 #include "core/ClientQuindarTone.h"
 #include "core/LogManager.h"
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTimer>
 
 namespace AetherSDR {
@@ -383,6 +386,30 @@ void TransmitModel::setTuneMode(const QString& mode)
     emit commandReady("transmit set tune_mode=" + mode);
 }
 
+// Tune-mode persistence (#2696). Stored as a JSON blob under the
+// "RadioTxSetup" AppSettings key so future TX-tab settings can share the
+// same root (Principle V: nested JSON per feature, not flat keys).
+QString TransmitModel::savedTuneMode()
+{
+    const QString blob =
+        AppSettings::instance().value("RadioTxSetup", "{}").toString();
+    const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    const QString mode = obj.value("tuneMode").toString();
+    return (mode == "two_tone") ? mode : QStringLiteral("single_tone");
+}
+
+void TransmitModel::saveTuneMode(const QString& mode)
+{
+    if (mode != "single_tone" && mode != "two_tone")
+        return;
+    const QString blob =
+        AppSettings::instance().value("RadioTxSetup", "{}").toString();
+    QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    obj["tuneMode"] = mode;
+    AppSettings::instance().setValue("RadioTxSetup",
+        QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
+}
+
 void TransmitModel::startTune(PttSource source)
 {
     if (!runPttPreflight(source, false))
@@ -404,9 +431,11 @@ void TransmitModel::toggleTwoToneTune()
 {
     if (isTuning()) {
         stopTune();
-        // Restore single-tone so the next regular Tune press isn't surprised
-        // by sticky two-tone state on the radio.
-        setTuneMode("single_tone");
+        // Restore the user's saved preference so the next regular Tune press
+        // isn't surprised by sticky two-tone state on the radio, *and* so a
+        // user whose persistent choice is Two Tone isn't silently reverted
+        // by the shortcut (#2696).
+        setTuneMode(savedTuneMode());
     } else {
         startTwoToneTune();
     }
