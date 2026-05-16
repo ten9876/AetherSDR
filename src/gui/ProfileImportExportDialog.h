@@ -1,8 +1,8 @@
 #pragma once
 
-#include <QDialog>
 #include <QPointer>
 
+#include "PersistentDialog.h"
 #include "core/ProfileTransfer.h"
 
 class QCheckBox;
@@ -11,21 +11,17 @@ class QLineEdit;
 class QProgressBar;
 class QPushButton;
 class QTabWidget;
-class QVBoxLayout;
 
 namespace AetherSDR {
 
-class FramelessWindowTitleBar;
 class ProfileTransfer;
 class RadioModel;
 
-class ProfileImportExportDialog : public QDialog {
+class ProfileImportExportDialog : public PersistentDialog {
     Q_OBJECT
 
 public:
     explicit ProfileImportExportDialog(RadioModel* model, QWidget* parent = nullptr);
-
-    void setFramelessMode(bool on);
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -51,8 +47,6 @@ private:
     RadioModel* m_model{nullptr};
     ProfileTransfer* m_transfer{nullptr};
 
-    FramelessWindowTitleBar* m_titleBar{nullptr};
-    QVBoxLayout* m_bodyLayout{nullptr};
     QTabWidget* m_tabs{nullptr};
 
     QCheckBox* m_selectAllExport{nullptr};
