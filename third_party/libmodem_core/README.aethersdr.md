@@ -41,7 +41,8 @@ Refresh notes:
 
 Manual RX test notes:
 
-- Open **View > Packet Decoder...**.
+- Open **View > Packet Decoder...**. The action is listed immediately under
+  **Propagation Conditions**.
 - For HF packet/APRS, choose **300 baud HF**, tune an appropriate frequency,
   and use SSB/DIG receive mode with the audio passband covering 1600/1800 Hz.
 - For VHF packet/APRS, choose **1200 baud VHF** and use the normal FM packet
@@ -49,5 +50,7 @@ Manual RX test notes:
 - Enable decode and try both Normal and Inverted tone polarity. USB/LSB receive
   paths can invert tone sense.
 - Confirm accepted AX.25 UI frames appear in the scrolling log.
+- For diagnostics in the normal AetherSDR logfile, enable the **Packet
+  Decoder** logging category (`aether.ax25`) from the app's logging controls.
 
 This is an experimental first receive window, not a production packet TNC.

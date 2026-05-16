@@ -4,6 +4,7 @@
 
 #include <QByteArray>
 #include <QObject>
+#include <QString>
 #include <QVector>
 
 #include <memory>
@@ -24,6 +25,45 @@ struct Ax25DemodConfig {
     Ax25TonePolarity polarity{Ax25TonePolarity::Normal};
 };
 
+struct Ax25DecoderDiagnostics {
+    int sampleRate{0};
+    int audioSamples{0};
+    double rmsDbfs{-120.0};
+    double peakDbfs{-120.0};
+    double clippedPercent{0.0};
+    double markToneHz{0.0};
+    double spaceToneHz{0.0};
+    double markToneDbfs{-120.0};
+    double spaceToneDbfs{-120.0};
+    double markMinusSpaceDb{0.0};
+    double receiveGateRmsDbfs{-120.0};
+    double receiveGateFloorDbfs{-120.0};
+    bool receiveGateOpen{false};
+    quint64 receiveGateResets{0};
+    int demodSymbols{0};
+    double averageConfidence{0.0};
+    double onesPercent{0.0};
+    bool searching{true};
+    bool inPreamble{false};
+    bool inFrame{false};
+    bool aborted{false};
+    int currentFrameBits{0};
+    int lastFrameBits{0};
+    int preambleFlags{0};
+    quint64 hdlcFrameCandidates{0};
+    quint64 framesAccepted{0};
+    quint64 decodeRejected{0};
+    quint64 rejectTooShort{0};
+    quint64 rejectBadFcs{0};
+    quint64 rejectMalformed{0};
+    QString lastRejectReason;
+    QString lastRejectPreviewHex;
+    QString lastRejectActualFcs;
+    QString lastRejectExpectedFcs;
+    int lastRejectFrameBits{0};
+    int lastRejectFrameBytes{0};
+};
+
 Ax25DemodConfig ax25DemodConfigForProfile(
     Ax25ModemProfile profile,
     Ax25TonePolarity polarity = Ax25TonePolarity::Normal);
@@ -39,6 +79,8 @@ public:
     Ax25DemodConfig config() const;
     void configure(const Ax25DemodConfig& config);
     void reset();
+    void setDiagnosticsLoggingEnabled(bool enabled);
+    bool diagnosticsLoggingEnabled() const;
 
     QVector<Ax25DecodedFrame> processMonoFloat(const float* samples,
                                                int sampleCount,
@@ -46,6 +88,7 @@ public:
     QVector<Ax25DecodedFrame> processRecoveredBitsForTest(const QVector<quint8>& bits,
                                                           double quality = 1.0);
 
+    Ax25DecoderDiagnostics diagnosticsSnapshot() const;
     QString demodDescription() const;
 
 public slots:
@@ -53,6 +96,7 @@ public slots:
 
 signals:
     void frameDecoded(const AetherSDR::Ax25DecodedFrame& frame);
+    void diagnosticsUpdated(const AetherSDR::Ax25DecoderDiagnostics& diagnostics);
     void statusChanged();
 
 private:
@@ -61,3 +105,5 @@ private:
 };
 
 } // namespace AetherSDR
+
+Q_DECLARE_METATYPE(AetherSDR::Ax25DecoderDiagnostics)

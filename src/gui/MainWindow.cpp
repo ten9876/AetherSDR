@@ -5255,10 +5255,10 @@ void MainWindow::showNetworkDiagnosticsDialog()
 
 void MainWindow::showAx25HfPacketDecodeDialog()
 {
-    const int sliceId = activeSlice() ? activeSlice()->sliceId() : -1;
-    showOrRaisePersistent(m_ax25HfPacketDecodeDialog, m_audio, sliceId);
+    SliceModel* slice = activeSlice();
+    showOrRaisePersistent(m_ax25HfPacketDecodeDialog, m_audio, slice);
     if (m_ax25HfPacketDecodeDialog)
-        m_ax25HfPacketDecodeDialog->setAttachedSlice(sliceId);
+        m_ax25HfPacketDecodeDialog->setAttachedSlice(slice);
 }
 
 QJsonObject MainWindow::buildControlDevicesSnapshot() const
@@ -9374,7 +9374,7 @@ void MainWindow::onSliceRemoved(int id)
         else {
             m_activeSliceId = -1;
             if (m_ax25HfPacketDecodeDialog)
-                m_ax25HfPacketDecodeDialog->setAttachedSlice(-1);
+                m_ax25HfPacketDecodeDialog->setAttachedSlice(nullptr);
         }
     }
 
@@ -9586,7 +9586,7 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
     if (sliceId != prevId)
         pushRxFilterCutoffsToEq();
     if (sliceId != prevId && m_ax25HfPacketDecodeDialog)
-        m_ax25HfPacketDecodeDialog->setAttachedSlice(sliceId);
+        m_ax25HfPacketDecodeDialog->setAttachedSlice(s);
 
     // Active slice changed → restart dwell window for the new active slice
     if (sliceId != prevId && m_bsAutoSaveTimer) {

@@ -1195,12 +1195,11 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
     // sample-wise before writing to the device, so zero frames from the muted
     // RADE slice add nothing to the output and SSB audio on a second pan is
     // heard alongside RADE decoded speech without fill-rate interference.
+    if (m_tncRxTapEnabled.load(std::memory_order_relaxed))
+        emitTncRxTapFromFloat32Stereo(pcm, DEFAULT_SAMPLE_RATE);
 
     auto writeAudio = [this](const QByteArray& data) {
         if (!m_audioDevice || !m_audioDevice->isOpen()) return;
-
-        if (m_tncRxTapEnabled.load(std::memory_order_relaxed))
-            emitTncRxTapFromFloat32Stereo(data, DEFAULT_SAMPLE_RATE);
 
         // Client-side parametric EQ runs at the native 24 kHz rate, after
         // any NR chain, before resample-to-48k and soft boost. Copy-then-

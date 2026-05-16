@@ -275,10 +275,20 @@ void SliceModel::setAgcOffLevel(int value)
 
 void SliceModel::setSquelch(bool on, int level)
 {
+    level = qBound(0, level, 100);
+    const bool onChanged = (m_squelchOn != on);
+    const bool levelChanged = (m_squelchLevel != level);
+
     m_squelchOn    = on;
     m_squelchLevel = level;
-    sendCommand(QString("slice set %1 squelch=%2 squelch_level=%3")
-                    .arg(m_id).arg(on ? 1 : 0).arg(level));
+
+    // FlexLib sends these as separate radio commands. Some firmware/mode
+    // combinations reject the combined form even though each field is valid.
+    if (onChanged)
+        sendCommand(QString("slice set %1 squelch=%2").arg(m_id).arg(on ? 1 : 0));
+    if (levelChanged)
+        sendCommand(QString("slice set %1 squelch_level=%2").arg(m_id).arg(level));
+
     emit squelchChanged(on, level);
 }
 
