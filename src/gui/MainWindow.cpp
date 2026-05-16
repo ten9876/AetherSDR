@@ -6237,6 +6237,13 @@ void MainWindow::buildMenuBar()
             QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->loadSettings(); });
         });
 #endif
+        // Toggle of SliceLetterDisplay → repaint every slice-letter widget
+        // by re-emitting letterChanged on each slice (#2606).
+        connect(dlg, &RadioSetupDialog::sliceLetterDisplayModeChanged,
+                this, [this]() {
+            for (auto* s : m_radioModel.slices())
+                s->emitLetterRefresh();
+        });
         connect(dlg, &QDialog::finished, this, [this, prevComp]() {
 #ifdef HAVE_SERIALPORT
             // Re-load serial port settings if changed (on worker thread)
@@ -8989,7 +8996,7 @@ void MainWindow::onSliceAdded(SliceModel* s)
     // which pan this slice belongs to
     if (m_panStack && !s->panId().isEmpty()) {
         if (auto* applet = m_panStack->panadapter(s->panId()))
-            applet->setSliceId(s->sliceId());
+            applet->setSliceId(s->sliceId(), s->letter());
     }
 
     // Set initial hasTxSlice for waterfall freeze logic
@@ -9002,6 +9009,18 @@ void MainWindow::onSliceAdded(SliceModel* s)
     if (auto* sw = spectrumForSlice(s))
         sw->setShowTxInWaterfall(
             m_radioModel.transmitModel().showTxInWaterfall());
+
+    // Per-client letter (#2606) — keep spectrum overlay synced so the
+    // slice marker / passband colour follows the badge in RadioIndexed
+    // display mode.  Also push the current letter once now in case it
+    // was already set at slice creation.
+    if (auto* sw = spectrumForSlice(s))
+        sw->setSliceOverlayLetter(s->sliceId(), s->letter());
+    connect(s, &SliceModel::letterChanged, this,
+            [this, s](const QString& letter) {
+        if (auto* sw = spectrumForSlice(s))
+            sw->setSliceOverlayLetter(s->sliceId(), letter);
+    });
 
     // Connect slice state changes → spectrum overlay updates
     connect(s, &SliceModel::frequencyChanged, this, [this, s](double mhz) {
@@ -9335,7 +9354,7 @@ void MainWindow::onSliceRemoved(int id)
             bool found = false;
             for (auto* sl : m_radioModel.slices()) {
                 if (sl->panId() == applet->panId()) {
-                    applet->setSliceId(sl->sliceId());
+                    applet->setSliceId(sl->sliceId(), sl->letter());
                     found = true;
                     break;
                 }
@@ -9594,9 +9613,9 @@ void MainWindow::setActiveSliceInternal(int sliceId, bool revealOffscreen)
     // Re-wire applet panel, overlay menu to the new active slice
     if (m_panStack) {
         if (auto* applet = m_panStack->panadapter(s->panId()))
-            applet->setSliceId(sliceId);
+            applet->setSliceId(sliceId, s->letter());
         else if (m_panStack->activeApplet())
-            m_panStack->activeApplet()->setSliceId(sliceId);
+            m_panStack->activeApplet()->setSliceId(sliceId, s->letter());
     }
     m_appletPanel->setSlice(s);
     m_appletPanel->updateSliceButtons(m_radioModel.slices(), sliceId);

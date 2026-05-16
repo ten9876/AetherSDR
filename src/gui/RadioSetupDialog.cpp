@@ -4150,6 +4150,69 @@ QWidget* RadioSetupDialog::buildUiEnhancementsTab()
     vbox->setSpacing(12);
     vbox->setContentsMargins(16, 16, 16, 16);
 
+    // ── Slice letter display ─────────────────────────────────────────────────
+    // Two display modes for slice letters in the GUI (#2606):
+    //   "Global"       (default) — letters track the radio's global slice
+    //                  index ('A' = slot 0, 'B' = slot 1, ...) so Multi-Flex
+    //                  operators can see at a glance which global slots are
+    //                  in use.
+    //   "RadioIndexed" — use the radio-provided per-client letter (matches
+    //                  SmartSDR behaviour) with the global slot id rendered
+    //                  as a subscript so slot awareness survives.
+    //
+    // Pure display change — slice IDs in commands, settings keys, and
+    // signal routing remain global throughout.
+    {
+        auto* letterGrp = new QGroupBox("Slice Letter Display");
+        letterGrp->setStyleSheet(kGroupStyle);
+        auto* letterLayout = new QVBoxLayout(letterGrp);
+        letterLayout->setSpacing(8);
+
+        auto* radioRow = new QHBoxLayout;
+        auto* globalRadio = new QRadioButton("Global slot index (A=0, B=1, …)");
+        auto* radioIdxRadio =
+            new QRadioButton("Radio-assigned letter with global subscript (A₂)");
+        globalRadio->setStyleSheet("QRadioButton { color: #c8d8e8; font-size: 12px; }");
+        radioIdxRadio->setStyleSheet("QRadioButton { color: #c8d8e8; font-size: 12px; }");
+        radioRow->addWidget(globalRadio);
+        radioRow->addWidget(radioIdxRadio);
+        radioRow->addStretch();
+        letterLayout->addLayout(radioRow);
+
+        auto* letterDesc = new QLabel(
+            "Choose how slice letters are rendered in badges, faders, and "
+            "applet labels. Multi-Flex sessions with multiple clients only: "
+            "Radio-assigned letters match SmartSDR's behaviour; the global "
+            "subscript preserves which physical slot you're on.");
+        letterDesc->setStyleSheet("QLabel { color: #7090a0; font-size: 11px; }");
+        letterDesc->setWordWrap(true);
+        letterLayout->addWidget(letterDesc);
+
+        auto& s = AppSettings::instance();
+        const QString current =
+            s.value("SliceLetterDisplay", "Global").toString();
+        (current == "RadioIndexed" ? radioIdxRadio : globalRadio)->setChecked(true);
+
+        auto saveLetterMode = [this](const QString& mode) {
+            auto& s = AppSettings::instance();
+            s.setValue("SliceLetterDisplay", mode);
+            s.save();
+            // Push a refresh through anything that paints a slice letter
+            // — the active slice path's syncFromSlice() pulls.  Cheapest
+            // broad-stroke: re-emit currentSliceChanged so the model
+            // listeners reapply via their existing slots.
+            emit sliceLetterDisplayModeChanged();
+        };
+        connect(globalRadio, &QRadioButton::toggled, this, [saveLetterMode](bool on) {
+            if (on) saveLetterMode("Global");
+        });
+        connect(radioIdxRadio, &QRadioButton::toggled, this, [saveLetterMode](bool on) {
+            if (on) saveLetterMode("RadioIndexed");
+        });
+
+        vbox->addWidget(letterGrp);
+    }
+
     // ── Slice color group ────────────────────────────────────────────────────
     auto* grp = new QGroupBox("Slice Colors");
     grp->setStyleSheet(kGroupStyle);

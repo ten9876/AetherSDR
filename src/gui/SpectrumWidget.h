@@ -288,6 +288,7 @@ public:
         // 1 = 1 px, 3 = 3 px.
         int    markerWidth{1};
         bool   filterEdgesHidden{false};  // skip drawing filter-edge vertical lines
+        QString perClientLetter;   // radio-provided index_letter (Multi-Flex)
     };
 
     // Add or update a slice overlay (called per-slice on any state change).
@@ -299,6 +300,11 @@ public:
                          bool xitOn = false, int xitFreq = 0);
     // Update just the frequency on an existing overlay (for optimistic scroll-to-tune)
     void setSliceOverlayFreq(int sliceId, double freqMhz);
+    // Update the per-client letter on an existing overlay; safe to call
+    // before/after setSliceOverlay.  Used by the Multi-Flex display mode
+    // so the slice marker / passband colour can follow the radio's
+    // index_letter assignment (#2606).
+    void setSliceOverlayLetter(int sliceId, const QString& letter);
     // Update per-slice marker display style (#1526)
     void setSliceOverlayMarkerStyle(int sliceId, int markerWidth, bool filterEdgesHidden);
     // Remove a slice overlay.

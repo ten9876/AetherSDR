@@ -496,6 +496,23 @@ SliceModel* RadioModel::slice(int id) const
     return nullptr;
 }
 
+bool RadioModel::isSlotOurs(int sliceId) const
+{
+    return slice(sliceId) != nullptr;
+}
+
+bool RadioModel::isSlotForeign(int sliceId) const
+{
+    return m_foreignSliceOwners.contains(sliceId);
+}
+
+QString RadioModel::foreignSliceOwnerStation(int sliceId) const
+{
+    auto it = m_foreignSliceOwners.constFind(sliceId);
+    if (it == m_foreignSliceOwners.constEnd()) return {};
+    return m_clientStations.value(it.value(), {});
+}
+
 int RadioModel::activeTxSliceNum() const
 {
     for (auto* s : m_slices) {
@@ -4191,12 +4208,20 @@ void RadioModel::handleSliceStatus(int id,
         quint32 owner = kvs["client_handle"].toUInt(nullptr, 16);
         if (owner == clientHandle()) {
             m_ownedSliceIds.insert(id);
+            // If this slot was previously foreign (e.g. another client
+            // released it and we just got assigned), drop the foreign mark.
+            if (m_foreignSliceOwners.remove(id) > 0) {
+                emit slotOccupancyChanged(id);
+            }
             qCDebug(lcProtocol) << "RadioModel: slice" << id << "is ours (client_handle match)";
         } else if (owner != 0) {
             qCDebug(lcProtocol) << "RadioModel: slice" << id << "belongs to another client"
-                     << Qt::hex << owner << ", removing";
+                     << Qt::hex << owner << ", marking foreign";
             m_ownedSliceIds.remove(id);
-            // If we already have a SliceModel for this ID, remove it
+            const bool wasForeign = m_foreignSliceOwners.value(id) == owner;
+            m_foreignSliceOwners.insert(id, owner);
+            // If we already have a SliceModel for this ID, remove it.  We
+            // keep the foreign-owner record so UI can dim the slot.
             if (SliceModel* existing = slice(id)) {
                 const bool wasTxSlice = existing->isTxSlice();
                 m_slices.removeOne(existing);
@@ -4205,27 +4230,36 @@ void RadioModel::handleSliceStatus(int id,
                 if (wasTxSlice)
                     m_meterModel.setActiveTxSlice(activeTxSliceNum());
             }
+            if (!wasForeign) emit slotOccupancyChanged(id);
             return;  // slice belongs to another client
         }
     }
 
-    // If we've seen client_handle info and this slice isn't ours, skip it
-    if (!m_ownedSliceIds.isEmpty() && !m_ownedSliceIds.contains(id)) {
-        qCDebug(lcProtocol) << "RadioModel: ignoring slice" << id << "status (not in owned set)";
-        return;
-    }
-
+    // Removal can apply to ours OR a foreign slot — handle before the
+    // not-in-owned-set early-out so foreign slot dimming clears when the
+    // other client releases their slice.
     SliceModel* s = slice(id);
 
     if (removed) {
         if (s) {
             const bool wasTxSlice = s->isTxSlice();
             m_slices.removeOne(s);
+            m_ownedSliceIds.remove(id);
             emit sliceRemoved(id);
             s->deleteLater();
             if (wasTxSlice)
                 m_meterModel.setActiveTxSlice(activeTxSliceNum());
+            emit slotOccupancyChanged(id);
+        } else if (m_foreignSliceOwners.remove(id) > 0) {
+            // Foreign client released their slot — clear the dim marker.
+            emit slotOccupancyChanged(id);
         }
+        return;
+    }
+
+    // If we've seen client_handle info and this slice isn't ours, skip it
+    if (!m_ownedSliceIds.isEmpty() && !m_ownedSliceIds.contains(id)) {
+        qCDebug(lcProtocol) << "RadioModel: ignoring slice" << id << "status (not in owned set)";
         return;
     }
 
@@ -4249,6 +4283,7 @@ void RadioModel::handleSliceStatus(int id,
         s->applyStatus(kvs);  // populate frequency/mode before notifying UI
         m_meterModel.setActiveTxSlice(activeTxSliceNum());
         emit sliceAdded(s);
+        emit slotOccupancyChanged(id);  // empty/foreign → ours
         return;                // applyStatus already called below; skip second call
     }
 

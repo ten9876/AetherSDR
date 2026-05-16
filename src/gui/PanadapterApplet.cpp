@@ -1,6 +1,7 @@
 #include "PanadapterApplet.h"
 #include "FramelessMoveHelper.h"
 #include "GuardedSlider.h"
+#include "SliceLabel.h"
 #include "SpectrumWidget.h"
 #include "core/AppSettings.h"
 
@@ -325,11 +326,11 @@ void PanadapterApplet::setFloatingState(bool floating)
     if (m_closeBtn && floating) m_closeBtn->setVisible(true);
 }
 
-void PanadapterApplet::setSliceId(int id)
+void PanadapterApplet::setSliceId(int id, const QString& perClientLetter)
 {
-    const char letters[] = "ABCDEFGH";
-    const char letter = (id >= 0 && id < 8) ? letters[id] : '?';
-    m_titleLabel->setText(QString("Slice %1").arg(letter));
+    m_titleLabel->setTextFormat(Qt::RichText);
+    m_titleLabel->setText(
+        QString("Slice %1").arg(SliceLabel::richText(id, perClientLetter)));
 }
 
 void PanadapterApplet::clearSliceTitle()

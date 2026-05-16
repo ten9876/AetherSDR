@@ -1,4 +1,5 @@
 #include "TciApplet.h"
+#include "SliceLabel.h"
 
 #ifdef HAVE_WEBSOCKETS
 #include "MeterSlider.h"
@@ -258,12 +259,13 @@ void TciApplet::setRadioModel(RadioModel* model)
         if (!m_model) {
             return;
         }
-        static const char letters[] = "ABCDEFGH";
         for (auto* sl : m_model->slices()) {
             int ch = sl->daxChannel();
             if (ch >= 1 && ch <= kChannels) {
+                m_rxStatus[ch - 1]->setTextFormat(Qt::RichText);
                 m_rxStatus[ch - 1]->setText(
-                    QString("Slice %1").arg(letters[sl->sliceId()]));
+                    QString("Slice %1").arg(
+                        SliceLabel::richText(sl->sliceId(), sl->letter())));
             }
         }
     };
@@ -281,10 +283,12 @@ void TciApplet::setRadioModel(RadioModel* model)
             m_txStatus->setText(QStringLiteral("\u2014"));
             return;
         }
-        static const char letters[] = "ABCDEFGH";
         for (auto* s : m_model->slices()) {
             if (s->isTxSlice()) {
-                m_txStatus->setText(QString("Slice %1").arg(letters[s->sliceId()]));
+                m_txStatus->setTextFormat(Qt::RichText);
+                m_txStatus->setText(
+                    QString("Slice %1").arg(
+                        SliceLabel::richText(s->sliceId(), s->letter())));
                 return;
             }
         }

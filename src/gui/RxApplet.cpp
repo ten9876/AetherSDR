@@ -3,6 +3,7 @@
 #include "GuardedSlider.h"
 #include "ComboStyle.h"
 #include "SliceColorManager.h"
+#include "SliceLabel.h"
 #include "models/RadioModel.h"
 #include "models/SliceModel.h"
 #include "models/TransmitModel.h"
@@ -29,6 +30,7 @@
 #include <QPainter>
 #include <QWheelEvent>
 #include <QKeyEvent>
+#include <QStyle>
 #include <QDoubleSpinBox>
 #include <QDir>
 #include <algorithm>
@@ -1278,12 +1280,20 @@ void RxApplet::setMaxSlices(int maxSlices)
         btn->setFixedSize(22, 20);
 
         QString color = SliceColorManager::instance().hexActive(i);
+        // Three slot states drive QSS via the `slotState` dynamic property:
+        //   - "empty"   : no slice in this global slot (current default look)
+        //   - "foreign" : another Multi-Flex client owns this slot (#2606,
+        //                 dimmer than empty so it reads as "taken, not yours")
+        //   - "ours"    : enabled, can be selected; uses the per-slice color
         btn->setStyleSheet(
             QString("QToolButton { background: #2a2a2a; color: %1; border: 1px solid %1; "
                     "border-radius: 3px; font-weight: bold; font-size: 10px; padding: 0; }"
                     "QToolButton:checked { background: %1; color: #000000; }"
                     "QToolButton:disabled { background: #1a1a1a; color: #444444; "
-                    "border-color: #333333; }").arg(color));
+                    "border-color: #333333; }"
+                    "QToolButton[slotState=\"foreign\"] { background: #1f1f1f; "
+                    "color: #707070; border-color: #555555; }")
+                .arg(color));
 
         m_sliceGroup->addButton(btn, i);
         targetLayout->insertWidget(insertIdx + i, btn);
@@ -1329,24 +1339,163 @@ void RxApplet::updateSliceButtons(const QList<SliceModel*>& slices, int activeSl
 {
     if (m_sliceBtns.isEmpty()) return;
 
-    // Build a map: slot index → slice ID for open slices
-    // sliceId 0 = slot A, sliceId 1 = slot B, etc.
-    QMap<int, int> slotToId;
+    // Build a map: slot index → SliceModel* for open slices we own.
+    QMap<int, SliceModel*> slotToSlice;
     for (auto* s : slices)
-        slotToId[s->sliceId()] = s->sliceId();
+        slotToSlice[s->sliceId()] = s;
 
     QSignalBlocker blocker(m_sliceGroup);
-    for (int i = 0; i < m_sliceBtns.size(); ++i) {
-        auto* btn = m_sliceBtns[i];
-        if (slotToId.contains(i)) {
-            btn->setEnabled(true);
-            btn->setProperty("sliceId", slotToId[i]);
-            btn->setChecked(i == activeSliceId);
+    const auto mode = SliceLabel::currentMode();
+    const bool radioIdx = (mode == SliceLabel::Mode::RadioIndexed);
+
+    // In RadioIndexed mode the row is laid out as three groups, left to
+    // right:
+    //   1. Owned slices, in global-sliceId order, rendered with their
+    //      per-client letter + 1-based global-slot subscript (e.g. "A₂").
+    //   2. Empty slots — available for the user to claim.  Labelled with
+    //      sequential letters continuing after the user's owned set
+    //      ("B", "C", … if the user owns one "A" slice already), so the
+    //      letter previews what the radio would call the slice once
+    //      claimed.
+    //   3. Foreign slots — in use by another Multi-Flex client.  Rendered
+    //      as "—" so they read as "taken, unavailable" without colliding
+    //      with the user's per-client letters.
+    //
+    // In Global mode the layout is unchanged from today: position == slot.
+    QList<int> ownedSlots;
+    for (auto it = slotToSlice.constBegin(); it != slotToSlice.constEnd(); ++it)
+        ownedSlots.append(it.key());
+    std::sort(ownedSlots.begin(), ownedSlots.end());
+
+    QList<int> foreignSlots;
+    QList<int> emptySlots;
+    if (m_radioModel) {
+        for (int i = 0; i < m_sliceBtns.size(); ++i) {
+            if (slotToSlice.contains(i)) continue;
+            if (m_radioModel->isSlotForeign(i)) foreignSlots.append(i);
+            else                                emptySlots.append(i);
+        }
+    } else {
+        for (int i = 0; i < m_sliceBtns.size(); ++i) {
+            if (!slotToSlice.contains(i)) emptySlots.append(i);
+        }
+    }
+
+    auto buildButtonStyle = [](int colourIdx) {
+        const QString color = SliceColorManager::instance().hexActive(colourIdx);
+        return QString(
+            "QToolButton { background: #2a2a2a; color: %1; border: 1px solid %1; "
+            "border-radius: 3px; font-weight: bold; font-size: 10px; padding: 0; }"
+            "QToolButton:checked { background: %1; color: #000000; }"
+            "QToolButton:disabled { background: #1a1a1a; color: #444444; "
+            "border-color: #333333; }"
+            "QToolButton[slotState=\"foreign\"] { background: #1f1f1f; "
+            "color: #707070; border-color: #555555; }")
+            .arg(color);
+    };
+
+    for (int btnPos = 0; btnPos < m_sliceBtns.size(); ++btnPos) {
+        auto* btn = m_sliceBtns[btnPos];
+
+        // Resolve which slot (if any) this button position represents,
+        // and what state it's in.
+        int slotId = -1;
+        SliceModel* ourSlice = nullptr;
+        const char* state = "empty";
+        // The displayed sequential letter for empty slots in RadioIndexed
+        // mode — only meaningful when state == "empty" && radioIdx.
+        QChar emptyLetter('?');
+
+        if (radioIdx) {
+            const int ownedN = ownedSlots.size();
+            const int emptyN = emptySlots.size();
+            if (btnPos < ownedN) {
+                slotId = ownedSlots[btnPos];
+                ourSlice = slotToSlice[slotId];
+                state = "ours";
+            } else if (btnPos < ownedN + emptyN) {
+                slotId = emptySlots[btnPos - ownedN];
+                state = "empty";
+                emptyLetter = QChar('A' + btnPos);  // sequential after owned
+            } else if (btnPos < ownedN + emptyN + foreignSlots.size()) {
+                slotId = foreignSlots[btnPos - ownedN - emptyN];
+                state = "foreign";
+            }
         } else {
+            // Global mode: button position == global slot id (original).
+            slotId = btnPos;
+            if (slotToSlice.contains(btnPos)) {
+                ourSlice = slotToSlice[btnPos];
+                state = "ours";
+            } else if (m_radioModel && m_radioModel->isSlotForeign(btnPos)) {
+                state = "foreign";
+            }
+        }
+
+        // Apply text + state-specific bits.
+        if (qstrcmp(state, "ours") == 0) {
+            btn->setText(SliceLabel::unicodeForm(slotId, ourSlice->letter()));
+            btn->setEnabled(true);
+            btn->setProperty("sliceId", slotId);
+            btn->setProperty("slotState", "ours");
+            const QChar gLetter('A' + slotId);
+            const QString perClient = ourSlice->letter().isEmpty()
+                                           ? QString(gLetter)
+                                           : ourSlice->letter();
+            btn->setToolTip(QString("Slice %1 (global slot %2)")
+                                .arg(perClient).arg(slotId + 1));
+            btn->setChecked(slotId == activeSliceId);
+            // Colour pairs with the displayed letter in RadioIndexed mode.
+            const int colourIdx = SliceLabel::displayColorIndex(slotId, ourSlice->letter());
+            btn->setStyleSheet(buildButtonStyle(colourIdx));
+        } else if (qstrcmp(state, "foreign") == 0) {
+            const QString glyph = radioIdx ? QString::fromUtf8("—")
+                                           : QString(QChar('A' + slotId));
+            btn->setText(glyph);
             btn->setEnabled(false);
             btn->setChecked(false);
             btn->setProperty("sliceId", QVariant());
+            btn->setProperty("slotState", "foreign");
+            const QString owner = m_radioModel
+                                       ? m_radioModel->foreignSliceOwnerStation(slotId)
+                                       : QString();
+            btn->setToolTip(owner.isEmpty()
+                                ? QString("Slot %1 — in use by another client")
+                                      .arg(QChar('A' + slotId))
+                                : QString("Slot %1 — in use by %2")
+                                      .arg(QChar('A' + slotId)).arg(owner));
+            // Foreign keeps its global slot colour as the base palette;
+            // the slotState QSS override paints it in the dim grey scheme.
+            btn->setStyleSheet(buildButtonStyle(slotId));
+        } else {
+            // Empty / available slot.  In Global mode show the global
+            // letter for the slot.  In RadioIndexed mode show the
+            // sequential letter that the radio would assign if the user
+            // claimed it (e.g. with one owned "A" slice, empty slots
+            // show B, C, D).  Colour follows the displayed letter.
+            const int colourPos = (slotId >= 0) ? slotId : btnPos;
+            QString glyph;
+            int colourIdx = colourPos;
+            if (radioIdx) {
+                glyph = QString(emptyLetter);
+                colourIdx = (emptyLetter >= QChar('A') && emptyLetter <= QChar('H'))
+                                ? emptyLetter.unicode() - 'A'
+                                : colourPos;
+            } else {
+                glyph = QString(QChar('A' + colourPos));
+            }
+            btn->setText(glyph);
+            btn->setEnabled(false);
+            btn->setChecked(false);
+            btn->setProperty("sliceId", QVariant());
+            btn->setProperty("slotState", "empty");
+            btn->setToolTip(QString("Slot %1 — empty").arg(QChar('A' + colourPos)));
+            btn->setStyleSheet(buildButtonStyle(colourIdx));
         }
+        // Force a stylesheet re-evaluation so the slotState property change
+        // is picked up by the QSS attribute selectors.
+        btn->style()->unpolish(btn);
+        btn->style()->polish(btn);
     }
 }
 
@@ -1366,13 +1515,25 @@ void RxApplet::setAntennaList(const QStringList& ants)
 
 void RxApplet::setRadioModel(RadioModel* radioModel)
 {
-    if (m_radioModel)
+    if (m_radioModel) {
         disconnect(m_radioModel, &RadioModel::antennaAliasesChanged,
                    this, &RxApplet::updateAntennaButtons);
+        disconnect(m_radioModel, &RadioModel::slotOccupancyChanged,
+                   this, nullptr);
+    }
     m_radioModel = radioModel;
     if (m_radioModel) {
         connect(m_radioModel, &RadioModel::antennaAliasesChanged,
                 this, &RxApplet::updateAntennaButtons);
+        // Slot-occupancy changes (other Multi-Flex clients connecting /
+        // disconnecting, slots claimed / released) restyle the slice tab
+        // row so foreign slots dim and free slots open back up (#2606).
+        connect(m_radioModel, &RadioModel::slotOccupancyChanged,
+                this, [this](int /*sliceId*/) {
+            if (!m_radioModel) return;
+            const int active = m_slice ? m_slice->sliceId() : -1;
+            updateSliceButtons(m_radioModel->slices(), active);
+        });
     }
     updateAntennaButtons();
 }
@@ -1463,14 +1624,16 @@ void RxApplet::connectSlice(SliceModel* s)
 {
     // ── Header ─────────────────────────────────────────────────────────────
 
-    // Slice badge letter (0→A, 1→B, 2→C, 3→D) with per-slice color
-    const QChar letter = QChar('A' + s->sliceId());
-    m_sliceBadge->setText(QString(letter));
+    // Slice badge — display follows SliceLetterDisplay AppSettings (#2606).
+    m_sliceBadge->setTextFormat(Qt::RichText);
+    m_sliceBadge->setText(SliceLabel::richText(s->sliceId(), s->letter()));
     const int sid = s->sliceId();
+    // Colour pairs with the visible letter — see SliceLabel::displayColorIndex.
+    const int colourIdx = SliceLabel::displayColorIndex(sid, s->letter());
     m_sliceBadge->setStyleSheet(
         QString("QLabel { background: %1; color: #000000; "
                 "border-radius: 3px; font-weight: bold; font-size: 11px; }")
-            .arg(SliceColorManager::instance().hexActive(sid)));
+            .arg(SliceColorManager::instance().hexActive(colourIdx)));
 
     // Lock
     {
@@ -1482,6 +1645,19 @@ void RxApplet::connectSlice(SliceModel* s)
         QSignalBlocker b(m_lockBtn);
         m_lockBtn->setChecked(locked);
         m_lockBtn->setText(locked ? "\U0001F512" : "\U0001F513");
+    });
+
+    // Per-client letter refresh — Multi-Flex sessions can deliver
+    // index_letter after slice creation (#2606).
+    connect(s, &SliceModel::letterChanged, this,
+            [this, s](const QString&) {
+        m_sliceBadge->setTextFormat(Qt::RichText);
+        m_sliceBadge->setText(SliceLabel::richText(s->sliceId(), s->letter()));
+        // Tab row also needs to pick up the new letter on the active
+        // slice's button.
+        if (m_radioModel) {
+            updateSliceButtons(m_radioModel->slices(), s->sliceId());
+        }
     });
 
     // RX antenna
