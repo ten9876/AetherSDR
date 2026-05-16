@@ -4406,9 +4406,27 @@ MainWindow::MainWindow(QWidget* parent)
         restoreState(QByteArray::fromBase64(stateB64.toLatin1()));
     // Clear stale splitter state — layout has changed across versions.
     s.remove("SplitterState");
-    // Force 4-pane sizing: CWX=0, DVK=0 (hidden), center=stretch, applet=260px
+    // Force 4-pane sizing: CWX=0, DVK=0 (hidden), applet=260px, center=stretch.
+    // Assign by widget identity rather than fixed slot index — buildUI may
+    // have called setAppletPanelDockedLeft() which swaps m_panStack and
+    // m_appletPanel in the splitter.  Hard-coding "size at index 2 = center,
+    // size at index 3 = applet" silently mis-allocates on left-dock startup
+    // (panstack squeezed to the right edge with a wide empty slot in the
+    // middle).  PR #2733 fixed setAppletPanelDockedLeft itself but this
+    // deferred resizer overwrites its work — same fix shape, second site. (#2704)
     QTimer::singleShot(0, this, [this]() {
-        m_splitter->setSizes({0, 0, width() - 260, 260});
+        if (!m_splitter || !m_appletPanel || !m_panStack) return;
+        const int total = m_splitter->width();
+        if (total <= 0) return;
+        const int appletW = m_appletPanel->maximumWidth();
+        const int centerW = qMax(400, total - appletW);
+        QList<int> sizes(m_splitter->count(), 0);
+        for (int i = 0; i < m_splitter->count(); ++i) {
+            QWidget* w = m_splitter->widget(i);
+            if (w == m_panStack)         sizes[i] = centerW;
+            else if (w == m_appletPanel) sizes[i] = appletW;
+        }
+        m_splitter->setSizes(sizes);
     });
 
     // Auto-popup connection dialog if no saved radio
