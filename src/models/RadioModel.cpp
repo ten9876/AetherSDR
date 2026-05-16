@@ -395,6 +395,9 @@ RadioModel::RadioModel(QObject* parent)
     connect(&m_dvkModel, &DvkModel::commandReady, this, [this](const QString& cmd){
         sendCmd(cmd);
     });
+    connect(&m_flexWaveformModel, &FlexWaveformModel::commandReady, this, [this](const QString& cmd){
+        sendCmd(cmd);
+    });
     connect(&m_navtexModel, &NavtexModel::commandReady, this, [this](const QString& cmd){
         sendCmd(cmd);
     });
@@ -2119,6 +2122,7 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
             sendCmd("sub navtex all");
             sendCmd("sub usb_cable all");
             sendCmd("sub spot all");
+            sendCmd("sub waveform all");
             sendCmd("sub license all");
             }); // sub xvtr all
             }); // sub client all
@@ -2315,6 +2319,7 @@ void RadioModel::onDisconnected()
     m_activePanId.clear();
     m_ownedSliceIds.clear();
     m_tnfModel.clear();
+    m_flexWaveformModel.clear();
     if (!m_memories.isEmpty()) {
         m_memories.clear();
         emit memoriesCleared();
@@ -4061,6 +4066,22 @@ void RadioModel::onStatusReceived(const QString& object,
     if (tnfMatch.hasMatch()) {
         int tnfId = tnfMatch.captured(1).toInt();
         m_tnfModel.applyTnfStatus(tnfId, kvs);
+        return;
+    }
+
+    // Waveform status — three sub-shapes introduced in firmware v4.2.18.
+    // CommandParser already disambiguates via the object field; no regex needed.
+    // FlexLib Radio.cs ParseWaveformStatus (line 11247). (#2136)
+    if (object == QLatin1String("waveform")) {
+        m_flexWaveformModel.handleInstalledList(kvs);
+        return;
+    }
+    if (object == QLatin1String("waveform container")) {
+        m_flexWaveformModel.handleContainerStatus(kvs);
+        return;
+    }
+    if (object == QLatin1String("waveform wfp_status")) {
+        m_flexWaveformModel.handleWfpStatus(kvs);
         return;
     }
 

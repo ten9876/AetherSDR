@@ -19,6 +19,7 @@
 #include "UsbCableModel.h"
 #include "DaxIqModel.h"
 #include "NavtexModel.h"
+#include "FlexWaveformModel.h"
 #include "MemoryEntry.h"
 #include "RadioStatusOwnership.h"
 
@@ -67,6 +68,7 @@ public:
     NavtexModel&      navtexModel()      { return m_navtexModel; }
     UsbCableModel&    usbCableModel()    { return m_usbCableModel; }
     DaxIqModel&       daxIqModel()       { return m_daxIqModel; }
+    FlexWaveformModel& flexWaveformModel() { return m_flexWaveformModel; }
     bool              hasAmplifier() const { return m_hasAmplifier; }
     bool              ampOperate()   const { return m_ampOperate; }
     QString           ampHandle()    const { return m_ampHandle; }
@@ -531,9 +533,10 @@ private:
     SpotModel        m_spotModel;
     CwxModel         m_cwxModel;
     DvkModel         m_dvkModel;
-    NavtexModel      m_navtexModel;
-    UsbCableModel    m_usbCableModel;
-    DaxIqModel       m_daxIqModel;
+    NavtexModel         m_navtexModel;
+    UsbCableModel       m_usbCableModel;
+    DaxIqModel          m_daxIqModel;
+    FlexWaveformModel   m_flexWaveformModel;
 
     // NetCW stream — VITA-49 UDP delivery for low-latency CW keying
     quint32  m_netCwStreamId{0};

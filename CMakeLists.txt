@@ -541,6 +541,7 @@ set(MODEL_SOURCES
     src/models/CwxModel.cpp
     src/models/DvkModel.cpp
     src/models/NavtexModel.cpp
+    src/models/FlexWaveformModel.cpp
     src/models/BandSettings.cpp
     src/models/BandPlanManager.cpp
     src/models/XvtrPolicy.cpp
@@ -1378,6 +1379,13 @@ add_executable(navtex_model_test
 )
 target_include_directories(navtex_model_test PRIVATE src)
 target_link_libraries(navtex_model_test PRIVATE Qt6::Core Qt6::Test)
+
+add_executable(flex_waveform_model_test
+    tests/flex_waveform_model_test.cpp
+    src/models/FlexWaveformModel.cpp
+)
+target_include_directories(flex_waveform_model_test PRIVATE src)
+target_link_libraries(flex_waveform_model_test PRIVATE Qt6::Core Qt6::Test)
 
 add_executable(ole_compound_file_test
     tests/ole_compound_file_test.cpp
