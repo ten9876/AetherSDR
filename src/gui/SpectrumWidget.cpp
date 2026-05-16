@@ -4497,8 +4497,14 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                 pts[i].y = yBot + t * (yTop - yBot);
             }
 
-            // Half-width in NDC — convert pixel width to NDC using viewport
-            const float halfW = m_fftLineWidth / static_cast<float>(qMax(1, width()));
+            // Compute the perpendicular normal in pixel space so the line
+            // width is a true pixel measurement regardless of the spectrum
+            // viewport's aspect ratio. The trace is predominantly horizontal,
+            // so the normal almost always points along Y; using a single
+            // NDC half-width based on width() collapses the offset to a
+            // sub-pixel value once specH is much smaller than width().
+            const float wPx = static_cast<float>(qMax(1, width()));
+            const float hPx = static_cast<float>(qMax(1, specH));
 
             for (int i = 0; i < n; ++i) {
                 float t = qBound(0.0f, (m_smoothed[i] - minDbm) / range, 1.0f);
@@ -4515,10 +4521,14 @@ void SpectrumWidget::renderGpuFrame(QRhiCommandBuffer* cb)
                     dx = pts[i+1].x - pts[i-1].x;
                     dy = pts[i+1].y - pts[i-1].y;
                 }
-                float len = std::sqrt(dx * dx + dy * dy);
-                if (len < 1e-8f) len = 1e-8f;
-                float nx = -dy / len * halfW;
-                float ny =  dx / len * halfW;
+                const float dxPx = dx * wPx * 0.5f;
+                const float dyPx = dy * hPx * 0.5f;
+                float lenPx = std::sqrt(dxPx * dxPx + dyPx * dyPx);
+                if (lenPx < 1e-8f) lenPx = 1e-8f;
+                const float nxPx = -dyPx / lenPx * m_fftLineWidth;
+                const float nyPx =  dxPx / lenPx * m_fftLineWidth;
+                const float nx = nxPx * 2.0f / wPx;
+                const float ny = nyPx * 2.0f / hPx;
 
                 // Per-vertex color
                 float cr, cg, cb2;
