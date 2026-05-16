@@ -10,8 +10,6 @@
 
 namespace AetherSDR {
 
-class PerfTelemetryTestAccess;
-
 class PerfTelemetry final {
 public:
     enum class FrameKind {
@@ -55,6 +53,13 @@ public:
 
     void recordSHistoryProcessed(double durationMs);
     void recordSHistorySkipped();
+
+    // Test-only seams. When the clock override is non-zero, nowNs() returns
+    // that value instead of consulting steady_clock — lets tests drive
+    // window timing deterministically. resetForTest() zeroes aggregation
+    // state so cases don't bleed into each other.
+    static void setClockOverrideForTest(qint64 nowNs);
+    void resetForTest();
 
 private:
     PerfTelemetry() = default;
@@ -123,8 +128,6 @@ private:
     std::atomic_bool m_wasEnabled{false};
     std::atomic_bool m_dragActive{false};
     std::atomic<int> m_waterfallLineDurationMs{0};
-
-    friend class PerfTelemetryTestAccess;
 };
 
 } // namespace AetherSDR

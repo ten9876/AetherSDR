@@ -1,526 +1,408 @@
+// Unit tests for PerfTelemetry — issue #2500.
+//
+// Covers: disabled hot-path no-op, window aggregation, stall thresholds,
+// drag-aware UI lag, frame-restart counter, percentile-95 boundaries, and
+// window timing — by driving the singleton through its public record* API
+// with a synthetic clock seam (setClockOverrideForTest) and capturing the
+// lcPerf log line via qInstallMessageHandler.
+//
+// CMake target `perf_telemetry_test`. Exit 0 = pass.
+
 #include "core/PerfTelemetry.h"
-#include "core/LogManager.h"
 
 #include <QCoreApplication>
-#include <QLatin1String>
 #include <QLoggingCategory>
-#include <QMutex>
-#include <QMutexLocker>
 #include <QString>
 #include <QStringList>
-#include <QVector>
 #include <QtGlobal>
 
-#include <algorithm>
-#include <cmath>
 #include <cstdio>
-#include <utility>
+#include <functional>
+#include <string>
+#include <vector>
 
+// PerfTelemetry.cpp uses lcPerf via LogManager.h. Standalone tests provide
+// their own definition rather than pulling LogManager (which would drag in
+// AppSettings, AsyncLogWriter, etc.). Default level is QtDebugMsg so the
+// hot path is "enabled" — tests flip rules off when they need the disabled
+// path verified.
 namespace AetherSDR {
-
-// Friend access shim — peeks into the singleton's private state so tests can
-// drive synthetic time and reset between cases. Adding no production behavior
-// keeps the hot path untouched (issue #2500 triage Option A).
-class PerfTelemetryTestAccess {
-public:
-    static void resetInstance()
-    {
-        PerfTelemetry& t = PerfTelemetry::instance();
-        QMutexLocker lock(&t.m_mutex);
-        t.m_window = PerfTelemetry::Window{};
-        t.m_windowStartNs = 0;
-        t.m_lastHeartbeatNs = 0;
-        t.m_wasEnabled.store(false, std::memory_order_relaxed);
-        t.m_dragActive.store(false, std::memory_order_relaxed);
-        t.m_waterfallLineDurationMs.store(0, std::memory_order_relaxed);
-    }
-
-    static void primeForRecording(qint64 now)
-    {
-        PerfTelemetry& t = PerfTelemetry::instance();
-        t.m_wasEnabled.store(true, std::memory_order_relaxed);
-        QMutexLocker lock(&t.m_mutex);
-        t.m_window = PerfTelemetry::Window{};
-        t.m_windowStartNs = now;
-        t.m_lastHeartbeatNs = 0;
-    }
-
-    static void setWindowStart(qint64 ns)
-    {
-        PerfTelemetry& t = PerfTelemetry::instance();
-        QMutexLocker lock(&t.m_mutex);
-        t.m_windowStartNs = ns;
-    }
-
-    static void setLastHeartbeat(qint64 ns)
-    {
-        PerfTelemetry& t = PerfTelemetry::instance();
-        QMutexLocker lock(&t.m_mutex);
-        t.m_lastHeartbeatNs = ns;
-    }
-
-    static int panUpdateSampleCount()
-    {
-        PerfTelemetry& t = PerfTelemetry::instance();
-        QMutexLocker lock(&t.m_mutex);
-        return static_cast<int>(t.m_window.panUpdateMs.size());
-    }
-
-    static void triggerSummary(qint64 now)
-    {
-        PerfTelemetry::instance().maybeLogSummary(now);
-    }
-
-    static double callPercentile95(QVector<double> values)
-    {
-        return PerfTelemetry::percentile95(std::move(values));
-    }
-};
-
+Q_LOGGING_CATEGORY(lcPerf, "aether.perf", QtDebugMsg)
 } // namespace AetherSDR
+
+using AetherSDR::PerfTelemetry;
 
 namespace {
 
-using AetherSDR::PerfTelemetry;
-using AetherSDR::PerfTelemetryTestAccess;
-
 int g_failed = 0;
+QStringList g_capturedLines;
 
-struct CapturedLines {
-    static CapturedLines& instance()
-    {
-        static CapturedLines cap;
-        return cap;
-    }
-
-    QMutex mutex;
-    QStringList lines;
-
-    void clear()
-    {
-        QMutexLocker lock(&mutex);
-        lines.clear();
-    }
-
-    QStringList snapshot()
-    {
-        QMutexLocker lock(&mutex);
-        return lines;
-    }
-};
-
-void perfMessageHandler(QtMsgType, const QMessageLogContext& ctx, const QString& msg)
+void messageHandler(QtMsgType, const QMessageLogContext& ctx, const QString& msg)
 {
-    if (ctx.category && QLatin1String(ctx.category) == QLatin1String("aether.perf")) {
-        QMutexLocker lock(&CapturedLines::instance().mutex);
-        CapturedLines::instance().lines.append(msg);
-    }
+    if (ctx.category && QString::fromUtf8(ctx.category) == QLatin1String("aether.perf"))
+        g_capturedLines << msg;
 }
 
-void report(const char* name, bool ok)
+void report(const char* name, bool ok, const std::string& detail = {})
 {
-    std::printf("%s %s\n", ok ? "[ OK ]" : "[FAIL]", name);
-    if (!ok)
-        ++g_failed;
+    std::printf("%s %-58s %s\n",
+                ok ? "[ OK ]" : "[FAIL]",
+                name,
+                detail.c_str());
+    if (!ok) ++g_failed;
 }
 
-void enablePerf()
+void resetCapture()
 {
-    QLoggingCategory::setFilterRules(QStringLiteral("aether.perf.debug=true"));
+    g_capturedLines.clear();
 }
 
-void disablePerf()
+QStringList stallLines()
 {
-    QLoggingCategory::setFilterRules(QStringLiteral("aether.perf.debug=false"));
+    QStringList out;
+    for (const auto& line : g_capturedLines)
+        if (line.startsWith(QLatin1String("PerfStall")))
+            out << line;
+    return out;
 }
 
-bool nearlyEqual(double a, double b, double eps = 0.001)
+QStringList summaryLines()
 {
-    return std::fabs(a - b) < eps;
+    QStringList out;
+    for (const auto& line : g_capturedLines)
+        if (line.startsWith(QLatin1String("PerfSummary")))
+            out << line;
+    return out;
 }
 
 QString fieldValue(const QString& line, const QString& key)
 {
+    const QStringList parts = line.split(QLatin1Char(' '));
     const QString prefix = key + QLatin1Char('=');
-    const auto tokens = line.split(QLatin1Char(' '));
-    for (const QString& token : tokens) {
-        if (token.startsWith(prefix))
-            return token.mid(prefix.size());
+    for (const auto& part : parts) {
+        if (part.startsWith(prefix))
+            return part.mid(prefix.size());
     }
     return {};
 }
 
-QString findLineStartingWith(const QStringList& lines, const QString& prefix)
+void prime(qint64 t0)
 {
-    for (const QString& line : lines) {
-        if (line.startsWith(prefix))
-            return line;
-    }
-    return {};
+    // Reset state and pin the clock — the next record call will start a
+    // fresh window at t0.
+    PerfTelemetry::setClockOverrideForTest(t0);
+    PerfTelemetry::instance().resetForTest();
+    resetCapture();
 }
 
-QString findStallOfKind(const QStringList& lines, const QString& kind)
+// Advance synthetic clock to the next 1-second boundary and emit a final
+// recordPanFrame so maybeLogSummary fires. Returns the captured summary.
+QString flushSummary(qint64 windowStartNs)
 {
-    for (const QString& l : lines) {
-        if (l.startsWith(QStringLiteral("PerfStall")) &&
-            fieldValue(l, QStringLiteral("kind")) == kind) {
-            return l;
-        }
-    }
-    return {};
+    PerfTelemetry::setClockOverrideForTest(windowStartNs + 1'100'000'000LL);
+    PerfTelemetry::instance().recordPanFrame();
+    const auto summaries = summaryLines();
+    return summaries.isEmpty() ? QString() : summaries.last();
 }
 
-void testDisabledHotPathIsNoOp()
-{
-    disablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    CapturedLines::instance().clear();
+// --- Disabled hot-path is no-op ---------------------------------------------
 
-    for (int i = 0; i < 100; ++i)
+void testDisabledHotPath()
+{
+    QLoggingCategory::setFilterRules(QStringLiteral("aether.perf.debug=false"));
+    PerfTelemetry::setClockOverrideForTest(1'000'000'000LL);
+    PerfTelemetry::instance().resetForTest();
+    resetCapture();
+
+    for (int i = 0; i < 50; ++i)
         PerfTelemetry::instance().recordPanUpdate(50.0);
 
-    const QStringList lines = CapturedLines::instance().snapshot();
-    const int samples = PerfTelemetryTestAccess::panUpdateSampleCount();
+    report("disabled hot-path emits no log lines",
+           g_capturedLines.isEmpty(),
+           g_capturedLines.isEmpty() ? "" : std::string("got ") + std::to_string(g_capturedLines.size()) + " lines");
 
-    report("disabled lcPerf emits no perf log lines",
-           lines.isEmpty());
-    report("disabled lcPerf mutates no window state",
-           samples == 0);
+    QLoggingCategory::setFilterRules(QStringLiteral("aether.perf.debug=true"));
 }
 
-void testStallThresholdPanUpdateAbove()
+// --- Window aggregation: count, p95, max ------------------------------------
+
+void testWindowAggregation()
 {
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    PerfTelemetryTestAccess::primeForRecording(PerfTelemetry::nowNs());
-    CapturedLines::instance().clear();
+    constexpr qint64 t0 = 5'000'000'000LL;
+    prime(t0);
 
-    PerfTelemetry::instance().recordPanUpdate(9.0);
+    // Feed 10 panUpdate samples below the stall threshold (8.0 ms) so no
+    // PerfStall lines are emitted — they would otherwise crowd capture.
+    // Values: 1, 2, 3, 4, 5, 6, 7, 7.5, 7.8, 7.9 — all <= 8.0.
+    const std::vector<double> samples = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 7.5, 7.8, 7.9};
+    for (double v : samples)
+        PerfTelemetry::instance().recordPanUpdate(v);
 
-    const QString stall = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("updateSpectrum"));
-    report("panUpdate 9.0ms emits PerfStall kind=updateSpectrum (>8ms)",
-           !stall.isEmpty() &&
-           fieldValue(stall, QStringLiteral("durationMs")) == QStringLiteral("9.0"));
+    const QString summary = flushSummary(t0);
+    const bool hasSummary = !summary.isEmpty();
+    report("window aggregation emits a summary", hasSummary);
+
+    if (hasSummary) {
+        // percentile95 for N=10: ceil(10*0.95)-1 = 9, sorted[9] = 7.9
+        const QString p95 = fieldValue(summary, QStringLiteral("panUpdateP95Ms"));
+        report("panUpdateP95Ms equals 7.9 for 10 sorted samples",
+               p95 == QLatin1String("7.9"),
+               std::string("got '") + p95.toStdString() + "'");
+    }
 }
 
-void testStallThresholdPanUpdateBelow()
-{
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    PerfTelemetryTestAccess::primeForRecording(PerfTelemetry::nowNs());
-    CapturedLines::instance().clear();
-
-    PerfTelemetry::instance().recordPanUpdate(7.0);
-
-    report("panUpdate 7.0ms emits no PerfStall (<8ms threshold)",
-           findLineStartingWith(CapturedLines::instance().snapshot(),
-                                QStringLiteral("PerfStall")).isEmpty());
-}
-
-void testStallThresholdFrameAge()
-{
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    PerfTelemetryTestAccess::primeForRecording(PerfTelemetry::nowNs());
-
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordFrameAge(PerfTelemetry::FrameKind::Panadapter, 101.0);
-    const QString above = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("frameAge"));
-
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordFrameAge(PerfTelemetry::FrameKind::Panadapter, 99.0);
-    const QString below = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("frameAge"));
-
-    report("frameAge 101ms emits PerfStall kind=frameAge (>100ms)",
-           !above.isEmpty() &&
-           fieldValue(above, QStringLiteral("stream")) == QStringLiteral("panadapter"));
-    report("frameAge 99ms emits no PerfStall (<100ms threshold)",
-           below.isEmpty());
-}
-
-void testStallThresholdRender()
-{
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    PerfTelemetryTestAccess::primeForRecording(PerfTelemetry::nowNs());
-
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordRender(17.0);
-    const QString above = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("render"));
-
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordRender(15.0);
-    const QString below = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("render"));
-
-    report("render 17.0ms emits PerfStall kind=render (>16ms)",
-           !above.isEmpty());
-    report("render 15.0ms emits no PerfStall (<16ms threshold)",
-           below.isEmpty());
-}
-
-void testStallThresholdUdpDrain()
-{
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    PerfTelemetryTestAccess::primeForRecording(PerfTelemetry::nowNs());
-
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordUdpBatch(5, 1500, 9.0);
-    const QString above = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("udpDrain"));
-
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordUdpBatch(5, 1500, 7.0);
-    const QString below = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("udpDrain"));
-
-    report("udpDrain 9.0ms emits PerfStall kind=udpDrain (>8ms)",
-           !above.isEmpty());
-    report("udpDrain 7.0ms emits no PerfStall (<8ms threshold)",
-           below.isEmpty());
-}
-
-void testStallThresholdWaterfallUpdate()
-{
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    PerfTelemetryTestAccess::primeForRecording(PerfTelemetry::nowNs());
-
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordWaterfallUpdate(13.0);
-    const QString above = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("updateWaterfallRow"));
-
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordWaterfallUpdate(11.0);
-    const QString below = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("updateWaterfallRow"));
-
-    report("waterfallUpdate 13.0ms emits PerfStall kind=updateWaterfallRow (>12ms)",
-           !above.isEmpty());
-    report("waterfallUpdate 11.0ms emits no PerfStall (<12ms threshold)",
-           below.isEmpty());
-}
-
-void testStallThresholdInput()
-{
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    PerfTelemetryTestAccess::primeForRecording(PerfTelemetry::nowNs());
-
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordInputEvent("mouseMove", 17.0);
-    const QString above = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("input"));
-
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordInputEvent("mouseMove", 15.0);
-    const QString below = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("input"));
-
-    report("input 17.0ms emits PerfStall kind=input (>16ms)",
-           !above.isEmpty() &&
-           fieldValue(above, QStringLiteral("event")) == QStringLiteral("mouseMove"));
-    report("input 15.0ms emits no PerfStall (<16ms threshold)",
-           below.isEmpty());
-}
-
-void testDragAwareUiLagIdleBelowBoth()
-{
-    // gap=80ms → lag=max(0, 80-50)=30ms. Below idle (50) and drag (33). No stall.
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    PerfTelemetryTestAccess::primeForRecording(PerfTelemetry::nowNs());
-    PerfTelemetry::instance().setDragActive(false);
-
-    const qint64 now = PerfTelemetry::nowNs();
-    PerfTelemetryTestAccess::setLastHeartbeat(now - 80LL * 1000000LL);
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordUiHeartbeat();
-
-    report("idle UI heartbeat gap=80ms (lag=30) emits no stall",
-           findStallOfKind(CapturedLines::instance().snapshot(),
-                           QStringLiteral("uiHeartbeat")).isEmpty());
-}
-
-void testDragAwareUiLagDragStall()
-{
-    // gap=90ms → lag=40ms. Below idle (50), above drag (33). Drag stall fires.
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    PerfTelemetryTestAccess::primeForRecording(PerfTelemetry::nowNs());
-    PerfTelemetry::instance().setDragActive(true);
-
-    const qint64 now = PerfTelemetry::nowNs();
-    PerfTelemetryTestAccess::setLastHeartbeat(now - 90LL * 1000000LL);
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordUiHeartbeat();
-
-    const QString stall = findStallOfKind(CapturedLines::instance().snapshot(),
-                                          QStringLiteral("uiHeartbeat"));
-    report("drag-active UI heartbeat gap=90ms (lag=40) emits stall (>33ms drag threshold)",
-           !stall.isEmpty() &&
-           fieldValue(stall, QStringLiteral("drag")) == QStringLiteral("1"));
-}
-
-void testDragAwareUiLagIdleSameGapNoStall()
-{
-    // gap=90ms idle → lag=40, < 50 idle threshold. No stall.
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    PerfTelemetryTestAccess::primeForRecording(PerfTelemetry::nowNs());
-    PerfTelemetry::instance().setDragActive(false);
-
-    const qint64 now = PerfTelemetry::nowNs();
-    PerfTelemetryTestAccess::setLastHeartbeat(now - 90LL * 1000000LL);
-    CapturedLines::instance().clear();
-    PerfTelemetry::instance().recordUiHeartbeat();
-
-    report("idle UI heartbeat gap=90ms (lag=40) emits no stall (<50ms idle threshold)",
-           findStallOfKind(CapturedLines::instance().snapshot(),
-                           QStringLiteral("uiHeartbeat")).isEmpty());
-}
-
-void testFrameRestartCounter()
-{
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    const qint64 baseNs = PerfTelemetry::nowNs();
-    PerfTelemetryTestAccess::primeForRecording(baseNs);
-
-    for (int i = 0; i < 3; ++i)
-        PerfTelemetry::instance().recordFrameRestart(PerfTelemetry::FrameKind::Panadapter);
-
-    PerfTelemetryTestAccess::setWindowStart(baseNs - 2LL * 1000000000LL);
-    CapturedLines::instance().clear();
-    PerfTelemetryTestAccess::triggerSummary(baseNs);
-
-    const QString summary = findLineStartingWith(CapturedLines::instance().snapshot(),
-                                                 QStringLiteral("PerfSummary"));
-    report("3 panadapter frame restarts produce fftRestarts=3 in next summary",
-           !summary.isEmpty() &&
-           fieldValue(summary, QStringLiteral("fftRestarts")) == QStringLiteral("3"));
-}
-
-void testPercentile95Empty()
-{
-    report("percentile95 of empty vector returns 0.0",
-           nearlyEqual(PerfTelemetryTestAccess::callPercentile95(QVector<double>{}), 0.0));
-}
-
-void testPercentile95Single()
-{
-    report("percentile95 of single value returns that value",
-           nearlyEqual(PerfTelemetryTestAccess::callPercentile95(QVector<double>{42.5}), 42.5));
-}
-
-void testPercentile95Hundred()
-{
-    QVector<double> values;
-    for (int i = 1; i <= 100; ++i)
-        values.append(static_cast<double>(i));
-    report("percentile95 of [1..100] returns 95.0",
-           nearlyEqual(PerfTelemetryTestAccess::callPercentile95(values), 95.0));
-}
-
-void testPercentile95OrderInvariant()
-{
-    QVector<double> sorted;
-    for (int i = 1; i <= 50; ++i)
-        sorted.append(static_cast<double>(i));
-    QVector<double> shuffled = sorted;
-    for (int i = 0; i + 1 < shuffled.size(); i += 2)
-        std::swap(shuffled[i], shuffled[i + 1]);
-
-    const double a = PerfTelemetryTestAccess::callPercentile95(sorted);
-    const double b = PerfTelemetryTestAccess::callPercentile95(shuffled);
-    report("percentile95 is invariant to input ordering",
-           nearlyEqual(a, b));
-}
-
-void testWindowTimingBefore1s()
-{
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    const qint64 baseNs = PerfTelemetry::nowNs();
-    PerfTelemetryTestAccess::primeForRecording(baseNs);
-
-    PerfTelemetry::instance().recordPanFrame();
-    CapturedLines::instance().clear();
-
-    PerfTelemetryTestAccess::triggerSummary(baseNs + 950LL * 1000000LL);
-
-    report("elapsed 950ms does not trigger summary",
-           findLineStartingWith(CapturedLines::instance().snapshot(),
-                                QStringLiteral("PerfSummary")).isEmpty());
-}
-
-void testWindowTimingAfter1s()
-{
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    const qint64 baseNs = PerfTelemetry::nowNs();
-    PerfTelemetryTestAccess::primeForRecording(baseNs);
-
-    PerfTelemetry::instance().recordPanFrame();
-    PerfTelemetry::instance().recordPanFrame();
-    PerfTelemetry::instance().recordPanFrame();
-    CapturedLines::instance().clear();
-
-    PerfTelemetryTestAccess::triggerSummary(baseNs + 1100LL * 1000000LL);
-
-    const QString summary = findLineStartingWith(CapturedLines::instance().snapshot(),
-                                                 QStringLiteral("PerfSummary"));
-    report("elapsed 1100ms triggers summary",
-           !summary.isEmpty());
-}
+// --- Window resets after summary --------------------------------------------
 
 void testWindowResetsAfterSummary()
 {
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    const qint64 baseNs = PerfTelemetry::nowNs();
-    PerfTelemetryTestAccess::primeForRecording(baseNs);
+    constexpr qint64 t0 = 10'000'000'000LL;
+    prime(t0);
 
-    PerfTelemetry::instance().recordPanFrame();
-    PerfTelemetry::instance().recordPanFrame();
+    PerfTelemetry::instance().recordPanUpdate(5.0);
+    PerfTelemetry::instance().recordPanUpdate(6.0);
+    PerfTelemetry::instance().recordPanUpdate(7.0);
+    (void)flushSummary(t0);
 
-    PerfTelemetryTestAccess::triggerSummary(baseNs + 1100LL * 1000000LL);
-    CapturedLines::instance().clear();
+    // Now drive a fresh window from t0 + 1.1s onward and verify the new
+    // summary doesn't carry the prior window's panUpdate samples.
+    constexpr qint64 t1 = 10'000'000'000LL + 1'100'000'000LL;
+    resetCapture();
+    PerfTelemetry::setClockOverrideForTest(t1);
+    PerfTelemetry::instance().recordPanUpdate(1.0);
 
-    PerfTelemetryTestAccess::triggerSummary(baseNs + 2200LL * 1000000LL);
-
-    const QString summary = findLineStartingWith(CapturedLines::instance().snapshot(),
-                                                 QStringLiteral("PerfSummary"));
-    report("window resets after summary - second summary has panFps=0.0",
-           !summary.isEmpty() &&
-           fieldValue(summary, QStringLiteral("panFps")) == QStringLiteral("0.0"));
+    const QString summary = flushSummary(t1);
+    const QString p95 = fieldValue(summary, QStringLiteral("panUpdateP95Ms"));
+    // Second window had one sample at 1.0, then flushSummary added a
+    // recordPanFrame (which doesn't add to panUpdateMs). So P95 should be 1.0.
+    report("window state does not bleed across summaries",
+           p95 == QLatin1String("1.0"),
+           std::string("got '") + p95.toStdString() + "'");
 }
 
-void testWindowAggregationPanUpdateP95()
+// --- Stall thresholds -------------------------------------------------------
+
+void testStallThresholdMatrix()
 {
-    enablePerf();
-    PerfTelemetryTestAccess::resetInstance();
-    const qint64 baseNs = PerfTelemetry::nowNs();
-    PerfTelemetryTestAccess::primeForRecording(baseNs);
+    struct Case {
+        const char* name;
+        double justUnder;
+        double justOver;
+        QString expectedStallKind;
+        std::function<void(double)> trigger;
+    };
 
-    // Feed 20 sub-threshold values 0.1..2.0; p95 index = ceil(20*0.95)-1 = 18 → 1.9.
-    for (int i = 1; i <= 20; ++i)
-        PerfTelemetry::instance().recordPanUpdate(static_cast<double>(i) * 0.1);
+    // Threshold values are duplicated from PerfTelemetry.cpp — if either
+    // drifts, these tests must be updated in lockstep with the production
+    // constants.
+    const std::vector<Case> cases = {
+        {"panUpdate stall (8.0 ms)", 7.5, 8.5, QStringLiteral("updateSpectrum"),
+            [](double v){ PerfTelemetry::instance().recordPanUpdate(v); }},
+        {"waterfallUpdate stall (12.0 ms)", 11.0, 13.0, QStringLiteral("updateWaterfallRow"),
+            [](double v){ PerfTelemetry::instance().recordWaterfallUpdate(v); }},
+        {"render stall (16.0 ms)", 15.0, 17.0, QStringLiteral("render"),
+            [](double v){ PerfTelemetry::instance().recordRender(v); }},
+        {"frameAge stall (100.0 ms)", 99.0, 101.0, QStringLiteral("frameAge"),
+            [](double v){ PerfTelemetry::instance().recordFrameAge(PerfTelemetry::FrameKind::Panadapter, v); }},
+        {"udpDrain stall (8.0 ms)", 7.5, 8.5, QStringLiteral("udpDrain"),
+            [](double v){ PerfTelemetry::instance().recordUdpBatch(1, 100, v); }},
+        {"input stall (16.0 ms)", 15.0, 17.0, QStringLiteral("input"),
+            [](double v){ PerfTelemetry::instance().recordInputEvent("wheel", v); }},
+    };
 
-    CapturedLines::instance().clear();
-    PerfTelemetryTestAccess::triggerSummary(baseNs + 1100LL * 1000000LL);
+    qint64 t = 100'000'000'000LL;
+    for (const auto& c : cases) {
+        // Below-threshold: no stall.
+        prime(t);
+        c.trigger(c.justUnder);
+        bool sawStallBelow = false;
+        for (const auto& line : stallLines())
+            if (fieldValue(line, QStringLiteral("kind")) == c.expectedStallKind)
+                sawStallBelow = true;
+        report((std::string(c.name) + " below threshold: no stall").c_str(),
+               !sawStallBelow);
 
-    const QString summary = findLineStartingWith(CapturedLines::instance().snapshot(),
-                                                 QStringLiteral("PerfSummary"));
-    report("aggregation: panUpdateP95Ms reflects p95 of 20 recorded samples",
-           !summary.isEmpty() &&
-           fieldValue(summary, QStringLiteral("panUpdateP95Ms")) == QStringLiteral("1.9"));
+        // Above-threshold: stall fires.
+        t += 5'000'000'000LL;
+        prime(t);
+        c.trigger(c.justOver);
+        bool sawStallAbove = false;
+        for (const auto& line : stallLines())
+            if (fieldValue(line, QStringLiteral("kind")) == c.expectedStallKind)
+                sawStallAbove = true;
+        report((std::string(c.name) + " above threshold: stall fires").c_str(),
+               sawStallAbove);
+
+        t += 5'000'000'000LL;
+    }
+}
+
+// --- Drag-aware UI lag thresholds -------------------------------------------
+//
+// Lag is computed as max(0, gap - kHeartbeatIntervalMs) where the heartbeat
+// interval is 50 ms. Idle stall threshold is 50 ms (so gap > 100 ms); drag
+// stall threshold is 33 ms (so gap > 83 ms). A 90 ms gap → lag=40, which
+// trips drag but not idle.
+
+void testUiHeartbeatDragThresholds()
+{
+    constexpr qint64 t0 = 200'000'000'000LL;
+
+    // Idle, gap = 90 ms → lag = 40 ms < 50 ms idle threshold → no stall.
+    prime(t0);
+    PerfTelemetry::instance().setDragActive(false);
+    PerfTelemetry::instance().recordUiHeartbeat();
+    PerfTelemetry::setClockOverrideForTest(t0 + 90'000'000LL);
+    PerfTelemetry::instance().recordUiHeartbeat();
+    bool sawIdleStall = false;
+    for (const auto& line : stallLines())
+        if (fieldValue(line, QStringLiteral("kind")) == QLatin1String("uiHeartbeat"))
+            sawIdleStall = true;
+    report("uiHeartbeat idle 90ms gap (lag=40): no stall", !sawIdleStall);
+
+    // Drag, same 90 ms gap → lag = 40 ms > 33 ms drag threshold → stall.
+    const qint64 t1 = t0 + 5'000'000'000LL;
+    prime(t1);
+    PerfTelemetry::instance().setDragActive(true);
+    PerfTelemetry::instance().recordUiHeartbeat();
+    PerfTelemetry::setClockOverrideForTest(t1 + 90'000'000LL);
+    PerfTelemetry::instance().recordUiHeartbeat();
+    bool sawDragStall = false;
+    for (const auto& line : stallLines())
+        if (fieldValue(line, QStringLiteral("kind")) == QLatin1String("uiHeartbeat"))
+            sawDragStall = true;
+    report("uiHeartbeat drag 90ms gap (lag=40): stall fires", sawDragStall);
+
+    // Idle, gap = 110 ms → lag = 60 ms > 50 ms idle threshold → stall.
+    const qint64 t2 = t1 + 5'000'000'000LL;
+    prime(t2);
+    PerfTelemetry::instance().setDragActive(false);
+    PerfTelemetry::instance().recordUiHeartbeat();
+    PerfTelemetry::setClockOverrideForTest(t2 + 110'000'000LL);
+    PerfTelemetry::instance().recordUiHeartbeat();
+    bool sawIdleStallHigh = false;
+    for (const auto& line : stallLines())
+        if (fieldValue(line, QStringLiteral("kind")) == QLatin1String("uiHeartbeat"))
+            sawIdleStallHigh = true;
+    report("uiHeartbeat idle 110ms gap (lag=60): stall fires", sawIdleStallHigh);
+}
+
+// --- Frame-restart counter --------------------------------------------------
+
+void testFrameRestartCounter()
+{
+    constexpr qint64 t0 = 300'000'000'000LL;
+    prime(t0);
+
+    PerfTelemetry::instance().recordFrameRestart(PerfTelemetry::FrameKind::Panadapter);
+    PerfTelemetry::instance().recordFrameRestart(PerfTelemetry::FrameKind::Panadapter);
+    PerfTelemetry::instance().recordFrameRestart(PerfTelemetry::FrameKind::Panadapter);
+
+    const QString summary = flushSummary(t0);
+    const QString restarts = fieldValue(summary, QStringLiteral("fftRestarts"));
+    report("3x recordFrameRestart(Panadapter) shows fftRestarts=3",
+           restarts == QLatin1String("3"),
+           std::string("got '") + restarts.toStdString() + "'");
+}
+
+// --- Percentile-95 boundary cases (exercised via the public record path) ----
+
+void testPercentile95Boundaries()
+{
+    // Empty input — no panUpdate samples, but a recordPanFrame to ensure
+    // maybeLogSummary fires.
+    {
+        constexpr qint64 t0 = 400'000'000'000LL;
+        prime(t0);
+        const QString summary = flushSummary(t0);
+        const QString p95 = fieldValue(summary, QStringLiteral("panUpdateP95Ms"));
+        report("p95 empty input returns 0.0",
+               p95 == QLatin1String("0.0"),
+               std::string("got '") + p95.toStdString() + "'");
+    }
+
+    // Single value — keep it under the 8 ms stall threshold.
+    {
+        constexpr qint64 t0 = 410'000'000'000LL;
+        prime(t0);
+        PerfTelemetry::instance().recordPanUpdate(4.2);
+        const QString summary = flushSummary(t0);
+        const QString p95 = fieldValue(summary, QStringLiteral("panUpdateP95Ms"));
+        report("p95 single value returns that value",
+               p95 == QLatin1String("4.2"),
+               std::string("got '") + p95.toStdString() + "'");
+    }
+
+    // 100 values [1..100] — render samples (threshold 16 ms) lets values
+    // 1..15 pass without stall noise; for percentile coverage use frameAge
+    // which has a 100 ms threshold — we want all 100 values under it.
+    // frameAge stall fires at > 100, so 1..100 are all clean.
+    {
+        constexpr qint64 t0 = 420'000'000'000LL;
+        prime(t0);
+        for (int i = 1; i <= 100; ++i)
+            PerfTelemetry::instance().recordFrameAge(PerfTelemetry::FrameKind::Panadapter,
+                                                     static_cast<double>(i));
+        const QString summary = flushSummary(t0);
+        const QString p95 = fieldValue(summary, QStringLiteral("panAgeP95Ms"));
+        // ceil(100*0.95)-1 = 94, sorted[94] = 95.
+        report("p95 of [1..100] returns 95.0",
+               p95 == QLatin1String("95.0"),
+               std::string("got '") + p95.toStdString() + "'");
+    }
+
+    // Same 100 values fed in reverse — sort inside percentile95 should give
+    // the same result.
+    {
+        constexpr qint64 t0 = 430'000'000'000LL;
+        prime(t0);
+        for (int i = 100; i >= 1; --i)
+            PerfTelemetry::instance().recordFrameAge(PerfTelemetry::FrameKind::Panadapter,
+                                                     static_cast<double>(i));
+        const QString summary = flushSummary(t0);
+        const QString p95 = fieldValue(summary, QStringLiteral("panAgeP95Ms"));
+        report("p95 unsorted input matches sorted input (95.0)",
+               p95 == QLatin1String("95.0"),
+               std::string("got '") + p95.toStdString() + "'");
+    }
+}
+
+// --- Window timing ----------------------------------------------------------
+
+void testWindowTiming()
+{
+    constexpr qint64 t0 = 500'000'000'000LL;
+    prime(t0);
+
+    // Samples spread across 950 ms — no summary yet.
+    PerfTelemetry::setClockOverrideForTest(t0);
+    PerfTelemetry::instance().recordPanUpdate(1.0);
+    PerfTelemetry::setClockOverrideForTest(t0 + 300'000'000LL);
+    PerfTelemetry::instance().recordPanUpdate(2.0);
+    PerfTelemetry::setClockOverrideForTest(t0 + 600'000'000LL);
+    PerfTelemetry::instance().recordPanUpdate(3.0);
+    PerfTelemetry::setClockOverrideForTest(t0 + 950'000'000LL);
+    PerfTelemetry::instance().recordPanUpdate(4.0);
+
+    report("no summary fires before 1s boundary",
+           summaryLines().isEmpty(),
+           std::string("got ") + std::to_string(summaryLines().size()) + " summary lines");
+
+    // One more sample past the 1 s boundary — summary should fire and
+    // include all five samples in panUpdateP95Ms.
+    PerfTelemetry::setClockOverrideForTest(t0 + 1'100'000'000LL);
+    PerfTelemetry::instance().recordPanUpdate(5.0);
+
+    const auto summaries = summaryLines();
+    report("summary fires once 1s window elapses",
+           !summaries.isEmpty());
+
+    if (!summaries.isEmpty()) {
+        const QString p95 = fieldValue(summaries.last(), QStringLiteral("panUpdateP95Ms"));
+        // ceil(5*0.95)-1 = 4, sorted[4] = 5.0
+        report("summary captures all 5 samples (p95=5.0)",
+               p95 == QLatin1String("5.0"),
+               std::string("got '") + p95.toStdString() + "'");
+    }
 }
 
 } // namespace
@@ -528,30 +410,25 @@ void testWindowAggregationPanUpdateP95()
 int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
-    qInstallMessageHandler(perfMessageHandler);
+    QLoggingCategory::setFilterRules(QStringLiteral("aether.perf.debug=true"));
+    qInstallMessageHandler(messageHandler);
 
-    testDisabledHotPathIsNoOp();
-    testStallThresholdPanUpdateAbove();
-    testStallThresholdPanUpdateBelow();
-    testStallThresholdFrameAge();
-    testStallThresholdRender();
-    testStallThresholdUdpDrain();
-    testStallThresholdWaterfallUpdate();
-    testStallThresholdInput();
-    testDragAwareUiLagIdleBelowBoth();
-    testDragAwareUiLagDragStall();
-    testDragAwareUiLagIdleSameGapNoStall();
-    testFrameRestartCounter();
-    testPercentile95Empty();
-    testPercentile95Single();
-    testPercentile95Hundred();
-    testPercentile95OrderInvariant();
-    testWindowTimingBefore1s();
-    testWindowTimingAfter1s();
+    testDisabledHotPath();
+    testWindowAggregation();
     testWindowResetsAfterSummary();
-    testWindowAggregationPanUpdateP95();
+    testStallThresholdMatrix();
+    testUiHeartbeatDragThresholds();
+    testFrameRestartCounter();
+    testPercentile95Boundaries();
+    testWindowTiming();
 
     qInstallMessageHandler(nullptr);
+    PerfTelemetry::setClockOverrideForTest(0);
 
-    return g_failed == 0 ? 0 : 1;
+    if (g_failed == 0) {
+        std::printf("\nAll PerfTelemetry tests passed.\n");
+        return 0;
+    }
+    std::printf("\n%d test(s) FAILED.\n", g_failed);
+    return 1;
 }

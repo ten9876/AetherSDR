@@ -6,6 +6,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <utility>
@@ -13,6 +14,8 @@
 namespace AetherSDR {
 
 namespace {
+
+std::atomic<qint64> g_clockOverrideNs{0};
 
 constexpr qint64 kSummaryIntervalNs = 1000000000LL;
 constexpr double kHeartbeatIntervalMs = 50.0;
@@ -42,9 +45,28 @@ PerfTelemetry& PerfTelemetry::instance()
 
 qint64 PerfTelemetry::nowNs()
 {
+    const qint64 overrideNs = g_clockOverrideNs.load(std::memory_order_relaxed);
+    if (overrideNs != 0)
+        return overrideNs;
     using Clock = std::chrono::steady_clock;
     static const Clock::time_point start = Clock::now();
     return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count();
+}
+
+void PerfTelemetry::setClockOverrideForTest(qint64 nowNs)
+{
+    g_clockOverrideNs.store(nowNs, std::memory_order_relaxed);
+}
+
+void PerfTelemetry::resetForTest()
+{
+    QMutexLocker lock(&m_mutex);
+    m_window = Window{};
+    m_windowStartNs = 0;
+    m_lastHeartbeatNs = 0;
+    m_wasEnabled.store(false, std::memory_order_relaxed);
+    m_dragActive.store(false, std::memory_order_relaxed);
+    m_waterfallLineDurationMs.store(0, std::memory_order_relaxed);
 }
 
 bool PerfTelemetry::enabled() const

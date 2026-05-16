@@ -505,6 +505,8 @@ set(CORE_SOURCES
     src/core/SleepInhibitor.cpp
     src/core/MemoryCsvCompat.cpp
     src/core/MemoryRecallPolicy.cpp
+    src/core/tnc/AetherAx25LibmodemShim.cpp
+    src/core/tnc/Ax25FrameFormatter.cpp
 )
 
 if(APPLE)
@@ -560,6 +562,7 @@ set(GUI_SOURCES
     src/gui/VfoWidget.cpp
     src/gui/RadioSetupDialog.cpp
     src/gui/NetworkDiagnosticsDialog.cpp
+    src/gui/Ax25HfPacketDecodeDialog.cpp
     src/gui/PropDashboardDialog.cpp
     src/gui/MemoryCommands.cpp
     src/gui/MemoryBrowsePanel.cpp
@@ -751,6 +754,24 @@ else()
     set_source_files_properties(${GGMORSE_SOURCES} PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
+add_library(aether_libmodem_core STATIC
+    third_party/libmodem_core/bitstream.cpp
+    third_party/libmodem_core/demodulator.cpp
+)
+target_include_directories(aether_libmodem_core PUBLIC
+    ${CMAKE_SOURCE_DIR}/third_party/libmodem_core
+)
+target_compile_features(aether_libmodem_core PUBLIC cxx_std_20)
+target_compile_definitions(aether_libmodem_core PUBLIC
+    LIBMODEM_NAMESPACE=aether_libmodem_core
+    "LIBMODEM_NAMESPACE_REFERENCE=aether_libmodem_core::"
+)
+if(MSVC)
+    target_compile_options(aether_libmodem_core PRIVATE /w)
+else()
+    target_compile_options(aether_libmodem_core PRIVATE -w)
+endif()
+
 qt_add_resources(RESOURCES resources.qrc)
 
 add_executable(AetherSDR ${ALL_SOURCES} ${RNNOISE_SOURCES} ${GGMORSE_SOURCES} ${RADE_SOURCES} ${BNR_SOURCES} ${SPECBLEACH_SOURCES} ${RESOURCES})
@@ -821,6 +842,7 @@ target_link_libraries(AetherSDR PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::Multimedia
+    aether_libmodem_core
     zlibstatic           # bundled third_party/zlib 1.3.1
     ${CMAKE_DL_LIBS}   # dlopen/dlsym for tolerant X11 error handler (#1839)
 )
@@ -1447,6 +1469,34 @@ add_executable(cw_sidetone_test
 target_include_directories(cw_sidetone_test PRIVATE src)
 target_link_libraries(cw_sidetone_test PRIVATE Qt6::Core)
 
+add_executable(ax25_frame_formatter_test
+    tests/ax25_frame_formatter_test.cpp
+    src/core/tnc/Ax25FrameFormatter.cpp
+)
+target_include_directories(ax25_frame_formatter_test PRIVATE src)
+target_link_libraries(ax25_frame_formatter_test PRIVATE Qt6::Core)
+add_test(NAME ax25_frame_formatter_test COMMAND ax25_frame_formatter_test)
+
+# PerfTelemetry unit tests — drive the singleton through its public API
+# with a synthetic clock seam. lcPerf is defined locally inside the test
+# to avoid pulling LogManager and AppSettings.
+add_executable(perf_telemetry_test
+    tests/perf_telemetry_test.cpp
+    src/core/PerfTelemetry.cpp
+)
+target_include_directories(perf_telemetry_test PRIVATE src)
+target_link_libraries(perf_telemetry_test PRIVATE Qt6::Core)
+add_test(NAME perf_telemetry_test COMMAND perf_telemetry_test)
+
+add_executable(ax25_libmodem_shim_test
+    tests/ax25_libmodem_shim_test.cpp
+    src/core/tnc/AetherAx25LibmodemShim.cpp
+    src/core/tnc/Ax25FrameFormatter.cpp
+)
+target_include_directories(ax25_libmodem_shim_test PRIVATE src)
+target_link_libraries(ax25_libmodem_shim_test PRIVATE Qt6::Core aether_libmodem_core)
+add_test(NAME ax25_libmodem_shim_test COMMAND ax25_libmodem_shim_test)
+
 add_executable(cwx_panel_test
     tests/cwx_panel_test.cpp
     src/gui/CwxPanel.cpp
@@ -1472,21 +1522,6 @@ if(UNIX)
     target_link_libraries(meter_model_test PRIVATE pthread)
 endif()
 set_target_properties(meter_model_test PROPERTIES AUTOMOC ON)
-
-add_executable(perf_telemetry_test
-    tests/perf_telemetry_test.cpp
-    src/core/PerfTelemetry.cpp
-    src/core/LogManager.cpp
-    src/core/AsyncLogWriter.cpp
-    src/core/AppSettings.cpp
-)
-target_include_directories(perf_telemetry_test PRIVATE src)
-target_link_libraries(perf_telemetry_test PRIVATE Qt6::Core)
-if(UNIX)
-    target_link_libraries(perf_telemetry_test PRIVATE pthread)
-endif()
-set_target_properties(perf_telemetry_test PROPERTIES AUTOMOC ON)
-add_test(NAME perf_telemetry_test COMMAND perf_telemetry_test)
 
 add_executable(memory_recall_policy_test
     tests/memory_recall_policy_test.cpp
