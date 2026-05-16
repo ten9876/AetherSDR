@@ -1,9 +1,12 @@
 #include "LogManager.h"
 #include "AppSettings.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMutexLocker>
 #include <QStandardPaths>
 #include <QTime>
@@ -122,10 +125,40 @@ void LogManager::applyFilterRules()
 
 bool LogManager::startLogging(const QString& path, bool mirrorToStderr)
 {
+    setActiveLogFilePath(path);
+
+    const RetentionConfig cfg = retentionConfig();
+    const qint64 maxBytes = static_cast<qint64>(cfg.activeLogMaxMb) * 1024 * 1024;
+
+    // Rotation callback runs on the writer thread. It picks a fresh
+    // timestamped path under the same dir, updates the active path, and
+    // re-points the aethersdr.log symlink so the Support dialog and
+    // support-bundle scan continue to find the live file. Writer hands us
+    // the closed file via currentPath; we never touch the writer's file
+    // handle here. (#2498)
+    m_writer.setRotationConfig(maxBytes,
+        [this](const QString& currentPath) -> QString {
+            const QString dir = QFileInfo(currentPath).absolutePath();
+            const QString ts = QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
+            QString candidate = dir + "/aethersdr-" + ts + ".log";
+            int suffix = 1;
+            while (QFile::exists(candidate) && suffix <= 100) {
+                candidate = dir + QString("/aethersdr-%1-%2.log").arg(ts).arg(suffix++);
+            }
+            if (QFile::exists(candidate))
+                return {};
+
+            setActiveLogFilePath(candidate);
+
+            const QString symlink = dir + "/aethersdr.log";
+            QFile::remove(symlink);
+            QFile::link(candidate, symlink);
+            return candidate;
+        });
+
     if (!m_writer.start(path, mirrorToStderr))
         return false;
 
-    setActiveLogFilePath(path);
     return true;
 }
 
@@ -218,6 +251,62 @@ void LogManager::loadSettings()
         c.enabled = s.value(settingsKey(c.id), def).toString() == "True";
     }
     applyFilterRules();
+}
+
+LogManager::RetentionConfig LogManager::retentionConfig() const
+{
+    // Nested JSON per Principle V (constitution): one root key
+    // "LogRetention" instead of three flat AppSettings keys.
+    RetentionConfig cfg;
+    const QString json = AppSettings::instance()
+        .value("LogRetention", "").toString();
+    if (json.isEmpty())
+        return cfg;
+
+    const QJsonObject obj = QJsonDocument::fromJson(json.toUtf8()).object();
+    if (obj.contains("ActiveLogMaxMb"))
+        cfg.activeLogMaxMb = obj.value("ActiveLogMaxMb").toInt(cfg.activeLogMaxMb);
+    if (obj.contains("RetentionDays"))
+        cfg.retentionDays = obj.value("RetentionDays").toInt(cfg.retentionDays);
+    if (obj.contains("RetentionMaxTotalMb"))
+        cfg.retentionMaxTotalMb = obj.value("RetentionMaxTotalMb").toInt(cfg.retentionMaxTotalMb);
+    return cfg;
+}
+
+void LogManager::pruneOldLogs(const QString& dir)
+{
+    const RetentionConfig cfg = retentionConfig();
+    QDir d(dir);
+    if (!d.exists())
+        return;
+
+    // Newest-first scan; keep at least the two most-recent so "yesterday's
+    // log" remains available for support cases even under aggressive caps.
+    const QFileInfoList entries = d.entryInfoList(
+        {"aethersdr-*.log"}, QDir::Files, QDir::Time);
+
+    const QDateTime cutoff = (cfg.retentionDays > 0)
+        ? QDateTime::currentDateTime().addDays(-cfg.retentionDays)
+        : QDateTime();
+    const qint64 totalCap = static_cast<qint64>(cfg.retentionMaxTotalMb) * 1024 * 1024;
+
+    qint64 cumulative = 0;
+    int kept = 0;
+    constexpr int kAlwaysKeep = 2;
+    for (const QFileInfo& fi : entries) {
+        const qint64 sz = fi.size();
+        const bool tooOld = cutoff.isValid()
+            && fi.lastModified().isValid()
+            && fi.lastModified() < cutoff;
+        const bool overSize = totalCap > 0 && (cumulative + sz) > totalCap;
+
+        if (kept < kAlwaysKeep || (!tooOld && !overSize)) {
+            cumulative += sz;
+            ++kept;
+            continue;
+        }
+        QFile::remove(fi.absoluteFilePath());
+    }
 }
 
 } // namespace AetherSDR
