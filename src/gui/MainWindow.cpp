@@ -3417,6 +3417,11 @@ MainWindow::MainWindow(QWidget* parent)
             m_flexWheelMode = FlexWheelMode::Rit;
         } else if (actionName == "WheelXit") {
             m_flexWheelMode = FlexWheelMode::Xit;
+        } else if (actionName.startsWith("CwxF")) {
+            bool ok = false;
+            int idx = actionName.mid(4).toInt(&ok);
+            if (ok && idx >= 1 && idx <= 12)
+                m_radioModel.cwxModel().sendMacro(idx);
         }
     });
 #endif
