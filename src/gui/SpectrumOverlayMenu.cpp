@@ -38,6 +38,7 @@ static const QString kLabelStyle =
     "color: #8aa8c0; font-size: 10px; font-weight: bold; }";
 
 static const QString kSliderStyle =
+    "QSlider { border: none; }"
     "QSlider::groove:horizontal { background: #1a2a3a; height: 4px; "
     "border-radius: 2px; }"
     "QSlider::handle:horizontal { background: #c8d8e8; width: 10px; "
