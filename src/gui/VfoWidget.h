@@ -83,6 +83,12 @@ public:
     bool isCollapsed() const { return m_collapsed; }
     void setCollapsed(bool collapsed);
 
+    // Which side of the slice marker the flag panel is rendered on.
+    // Updated by updatePosition(); MainWindow uses it to decide which side
+    // of the slice frequency to extend by the flag width when computing
+    // the Pan-Follow-VFO trigger boundary (#2761).
+    bool onLeft() const { return m_lastOnLeft; }
+
 #ifdef HAVE_RADE
     void setRadeActive(bool on);
     void setRadeSynced(bool synced);
