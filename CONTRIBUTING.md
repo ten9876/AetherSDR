@@ -11,7 +11,7 @@ the RFC process for significant changes.
 
 ## Quick Start
 
-1. Browse [open issues](https://github.com/ten9876/AetherSDR/issues) —
+1. Browse [open issues](https://github.com/aethersdr/AetherSDR/issues) —
    issues labeled `good first issue` are great starting points.
 2. Fork the repo and create a feature branch from `main`.
 3. Implement the fix or feature (one issue per PR).
@@ -22,7 +22,7 @@ the RFC process for significant changes.
 ## Reporting Bugs
 
 - Use the **lightbulb button** in AetherSDR's title bar for AI-assisted bug
-  reports, or open a [GitHub issue](https://github.com/ten9876/AetherSDR/issues/new) directly.
+  reports, or open a [GitHub issue](https://github.com/aethersdr/AetherSDR/issues/new) directly.
 - Include: OS/distro, AetherSDR version, radio model, firmware version.
 - Attach logs (`~/.config/AetherSDR/aethersdr.log`) or use Help → Support → Send to Support.
 - Check existing issues first to avoid duplicates.

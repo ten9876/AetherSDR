@@ -7314,8 +7314,8 @@ void MainWindow::buildMenuBar()
             "Licensed under "
             "<a href='https://www.gnu.org/licenses/gpl-3.0.html' style='color:#00b4d8;'>GPLv3</a></p>"
             "<p style='font-size:11px;'>"
-            "<a href='https://github.com/ten9876/AetherSDR' style='color:#00b4d8;'>"
-            "github.com/ten9876/AetherSDR</a></p>"
+            "<a href='https://github.com/aethersdr/AetherSDR' style='color:#00b4d8;'>"
+            "github.com/aethersdr/AetherSDR</a></p>"
             "<p style='font-size:10px; color:#6a8090;'>"
             "SmartSDR protocol &copy; FlexRadio Systems</p>"
             "<p style='font-size:10px; color:#6a8090;'>"
@@ -7341,7 +7341,7 @@ void MainWindow::buildMenuBar()
         // Fetch live contributor list from GitHub API
         auto* nam = new QNetworkAccessManager(dlg);
         auto* reply = nam->get(QNetworkRequest(
-            QUrl("https://api.github.com/repos/ten9876/AetherSDR/contributors")));
+            QUrl("https://api.github.com/repos/aethersdr/AetherSDR/contributors")));
         connect(reply, &QNetworkReply::finished, dlg, [contribLabel, reply] {
             reply->deleteLater();
             if (reply->error() != QNetworkReply::NoError) return;
