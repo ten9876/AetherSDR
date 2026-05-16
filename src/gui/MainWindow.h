@@ -80,6 +80,7 @@ class NetworkDiagnosticsHistory;
 class WhatsNewDialog;
 class ProfileManagerDialog;
 class ProfileImportExportDialog;
+class RadioSetupDialog;
 class NetworkDiagnosticsDialog;
 class MemoryDialog;
 class AetherDspDialog;
@@ -490,7 +491,7 @@ private:
 
     // Modeless dialogs
     QPointer<DxClusterDialog> m_spotHubDialog;
-    QPointer<QDialog> m_radioSetupDialog;
+    QPointer<RadioSetupDialog> m_radioSetupDialog;
     QPointer<NetworkDiagnosticsDialog> m_networkDiagnosticsDialog;
     QPointer<QDialog> m_propDashboardDialog;
     QPointer<QDialog> m_txBandDialog;
