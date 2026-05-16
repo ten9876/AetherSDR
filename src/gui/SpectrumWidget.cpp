@@ -1011,7 +1011,7 @@ void SpectrumWidget::updateNoiseFloorBaseline(const QVector<float>& bins, bool f
         if (!m_noiseFloorTargetValid) return;
     }
 
-    if (m_draggingDbm || m_pendingDbmRangeEcho) return;
+    if (isDraggingDbmScale() || m_pendingDbmRangeEcho) return;
 
     applyNoiseFloorAutoAdjust(nowMs);
 }
