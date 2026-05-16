@@ -587,6 +587,7 @@ set(GUI_SOURCES
     src/gui/PersistentDialog.cpp
     src/gui/ProfileManagerDialog.cpp
     src/gui/ProfileImportExportDialog.cpp
+    src/gui/TxBandDialog.cpp
     src/gui/PanadapterApplet.cpp
     src/gui/PanadapterStack.cpp
     src/gui/PanLayoutDialog.cpp

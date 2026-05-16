@@ -82,6 +82,7 @@ class ProfileManagerDialog;
 class ProfileImportExportDialog;
 class NetworkDiagnosticsDialog;
 class MemoryDialog;
+class TxBandDialog;
 class AetherDspDialog;
 class DxClusterDialog;
 class Ax25HfPacketDecodeDialog;
@@ -493,7 +494,7 @@ private:
     QPointer<QDialog> m_radioSetupDialog;
     QPointer<NetworkDiagnosticsDialog> m_networkDiagnosticsDialog;
     QPointer<QDialog> m_propDashboardDialog;
-    QPointer<QDialog> m_txBandDialog;
+    QPointer<TxBandDialog> m_txBandDialog;
     QPointer<MemoryDialog> m_memoryDialog;
     QPointer<Ax25HfPacketDecodeDialog> m_ax25HfPacketDecodeDialog;
     QPointer<WhatsNewDialog> m_whatsNewDialog;
