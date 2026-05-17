@@ -6,6 +6,520 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 > **Versioning:** Starting with **v26.5.1**, AetherSDR moves to **CalVer**
 > (`YY.M.patch`). Earlier tags used semver through v0.9.8.
 
+## [v26.5.2] — 2026-05-17
+
+### Six days of community momentum — AetherModem, FreeDV ergonomics, FLEX-6700 4m/2m, dialog architecture sweep
+
+The first natural-cadence release after the 1.0-equivalent. **123 commits in
+six days**, driven by an unusually active week from community contributors and
+the AetherClaude orchestrator. Highlights:
+
+- **AetherModem** — Phase-0 bring-up of a native AX.25 packet decoder
+  (`jensenpat`), with 21-lane phase-bank HDLC framing, FCS validation, and a
+  new Packet Decode dialog. RX is active on 300 baud HF and 1200 baud VHF;
+  TX is live on 300 baud HF with timing refinements queued for Phase 1.
+- **FreeDV/RADE ergonomics** — sync/SNR indicator in the VFO widget for FDVU/FDVL
+  slices, far-end callsign and frequency-offset row, end-of-over (EOO) callsign
+  decode + FreeDV Reporter posting (`NF0T`).
+- **FLEX-6500 / FLEX-6700 4m/2m bands** — surfaced via `ModelCapabilities`
+  using FlexLib `ModelInfo.cs` as the authority; works with the radio's
+  internal XVTR or any external transverter.
+- **PersistentDialog architecture sweep** — new base class + showOrRaisePersistent
+  pattern; 10+ dialogs migrated (Profile Manager, Profile Import/Export, Memory,
+  Network Diagnostics, PropDashboard, TxBand, Waveforms, RadioSetup, DxCluster,
+  AetherDsp, AX.25 Packet Decoder, MIDI, MQTT, SpotHub). Frameless toggle now
+  propagates correctly; geometry persists; no duplicate-window classes of bug.
+- **Spectrum & panadapter stabilization** (`rfoust`) — panadapter restore-on-
+  reconnect across multi-pan and floating-pan setups, macOS GPU lifecycle
+  cleanup, dBm-range echo smoothing (no snap-back after release), Ctrl-drag
+  dBm zoom, Ctrl-drag waterfall rate.
+- **Protocol hardening** — `M`-message severity parsing (no more Info notices
+  popping modals), hex meter num field handling, `tx_slice_mode` from transmit
+  status, FlexWaveformModel for firmware v4.2.18 WFP status.
+
+Huge thanks to **@jensenpat** (AetherModem Phase-0, AX.25 timing, AX.25 receive
+improvements, FFT floor lock edge cases, XVTR waterfall offset, RF Gain / AGC-T
+shortcuts, spot auto-mode routing), **@NF0T / Ryan** (FreeDV sync indicator,
+Waveforms dialog, FlexWaveformModel protocol, hex meter parser, CWX context
+menu + CharGap, RADE auto-deactivate, tx_slice_mode, RX-applet radeActivated
+restore), **@rfoust / Robbie** (panadapter persistence + macOS GPU lifecycle,
+dBm Ctrl-zoom, ctrl-drag waterfall rate, TNF status tooltip, panadapter
+restore-window extension, spectrum dBm echo smoothing, FFT floor edge cases),
+**@M7HNF-Ian** (spot tooltips near waterfall edge, SpotHub auto-reconnect),
+**@algojogacor** (spot label gap), and **@aethersdr-agent** (AetherClaude — 30+
+mechanical fixes including the entire PersistentDialog migration sweep, persistence
+fixes, log rotation, naming polish, AsyncLogWriter + PerfTelemetry test harnesses,
+NoiseFloor diagnostics).
+
+### New features
+
+**AetherModem — AX.25 packet decoder (Phase 0, #2753, jensenpat)**
+- Native HDLC/AX.25 packet decoder integrated into the slice signal path.
+  21-lane phase-bank receiver with FCS validation. New `Packet Decoder`
+  dialog accessible from the slice context menu; tagged as Experimental
+  via banner (#2764) until 1200 baud VHF reaches feature parity with HF.
+- Receive timing improved in follow-on PR #2788; em-dash render fix on
+  the experimental banner (#2791).
+
+**AetherModem Phase-0 indicator on Packet Decoder dialog (#2766)**
+- Surfaces the Experimental status with a dedicated banner so operators
+  understand TX coverage (HF 300 baud only) vs RX coverage (HF 300 +
+  VHF 1200).
+
+**FreeDV/RADE sync + SNR indicator in VFO widget (#2776, NF0T)**
+- New VFO widget chrome on FDVU/FDVL slices: shows sync state and
+  decoded SNR alongside the standard frequency / mode / filter display.
+
+**RADE info row — far-end callsign, SNR, freq offset (#2660)**
+- Per-slice RADE info row exposing the far-end's callsign, decoded SNR,
+  and frequency offset for live awareness during a QSO.
+
+**RADE EOO callsign decode + FreeDV Reporter posting (#2659)**
+- Decodes the end-of-over callsign from the far end and posts it to
+  FreeDV Reporter for spotting / heard-list integration.
+
+**FlexWaveformModel for firmware v4.2.18 waveform status (#2759, NF0T)**
+- New `FlexWaveformModel` parses `waveform` status objects from firmware
+  v4.2.18 and surfaces them in a dedicated Waveforms dialog (#2779) under
+  File menu for WFP status and per-waveform management.
+
+**4m / 2m bands on FLEX-6500 and FLEX-6700 (#2757)**
+- Surfaces 4 m and 2 m band buttons on FLEX-6500 / FLEX-6700 via
+  `ModelCapabilities`. Reads the per-model XVTR allocation from FlexLib
+  `ModelInfo.cs` (authoritative source) and routes click-to-band through
+  the existing XVTR slice creation path.
+
+**Smart Spot Filtering — dim unmatched DX voice spots (#2555)**
+- New SpotHub filter that dims/hides DX voice spots that don't match a
+  user-defined pattern (country/zone/mode). Companion to the existing
+  callsign-pattern filter; user-configurable match window in #2699.
+
+**Auto-squelch with 3-way SQL cycle (#2544)**
+- New tri-state squelch toggle: Off → SQL (manual) → Auto (tracks the
+  noise floor). Cycles via the SQL button or the keyboard shortcut.
+
+**Local antenna display names (#2620)**
+- Per-radio antenna labels (e.g. "ANT1 → 80m Dipole") stored
+  client-side and applied across slice context menus, RX applet, and
+  TX band dialog. Radio still uses ANT1/ANT2/RX-A for the wire protocol.
+
+**ATU band pre-tune sweep + clear memories (#2630)**
+- New ATU action: sweep the active band in 20 kHz steps and pre-tune
+  every segment, building a band-wide ATU memory table in one pass.
+  Plus a per-band Clear Memories action.
+
+**License confirmation modal for Antenna SWR Sweep (#2691)**
+- Adds a one-time license-acknowledgement modal before allowing
+  Antenna SWR Sweep — clarifies that the sweep transmits.
+
+**Numeric entry for Aetherial Audio effect parameters (#2697)**
+- All Aetherial Audio Channel Strip knobs now support direct numeric
+  entry alongside drag-to-set.
+
+**FlexRadio profile import/export via .ssdr_cfg (#2641)**
+- Import and export TX / Mic / Global profiles in FlexRadio's
+  `.ssdr_cfg` wire format. Round-trip compatible with SmartSDR; lets
+  operators migrate profile libraries from Windows to Linux/macOS.
+
+**FlexControl CWX F1-F12 macro actions (#2725)**
+- The FlexControl USB knob can now trigger CWX (and DVK) F-key macros
+  via button mappings.
+
+**Independent RX/TX CW decode toggles (#2638)**
+- RX-side and TX-side CW decode can be enabled independently; previously
+  toggled together.
+
+**Auto-Save inline when TX/Mic profile name collides (#2790, #2712)**
+- The profile-save warning dialog now offers Auto-Save as an inline
+  option rather than requiring a separate menu trip.
+
+**Persist TX Tune Mode + EQ applet RX/TX view (#2735, #2736)**
+- Tune Mode (single-tone vs two-tone) and the EQ applet's RX/TX
+  selection persist across launches. Note: TX Tune Mode persistence
+  was subsequently reverted to a right-click menu in #2787 to avoid
+  the connect-time re-apply trap; the right-click stays.
+
+**Two-tone TUNE selector via right-click (#2787)**
+- TUNE button right-click exposes Mono Tone / Two Tone selection;
+  cleaner than the persisted-setting form.
+
+**TNF status tooltip (#2789)**
+- Hovering a TNF marker now shows depth/permanent state inline.
+
+**Audio device hotplug + notification dialog (#2583)**
+- Detects audio device add/remove events from the OS and routes the
+  current PC audio path through the change with a notification dialog
+  so the user can choose to follow the new default or stay.
+
+**PEP peak-hold tick on TX FWDPWR gauge (#2596)**
+- Adds the canonical PEP peak-hold tick (with configurable hold time)
+  to the FWDPWR meter, matching SmartSDR's PEP display semantics.
+
+**Profile Manager non-modal + persist geometry (#2591)**
+- Profile Manager dialog migrated to the PersistentDialog base class —
+  non-modal, geometry persists, frameless chrome support.
+
+**Ctrl-drag waterfall rate control (#2783)**
+- Holding Ctrl while dragging the waterfall vertically adjusts the
+  scroll rate (50 ms – 500 ms per line).
+
+**Ctrl-drag dBm scale zoom (#2717, #2726)**
+- Holding Ctrl while dragging the dBm scale zooms vertical range
+  symmetrically; tooltip and help docs (#2726) document the gesture.
+
+**Pan-follow-VFO triggers off flag outer edge (#2784, #2761)**
+- When a VFO flag approaches the panadapter edge, pan-follow now
+  triggers off the outer edge of the flag rather than the center —
+  no more cropped flags when the user pans to track a signal.
+
+**Spectrum overlay Display panel reorder + SQL Margin → RX Applet (#2695)**
+- Display panel controls reordered for clarity; SQL Margin moved from
+  the spectrum overlay to the RX applet where it belongs.
+
+**Audio Device Detected dialog gets frameless chrome (#2618)**
+- Standard 18 px gradient title bar + chrome treatment, matching the
+  rest of the app.
+
+**Floor: auto-adjust — asymmetric smoothing + transient rejection (#2653)**
+- The Floor: auto-adjust algorithm now uses asymmetric smoothing
+  (fast attack on rising floor, slow release on falling) and rejects
+  transient peaks. Replaces the old zoom-based response with a pan-only
+  response so signal heights stay visually stable as the floor moves.
+
+**Radio-letter slice display mode for Multi-Flex (#2606, #2708)**
+- New display mode shows radio-side slice identifier (A/B/C/D) instead
+  of client-local letter for Multi-Flex sessions where multiple clients
+  may have different letter assignments.
+
+**Network audio packet-loss concealment (#2732)**
+- PLC algorithm fills brief network audio dropouts (1–3 packets) with
+  spectrally-matched filler instead of silence; eliminates audible
+  pops on lossy Wi-Fi.
+
+**Lock split-pair VFO panels to opposite sides (#2744, #2663)**
+- Split-pair VFOs (A/B in split mode) now lock to opposite sides of
+  the dual-VFO layout to prevent operator confusion.
+
+**Right-click context menu on CWX history bubbles (#2752)**
+- CWX history bubbles get a right-click context menu for delete /
+  resend / edit actions.
+
+**Cluster overflow popup emits spotTriggered (#2741)**
+- Clicking a spot inside the cluster overflow popup now triggers the
+  full `spotTriggered` flow (slice retune + spot record), not just
+  the bare frequency move.
+
+**RF Gain and AGC-T keyboard shortcuts (#2710, jensenpat)**
+- Adds `rf_gain_up/down` and `agc_t_up/down` shortcut actions for
+  keyboard and FlexControl mapping.
+
+**Interlock notification system (#2586)**
+- Per-band interlock state changes (band-cancel, amp-warmup, ATU-busy)
+  now route through a unified notification system rather than ad-hoc
+  modal popups.
+
+**Smart Spot Filter match window (#2699)**
+- User-configurable time window for the Smart Spot Filter — controls
+  how long a matched spot's marker remains highlighted.
+
+### Bug fixes
+
+**Spectrum dBm range echo smoothing (#2793, rfoust)**
+- After releasing a dBm scale drag, in-flight FFT frames encoded for
+  the old range no longer snap the trace back. Rebases up to 10 frames
+  with a 0.75 dB median-improvement guard. Also splits auto-floor echo
+  handling from manual drag echo so the smooth animation no longer
+  steps when the radio is slow to ack.
+
+**Panadapter layout / floating persistence + macOS GPU lifecycle (#2786, #2780, rfoust)**
+- Panadapter layout state restores cleanly on radio reconnect across
+  multi-pan and floating-pan window configurations. Bundles the macOS
+  QRhi GPU lifecycle fix (reparenting on dock/float and clean shutdown).
+
+**Extend panadapter startup layout restore window (#2792, rfoust)**
+- Restore window widened from 5 s to 30 s for slow reconnects, with a
+  user-intent suppress flag so layout-button presses during the wider
+  window don't get clobbered.
+
+**Spectrum FFT line width slider produces visible pixel-width line (#2706)**
+- Slider value previously produced sub-pixel-width strokes on some
+  scale factors. Now floor-rounded to an integer pixel width before
+  draw.
+
+**M-message severity respected so Info notices don't pop modals (#2785)**
+- The radio's M-message severity bits (Info / Notice / Warning / Error)
+  were previously ignored; Info-level messages popped error modals.
+  Now routed to the status bar for Info/Notice and the modal only for
+  Warning/Error.
+
+**Parse hex meter num field + handle M-prefix radio messages (#2771, NF0T)**
+- Meter-number field was decimal-only, breaking on radios that send
+  hex. Plus the `M`-prefix radio message form is now parsed correctly.
+
+**Panadapter vanished panstack on left-dock startup (#2733, #2704)**
+- Empty panstack on first launch when the applet panel was left-docked.
+  Two related size-setter bugs (#2746 follow-up) addressed.
+
+**XVTR waterfall offset matching (#2709, jensenpat)**
+- Waterfall display offset for XVTR slices now matches the spectrum
+  offset on unvalidated profile entries.
+
+**Spot auto-mode slice routing (#2713, jensenpat)**
+- Auto-mode spots now route to the correct slice based on
+  mode-compatibility rather than always-slice-0.
+
+**Spot tooltips disappearing near waterfall edge (#2740, M7HNF-Ian)**
+- Tooltips clipped past the waterfall edge are now anchored above the
+  cursor.
+
+**FFT floor lock edge cases (#2715, rfoust)**
+- Edge-case crashes in the FFT-floor-lock state machine resolved.
+
+**XVTR direct-entry tuning above 450 MHz (#2621)**
+- Direct frequency entry on XVTR slices accepted values above 450 MHz
+  in display but the slice tune command rejected. Now passes through.
+
+**Spot tooltip cursor offset + re-anchor suppression (#2631, #2654)**
+- DX / band-plan tooltips offset from the cursor to avoid covering
+  the spot label; suppresses re-anchor flicker during slow mouse moves.
+
+**Spot label gap in spectrum (#2702, algojogacor)**
+- Inter-label spacing now enforced so adjacent spot labels don't
+  overlap.
+
+**TX/Mic Save button silently no-ops on existing names (#2707, #2637)**
+- Profile Save with an existing name now shows a confirm dialog
+  instead of failing silently.
+
+**Layout: second size-setter also clobbered left-dock startup (#2746)**
+- Follow-up to #2733; a second size-setter path was also clobbering
+  the left-dock layout.
+
+**Restore WAVE TX scope for digital audio (#2688)**
+- Digital-mode TX (DIGU/DIGL/FT8/RTTY) now restores the WAVE-TX scope
+  selection on reconnect.
+
+**RADE auto-deactivate when slice mode changes externally (#2747, NF0T)**
+- When the radio (or another client) changes a RADE slice to a non-
+  RADE mode, RADE now auto-deactivates client-side.
+
+**Restore unconditional radeActivated(false) emit on RX applet (#2745, NF0T)**
+- RX applet's RADE state emit was elided in some teardown paths,
+  leaving downstream consumers stale.
+
+**CharGap between live-mode Pending entries in CwxLocalKeyer (#2754, NF0T)**
+- Successive Pending entries in the CWX live-mode buffer were
+  concatenated without the inter-character gap.
+
+**Suppress amp/tuner popup during normal TX (#2678)**
+- Interlock notification popup was firing during normal TX engagement.
+  Now gated on `tx_allowed` to fire only when the interlock actually
+  blocks TX.
+
+**ATU walk segment list per discrete-channel band (#2686)**
+- ATU sweep was sampling continuous-band centers on discrete-channel
+  bands (60 m). Now walks the segment list instead.
+
+**wasVisible-guard on remaining setGeometry sites (#2685, #2635)**
+- Four (plus three) more frameless-toggle setGeometry sites adopted
+  the wasVisible-guard pattern to avoid first-show off-screen positions.
+
+**SQL threshold line auto-hide restored (#2684)**
+- Manual SQL threshold line auto-hides after 3 s of inactivity again.
+
+**Waterfall pace TX/FFT-fallback rows to radio line_duration (#2667)**
+- During TX or FFT-fallback, the waterfall now paces row insertion to
+  the radio's reported `line_duration` instead of free-running.
+
+**Spot dedup cluster echo of manually-posted spot (#2661)**
+- A manually-posted spot is no longer re-displayed when the cluster
+  echoes it back.
+
+**Profile Manager 'next tab' wording (#2729)**
+- Wording clarified from ambiguous "next" to specific tab name.
+
+**TX timeout display in seconds, not milliseconds (#2642)**
+- TX timeout indicator was showing milliseconds with a "s" unit.
+
+**Tear down float window when dock-side icon clicked (#2673)**
+- Re-docking a float window via the dock-side icon now tears down the
+  float window cleanly.
+
+**CW Int16 fallback for sidetone sink on Int16-only WASAPI devices (#2668)**
+- CW sidetone now falls back to Int16 on WASAPI devices that don't
+  support float32.
+
+**Don't toggle radio dax flag on Windows from slice-mode changes (#2670, #2315)**
+- Windows slice-mode-change side-effect that toggled the radio's
+  DAX flag eliminated.
+
+**Guard m_daxBridge ref in deactivateRADE() (#2662)**
+- Null-guards added to the RADE deactivation path for Windows / no-
+  PipeWire builds.
+
+**RADE DAX stream lifecycle on macOS (#2633)**
+- RADE DAX stream lifecycle on macOS now matches Linux/Windows
+  behavior.
+
+**macOS Bluetooth headset mic capture rate (#2615)**
+- macOS Bluetooth headset mic capture now correctly negotiates the
+  supported rate (was hardcoded to 48 kHz, breaking 16 kHz BT codecs).
+
+**S-History voice signal carrier detection (#2549)**
+- Voice signal carrier frequency detection improved — handles slightly
+  off-tune voice signals.
+
+**Dx-cluster strip non-printable control chars (#2700)**
+- Cluster console lines now have control characters stripped before
+  display.
+
+**TCI spec/impl compliance + RF2K-S amplifier interop (#2597)**
+- Several TCI v2.0 command spec divergences corrected; RF2K-S
+  amplifier now interoperates correctly via TCI.
+
+**Prevent remote_audio_rx stream on TCI autostart if PC audio disabled (#2557, #1137)**
+- TCI autostart no longer creates a remote_audio_rx stream when PC
+  audio is disabled in settings.
+
+**Make set_split_vfo / tx_enable idempotent to stop radio TX watchdog (#2568)**
+- These two CAT commands now idempotent — repeated state-equal calls
+  no longer trip the radio's TX watchdog.
+
+**Drive CWX/DVK F1-F12 shortcuts by active slice mode (#2590, #2582)**
+- F-key shortcut routing now respects the active slice's mode.
+
+**Frameless title bar drag on macOS (#2576)**
+- macOS frameless title bar drag now uses the native window-drag API
+  instead of synthetic mouse events.
+
+**FPS meter overlay redraw stutter (#2578)**
+- FPS meter overlay was redrawing every frame; now diff-gated.
+
+**HID automoc source registration (#2577)**
+- HID source files now correctly registered with automoc.
+
+**macOS iconset 512@2x size (#2579)**
+- macOS iconset 512@2x size corrected.
+
+**TX mic stereo channel canonicalization (#2572)**
+- Stereo mic channel order canonicalized to L=mic / R=mic across
+  all platforms.
+
+**Streamdeck tune-up/down step (#2714, #2409)**
+- Streamdeck tune step bumped from 100 Hz to 1 kHz (matches main app
+  step semantics).
+
+**Consolidate duplicate aether.ax25 Q_LOGGING_CATEGORY (#2770, #2763)**
+- The `aether.ax25` logging category was declared in two TUs; consolidated
+  to a single declaration in `LogManager.cpp` with shared header access.
+
+**dBm-scale Ctrl-drag zoom tooltip + help docs (#2726)**
+- Companion to #2717; documents the gesture in tooltip + help.
+
+**Log diagnostic when noise-floor capture bails (#2727, #2720)**
+- New diagnostic log line when the noise-floor capture path returns
+  early without producing a sample.
+
+**ANT-tab slider default Qt border (#2751)**
+- Restores the default Qt slider border on the ANT-tab sliders.
+
+### Infrastructure
+
+**PersistentDialog base class + showOrRaisePersistent migration sweep (#2644)**
+- New `PersistentDialog` base class providing frameless-chrome support,
+  geometry persistence, and lazy-construct/raise lifecycle via
+  `showOrRaisePersistent<T>()`. Migrated dialogs include Profile Manager,
+  Profile Import/Export, Memory, Network Diagnostics, PropDashboard,
+  TxBand, Waveforms, RadioSetup (primary + 3 secondary entries), DxCluster,
+  AetherDsp, AX.25 Packet Decoder, MIDI, MQTT, SpotHub. The migration
+  closes a long list of legacy duplicate-window and frameless-toggle bugs.
+
+**Migrate three secondary RadioSetupDialog entry points (#2795, #2781)**
+- FlexControl, USB Cables, and XVTR overlay entry points now use
+  `showOrRaisePersistent` and converge on the single tracked instance.
+  Closes the duplicate-RadioSetup-window class of bug.
+
+**Migrate seven dialogs to PersistentDialog (#2676)**
+- Bulk migration of Memory, NetworkDiagnostics, AetherDsp, MIDI, MQTT,
+  SpotHub, and AX.25 Packet Decoder dialogs to the new base class.
+
+**Migrate PropDashboardDialog to PersistentDialog (#2775)**
+- Companion to #2676.
+
+**Extract TxBandDialog to its own class + migrate to PersistentDialog (#2774)**
+- TxBandDialog extracted from MainWindow.cpp inline construction into
+  its own class file + base-class migration.
+
+**Log rotation + startup retention cap (#2765, #2498)**
+- AsyncLogWriter now rotates the log file on size threshold and caps
+  retained log files on startup.
+
+**Unit tests for AsyncLogWriter (#2760, #2497)**
+- New test harness for AsyncLogWriter rotation, buffering, and
+  shutdown behavior.
+
+**Unit tests for PerfTelemetry (#2782, #2500)**
+- New test harness covering frame-time histogram, heartbeat capture,
+  and aggregation.
+
+**Lock IARU R1 reference table for computeCenters() (#2687, #2648)**
+- New test guards the IARU R1 reference table used for ATU center
+  computation.
+
+**Make VirtualAudioBridge thread-safe for DAX RX DirectConnection (#2762, #2486)**
+- Thread-safe accessors added to VirtualAudioBridge for the DAX RX
+  DirectConnection path.
+
+**CI post-merge guard + drop stale-branch pre-merge enforcement (#2749)**
+- Adds a post-merge job that catches stale-snapshot reverts; removes
+  the brittle pre-merge stale-branch check that was producing too many
+  false positives.
+
+**Refresh in-repo URLs to aethersdr/AetherSDR org (#2723)**
+- Sweep across docs, CI workflows, and source comments to update the
+  GitHub org reference following the org move from `ten9876` →
+  `aethersdr` (2026-05-16).
+
+**Bundle zlib 1.3.1 under third_party/ (#2698, #2651)**
+- zlib now vendored to remove the system-dep variation across distros.
+
+**Add spec-kit constitution at .specify/memory/constitution.md (#2636)**
+- Establishes the project's eight inviolable principles (FlexLib
+  authority, MeterSmoother canonicality, UI-label-driven naming,
+  region-aware band data, nested-JSON config, CHAIN-widget TX DSP
+  entry, auto-generated Contributors list) as the authoritative
+  reference for AI-agent contributions.
+
+**Frameless guidance for popout dialogs in CLAUDE.md (#2619)**
+- Documents the canonical frameless pattern for popout dialogs.
+
+**Add frameless support for popout dialogs (#2580)**
+- Foundational frameless chrome support for popout / floating
+  dialogs (sets up the PersistentDialog work that followed).
+
+**Document _tci._tcp.local mDNS discovery schema (#2613, #2502)**
+- TCI mDNS discovery schema documented.
+
+**Document AetherSDR audio pipeline (#2571)**
+- New docs page covering the full audio pipeline (TX mic path, RX
+  audio path, DAX, RADE, TCI, AetherModem).
+
+**Drop dead SHistorySoftEdgeDb settings key (#2608, #2607)**
+- Removes an unused settings key + saves a migration step.
+
+**Add PC Audio device tooltip (#2587)**
+- The PC Audio panel now shows a tooltip with the underlying device
+  identifier on hover.
+
+**Remove dead startSystemMove branch in ContainerWidget (#2645)**
+- Dead-code cleanup.
+
+**Remove dead drawFpsMeters() painter path (#2632, #2602)**
+- Replaced by the overlay-based FPS meter from #2480.
+
+**Add aethersdr-wallpaper.png to docs**
+- Project wallpaper for marketing / community.
+
 ## [v26.5.1] — 2026-05-10
 
 ### 1.0 — first stable release; CalVer cutover
