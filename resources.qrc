@@ -10,6 +10,7 @@
         <file alias="iaru-region2.json">resources/bandplans/iaru-region2.json</file>
         <file alias="iaru-region3.json">resources/bandplans/iaru-region3.json</file>
         <file alias="rac-canada.json">resources/bandplans/rac-canada.json</file>
+        <file alias="ssa-sweden.json">resources/bandplans/ssa-sweden.json</file>
     </qresource>
     <qresource prefix="/sounds">
         <file alias="aetherial.wav">resources/aetherial.wav</file>
