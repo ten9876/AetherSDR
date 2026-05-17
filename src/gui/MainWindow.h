@@ -81,6 +81,7 @@ class NetworkDiagnosticsHistory;
 class WhatsNewDialog;
 class ProfileManagerDialog;
 class ProfileImportExportDialog;
+class RadioSetupDialog;
 class NetworkDiagnosticsDialog;
 class MemoryDialog;
 class PropDashboardDialog;
@@ -267,6 +268,15 @@ private:
     // just raises the existing instance.  Returns nullptr only if construction
     // failed (e.g. allocation failure).
     AetherDspDialog* ensureAetherDspDialog();
+
+    // Wire the txBandSettingsRequested, serialSettingsChanged (HAVE_SERIALPORT),
+    // sliceLetterDisplayModeChanged, and QDialog::finished handlers on a freshly-
+    // constructed RadioSetupDialog.  Called from every entry point (Settings →
+    // Radio Setup, FlexControl, USB Cables, XVTR overlay) so all four sites share
+    // identical wiring once they converge on the single PersistentDialog instance
+    // (#2781).  prevComp is the audio-compression value captured at open time so
+    // the finished handler can detect a change and recreate the RX audio stream.
+    void wireRadioSetupDialogSignals(RadioSetupDialog* dlg, const QString& prevComp);
 
     // Reorder the main splitter so the applet panel sits on the left or
     // right of the panadapter stack.  Wired from the dock-side icons in
@@ -503,7 +513,7 @@ private:
 
     // Modeless dialogs
     QPointer<DxClusterDialog> m_spotHubDialog;
-    QPointer<QDialog> m_radioSetupDialog;
+    QPointer<RadioSetupDialog> m_radioSetupDialog;
     QPointer<NetworkDiagnosticsDialog> m_networkDiagnosticsDialog;
     QPointer<PropDashboardDialog> m_propDashboardDialog;
     QPointer<TxBandDialog> m_txBandDialog;

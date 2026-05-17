@@ -5073,6 +5073,60 @@ AetherDspDialog* MainWindow::ensureAetherDspDialog()
     return m_dspDialog.data();
 }
 
+void MainWindow::wireRadioSetupDialogSignals(RadioSetupDialog* dlg, const QString& prevComp)
+{
+    if (!dlg) return;
+    connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
+            m_txBandAction, &QAction::trigger);
+#ifdef HAVE_SERIALPORT
+    connect(dlg, &RadioSetupDialog::serialSettingsChanged, this, [this]() {
+        QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->loadSettings(); });
+    });
+#endif
+    // Toggle of SliceLetterDisplay → repaint every slice-letter widget
+    // by re-emitting letterChanged on each slice (#2606).
+    connect(dlg, &RadioSetupDialog::sliceLetterDisplayModeChanged,
+            this, [this]() {
+        for (auto* s : m_radioModel.slices())
+            s->emitLetterRefresh();
+    });
+    connect(dlg, &QDialog::finished, this, [this, prevComp]() {
+#ifdef HAVE_SERIALPORT
+        // Re-load serial port settings if changed (on worker thread)
+        QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->loadSettings(); });
+        // Re-check FlexControl open/close state
+        auto& fcs = AppSettings::instance();
+        bool fcOpen = fcs.value("FlexControlOpen", "False").toString() == "True";
+        QString fcPort = fcs.value("FlexControlPort").toString();
+        bool fcInvert = fcs.value("FlexControlInvertDir", "False").toString() == "True";
+        QMetaObject::invokeMethod(m_flexControl, [this, fcOpen, fcPort, fcInvert] {
+            if (fcOpen) {
+                if (!m_flexControl->isOpen() && !fcPort.isEmpty())
+                    m_flexControl->open(fcPort);
+            } else {
+                if (m_flexControl->isOpen()) m_flexControl->close();
+            }
+            m_flexControl->setInvertDirection(fcInvert);
+        });
+#endif
+        // Re-evaluate CW decode panel and TX tap from the dialog's
+        // RX/TX toggles, plus run state vs current slice mode (#2417).
+        refreshCwDecodeState();
+
+        // If audio compression changed, recreate the RX audio stream
+        QString newComp = m_radioModel.audioCompressionParam();
+        if (newComp != prevComp && m_radioModel.isConnected()) {
+            qDebug() << "MainWindow: audio compression changed from" << prevComp
+                     << "to" << newComp << "— recreating audio stream";
+            m_radioModel.removeRxAudioStream();
+            QTimer::singleShot(500, this, [this]() {
+                m_radioModel.createRxAudioStream();
+            });
+            updateNr2Availability();  // Disable NR2 if switching to Opus (#1597)
+        }
+    });
+}
+
 void MainWindow::wireAetherDspWidget(AetherDspWidget* w)
 {
     if (!w || !m_audio) return;
@@ -6500,67 +6554,15 @@ void MainWindow::buildMenuBar()
     auto* radioSetup = settingsMenu->addAction("Radio Setup...");
     radioSetup->setMenuRole(QAction::PreferencesRole);  // macOS: appears in app menu as Preferences (#883, #1013)
     connect(radioSetup, &QAction::triggered, this, [this] {
-        if (m_radioSetupDialog) {
-            m_radioSetupDialog->raise();
-            m_radioSetupDialog->activateWindow();
-            return;
-        }
-        // Snapshot compression setting before dialog opens
-        QString prevComp = m_radioModel.audioCompressionParam();
-
-        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        m_radioSetupDialog = dlg;
-        connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
-                m_txBandAction, &QAction::trigger);
-#ifdef HAVE_SERIALPORT
-        connect(dlg, &RadioSetupDialog::serialSettingsChanged, this, [this]() {
-            QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->loadSettings(); });
-        });
-#endif
-        // Toggle of SliceLetterDisplay → repaint every slice-letter widget
-        // by re-emitting letterChanged on each slice (#2606).
-        connect(dlg, &RadioSetupDialog::sliceLetterDisplayModeChanged,
-                this, [this]() {
-            for (auto* s : m_radioModel.slices())
-                s->emitLetterRefresh();
-        });
-        connect(dlg, &QDialog::finished, this, [this, prevComp]() {
-#ifdef HAVE_SERIALPORT
-            // Re-load serial port settings if changed (on worker thread)
-            QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->loadSettings(); });
-            // Re-check FlexControl open/close state
-            auto& fcs = AppSettings::instance();
-            bool fcOpen = fcs.value("FlexControlOpen", "False").toString() == "True";
-            QString fcPort = fcs.value("FlexControlPort").toString();
-            bool fcInvert = fcs.value("FlexControlInvertDir", "False").toString() == "True";
-            QMetaObject::invokeMethod(m_flexControl, [this, fcOpen, fcPort, fcInvert] {
-                if (fcOpen) {
-                    if (!m_flexControl->isOpen() && !fcPort.isEmpty())
-                        m_flexControl->open(fcPort);
-                } else {
-                    if (m_flexControl->isOpen()) m_flexControl->close();
-                }
-                m_flexControl->setInvertDirection(fcInvert);
-            });
-#endif
-            // Re-evaluate CW decode panel and TX tap from the dialog's
-            // RX/TX toggles, plus run state vs current slice mode (#2417).
-            refreshCwDecodeState();
-
-            // If audio compression changed, recreate the RX audio stream
-            QString newComp = m_radioModel.audioCompressionParam();
-            if (newComp != prevComp && m_radioModel.isConnected()) {
-                qDebug() << "MainWindow: audio compression changed from" << prevComp
-                         << "to" << newComp << "— recreating audio stream";
-                m_radioModel.removeRxAudioStream();
-                QTimer::singleShot(500, this, [this]() {
-                    m_radioModel.createRxAudioStream();
-                });
-                updateNr2Availability();  // Disable NR2 if switching to Opus (#1597)
-            }
-        });
-        dlg->show();
+        // Snapshot compression setting before dialog opens — used by the
+        // finished handler to detect a change and recreate the RX audio stream.
+        const QString prevComp = m_radioModel.audioCompressionParam();
+        const bool wasFresh = !m_radioSetupDialog;
+        showOrRaisePersistent(m_radioSetupDialog,
+                              &m_radioModel, m_audio,
+                              &m_tgxlConn, &m_pgxlConn, &m_antennaGenius);
+        if (wasFresh && m_radioSetupDialog)
+            wireRadioSetupDialogSignals(m_radioSetupDialog, prevComp);
     });
 
     auto* chooseRadio = settingsMenu->addAction("Connect to Radio...");
@@ -6572,27 +6574,15 @@ void MainWindow::buildMenuBar()
 #ifdef HAVE_SERIALPORT
     auto* flexControlAction = settingsMenu->addAction("FlexControl...");
     connect(flexControlAction, &QAction::triggered, this, [this] {
-        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
-                m_txBandAction, &QAction::trigger);
-        // Same Multi-Flex display-mode refresh wiring as the primary
-        // Radio Setup entrypoint — keep both code paths in sync so a
-        // toggle from the Serial shortcut still triggers a live repaint.
-        connect(dlg, &RadioSetupDialog::sliceLetterDisplayModeChanged,
-                this, [this]() {
-            for (auto* s : m_radioModel.slices())
-                s->emitLetterRefresh();
-        });
-        if (auto* tabs = dlg->findChild<QTabWidget*>()) {
-            for (int i = 0; i < tabs->count(); ++i) {
-                if (tabs->tabText(i) == "Serial") {
-                    tabs->setCurrentIndex(i);
-                    break;
-                }
-            }
-        }
-        dlg->show();
+        const QString prevComp = m_radioModel.audioCompressionParam();
+        const bool wasFresh = !m_radioSetupDialog;
+        showOrRaisePersistent(m_radioSetupDialog,
+                              &m_radioModel, m_audio,
+                              &m_tgxlConn, &m_pgxlConn, &m_antennaGenius);
+        if (wasFresh && m_radioSetupDialog)
+            wireRadioSetupDialogSignals(m_radioSetupDialog, prevComp);
+        if (m_radioSetupDialog)
+            m_radioSetupDialog->selectTab(QStringLiteral("Serial"));
     });
 #endif
     auto* networkAction = settingsMenu->addAction("Network...");
@@ -6605,20 +6595,15 @@ void MainWindow::buildMenuBar()
     });
     auto* usbCablesAction = settingsMenu->addAction("USB Cables...");
     connect(usbCablesAction, &QAction::triggered, this, [this] {
-        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
-                m_txBandAction, &QAction::trigger);
-        // Switch to the USB Cables tab
-        if (auto* tabs = dlg->findChild<QTabWidget*>()) {
-            for (int i = 0; i < tabs->count(); ++i) {
-                if (tabs->tabText(i) == "USB Cables") {
-                    tabs->setCurrentIndex(i);
-                    break;
-                }
-            }
-        }
-        dlg->show();
+        const QString prevComp = m_radioModel.audioCompressionParam();
+        const bool wasFresh = !m_radioSetupDialog;
+        showOrRaisePersistent(m_radioSetupDialog,
+                              &m_radioModel, m_audio,
+                              &m_tgxlConn, &m_pgxlConn, &m_antennaGenius);
+        if (wasFresh && m_radioSetupDialog)
+            wireRadioSetupDialogSignals(m_radioSetupDialog, prevComp);
+        if (m_radioSetupDialog)
+            m_radioSetupDialog->selectTab(QStringLiteral("USB Cables"));
     });
 #ifdef HAVE_MIDI
     auto* midiAction = settingsMenu->addAction("MIDI Mapping...");
@@ -11164,11 +11149,15 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     // XVTR button → open Radio Setup XVTR tab (#571)
     connect(menu, &SpectrumOverlayMenu::xvtrSetupRequested,
             this, [this]() {
-        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, this);
-        connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
-                m_txBandAction, &QAction::trigger);
-        dlg->selectTab("XVTR");
-        dlg->show();
+        const QString prevComp = m_radioModel.audioCompressionParam();
+        const bool wasFresh = !m_radioSetupDialog;
+        showOrRaisePersistent(m_radioSetupDialog,
+                              &m_radioModel, m_audio,
+                              &m_tgxlConn, &m_pgxlConn, &m_antennaGenius);
+        if (wasFresh && m_radioSetupDialog)
+            wireRadioSetupDialogSignals(m_radioSetupDialog, prevComp);
+        if (m_radioSetupDialog)
+            m_radioSetupDialog->selectTab(QStringLiteral("XVTR"));
     });
 
     // ── WNB / RF Gain ────────────────────────────────────────────────────
@@ -11885,8 +11874,9 @@ void MainWindow::setFramelessWindow(bool on)
         m_appletPanel->containerManager()->setFramelessMode(on);
     if (m_connPanel)
         m_connPanel->setFramelessMode(on);
-    if (auto* dlg = qobject_cast<RadioSetupDialog*>(m_radioSetupDialog))
-        dlg->setFramelessMode(on);
+    // RadioSetupDialog frameless propagation flows through the
+    // m_persistentDialogs loop below (#2781) — all four entry points use
+    // showOrRaisePersistent so the dialog is always tracked there.
     if (m_reconnectDlg && m_reconnectDlg->findChild<QWidget*>("framelessWindowTitleBar")) {
         setDialogFramelessMode(m_reconnectDlg, on);
     }
