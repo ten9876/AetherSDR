@@ -97,6 +97,13 @@ AsyncLogWriter::~AsyncLogWriter()
     shutdown();
 }
 
+void AsyncLogWriter::setRotationConfig(qint64 maxFileBytes, RotationCallback cb)
+{
+    std::lock_guard lock(m_mutex);
+    m_maxFileBytes = maxFileBytes;
+    m_rotationCallback = std::move(cb);
+}
+
 bool AsyncLogWriter::start(const QString& path, bool mirrorToStderr)
 {
     shutdown();
@@ -277,10 +284,14 @@ void AsyncLogWriter::run(std::promise<bool> opened)
 {
     QString path;
     bool mirrorToStderr = false;
+    qint64 maxFileBytes = 0;
+    RotationCallback rotationCb;
     {
         std::lock_guard lock(m_mutex);
         path = m_filePath;
         mirrorToStderr = m_mirrorToStderr;
+        maxFileBytes = m_maxFileBytes;
+        rotationCb = m_rotationCallback;
     }
 
     QDir().mkpath(QFileInfo(path).absolutePath());
@@ -315,6 +326,37 @@ void AsyncLogWriter::run(std::promise<bool> opened)
         }
         buffer.clear();
         bufferedLineCount = 0;
+    };
+
+    auto maybeRotate = [&]() {
+        if (maxFileBytes <= 0 || !rotationCb)
+            return;
+        if (file.size() < maxFileBytes)
+            return;
+
+        const QString oldPath = file.fileName();
+        file.close();
+
+        const QString newPath = rotationCb(oldPath);
+        if (newPath.isEmpty() || newPath == oldPath) {
+            file.setFileName(oldPath);
+            file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text);
+            maxFileBytes = 0;
+            return;
+        }
+
+        file.setFileName(newPath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+            file.setFileName(oldPath);
+            file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text);
+            maxFileBytes = 0;
+            return;
+        }
+        file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+
+        std::lock_guard lock(m_mutex);
+        m_filePath = newPath;
+        ++m_counters.rotationCount;
     };
 
     auto makeDropSummary = [](QtMsgType type, const QString& message) {
@@ -417,6 +459,7 @@ void AsyncLogWriter::run(std::promise<bool> opened)
             }
         }
 
+        bool batchDrained = false;
         if (flushAfterBatch) {
             flushBuffer();
             if (hasUnflushedWrites) {
@@ -426,6 +469,7 @@ void AsyncLogWriter::run(std::promise<bool> opened)
                 hasUnflushedWrites = false;
                 flushTimer.restart();
             }
+            batchDrained = true;
         } else if (timedOut || flushTimer.elapsed() >= kFlushIntervalMs) {
             flushBuffer();
             if (hasUnflushedWrites) {
@@ -435,9 +479,16 @@ void AsyncLogWriter::run(std::promise<bool> opened)
                 hasUnflushedWrites = false;
                 flushTimer.restart();
             }
+            batchDrained = true;
         } else if (bufferedLineCount >= kMaxBatchEntries) {
             flushBuffer();
         }
+
+        // Check size only between batches, after the buffer is drained and
+        // the OS has the bytes on disk — never mid-batch, so partial-batch
+        // state can't straddle two files. (#2498)
+        if (batchDrained && !stop)
+            maybeRotate();
     }
 
     flushBuffer();

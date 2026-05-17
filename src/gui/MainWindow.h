@@ -80,9 +80,11 @@ class NetworkDiagnosticsHistory;
 class WhatsNewDialog;
 class ProfileManagerDialog;
 class ProfileImportExportDialog;
+class RadioSetupDialog;
 class NetworkDiagnosticsDialog;
 class MemoryDialog;
 class PropDashboardDialog;
+class TxBandDialog;
 class AetherDspDialog;
 class DxClusterDialog;
 class Ax25HfPacketDecodeDialog;
@@ -123,6 +125,7 @@ private slots:
     // Radio/connection events
     void onConnectionStateChanged(bool connected);
     void onConnectionError(const QString& msg);
+    void onRadioMessage(const QString& text);
     void onSliceAdded(SliceModel* slice);
     void onSliceRemoved(int id);
 
@@ -491,10 +494,10 @@ private:
 
     // Modeless dialogs
     QPointer<DxClusterDialog> m_spotHubDialog;
-    QPointer<QDialog> m_radioSetupDialog;
+    QPointer<RadioSetupDialog> m_radioSetupDialog;
     QPointer<NetworkDiagnosticsDialog> m_networkDiagnosticsDialog;
     QPointer<PropDashboardDialog> m_propDashboardDialog;
-    QPointer<QDialog> m_txBandDialog;
+    QPointer<TxBandDialog> m_txBandDialog;
     QPointer<MemoryDialog> m_memoryDialog;
     QPointer<Ax25HfPacketDecodeDialog> m_ax25HfPacketDecodeDialog;
     QPointer<WhatsNewDialog> m_whatsNewDialog;

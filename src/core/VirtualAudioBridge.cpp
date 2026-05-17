@@ -1,6 +1,7 @@
 #include "VirtualAudioBridge.h"
 #include "LogManager.h"
 
+#include <QDateTime>
 #include <QTimer>
 
 #include <fcntl.h>
@@ -87,7 +88,7 @@ static bool openShmSegment(const char* name, int& fd, DaxShmBlock*& block)
 
 bool VirtualAudioBridge::open()
 {
-    if (m_open) return true;
+    if (m_open.load(std::memory_order_acquire)) return true;
 
     // Open 4 RX shared memory segments
     for (int i = 0; i < NUM_CHANNELS; ++i) {
@@ -144,7 +145,7 @@ bool VirtualAudioBridge::open()
     });
     m_txPollTimer->start();
 
-    m_open = true;
+    m_open.store(true, std::memory_order_release);
     qCInfo(lcDax) << "VirtualAudioBridge: opened 4 RX + 1 TX shared memory segments";
     return true;
 }
@@ -156,7 +157,7 @@ void VirtualAudioBridge::close()
         delete m_silenceTimer;
         m_silenceTimer = nullptr;
     }
-    m_transmitting = false;
+    m_transmitting.store(false, std::memory_order_release);
 
     if (m_txPollTimer) {
         m_txPollTimer->stop();
@@ -185,12 +186,12 @@ void VirtualAudioBridge::close()
         m_txShmFd = -1;
     }
 
-    m_open = false;
+    m_open.store(false, std::memory_order_release);
 }
 
 void VirtualAudioBridge::setTransmitting(bool tx)
 {
-    m_transmitting = tx;
+    m_transmitting.store(tx, std::memory_order_release);
 
     if (tx) {
         // Start a timer that feeds silence into all RX shared memory channels
@@ -209,12 +210,35 @@ void VirtualAudioBridge::setTransmitting(bool tx)
     // NOTE: we do NOT stop the silence timer on TX→RX here.
     // The radio hasn't resumed DAX RX audio yet at this point — the
     // interlock is still transitioning (UNKEY_REQUESTED → READY).
-    // The timer is stopped in feedDaxAudio() when real audio arrives.
+    // The timer self-stops on its next tick in feedSilenceToAllChannels()
+    // once m_lastAudioMs indicates real audio has arrived.
 }
 
 void VirtualAudioBridge::feedSilenceToAllChannels()
 {
-    if (!m_open) return;
+    if (!m_open.load(std::memory_order_acquire)) return;
+
+    // Self-stop: if real DAX RX audio arrived in the last 50 ms, the radio
+    // has resumed sending — drop the silence fill and snap each channel's
+    // read position to the writer so the modem hears real audio immediately
+    // (otherwise the HAL plugin would drain ~TX-duration of accumulated
+    // silence first).  This logic used to live in feedDaxAudio() but had to
+    // move here so the audio fast path can run on PanadapterStream's network
+    // thread under Qt::DirectConnection without touching QTimer (QTimer is
+    // thread-affine to the GUI thread).
+    const qint64 nowMs  = QDateTime::currentMSecsSinceEpoch();
+    const qint64 lastMs = m_lastAudioMs.load(std::memory_order_relaxed);
+    if (lastMs != 0 && (nowMs - lastMs) < 50) {
+        m_silenceTimer->stop();
+        m_transmitting.store(false, std::memory_order_release);
+        for (int i = 0; i < NUM_CHANNELS; ++i) {
+            if (m_blocks[i] && m_blocks[i]->active) {
+                const uint32_t wp = m_blocks[i]->writePos.load(std::memory_order_acquire);
+                m_blocks[i]->readPos.store(wp, std::memory_order_release);
+            }
+        }
+        return;
+    }
 
     // Compute the exact number of stereo samples needed based on elapsed
     // wall-clock time since the last tick.  This eliminates cumulative drift
@@ -242,29 +266,20 @@ void VirtualAudioBridge::feedSilenceToAllChannels()
 
 void VirtualAudioBridge::feedDaxAudio(int channel, const QByteArray& pcm)
 {
+    // This slot may run on PanadapterStream's network thread via
+    // Qt::DirectConnection — keep it lock-free and free of Qt-thread-affine
+    // calls.  The silence-timer stop and ring-buffer readPos snap that used
+    // to live here have moved to feedSilenceToAllChannels (GUI-thread tick),
+    // which observes m_lastAudioMs to decide when to self-stop.
     if (channel < 1 || channel > NUM_CHANNELS) return;
 
     auto* block = m_blocks[channel - 1];
     if (!block) return;
 
-    // Real DAX audio has arrived from the radio — stop the silence fill timer.
-    // This bridges the gap between "we asked radio to stop TX" and "radio
-    // actually resumed sending RX audio".
-    if (m_silenceTimer && m_silenceTimer->isActive()) {
-        m_silenceTimer->stop();
-        m_transmitting = false;
-
-        // Skip all buffered silence so the modem hears real audio immediately.
-        // During TX, the silence timer accumulated samples in the ring buffer.
-        // Without this reset, the HAL plugin would read through all that silence
-        // before reaching real audio — causing a perceivable delay after TX.
-        for (int i = 0; i < NUM_CHANNELS; ++i) {
-            if (m_blocks[i] && m_blocks[i]->active) {
-                uint32_t wp = m_blocks[i]->writePos.load(std::memory_order_relaxed);
-                m_blocks[i]->readPos.store(wp, std::memory_order_release);
-            }
-        }
-    }
+    // Note "real audio just arrived" so the GUI-thread silence timer can
+    // stop itself on its next tick.  No locks, no Qt API touched here.
+    m_lastAudioMs.store(QDateTime::currentMSecsSinceEpoch(),
+                        std::memory_order_relaxed);
 
     // Input: float32 stereo PCM @ 24 kHz from the radio (native DAX rate).
     //        After the float32 migration (502b934, b0c49d7), both PCC_IF_NARROW
@@ -274,7 +289,7 @@ void VirtualAudioBridge::feedDaxAudio(int channel, const QByteArray& pcm)
     const auto* samples = reinterpret_cast<const float*>(pcm.constData());
     const int numSamples = pcm.size() / static_cast<int>(sizeof(float));  // total float count (L,R,L,R,...)
 
-    const float chGain = m_channelGain[channel - 1];
+    const float chGain = m_channelGain[channel - 1].load(std::memory_order_relaxed);
     auto& stats = m_rxTiming[channel - 1];
     if (!stats.windowElapsed.isValid())
         stats.windowElapsed.start();

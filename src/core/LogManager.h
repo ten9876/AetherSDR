@@ -76,6 +76,19 @@ public:
     qint64 logFileSize() const;
     void clearLog();
 
+    // Bounded historical footprint: delete timestamped logs in dir that
+    // are older than retention.days, then drop oldest-first until total
+    // size <= retention.maxTotalMb. Reads AppSettings["LogRetention"]
+    // (see RetentionConfig). Call once at startup before startLogging.
+    void pruneOldLogs(const QString& dir);
+
+    struct RetentionConfig {
+        int activeLogMaxMb{100};
+        int retentionDays{7};
+        int retentionMaxTotalMb{500};
+    };
+    RetentionConfig retentionConfig() const;
+
     // Persist toggle state to AppSettings
     void saveSettings();
     void loadSettings();

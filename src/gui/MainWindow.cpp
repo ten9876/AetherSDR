@@ -85,6 +85,7 @@
 #include "PersistentDialog.h"
 #include "ProfileManagerDialog.h"
 #include "ProfileImportExportDialog.h"
+#include "TxBandDialog.h"
 #include "SupportDialog.h"
 #include "SliceTroubleshootingDialog.h"
 #include "ShortcutDialog.h"
@@ -1978,6 +1979,8 @@ MainWindow::MainWindow(QWidget* parent)
             QString("%1 supports a maximum of %2 slices across all connected clients")
                 .arg(model).arg(limit), 4000);
     });
+    connect(&m_radioModel, &RadioModel::radioMessageReceived,
+            this, &MainWindow::onRadioMessage);
     connect(&m_radioModel.spotModel(), &SpotModel::spotsCleared,
             this, &MainWindow::rebuildMemorySpotFeed);
 
@@ -6242,67 +6245,66 @@ void MainWindow::buildMenuBar()
     auto* radioSetup = settingsMenu->addAction("Radio Setup...");
     radioSetup->setMenuRole(QAction::PreferencesRole);  // macOS: appears in app menu as Preferences (#883, #1013)
     connect(radioSetup, &QAction::triggered, this, [this] {
-        if (m_radioSetupDialog) {
-            m_radioSetupDialog->raise();
-            m_radioSetupDialog->activateWindow();
-            return;
-        }
-        // Snapshot compression setting before dialog opens
-        QString prevComp = m_radioModel.audioCompressionParam();
-
-        auto* dlg = new RadioSetupDialog(&m_radioModel, m_audio, &m_tgxlConn, &m_pgxlConn, &m_antennaGenius, this);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        m_radioSetupDialog = dlg;
-        connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
-                m_txBandAction, &QAction::trigger);
+        // Snapshot compression setting before dialog opens.  The dialog is
+        // constructed lazily and destroys itself on close (WA_DeleteOnClose
+        // via showOrRaisePersistent), so each fresh open captures the
+        // current value — matching the pre-migration behavior (#2769).
+        const QString prevComp = m_radioModel.audioCompressionParam();
+        const bool wasFresh = !m_radioSetupDialog;
+        showOrRaisePersistent(m_radioSetupDialog, &m_radioModel, m_audio,
+                              &m_tgxlConn, &m_pgxlConn, &m_antennaGenius);
+        if (wasFresh && m_radioSetupDialog) {
+            auto* dlg = m_radioSetupDialog.data();
+            connect(dlg, &RadioSetupDialog::txBandSettingsRequested,
+                    m_txBandAction, &QAction::trigger);
 #ifdef HAVE_SERIALPORT
-        connect(dlg, &RadioSetupDialog::serialSettingsChanged, this, [this]() {
-            QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->loadSettings(); });
-        });
-#endif
-        // Toggle of SliceLetterDisplay → repaint every slice-letter widget
-        // by re-emitting letterChanged on each slice (#2606).
-        connect(dlg, &RadioSetupDialog::sliceLetterDisplayModeChanged,
-                this, [this]() {
-            for (auto* s : m_radioModel.slices())
-                s->emitLetterRefresh();
-        });
-        connect(dlg, &QDialog::finished, this, [this, prevComp]() {
-#ifdef HAVE_SERIALPORT
-            // Re-load serial port settings if changed (on worker thread)
-            QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->loadSettings(); });
-            // Re-check FlexControl open/close state
-            auto& fcs = AppSettings::instance();
-            bool fcOpen = fcs.value("FlexControlOpen", "False").toString() == "True";
-            QString fcPort = fcs.value("FlexControlPort").toString();
-            bool fcInvert = fcs.value("FlexControlInvertDir", "False").toString() == "True";
-            QMetaObject::invokeMethod(m_flexControl, [this, fcOpen, fcPort, fcInvert] {
-                if (fcOpen) {
-                    if (!m_flexControl->isOpen() && !fcPort.isEmpty())
-                        m_flexControl->open(fcPort);
-                } else {
-                    if (m_flexControl->isOpen()) m_flexControl->close();
-                }
-                m_flexControl->setInvertDirection(fcInvert);
+            connect(dlg, &RadioSetupDialog::serialSettingsChanged, this, [this]() {
+                QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->loadSettings(); });
             });
 #endif
-            // Re-evaluate CW decode panel and TX tap from the dialog's
-            // RX/TX toggles, plus run state vs current slice mode (#2417).
-            refreshCwDecodeState();
-
-            // If audio compression changed, recreate the RX audio stream
-            QString newComp = m_radioModel.audioCompressionParam();
-            if (newComp != prevComp && m_radioModel.isConnected()) {
-                qDebug() << "MainWindow: audio compression changed from" << prevComp
-                         << "to" << newComp << "— recreating audio stream";
-                m_radioModel.removeRxAudioStream();
-                QTimer::singleShot(500, this, [this]() {
-                    m_radioModel.createRxAudioStream();
+            // Toggle of SliceLetterDisplay → repaint every slice-letter widget
+            // by re-emitting letterChanged on each slice (#2606).
+            connect(dlg, &RadioSetupDialog::sliceLetterDisplayModeChanged,
+                    this, [this]() {
+                for (auto* s : m_radioModel.slices())
+                    s->emitLetterRefresh();
+            });
+            connect(dlg, &QDialog::finished, this, [this, prevComp]() {
+#ifdef HAVE_SERIALPORT
+                // Re-load serial port settings if changed (on worker thread)
+                QMetaObject::invokeMethod(m_serialPort, [this] { m_serialPort->loadSettings(); });
+                // Re-check FlexControl open/close state
+                auto& fcs = AppSettings::instance();
+                bool fcOpen = fcs.value("FlexControlOpen", "False").toString() == "True";
+                QString fcPort = fcs.value("FlexControlPort").toString();
+                bool fcInvert = fcs.value("FlexControlInvertDir", "False").toString() == "True";
+                QMetaObject::invokeMethod(m_flexControl, [this, fcOpen, fcPort, fcInvert] {
+                    if (fcOpen) {
+                        if (!m_flexControl->isOpen() && !fcPort.isEmpty())
+                            m_flexControl->open(fcPort);
+                    } else {
+                        if (m_flexControl->isOpen()) m_flexControl->close();
+                    }
+                    m_flexControl->setInvertDirection(fcInvert);
                 });
-                updateNr2Availability();  // Disable NR2 if switching to Opus (#1597)
-            }
-        });
-        dlg->show();
+#endif
+                // Re-evaluate CW decode panel and TX tap from the dialog's
+                // RX/TX toggles, plus run state vs current slice mode (#2417).
+                refreshCwDecodeState();
+
+                // If audio compression changed, recreate the RX audio stream
+                QString newComp = m_radioModel.audioCompressionParam();
+                if (newComp != prevComp && m_radioModel.isConnected()) {
+                    qDebug() << "MainWindow: audio compression changed from" << prevComp
+                             << "to" << newComp << "— recreating audio stream";
+                    m_radioModel.removeRxAudioStream();
+                    QTimer::singleShot(500, this, [this]() {
+                        m_radioModel.createRxAudioStream();
+                    });
+                    updateNr2Availability();  // Disable NR2 if switching to Opus (#1597)
+                }
+            });
+        }
     });
 
     auto* chooseRadio = settingsMenu->addAction("Connect to Radio...");
@@ -6530,135 +6532,7 @@ void MainWindow::buildMenuBar()
             statusBar()->showMessage("Not connected to radio", 3000);
             return;
         }
-        if (m_txBandDialog) {
-            m_txBandDialog->raise();
-            m_txBandDialog->activateWindow();
-            return;
-        }
-        auto* dlg = new QDialog(this);
-        dlg->setWindowTitle(QString("TX Band Settings (Current TX Profile: %1)")
-            .arg(m_radioModel.transmitModel().activeProfile()));
-        dlg->setMinimumSize(700, 450);
-        dlg->setStyleSheet("QDialog { background: #0f0f1a; }");
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        m_txBandDialog = dlg;
-
-        auto* outer = new QVBoxLayout(dlg);
-        outer->setContentsMargins(0, 0, 0, 0);
-        outer->setSpacing(0);
-
-        auto* titleBar = new FramelessWindowTitleBar(dlg->windowTitle(), dlg);
-        titleBar->setObjectName(QStringLiteral("framelessWindowTitleBar"));
-        outer->addWidget(titleBar);
-
-        auto* bodyWidget = new QWidget(dlg);
-        auto* vb = new QVBoxLayout(bodyWidget);
-        vb->setContentsMargins(9, 9, 9, 9);
-        vb->setSpacing(9);
-        outer->addWidget(bodyWidget, 1);
-
-        auto* gridContainer = new QWidget;
-        gridContainer->setStyleSheet("background: #506070;");
-        auto* headerGrid = new QGridLayout(gridContainer);
-        headerGrid->setContentsMargins(1, 1, 1, 1);
-        headerGrid->setSpacing(1);
-        const QStringList headers = {"Band", "RF PWR(%)", "Tune PWR(%)", "PTT Inhibit",
-                                      "ACC TX", "RCA TX Req", "ACC TX Req",
-                                      "RCA TX1", "RCA TX2", "RCA TX3", "HWALC"};
-        for (int c = 0; c < headers.size(); ++c) {
-            auto* lbl = new QLabel(headers[c]);
-            lbl->setStyleSheet("QLabel { color: #8aa8c0; font-size: 10px; "
-                                "font-weight: bold; background: #1a2a3a; "
-                                "padding: 2px 4px; }");
-            lbl->setAlignment(Qt::AlignCenter);
-            headerGrid->addWidget(lbl, 0, c);
-        }
-
-        const auto& bands = m_radioModel.txBandSettings();
-        QList<int> sortedIds = bands.keys();
-        std::sort(sortedIds.begin(), sortedIds.end());
-
-        static const QString kEditStyle =
-            "QLineEdit { background: #0a0a18; color: #c8d8e8; border: 1px solid #304050; "
-            "padding: 2px; font-size: 11px; }";
-        static const QString kCbStyle =
-            "QCheckBox { spacing: 0px; }"
-            "QCheckBox::indicator { width: 14px; height: 14px; }";
-
-        int row = 1;
-        for (int id : sortedIds) {
-            const auto& b = bands[id];
-            int col = 0;
-
-            auto* nameLbl = new QLabel(b.bandName);
-            nameLbl->setStyleSheet("QLabel { color: #c8d8e8; font-size: 11px; "
-                                    "font-weight: bold; background: #0f0f1a; "
-                                    "border: 1px solid #203040; padding: 2px 4px; }");
-            headerGrid->addWidget(nameLbl, row, col++);
-
-            auto* rfEdit = new QLineEdit(QString::number(b.rfPower));
-            rfEdit->setStyleSheet(kEditStyle);
-            rfEdit->setFixedWidth(50);
-            rfEdit->setAlignment(Qt::AlignCenter);
-            int bandId = id;
-            connect(rfEdit, &QLineEdit::editingFinished, dlg, [this, rfEdit, bandId] {
-                m_radioModel.sendCommand(
-                    QString("transmit bandset %1 rfpower=%2").arg(bandId).arg(rfEdit->text()));
-            });
-            headerGrid->addWidget(rfEdit, row, col++);
-
-            auto* tuneEdit = new QLineEdit(QString::number(b.tunePower));
-            tuneEdit->setStyleSheet(kEditStyle);
-            tuneEdit->setFixedWidth(50);
-            tuneEdit->setAlignment(Qt::AlignCenter);
-            connect(tuneEdit, &QLineEdit::editingFinished, dlg, [this, tuneEdit, bandId] {
-                m_radioModel.sendCommand(
-                    QString("transmit bandset %1 tunepower=%2").arg(bandId).arg(tuneEdit->text()));
-            });
-            headerGrid->addWidget(tuneEdit, row, col++);
-
-            struct CbDef { bool val; const char* txCmd; const char* ilCmd; };
-            CbDef cbs[] = {
-                {b.inhibit, "inhibit", nullptr},
-                {b.accTx,   nullptr, "acc_tx_enabled"},
-                {b.rcaTxReq,nullptr, "rca_txreq_enable"},
-                {b.accTxReq,nullptr, "acc_txreq_enable"},
-                {b.tx1,     nullptr, "tx1_enabled"},
-                {b.tx2,     nullptr, "tx2_enabled"},
-                {b.tx3,     nullptr, "tx3_enabled"},
-                {b.hwAlc,   "hwalc_enabled", nullptr},
-            };
-
-            for (const auto& cb : cbs) {
-                auto* chk = new QCheckBox;
-                chk->setChecked(cb.val);
-                chk->setStyleSheet(kCbStyle);
-                auto* w = new QWidget;
-                w->setStyleSheet("background: #0f0f1a;");
-                auto* hb = new QHBoxLayout(w);
-                hb->setContentsMargins(0, 0, 0, 0);
-                hb->setAlignment(Qt::AlignCenter);
-                hb->addWidget(chk);
-                const char* txC = cb.txCmd;
-                const char* ilC = cb.ilCmd;
-                connect(chk, &QCheckBox::toggled, dlg, [this, bandId, txC, ilC](bool on) {
-                    if (txC)
-                        m_radioModel.sendCommand(
-                            QString("transmit bandset %1 %2=%3").arg(bandId).arg(txC).arg(on ? 1 : 0));
-                    if (ilC)
-                        m_radioModel.sendCommand(
-                            QString("interlock bandset %1 %2=%3").arg(bandId).arg(ilC).arg(on ? 1 : 0));
-                });
-                headerGrid->addWidget(w, row, col++);
-            }
-            ++row;
-        }
-
-        vb->addWidget(gridContainer);
-        vb->addStretch();
-        FramelessResizer::install(dlg);
-        setDialogFramelessMode(dlg, framelessWindowEnabled());
-        dlg->show();
+        showOrRaisePersistent(m_txBandDialog, &m_radioModel);
     });
 
     // Inhibit during TUNE submenu — user selects which TX outputs to suppress.
@@ -8661,6 +8535,12 @@ void MainWindow::onConnectionError(const QString& msg)
     statusBar()->showMessage("Connection error: " + msg, 5000);
     if (!m_reconnectDlg)
         setPanadapterConnectionAnimation(false);
+}
+
+void MainWindow::onRadioMessage(const QString& text)
+{
+    qCInfo(lcGui) << "Radio M-message:" << text;
+    QMessageBox::warning(this, tr("Radio"), text);
 }
 
 void MainWindow::setPanadapterConnectionAnimation(bool visible, const QString& label)
@@ -11623,9 +11503,6 @@ void MainWindow::setFramelessWindow(bool on)
         m_connPanel->setFramelessMode(on);
     if (auto* dlg = qobject_cast<RadioSetupDialog*>(m_radioSetupDialog))
         dlg->setFramelessMode(on);
-    if (m_txBandDialog) {
-        setDialogFramelessMode(m_txBandDialog, on);
-    }
     if (m_reconnectDlg && m_reconnectDlg->findChild<QWidget*>("framelessWindowTitleBar")) {
         setDialogFramelessMode(m_reconnectDlg, on);
     }
