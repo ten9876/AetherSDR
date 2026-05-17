@@ -785,7 +785,7 @@ bool TransmitModel::isPhoneModeForQuindar() const
     // tone would corrupt the digital waveform.
     return m == "USB" || m == "LSB"
         || m == "AM"  || m == "FM"  || m == "NFM"
-        || m == "FDV";
+        || m == "FDV" || m == "FDVU" || m == "FDVL";
 }
 
 bool TransmitModel::runPttPreflight(PttSource source, bool resyncMoxOnBlock)

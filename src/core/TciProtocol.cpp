@@ -39,6 +39,7 @@ QString TciProtocol::smartsdrToTci(const QString& mode)
         {"DFM",  "fm"},    {"FDM",  "fm"},
         {"DIGU", "digu"},  {"DIGL", "digl"},
         {"RTTY", "rtty"},  {"FDV",  "digu"},
+        {"FDVU", "digu"},  {"FDVL", "digl"},
     };
     return map.value(mode.toUpper(), "usb");
 }

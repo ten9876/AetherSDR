@@ -560,9 +560,10 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
 
         // Radio sometimes sends wrong-polarity filter offsets after session
         // restore (e.g. negative offsets for USB/DIGU). Normalize based on mode.
-        const bool isUsbFamily = (m_mode == "USB" || m_mode == "DIGU" || m_mode == "FDV"
+        const bool isUsbFamily = (m_mode == "USB" || m_mode == "DIGU"
+                                  || m_mode == "FDV" || m_mode == "FDVU"
                                   || m_mode == "NT");  // NAVTEX: USB-family digital (v4.2.18)
-        const bool isLsbFamily = (m_mode == "LSB" || m_mode == "DIGL");
+        const bool isLsbFamily = (m_mode == "LSB" || m_mode == "DIGL" || m_mode == "FDVL");
         if (isUsbFamily && m_filterLow < 0 && m_filterHigh <= 0) {
             // Flip: -2700,0 → 0,2700
             int w = std::abs(m_filterLow);
