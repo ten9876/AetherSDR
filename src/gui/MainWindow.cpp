@@ -545,6 +545,103 @@ static QString buildNetworkTooltip(const RadioModel& model)
     return lines.join('\n');
 }
 
+static long long tnfFrequencyHz(double freqMhz)
+{
+    return static_cast<long long>(std::llround(freqMhz * 1.0e6));
+}
+
+static QString formatTnfFrequency(double freqMhz)
+{
+    const long long hz = tnfFrequencyHz(freqMhz);
+    const int mhzPart = static_cast<int>(hz / 1000000);
+    const int khzPart = static_cast<int>((hz / 1000) % 1000);
+    const int hzPart = static_cast<int>(hz % 1000);
+    return QStringLiteral("%1.%2.%3")
+        .arg(mhzPart)
+        .arg(khzPart, 3, 10, QChar('0'))
+        .arg(hzPart, 3, 10, QChar('0'));
+}
+
+static QString formatTnfDepth(int depthDb)
+{
+    switch (std::clamp(depthDb, 1, 3)) {
+    case 1:
+        return QStringLiteral("Normal");
+    case 2:
+        return QStringLiteral("Deep");
+    case 3:
+        return QStringLiteral("Very Deep");
+    default:
+        return QStringLiteral("Normal");
+    }
+}
+
+static QString buildTnfTooltip(const TnfModel& tnfModel)
+{
+    QString html = QStringLiteral(
+        "<html><body style='white-space:nowrap;'>"
+        "<div style='font-size:10pt; font-weight:600; color:#c8d8e8; margin-bottom:5px;'>"
+        "Tracking Notch Filters — click to toggle"
+        "</div>");
+
+    if (tnfModel.tnfs().isEmpty()) {
+        html += QStringLiteral(
+            "<div style='color:#8aa8c0;'>No TNF filters exist.</div>"
+            "</body></html>");
+        return html;
+    }
+
+    QVector<TnfEntry> filters;
+    filters.reserve(tnfModel.tnfs().size());
+    for (const TnfEntry& tnf : tnfModel.tnfs()) {
+        filters.append(tnf);
+    }
+    std::sort(filters.begin(), filters.end(), [](const TnfEntry& lhs, const TnfEntry& rhs) {
+        const long long lhsHz = tnfFrequencyHz(lhs.freqMhz);
+        const long long rhsHz = tnfFrequencyHz(rhs.freqMhz);
+        if (lhsHz != rhsHz) {
+            return lhsHz < rhsHz;
+        }
+        return lhs.id < rhs.id;
+    });
+
+    html += QStringLiteral(
+        "<table cellspacing='0' cellpadding='3'>"
+        "<tr style='color:#8aa8c0; font-size:8pt;'>"
+        "<th align='left'>Band</th>"
+        "<th align='left'>Frequency</th>"
+        "<th align='right'>Width</th>"
+        "<th align='left'>Depth</th>"
+        "<th align='left'>State</th>"
+        "</tr>");
+
+    for (const TnfEntry& tnf : filters) {
+        const QString band = BandSettings::bandForFrequency(tnf.freqMhz).toHtmlEscaped();
+        const QString frequency = formatTnfFrequency(tnf.freqMhz).toHtmlEscaped();
+        const QString width = QStringLiteral("%1 Hz").arg(tnf.widthHz).toHtmlEscaped();
+        const QString depth = formatTnfDepth(tnf.depthDb).toHtmlEscaped();
+        const QString state = tnf.permanent
+            ? QStringLiteral("Persistent")
+            : QStringLiteral("Temporary");
+        const QString stateColor = tnf.permanent
+            ? QStringLiteral("#30c030")
+            : QStringLiteral("#ffc000");
+
+        html += QStringLiteral(
+            "<tr>"
+            "<td style='color:#c8d8e8;'>%1</td>"
+            "<td style='color:#c8d8e8;'>%2 MHz</td>"
+            "<td align='right' style='color:#c8d8e8;'>%3</td>"
+            "<td style='color:#c8d8e8;'>%4</td>"
+            "<td style='color:%5;'>&#9679; %6</td>"
+            "</tr>")
+            .arg(band, frequency, width, depth, stateColor, state);
+    }
+
+    html += QStringLiteral("</table></body></html>");
+    return html;
+}
+
 // ─── Shortcut guard (file-scope for use as std::function<bool()>) ───────────
 
 static constexpr const char* kPaTempUnitSettingKey = "PaTempDisplayUnit";
@@ -5829,6 +5926,13 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         m_networkTooltipRefreshTimer.start();
         return true;
     }
+    if (obj == m_tnfIndicator && event->type() == QEvent::ToolTip) {
+        const QString tooltip = buildTnfTooltip(m_radioModel.tnfModel());
+        m_tnfIndicator->setToolTip(tooltip);
+        auto* helpEvent = static_cast<QHelpEvent*>(event);
+        QToolTip::showText(helpEvent->globalPos(), tooltip, m_tnfIndicator);
+        return true;
+    }
     if (obj == m_stationNickLabel && event->type() == QEvent::MouseButtonDblClick) {
         toggleConnectionDialog();
         return true;
@@ -7928,8 +8032,18 @@ void MainWindow::buildUI()
     m_tnfIndicator = new QLabel("TNF");
     m_tnfIndicator->setStyleSheet(greyIndLg);
     m_tnfIndicator->setCursor(Qt::PointingHandCursor);
+    m_tnfIndicator->setToolTip(buildTnfTooltip(m_radioModel.tnfModel()));
     m_tnfIndicator->installEventFilter(this);
     hbox->addWidget(m_tnfIndicator);
+    auto updateTnfTooltip = [this]() {
+        if (m_tnfIndicator) {
+            m_tnfIndicator->setToolTip(buildTnfTooltip(m_radioModel.tnfModel()));
+        }
+    };
+    connect(&m_radioModel.tnfModel(), &TnfModel::tnfChanged,
+            this, [updateTnfTooltip](int) { updateTnfTooltip(); });
+    connect(&m_radioModel.tnfModel(), &TnfModel::tnfRemoved,
+            this, [updateTnfTooltip](int) { updateTnfTooltip(); });
 
     m_cwxIndicator = new QLabel("CWX");
     m_cwxIndicator->setStyleSheet(greyIndLg);
@@ -8560,6 +8674,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
         m_radioVersionLabel->setText("");
         m_stationLabel->setText("N0CALL");
         m_tnfIndicator->setStyleSheet("QLabel { color: #404858; font-weight: bold; font-size: 24px; }");
+        m_tnfIndicator->setToolTip(buildTnfTooltip(m_radioModel.tnfModel()));
         if (auto* bandStackPanel = m_panStack ? m_panStack->bandStackPanel() : nullptr) {
             bandStackPanel->clear();
         }
