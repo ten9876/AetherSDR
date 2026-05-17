@@ -283,8 +283,41 @@ StripTubePanel::StripTubePanel(AudioEngine* engine, QWidget* parent)
     body->addLayout(right, 0);
 
     // ── Output level meter — far-right column, mirrors EQ editor ────
+    // In the strip, the TX-side instance shortens the meter and tucks
+    // a small RN2 toggle directly beneath it.  RX-side keeps the
+    // default full-height meter (no button).  (#2813)
     m_outMeter = new ClientLevelMeter;
-    body->addWidget(m_outMeter);
+
+    m_rn2Btn = new QPushButton("RN2", this);
+    m_rn2Btn->setCheckable(true);
+    // Match the A/B/C model-button footprint so the toggle visually
+    // belongs to the same family of compact panel buttons.  (#2813)
+    m_rn2Btn->setFixedSize(22, 20);
+    m_rn2Btn->setVisible(false);  // flipped on by showForTx()
+    m_rn2Btn->setToolTip(tr(
+        "Toggle RNNoise neural denoiser on the mic input.  Runs before "
+        "any DSP chain stage so noise is suppressed before it can be "
+        "amplified by gate / compressor / saturator.  Voice modes only — "
+        "digital modes (RADE, DAX, RTTY, FT8, FDV, CW) bypass this stage."));
+    // Reuse the A/B/C model-button stylesheet so all four compact
+    // buttons in this panel share one visual idiom.  (#2813)
+    m_rn2Btn->setStyleSheet(kModelStyle);
+    connect(m_rn2Btn, &QPushButton::toggled, this, [this](bool on) {
+        if (m_audio) m_audio->setRn2TxEnabled(on);
+        // Direct setter call is the single source of truth — engine
+        // emits rn2TxEnabledChanged for any cross-widget observer.
+    });
+
+    // Meter stretches to fill all available vertical space; RN2 button
+    // sits flush at the bottom, horizontally centered.  Stretch factor 1
+    // on the meter, 0 on the button so the meter absorbs all surplus
+    // height when the panel grows.  (#2813)
+    auto* meterCol = new QVBoxLayout;
+    meterCol->setContentsMargins(0, 0, 0, 0);
+    meterCol->setSpacing(4);
+    meterCol->addWidget(m_outMeter, 1);
+    meterCol->addWidget(m_rn2Btn, 0, Qt::AlignHCenter);
+    body->addLayout(meterCol);
 
     root->addLayout(body);
 
@@ -325,6 +358,16 @@ void StripTubePanel::showForTx()
     if (m_titleBar)
         static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
     setWindowTitle(title);
+    // RN2 toggle is TX-only.  Meter keeps its default Expanding policy
+    // so it absorbs all column height except the 20 px the RN2 button
+    // plus the 4 px gap occupy at the bottom.  (#2813)
+    if (m_rn2Btn) {
+        m_rn2Btn->setVisible(true);
+        if (m_audio) {
+            QSignalBlocker block(m_rn2Btn);
+            m_rn2Btn->setChecked(m_audio->rn2TxEnabled());
+        }
+    }
     syncControlsFromEngine();
     restoreGeometryFromSettings();
     show();
@@ -342,6 +385,10 @@ void StripTubePanel::showForRx()
     if (m_titleBar)
         static_cast<EditorFramelessTitleBar*>(m_titleBar)->setTitleText(title);
     setWindowTitle(title);
+    // RX side has its own RN2 toggle elsewhere (AetherDspWidget /
+    // ClientRxChainWidget).  Hide our copy — meter keeps its default
+    // Expanding policy so it fills the full column.  (#2813)
+    if (m_rn2Btn) m_rn2Btn->setVisible(false);
     syncControlsFromEngine();
     restoreGeometryFromSettings();
     show();

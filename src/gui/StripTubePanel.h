@@ -81,6 +81,11 @@ private:
     ClientCompKnob*        m_attack{nullptr};
     ClientCompKnob*        m_release{nullptr};
     ClientLevelMeter*      m_outMeter{nullptr};
+    // TX mic pre-amp RN2 toggle.  Created in ctor as hidden; flipped
+    // visible (and m_outMeter is shortened) only when showForTx() runs.
+    // RX side keeps the full-height meter and no RN2 control here —
+    // RX already has its own RN2 toggle elsewhere.  (#2813)
+    QPushButton*           m_rn2Btn{nullptr};
     QPushButton*           m_modelA{nullptr};
     QPushButton*           m_modelB{nullptr};
     QPushButton*           m_modelC{nullptr};

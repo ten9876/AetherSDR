@@ -48,6 +48,8 @@
 #include <QDir>
 #include <QtEndian>
 #include <QThread>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <algorithm>
 #include <cstring>
 #include <optional>
@@ -567,6 +569,7 @@ AudioEngine::AudioEngine(QObject* parent)
     loadClientFinalLimiterSettings();  // restore persisted final-limiter params
     loadClientQuindarSettings();       // restore persisted Quindar tone params
     loadClientRxChainOrder();    // restore persisted RX chain order (Phase 0+)
+    loadAetherialTubePreampTxSettings(); // restore TX mic pre-amp toggles (#2813)
 
     // Restore saved audio device selections
     auto& s = AppSettings::instance();
@@ -3001,6 +3004,40 @@ void AudioEngine::saveClientFinalLimiterSettings() const
         m_clientFinalLimiterTx->dcBlockEnabled() ? QString("True") : QString("False"));
 }
 
+// Aetherial Tube Pre-Amp TX — nested-JSON persistence (Principle V).
+// One AppSettings key holds a JSON object so future mic-preamp toggles
+// (high-pass, phase invert, polarity, etc.) can be added without further
+// migration.  Shape today: {"rn2": bool}.  (#2813)
+
+void AudioEngine::loadAetherialTubePreampTxSettings()
+{
+    auto& s = AppSettings::instance();
+    const QString raw = s.value("AetherialTubePreampTx", "{}").toString();
+    QJsonParseError err;
+    const auto doc = QJsonDocument::fromJson(raw.toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+        // Bad JSON — treat as empty, all defaults off.
+        return;
+    }
+    const auto obj = doc.object();
+    if (obj.value("rn2").toBool(false)) {
+        // Route through the setter so the lazy-allocation + signal
+        // emission both happen exactly as on a user toggle.
+        setRn2TxEnabled(true);
+    }
+}
+
+void AudioEngine::saveAetherialTubePreampTxSettings() const
+{
+    QJsonObject obj;
+    obj["rn2"] = m_rn2TxEnabled.load();
+    const QString raw = QString::fromUtf8(
+        QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    auto& s = AppSettings::instance();
+    s.setValue("AetherialTubePreampTx", raw);
+    s.save();
+}
+
 void AudioEngine::loadClientQuindarSettings()
 {
     if (!m_clientQuindarTone) return;
@@ -3267,6 +3304,34 @@ void AudioEngine::setRn2Enabled(bool on)
     }
     qCDebug(lcAudio) << "AudioEngine: RN2 (RNNoise)" << (on ? "enabled" : "disabled");
     emit rn2EnabledChanged(on);
+}
+
+// ─── RN2 — TX path (mic pre-amp) ──────────────────────────────────────────────
+// Mirrors the RX RN2 setter above (lazy-alloc under m_dspMutex, atomic guard
+// for the audio-thread read).  No mutual-exclusion with other TX-side NR
+// because there is none — RN2 is the only neural denoiser on the mic path
+// today.  Persistence is via the AetherialTubePreampTx nested-JSON key.
+
+void AudioEngine::setRn2TxEnabled(bool on)
+{
+    if (m_rn2TxEnabled.load() == on) return;
+    std::lock_guard<std::recursive_mutex> lock(m_dspMutex);
+    if (on) {
+        m_rn2Tx = std::make_unique<RNNoiseFilter>();
+        if (!m_rn2Tx->isValid()) {
+            qCWarning(lcAudio) << "AudioEngine: RN2 TX rnnoise_create() failed — disabling";
+            m_rn2Tx.reset();
+            emit rn2TxEnabledChanged(false);
+            return;
+        }
+        m_rn2TxEnabled.store(true);
+    } else {
+        m_rn2TxEnabled.store(false);
+        m_rn2Tx.reset();
+    }
+    saveAetherialTubePreampTxSettings();
+    qCDebug(lcAudio) << "AudioEngine: RN2 TX (RNNoise mic pre-amp)" << (on ? "enabled" : "disabled");
+    emit rn2TxEnabledChanged(on);
 }
 
 // ─── BNR (NVIDIA NIM GPU noise removal) ──────────────────────────────────────
@@ -3983,6 +4048,39 @@ void AudioEngine::onTxAudioReady()
     // DAX TX mode: VirtualAudioBridge handles TX audio via feedDaxTxAudio().
     // Don't send mic audio — it would conflict with the DAX stream.
     if (m_daxTxMode) return;
+
+    // ── RN2 mic pre-amp (TX neural denoiser) ─────────────────────
+    // Runs strictly on the voice path — both digital-mode early-returns
+    // above (m_radeMode, m_daxTxMode) skip this hook so RN2 is guaranteed
+    // never to touch RADE / DAX / TCI / RTTY / FT8 / FDV audio.  Placed
+    // BEFORE the test tone + user DSP chain so any downstream gate /
+    // comp / EQ / saturator processes denoised audio rather than
+    // amplifying the noise floor.
+    //
+    // RNNoiseFilter::process() takes / returns 24 kHz duplicated-stereo
+    // FLOAT32 (despite its header comment claiming int16).  At this
+    // point in the flow `data` is 24 kHz duplicated-stereo int16, so we
+    // convert in → process → convert out.  Conversion is in-place over
+    // pre-sized scratch buffers — no per-block heap traffic after the
+    // first call.  (#2813)
+    if (m_rn2TxEnabled.load() && m_rn2Tx && m_rn2Tx->isValid()) {
+        const auto* i16 = reinterpret_cast<const int16_t*>(data.constData());
+        const int samples = data.size() / static_cast<int>(sizeof(int16_t));
+        m_rn2TxF32In.resize(samples * static_cast<int>(sizeof(float)));
+        auto* fin = reinterpret_cast<float*>(m_rn2TxF32In.data());
+        for (int i = 0; i < samples; ++i) fin[i] = i16[i] / 32768.0f;
+
+        m_rn2TxF32In = m_rn2Tx->process(m_rn2TxF32In);
+
+        const int outSamples = m_rn2TxF32In.size() / static_cast<int>(sizeof(float));
+        const auto* fout = reinterpret_cast<const float*>(m_rn2TxF32In.constData());
+        data.resize(outSamples * static_cast<int>(sizeof(int16_t)));
+        auto* i16Out = reinterpret_cast<int16_t*>(data.data());
+        for (int i = 0; i < outSamples; ++i) {
+            const float clamped = std::clamp(fout[i] * 32768.0f, -32768.0f, 32767.0f);
+            i16Out[i] = static_cast<int16_t>(clamped);
+        }
+    }
 
     // ── Client-side TX DSP: compressor + parametric EQ ──────────────────
     // Runs after mic capture and resample, before PC mic gain / metering /

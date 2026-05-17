@@ -165,6 +165,13 @@ public:
     Q_INVOKABLE void setRn2Enabled(bool on);
     bool rn2Enabled() const { return m_rn2Enabled.load(); }
 
+    // Client-side RN2 — TX path (mic pre-amp).  Runs on the voice path
+    // in onTxAudioReady() AFTER the RADE/DAX early-returns, so digital
+    // modes never see RN2.  Separate instance + atomic from m_rn2 so
+    // RX and TX can be toggled independently.  (#2813)
+    Q_INVOKABLE void setRn2TxEnabled(bool on);
+    bool rn2TxEnabled() const { return m_rn2TxEnabled.load(); }
+
     // Client-side NR4 (libspecbleach spectral noise reduction)
     Q_INVOKABLE void setNr4Enabled(bool on);
     bool nr4Enabled() const { return m_nr4Enabled.load(); }
@@ -387,6 +394,11 @@ public:
     void saveClientReverbSettings();
     void loadClientFinalLimiterSettings();
     void saveClientFinalLimiterSettings() const;
+    // Aetherial Tube Pre-Amp TX state — nested-JSON shape under one key
+    // so future mic-preamp toggles (high-pass, phase invert, etc.) can
+    // land without further migration.  Today: {"rn2": bool}.  (#2813)
+    void loadAetherialTubePreampTxSettings();
+    void saveAetherialTubePreampTxSettings() const;
     void loadClientQuindarSettings();
     void saveClientQuindarSettings() const;
 
@@ -466,6 +478,7 @@ signals:
     void nr4EnabledChanged(bool on);
     void mnrEnabledChanged(bool on);
     void rn2EnabledChanged(bool on);
+    void rn2TxEnabledChanged(bool on);   // RN2 on the TX mic pre-amp (#2813)
     void bnrEnabledChanged(bool on);
     void bnrConnectionChanged(bool connected);
     void dfnrEnabledChanged(bool on);
@@ -687,6 +700,15 @@ private:
     // Client-side RN2 (RNNoise)
     std::unique_ptr<RNNoiseFilter> m_rn2;
     std::atomic<bool> m_rn2Enabled{false};
+
+    // Client-side RN2 — TX path (mic pre-amp).  Lazy-allocated under
+    // m_dspMutex on toggle-on, freed on toggle-off.  Mirrors the RX
+    // RN2 ownership pattern above.  (#2813)
+    std::unique_ptr<RNNoiseFilter> m_rn2Tx;
+    std::atomic<bool> m_rn2TxEnabled{false};
+    // Scratch buffer for int16 ↔ float32 conversion around RN2 TX.
+    // Audio-thread only — grows once to steady state, then alloc-free.
+    QByteArray m_rn2TxF32In;
 
     // Client-side BNR (NVIDIA NIM)
     std::unique_ptr<NvidiaBnrFilter> m_bnr;
