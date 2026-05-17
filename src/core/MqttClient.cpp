@@ -42,6 +42,7 @@ MqttClient::~MqttClient()
     disconnect();
 #ifdef HAVE_MQTT
     if (m_mosq) {
+        mosquitto_loop_stop(m_mosq, true);  // force-stop thread before destroy
         mosquitto_destroy(m_mosq);
         m_mosq = nullptr;
     }

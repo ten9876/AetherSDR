@@ -11916,6 +11916,8 @@ void MainWindow::toggleAetherialStrip()
         // Override the parent-window relationship so the strip behaves as
         // an independent window (own taskbar entry, raisable separately).
         m_aetherialStrip->setWindowFlag(Qt::Window, true);
+        // Secondary window — must not gate quitOnLastWindowClosed on Windows.
+        m_aetherialStrip->setAttribute(Qt::WA_QuitOnClose, false);
         // Seed the embedded EQ with the current TX filter cutoff values
         // so the dashed yellow guide lines render immediately rather than
         // waiting for the next txFilterCutoffChanged signal.
@@ -14853,6 +14855,7 @@ void MainWindow::floatAppletPanel()
     m_appletPanelFloatWindow = new QWidget(nullptr, flags);
     m_appletPanelFloatWindow->setWindowTitle("AetherSDR — Applet Panel");
     m_appletPanelFloatWindow->setAttribute(Qt::WA_DeleteOnClose, false);
+    m_appletPanelFloatWindow->setAttribute(Qt::WA_QuitOnClose, false);
     m_appletPanelFloatWindow->setAttribute(Qt::WA_StyledBackground, true);
     m_appletPanelFloatWindow->setStyleSheet(darkThemeStylesheet());
     auto* layout = new QVBoxLayout(m_appletPanelFloatWindow);
