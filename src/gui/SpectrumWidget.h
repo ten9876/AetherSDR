@@ -590,6 +590,7 @@ private:
     void applyNoiseFloorAutoAdjust(qint64 nowMs);
     void moveRefLevelToward(float targetRef, qint64 nowMs);
     void sendNoiseFloorRangeCommand(qint64 nowMs, bool force);
+    void clearDbmReleaseRebase();
     // Reset the baseline tracker — called on any input change (zoom,
     // band switch, manual dBm drag) so the next frame re-acquires
     // rather than smooths from a stale value.
@@ -637,7 +638,13 @@ private:
     float m_dynamicRange{100.0f};   // dB range shown in spectrum (-50 to -150)
     bool  m_resetFftSmoothingOnNextFrame{false};
     bool  m_pendingDbmRangeEcho{false};
+    bool  m_pendingDbmRangeEchoFromAutoFloor{false};
     qint64 m_pendingDbmRangeEchoStartMs{0};
+    int   m_holdFftUpdatesAfterDbmRelease{0};
+    float m_dbmReleasePreviewOldMinDbm{0.0f};
+    float m_dbmReleasePreviewOldMaxDbm{0.0f};
+    float m_dbmReleasePreviewNewMinDbm{0.0f};
+    float m_dbmReleasePreviewNewMaxDbm{0.0f};
     float m_pendingMinDbm{0.0f};
     float m_pendingMaxDbm{0.0f};
 

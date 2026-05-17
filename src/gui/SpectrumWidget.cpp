@@ -43,6 +43,7 @@
 #include <QDateTime>
 #include <QTimeZone>
 #include <QElapsedTimer>
+#include <QVarLengthArray>
 #include "core/LogManager.h"
 #include "core/PerfTelemetry.h"
 #include <QSoundEffect>
@@ -64,6 +65,10 @@ static constexpr int kWaterfallLineDurationMinMs = 50;
 static constexpr int kWaterfallLineDurationMaxMs = 500;
 static constexpr int kWaterfallUiRateMinMs = 71;
 static constexpr int kWaterfallUiRateMaxMs = 100;
+static constexpr int kDbmReleaseHoldFrames = 10;
+static constexpr int kDbmReleaseErrorSampleCount = 256;
+static constexpr float kDbmReleasePreviewChangeThresholdDb = 0.05f;
+static constexpr float kDbmReleaseRebaseMinImprovementDb = 0.75f;
 
 static bool spotMarkersVisuallyEqual(const QVector<SpectrumWidget::SpotMarker>& lhs,
                                      const QVector<SpectrumWidget::SpotMarker>& rhs)
@@ -610,6 +615,7 @@ void SpectrumWidget::setFftAverage(int frames) {
 void SpectrumWidget::setNoiseFloorPosition(int pos) {
     m_noiseFloorPosition = std::clamp(pos, 1, 99);
     m_pendingDbmRangeEcho = false;
+    m_pendingDbmRangeEchoFromAutoFloor = false;
     m_pendingDbmRangeEchoStartMs = 0;
     refreshNoiseFloorTarget();
     if (m_noiseFloorEnable) {
@@ -632,6 +638,7 @@ void SpectrumWidget::setNoiseFloorPosition(int pos) {
 }
 void SpectrumWidget::setNoiseFloorEnable(bool on) {
     m_pendingDbmRangeEcho = false;
+    m_pendingDbmRangeEchoFromAutoFloor = false;
     m_pendingDbmRangeEchoStartMs = 0;
     m_noiseFloorEnable = on;
     resetNoiseFloorBaseline();
@@ -648,6 +655,7 @@ void SpectrumWidget::setNoiseFloorEnable(bool on) {
 void SpectrumWidget::reacquireNoiseFloorLock() {
     if (!m_noiseFloorEnable) return;
     m_pendingDbmRangeEcho = false;
+    m_pendingDbmRangeEchoFromAutoFloor = false;
     m_pendingDbmRangeEchoStartMs = 0;
     resetNoiseFloorBaseline();
     // Antenna changes can take several FFT frames to settle after the
@@ -924,6 +932,15 @@ float SpectrumWidget::estimateNoiseFloorDbm(const QVector<float>& bins) const
     return (baselineCount > 0) ? baselineSum / static_cast<float>(baselineCount) : mean;
 }
 
+void SpectrumWidget::clearDbmReleaseRebase()
+{
+    m_holdFftUpdatesAfterDbmRelease = 0;
+    m_dbmReleasePreviewOldMinDbm = 0.0f;
+    m_dbmReleasePreviewOldMaxDbm = 0.0f;
+    m_dbmReleasePreviewNewMinDbm = 0.0f;
+    m_dbmReleasePreviewNewMaxDbm = 0.0f;
+}
+
 void SpectrumWidget::resetNoiseFloorBaseline()
 {
     const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
@@ -941,6 +958,7 @@ void SpectrumWidget::resetNoiseFloorBaseline()
     m_noiseFloorCandidateFrames = 0;
     m_noiseFloorFreshFrameCount = m_noiseFloorEnable ? 5 : 0;
     m_pendingDbmRangeEcho = false;
+    m_pendingDbmRangeEchoFromAutoFloor = false;
     m_pendingDbmRangeEchoStartMs = 0;
 }
 
@@ -1018,9 +1036,18 @@ void SpectrumWidget::updateNoiseFloorBaseline(const QVector<float>& bins, bool f
         && m_pendingDbmRangeEchoStartMs > 0
         && nowMs - m_pendingDbmRangeEchoStartMs > kDbmRangeHandshakeTimeoutMs) {
         m_pendingDbmRangeEcho = false;
+        m_pendingDbmRangeEchoFromAutoFloor = false;
         m_pendingDbmRangeEchoStartMs = 0;
     }
-    if (m_pendingDbmRangeEcho) return;
+    if (m_pendingDbmRangeEcho) {
+        if (m_pendingDbmRangeEchoFromAutoFloor
+            && m_noiseFloorBaselineValid
+            && m_noiseFloorTargetValid
+            && !isDraggingDbmScale()) {
+            applyNoiseFloorAutoAdjust(nowMs);
+        }
+        return;
+    }
 
     if (m_noiseFloorScaleSettlingUntilMs > nowMs) return;
     if (m_noiseFloorScaleSettlingUntilMs > 0) {
@@ -1180,6 +1207,7 @@ void SpectrumWidget::sendNoiseFloorRangeCommand(qint64 nowMs, bool force)
     m_noiseFloorLastCommandMs = nowMs;
     m_noiseFloorLastCommandRef = m_refLevel;
     m_pendingDbmRangeEcho = true;
+    m_pendingDbmRangeEchoFromAutoFloor = true;
     m_pendingDbmRangeEchoStartMs = nowMs;
     m_pendingMinDbm = m_refLevel - m_dynamicRange;
     m_pendingMaxDbm = m_refLevel;
@@ -2096,6 +2124,13 @@ void SpectrumWidget::setDbmRange(float minDbm, float maxDbm)
     if (m_pendingDbmRangeEcho) {
         const bool matchesPending = std::abs(minDbm - m_pendingMinDbm) < 0.01f
             && std::abs(maxDbm - m_pendingMaxDbm) < 0.01f;
+        const bool pendingFromAutoFloor = m_pendingDbmRangeEchoFromAutoFloor;
+        const bool autoFloorMovedPastEcho = pendingFromAutoFloor
+            && !isDraggingDbmScale()
+            && (std::abs(minDbm - (m_refLevel - m_dynamicRange))
+                    > kDbmReleasePreviewChangeThresholdDb
+                || std::abs(maxDbm - m_refLevel)
+                    > kDbmReleasePreviewChangeThresholdDb);
         if (!matchesPending) {
             const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
             if (m_pendingDbmRangeEchoStartMs <= 0
@@ -2104,13 +2139,23 @@ void SpectrumWidget::setDbmRange(float minDbm, float maxDbm)
             }
         }
         m_pendingDbmRangeEcho = false;
+        m_pendingDbmRangeEchoFromAutoFloor = false;
         m_pendingDbmRangeEchoStartMs = 0;
+        if (matchesPending && autoFloorMovedPastEcho) {
+            clearDbmReleaseRebase();
+            sendNoiseFloorRangeCommand(QDateTime::currentMSecsSinceEpoch(), true);
+            return;
+        }
     }
 
     const float clampedMinDbm = std::max(minDbm, kMinDisplayDbm);
     float ref = maxDbm;
     float dyn = std::max(10.0f, maxDbm - clampedMinDbm);
-    if (ref == m_refLevel && dyn == m_dynamicRange) return;
+    if (ref == m_refLevel && dyn == m_dynamicRange) {
+        clearDbmReleaseRebase();
+        return;
+    }
+    clearDbmReleaseRebase();
     m_refLevel     = ref;
     m_dynamicRange = dyn;
     m_resetFftSmoothingOnNextFrame = true;
@@ -2271,7 +2316,53 @@ void SpectrumWidget::updateSpectrum(const QVector<float>& binsDbm)
             PerfTelemetry::instance().recordPanFrame();
     }
 
+    QVector<float> adjustedBins;
     const QVector<float>* spectrumBins = &binsDbm;
+    // The stream decoder switches to the requested dBm range immediately, but
+    // the radio can still send a few FFT frames encoded with the old range.
+    // Rebase those frames so the drag preview does not snap back on release.
+    if (m_holdFftUpdatesAfterDbmRelease > 0) {
+        const float oldRange =
+            m_dbmReleasePreviewOldMaxDbm - m_dbmReleasePreviewOldMinDbm;
+        const float newRange =
+            m_dbmReleasePreviewNewMaxDbm - m_dbmReleasePreviewNewMinDbm;
+        if (oldRange <= 0.0f || newRange <= 0.0f) {
+            clearDbmReleaseRebase();
+        } else if (!m_bins.isEmpty() && m_bins.size() == binsDbm.size()) {
+            --m_holdFftUpdatesAfterDbmRelease;
+            QVarLengthArray<float, kDbmReleaseErrorSampleCount> directErrors;
+            QVarLengthArray<float, kDbmReleaseErrorSampleCount> rebasedErrors;
+            const int step = qMax(1, binsDbm.size() / kDbmReleaseErrorSampleCount);
+            const int sampleCount = (binsDbm.size() + step - 1) / step;
+            directErrors.reserve(sampleCount);
+            rebasedErrors.reserve(sampleCount);
+            for (int i = 0; i < binsDbm.size(); i += step) {
+                const float directDbm = binsDbm[i];
+                const float frac = (m_dbmReleasePreviewNewMaxDbm - directDbm) / newRange;
+                const float rebasedDbm = m_dbmReleasePreviewOldMaxDbm - frac * oldRange;
+                directErrors.append(std::abs(directDbm - m_bins[i]));
+                rebasedErrors.append(std::abs(rebasedDbm - m_bins[i]));
+            }
+            auto median = [](auto& errors) {
+                auto mid = errors.begin() + errors.size() / 2;
+                std::nth_element(errors.begin(), mid, errors.end());
+                return *mid;
+            };
+            const float directMedian = median(directErrors);
+            const float rebasedMedian = median(rebasedErrors);
+            if (rebasedMedian + kDbmReleaseRebaseMinImprovementDb < directMedian) {
+                adjustedBins = binsDbm;
+                for (float& bin : adjustedBins) {
+                    const float frac = (m_dbmReleasePreviewNewMaxDbm - bin) / newRange;
+                    bin = m_dbmReleasePreviewOldMaxDbm - frac * oldRange;
+                }
+                spectrumBins = &adjustedBins;
+            }
+            if (m_holdFftUpdatesAfterDbmRelease <= 0) {
+                clearDbmReleaseRebase();
+            }
+        }
+    }
 
     if (m_resetFftSmoothingOnNextFrame) {
         m_smoothed = *spectrumBins;
@@ -3605,10 +3696,23 @@ void SpectrumWidget::mouseReleaseEvent(QMouseEvent* ev)
         return;
     }
     if (m_draggingDbm || m_draggingDbmRange) {
+        const float oldMinDbm = m_draggingDbmRange
+            ? m_dbmDragStartBottom
+            : std::max(m_dbmDragStartRef - m_dynamicRange, kMinDisplayDbm);
+        const float oldMaxDbm = m_dbmDragStartRef;
         m_pendingDbmRangeEcho = true;
+        m_pendingDbmRangeEchoFromAutoFloor = false;
         m_pendingDbmRangeEchoStartMs = QDateTime::currentMSecsSinceEpoch();
         m_pendingMinDbm = m_refLevel - m_dynamicRange;
         m_pendingMaxDbm = m_refLevel;
+        m_dbmReleasePreviewOldMinDbm = oldMinDbm;
+        m_dbmReleasePreviewOldMaxDbm = oldMaxDbm;
+        m_dbmReleasePreviewNewMinDbm = m_pendingMinDbm;
+        m_dbmReleasePreviewNewMaxDbm = m_pendingMaxDbm;
+        m_holdFftUpdatesAfterDbmRelease =
+            (std::abs(oldMinDbm - m_pendingMinDbm) > kDbmReleasePreviewChangeThresholdDb
+             || std::abs(oldMaxDbm - m_pendingMaxDbm)
+                 > kDbmReleasePreviewChangeThresholdDb) ? kDbmReleaseHoldFrames : 0;
         m_draggingDbm = false;
         m_draggingDbmRange = false;
         setSpectrumCursor(Qt::CrossCursor);
