@@ -2023,9 +2023,9 @@ QString RxApplet::formatHz(int hz)
 QString RxApplet::formatFilterWidth(int lo, int hi, const QString& mode)
 {
     int w;
-    if (mode == "USB" || mode == "DIGU" || mode == "FDV" || mode == "NT")
+    if (mode == "USB" || mode == "DIGU" || mode == "FDV" || mode == "FDVU" || mode == "NT")
         w = hi;
-    else if (mode == "LSB" || mode == "DIGL")
+    else if (mode == "LSB" || mode == "DIGL" || mode == "FDVL")
         w = std::abs(lo);
     else
         w = hi - lo;
@@ -2079,8 +2079,10 @@ void RxApplet::applyFilterPreset(int widthHz)
         // Double-sideband: split width equally around carrier
         lo = -(widthHz / 2);
         hi =  (widthHz / 2);
+    } else if (mode == "FDVL") {
+        lo = -widthHz; hi = -95;
     } else {
-        // USB, FDV, etc. — low cut at 95 Hz to reject carrier/hum
+        // USB, FDVU, FDV, etc. — low cut at 95 Hz to reject carrier/hum
         lo = 95;
         hi = widthHz;
     }

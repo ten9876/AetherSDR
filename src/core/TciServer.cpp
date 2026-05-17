@@ -618,7 +618,9 @@ void TciServer::onTextMessage(const QString& msg)
                     return m == QStringLiteral("DIGU")
                         || m == QStringLiteral("DIGL")
                         || m == QStringLiteral("RTTY")
-                        || m == QStringLiteral("FDV");
+                        || m == QStringLiteral("FDV")
+                        || m == QStringLiteral("FDVU")
+                        || m == QStringLiteral("FDVL");
                 }();
                 const bool wantDax = source == QStringLiteral("dax")
                                   || source == QStringLiteral("tci")

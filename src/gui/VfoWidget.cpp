@@ -3724,8 +3724,10 @@ void VfoWidget::applyFilterPreset(int widthHz)
     } else if (mode == "AM" || mode == "SAM" || mode == "DSB"
                || mode == "FM" || mode == "NFM" || mode == "DFM") {
         lo = -(widthHz / 2); hi = (widthHz / 2);
+    } else if (mode == "FDVL") {
+        lo = -widthHz; hi = -95;
     } else {
-        // USB/FDV/etc: low cut at 95 Hz to reject carrier/hum
+        // USB/FDVU/FDV/etc: low cut at 95 Hz to reject carrier/hum
         lo = 95; hi = widthHz;
     }
     m_slice->setFilterWidth(lo, hi);
