@@ -40,6 +40,7 @@ struct Ax25DecoderDiagnostics {
     double receiveGateFloorDbfs{-120.0};
     bool receiveGateOpen{false};
     quint64 receiveGateResets{0};
+    int decodeLanes{1};
     int demodSymbols{0};
     double averageConfidence{0.0};
     double onesPercent{0.0};
@@ -50,7 +51,9 @@ struct Ax25DecoderDiagnostics {
     int currentFrameBits{0};
     int lastFrameBits{0};
     int preambleFlags{0};
+    quint64 hdlcFrameStarts{0};
     quint64 hdlcFrameCandidates{0};
+    quint64 plausibleAx25Candidates{0};
     quint64 framesAccepted{0};
     quint64 decodeRejected{0};
     quint64 rejectTooShort{0};

@@ -228,7 +228,7 @@ void printReplayDiagnostics(const char* label,
         "%s: frames=%lld rms=%.1f dBFS peak=%.1f dBFS clip=%.2f%% "
         "tone1600=%.1f dBFS tone1800=%.1f dBFS dTone=%.1f dB "
         "gate=%s gateRms=%.1f dBFS gateFloor=%.1f dBFS gateResets=%llu "
-        "symbols=%d conf=%.2f ones=%.1f%% hdlc=%llu ok=%llu reject=%llu "
+        "lanes=%d symbols=%d conf=%.2f ones=%.1f%% starts=%llu hdlc=%llu ax25=%llu ok=%llu reject=%llu "
         "short=%llu badFcs=%llu malformed=%llu last=%s bytes=%d bits=%d fcs=%s/%s\n",
         label,
         static_cast<long long>(frameCount),
@@ -242,10 +242,13 @@ void printReplayDiagnostics(const char* label,
         diagnostics.receiveGateRmsDbfs,
         diagnostics.receiveGateFloorDbfs,
         static_cast<unsigned long long>(diagnostics.receiveGateResets),
+        diagnostics.decodeLanes,
         diagnostics.demodSymbols,
         diagnostics.averageConfidence,
         diagnostics.onesPercent,
+        static_cast<unsigned long long>(diagnostics.hdlcFrameStarts),
         static_cast<unsigned long long>(diagnostics.hdlcFrameCandidates),
+        static_cast<unsigned long long>(diagnostics.plausibleAx25Candidates),
         static_cast<unsigned long long>(diagnostics.framesAccepted),
         static_cast<unsigned long long>(diagnostics.decodeRejected),
         static_cast<unsigned long long>(diagnostics.rejectTooShort),
@@ -276,6 +279,7 @@ int replayCapture(const QString& path)
         AetherAx25LibmodemShim shim;
         shim.configure(ax25DemodConfigForProfile(Ax25ModemProfile::Hf300, polarity));
         QVector<Ax25DecodedFrame> frames;
+        QVector<double> frameTimesSeconds;
         constexpr int chunkSamples = 1024;
         for (size_t offset = 0; offset < audio.samples.size(); offset += chunkSamples) {
             const int count = static_cast<int>(
@@ -284,13 +288,21 @@ int replayCapture(const QString& path)
                                                            count,
                                                            audio.sampleRate);
             frames += chunkFrames;
+            for (qsizetype i = 0; i < chunkFrames.size(); ++i) {
+                frameTimesSeconds.append(
+                    static_cast<double>(offset + static_cast<size_t>(count))
+                    / static_cast<double>(audio.sampleRate));
+            }
         }
         const auto diagnostics = shim.diagnosticsSnapshot();
         printReplayDiagnostics(polarity == Ax25TonePolarity::Normal ? "Normal" : "Reverse",
                                diagnostics,
                                frames.size());
-        for (const auto& frame : frames) {
-            std::printf("  %s > %s%s  %s\n",
+        for (qsizetype i = 0; i < frames.size(); ++i) {
+            const auto& frame = frames.at(i);
+            std::printf("  %.1fs phase=%d %s > %s%s  %s\n",
+                        frameTimesSeconds.value(i, 0.0),
+                        frame.decodePhaseOffsetSamples,
                         qPrintable(frame.source),
                         qPrintable(frame.destination),
                         qPrintable(frame.path.isEmpty()
@@ -311,6 +323,7 @@ void testConstructsWithHf300Config()
     report("default sample rate", cfg.sampleRate == 24000);
     report("default baud", cfg.baud == 300);
     report("default tones", cfg.markHz == 1600.0 && cfg.spaceHz == 1800.0);
+    report("HF profile uses phase diversity lanes", shim.diagnosticsSnapshot().decodeLanes == 21);
 }
 
 void testVhf1200ProfileConfig()
@@ -322,6 +335,7 @@ void testVhf1200ProfileConfig()
     report("VHF sample rate", cfg.sampleRate == 24000);
     report("VHF baud", cfg.baud == 1200);
     report("VHF tones", cfg.markHz == 1200.0 && cfg.spaceHz == 2200.0);
+    report("VHF profile keeps one decode lane", shim.diagnosticsSnapshot().decodeLanes == 1);
     report("VHF description names profile", shim.demodDescription().contains(QStringLiteral("1200 baud VHF")));
 }
 
@@ -331,8 +345,12 @@ void testKnownGoodBitstreamDecodes()
     lm::ax25_bitstream_converter converter;
     const auto bits = converter.encode(knownPacket(), 6, 2);
     const auto frames = shim.processRecoveredBitsForTest(toQtBits(bits));
+    const auto diagnostics = shim.diagnosticsSnapshot();
 
     report("known-good AX.25 bitstream emits one frame", frames.size() == 1);
+    report("known-good AX.25 bitstream records one HDLC start", diagnostics.hdlcFrameStarts == 1);
+    report("known-good AX.25 bitstream records one HDLC candidate", diagnostics.hdlcFrameCandidates == 1);
+    report("known-good AX.25 bitstream records one AX.25-like candidate", diagnostics.plausibleAx25Candidates == 1);
     if (frames.isEmpty())
         return;
     const auto& frame = frames.first();
@@ -446,6 +464,9 @@ void testBadFcsDoesNotEmit()
     const auto frames = shim.processRecoveredBitsForTest(toQtBits(bits));
     const auto diagnostics = shim.diagnosticsSnapshot();
     report("bad-FCS AX.25 bitstream emits no valid frames", frames.isEmpty());
+    report("bad-FCS AX.25 bitstream records one HDLC start", diagnostics.hdlcFrameStarts == 1);
+    report("bad-FCS AX.25 bitstream records one HDLC candidate", diagnostics.hdlcFrameCandidates == 1);
+    report("bad-FCS AX.25 bitstream records one AX.25-like candidate", diagnostics.plausibleAx25Candidates == 1);
     report("bad-FCS AX.25 bitstream is classified", diagnostics.rejectBadFcs == 1);
     report("bad-FCS diagnostics preserve expected FCS",
            diagnostics.lastRejectReason.contains(QStringLiteral("bad-fcs"), Qt::CaseInsensitive)
@@ -462,6 +483,9 @@ void testTooShortRejectDiagnostics()
     const auto diagnostics = shim.diagnosticsSnapshot();
 
     report("too-short HDLC candidate emits no valid frames", frames.isEmpty());
+    report("too-short HDLC candidate records one HDLC start", diagnostics.hdlcFrameStarts == 1);
+    report("too-short HDLC candidate records one HDLC candidate", diagnostics.hdlcFrameCandidates == 1);
+    report("too-short HDLC candidate is not AX.25-like", diagnostics.plausibleAx25Candidates == 0);
     report("too-short HDLC candidate is classified", diagnostics.rejectTooShort == 1);
     report("too-short diagnostics include byte preview",
            diagnostics.lastRejectFrameBytes == 2

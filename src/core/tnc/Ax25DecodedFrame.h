@@ -26,6 +26,7 @@ struct Ax25DecodedFrame {
     bool isUiFrame{false};
     bool fcsOk{false};
     double confidenceOrQuality{0.0};
+    int decodePhaseOffsetSamples{-1};
 };
 
 } // namespace AetherSDR

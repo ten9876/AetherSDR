@@ -38,7 +38,7 @@ namespace {
 constexpr auto kPacketDecoderProfileSetting = "Ax25PacketDecoderProfile";
 constexpr auto kPacketDecoderPolaritySetting = "Ax25PacketDecoderPolarity";
 constexpr auto kPacketDecoderDebugSetting = "Ax25PacketDecoderDiagnosticsDebug";
-constexpr int kAudioCaptureSeconds = 30;
+constexpr int kAudioCaptureSeconds = 180;
 
 constexpr const char* kAetherModemStyle = R"(
 QWidget {
@@ -556,7 +556,7 @@ Ax25HfPacketDecodeDialog::Ax25HfPacketDecodeDialog(AudioEngine* audio,
     polarityLayout->addLayout(polarityButtons);
     controls->addWidget(polarityCell, 2);
 
-    m_captureButton = new QPushButton(QStringLiteral("Capture 30s"), controlsFrame);
+    m_captureButton = new QPushButton(QStringLiteral("Capture 3m"), controlsFrame);
     m_captureButton->setMinimumHeight(42);
     controls->addWidget(m_captureButton);
 
@@ -873,7 +873,7 @@ void Ax25HfPacketDecodeDialog::startAudioCapture()
     if (m_captureButton)
         m_captureButton->setText(QStringLiteral("Cancel Capture"));
     appendSystemLine(QStringLiteral("Decoder state reset for RX audio capture."));
-    appendSystemLine(QStringLiteral("Starting %1 second RX audio capture; transmit one packet now.")
+    appendSystemLine(QStringLiteral("Starting %1 second RX audio capture; transmit several packets now.")
         .arg(kAudioCaptureSeconds));
 }
 
@@ -886,7 +886,7 @@ void Ax25HfPacketDecodeDialog::finishAudioCapture(bool save)
     m_captureTargetBytes = 0;
     m_captureActive = false;
     if (m_captureButton)
-        m_captureButton->setText(QStringLiteral("Capture 30s"));
+        m_captureButton->setText(QStringLiteral("Capture 3m"));
 
     if (!save) {
         appendSystemLine(QStringLiteral("RX audio capture cancelled."));
@@ -939,7 +939,7 @@ void Ax25HfPacketDecodeDialog::updateHeartbeat()
 
     const QDateTime now = QDateTime::currentDateTimeUtc();
     if (m_packetActivity) {
-        const quint64 hdlc = m_lastDiagnostics.hdlcFrameCandidates;
+        const quint64 hdlc = m_lastDiagnostics.plausibleAx25Candidates;
         const quint64 accepted = m_lastDiagnostics.framesAccepted;
         const int hdlcDelta = hdlc >= m_lastActivityHdlc
             ? static_cast<int>(std::min<quint64>(hdlc - m_lastActivityHdlc, 32))
@@ -980,9 +980,10 @@ void Ax25HfPacketDecodeDialog::refreshStatus()
         : -1;
     QString status;
     if (enabled && haveAudio && audioAge < 4) {
-        status = QStringLiteral("Running | %1 | HDLC %2")
+        status = QStringLiteral("Running | %1 | AX.25 %2 OK %3")
             .arg(m_lastDiagnostics.receiveGateOpen ? QStringLiteral("gate open") : QStringLiteral("listening"))
-            .arg(m_lastDiagnostics.hdlcFrameCandidates);
+            .arg(m_lastDiagnostics.plausibleAx25Candidates)
+            .arg(m_lastDiagnostics.framesAccepted);
     } else if (enabled && haveAudio) {
         status = QStringLiteral("Audio stalled | %1 s").arg(audioAge);
     } else if (enabled) {
@@ -1002,7 +1003,7 @@ void Ax25HfPacketDecodeDialog::refreshStatus()
             : QStringLiteral("-");
         m_modemStatusValue->setText(status);
         m_modemStatusValue->setToolTip(QStringLiteral(
-            "%1\nSlice: %2\nSquelch: %3\nFrames: %4\nLast decode: %5\nHDLC candidates: %6\nAccepted: %7\nRejected: %8\nToo short: %9\nBad FCS: %10\nMalformed: %11\nLast reject: %12\nState: %13, bits: %14, ones: %15%\nReceive gate: %16, rms %17 dBFS, floor %18 dBFS, resets %19")
+            "%1\nSlice: %2\nSquelch: %3\nFrames: %4\nLast decode: %5\nDecode lanes: %6\nHDLC starts: %7\nHDLC candidates: %8\nAX.25-like candidates: %9\nAccepted: %10\nRejected: %11\nToo short: %12\nBad FCS: %13\nMalformed: %14\nLast reject: %15\nState: %16, bits: %17, ones: %18%\nReceive gate: %19, rms %20 dBFS, floor %21 dBFS, resets %22")
             .arg(m_shim->demodDescription())
             .arg(m_attachedSliceId >= 0 ? QString::number(m_attachedSliceId) : QStringLiteral("-"))
             .arg(squelchText)
@@ -1010,7 +1011,10 @@ void Ax25HfPacketDecodeDialog::refreshStatus()
             .arg(m_lastDecodeUtc.isValid()
                  ? m_lastDecodeUtc.toUTC().toString(Qt::ISODate)
                  : QStringLiteral("-"))
+            .arg(m_lastDiagnostics.decodeLanes)
+            .arg(m_lastDiagnostics.hdlcFrameStarts)
             .arg(m_lastDiagnostics.hdlcFrameCandidates)
+            .arg(m_lastDiagnostics.plausibleAx25Candidates)
             .arg(m_lastDiagnostics.framesAccepted)
             .arg(m_lastDiagnostics.decodeRejected)
             .arg(m_lastDiagnostics.rejectTooShort)
@@ -1113,7 +1117,7 @@ void Ax25HfPacketDecodeDialog::appendDiagnosticsLine(const Ax25DecoderDiagnostic
         ? QStringLiteral("mixed")
         : diagnostics.markMinusSpaceDb > 0.0 ? QStringLiteral("mark") : QStringLiteral("space");
     QString line = QStringLiteral(
-        "rms=%1 dBFS pk=%2 dBFS clip=%3% tone%4=%5 dBFS tone%6=%7 dBFS dTone=%8 dB dom=%9 gate=%10 gateRms=%11 floor=%12 symbols=%13 conf=%14 ones=%15% state=%16 bits=%17 hdlc=%18 ok=%19 reject=%20")
+        "rms=%1 dBFS pk=%2 dBFS clip=%3% tone%4=%5 dBFS tone%6=%7 dBFS dTone=%8 dB dom=%9 gate=%10 gateRms=%11 floor=%12 lanes=%13 symbols=%14 conf=%15 ones=%16% state=%17 bits=%18 starts=%19 hdlc=%20 ax25=%21 ok=%22 reject=%23")
         .arg(diagnostics.rmsDbfs, 0, 'f', 1)
         .arg(diagnostics.peakDbfs, 0, 'f', 1)
         .arg(diagnostics.clippedPercent, 0, 'f', 2)
@@ -1126,12 +1130,15 @@ void Ax25HfPacketDecodeDialog::appendDiagnosticsLine(const Ax25DecoderDiagnostic
         .arg(diagnostics.receiveGateOpen ? QStringLiteral("open") : QStringLiteral("idle"))
         .arg(diagnostics.receiveGateRmsDbfs, 0, 'f', 1)
         .arg(diagnostics.receiveGateFloorDbfs, 0, 'f', 1)
+        .arg(diagnostics.decodeLanes)
         .arg(diagnostics.demodSymbols)
         .arg(diagnostics.averageConfidence, 0, 'f', 2)
         .arg(diagnostics.onesPercent, 0, 'f', 1)
         .arg(state)
         .arg(diagnostics.currentFrameBits)
+        .arg(diagnostics.hdlcFrameStarts)
         .arg(diagnostics.hdlcFrameCandidates)
+        .arg(diagnostics.plausibleAx25Candidates)
         .arg(diagnostics.framesAccepted)
         .arg(diagnostics.decodeRejected);
     line += QStringLiteral(" short=%1 badFcs=%2 malformed=%3")
