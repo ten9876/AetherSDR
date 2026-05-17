@@ -427,7 +427,6 @@ void RxApplet::buildUI()
 #ifdef HAVE_RADE
             if (mode == "RADE") {
                 emit radeActivated(true, m_slice ? m_slice->sliceId() : -1);
-                if (m_slice) m_slice->setMode(mode);
                 return;
             }
             // "RADE" is client-side only — the radio echoes back the real mode
