@@ -176,6 +176,11 @@ public:
     VfoWidget* addVfoWidget(int sliceId);
     void       removeVfoWidget(int sliceId);
     void       setActiveVfoWidget(int sliceId);
+    // True if the slice has a split partner whose own VFO flag is rendered on
+    // the opposite side via LockLeft / LockRight.  panFollowVfo() uses this
+    // to extend the pan-follow trigger on both sides so neither flag clips
+    // the pan edge (#2761).
+    bool sliceHasSplitPartner(int sliceId) const;
 
     // WNB and RF gain state for on-screen indicators.
     bool wnbActive()   const { return m_wnbActive; }

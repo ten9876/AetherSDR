@@ -420,6 +420,15 @@ VfoWidget* SpectrumWidget::vfoWidget(int sliceId) const
     return m_vfoWidgets.value(sliceId, nullptr);
 }
 
+bool SpectrumWidget::sliceHasSplitPartner(int sliceId) const
+{
+    for (const auto& so : m_sliceOverlays) {
+        if (so.sliceId == sliceId)
+            return so.splitPartnerId >= 0;
+    }
+    return false;
+}
+
 QString SpectrumWidget::settingsKey(const QString& base) const
 {
     if (m_panIndex == 0)

@@ -10897,7 +10897,8 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
 }
 
 MainWindow::TuneCenteringResult MainWindow::revealFrequencyIfNeeded(
-    SliceModel* slice, double mhz, TuneIntent intent, const char* source)
+    SliceModel* slice, double mhz, TuneIntent intent, const char* source,
+    double leftFlagEdgeOffsetMhz, double rightFlagEdgeOffsetMhz)
 {
     TuneCenteringResult result;
     if (!slice)
@@ -10970,19 +10971,33 @@ MainWindow::TuneCenteringResult MainWindow::revealFrequencyIfNeeded(
         return center + direction * cappedDeltaMhz;
     };
 
-    if (mhz > center + triggerDistanceFromCenter) {
-        const double settleCenterTarget = mhz - settleDistanceFromCenter;
+    // The IncrementalTune trigger compares the *outer edge of the VFO flag*
+    // (mhz ± flag-width-in-MHz) against the pan boundary, so the flag panel
+    // never clips the pan edge.  Non-flag callers pass 0.0 for both offsets
+    // and effectiveLeftMhz / effectiveRightMhz collapse back to mhz —
+    // preserving the original slice-frequency comparison.  Clamp the offsets
+    // so neither effective edge crosses the *other* trigger boundary at very
+    // narrow panadapters (avoids the trigger oscillating around the slice).
+    // (#2761)
+    const double safeOffsetCap = std::max(0.0, triggerDistanceFromCenter * 0.95);
+    const double clampedRightOffset = std::min(rightFlagEdgeOffsetMhz, safeOffsetCap);
+    const double clampedLeftOffset  = std::min(leftFlagEdgeOffsetMhz,  safeOffsetCap);
+    const double effectiveLeftMhz   = incremental ? mhz - clampedLeftOffset  : mhz;
+    const double effectiveRightMhz  = incremental ? mhz + clampedRightOffset : mhz;
+
+    if (effectiveRightMhz > center + triggerDistanceFromCenter) {
+        const double settleCenterTarget = effectiveRightMhz - settleDistanceFromCenter;
         if (incremental && stepMhz > 0.0) {
-            const double triggerBoundaryCenter = mhz - triggerDistanceFromCenter;
+            const double triggerBoundaryCenter = effectiveRightMhz - triggerDistanceFromCenter;
             result.newCenterMhz =
                 incrementalFollowCenter(triggerBoundaryCenter, settleCenterTarget);
         } else {
             result.newCenterMhz = settleCenterTarget;
         }
-    } else if (mhz < center - triggerDistanceFromCenter) {
-        const double settleCenterTarget = mhz + settleDistanceFromCenter;
+    } else if (effectiveLeftMhz < center - triggerDistanceFromCenter) {
+        const double settleCenterTarget = effectiveLeftMhz + settleDistanceFromCenter;
         if (incremental && stepMhz > 0.0) {
-            const double triggerBoundaryCenter = mhz + triggerDistanceFromCenter;
+            const double triggerBoundaryCenter = effectiveLeftMhz + triggerDistanceFromCenter;
             result.newCenterMhz =
                 incrementalFollowCenter(triggerBoundaryCenter, settleCenterTarget);
         } else {
@@ -11017,7 +11032,40 @@ MainWindow::TuneCenteringResult MainWindow::panFollowVfo(
     // Incremental tuning uses a trigger margin and a slightly wider settle
     // margin so the slice glides back into a comfortable visible area without
     // dead-centering or waiting until it actually crosses the pan edge.
-    return revealFrequencyIfNeeded(s, mhz, TuneIntent::IncrementalTune, source);
+    //
+    // Per #2761, when this slice has a visible VFO flag, the trigger compares
+    // against the *outer edge of the flag* rather than the slice frequency
+    // itself — so the flag panel doesn't clip the pan edge before the pan
+    // starts to scroll.  Split pairs (LockLeft + LockRight rendered on the
+    // same marker) extend the trigger on *both* sides; single-flag slices
+    // extend only on the side the flag currently renders on.  Non-flagged
+    // and compact-mode slices fall through to the original slice-frequency
+    // comparison (both offsets stay 0.0).
+    double leftFlagOffsetMhz  = 0.0;
+    double rightFlagOffsetMhz = 0.0;
+    if (auto* sw = spectrumForSlice(s)) {
+        if (auto* vfo = sw->vfoWidget(s->sliceId())) {
+            const double bw = sw->bandwidthMhz();
+            const int specW = sw->width();
+            if (bw > 0.0 && specW > 0 && !vfo->isCollapsed()) {
+                const double mhzPerPixel = bw / static_cast<double>(specW);
+                const double flagWidthMhz =
+                    static_cast<double>(vfo->width()) * mhzPerPixel;
+                if (sw->sliceHasSplitPartner(s->sliceId())) {
+                    // Split pair: LockLeft + LockRight, flags on both sides.
+                    leftFlagOffsetMhz  = flagWidthMhz;
+                    rightFlagOffsetMhz = flagWidthMhz;
+                } else if (vfo->onLeft()) {
+                    leftFlagOffsetMhz  = flagWidthMhz;
+                } else {
+                    rightFlagOffsetMhz = flagWidthMhz;
+                }
+            }
+        }
+    }
+
+    return revealFrequencyIfNeeded(s, mhz, TuneIntent::IncrementalTune, source,
+                                   leftFlagOffsetMhz, rightFlagOffsetMhz);
 }
 
 void MainWindow::wireVfoWidget(VfoWidget* w, SliceModel* s)
