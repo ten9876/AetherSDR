@@ -11,6 +11,7 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QMessageBox>
+#include <QSignalBlocker>
 
 namespace AetherSDR {
 
@@ -201,16 +202,45 @@ QWidget* ProfileManagerDialog::buildProfileTab(const QString& type,
             }
             if (exists) {
                 const QString kind = (type == "transmit") ? "TX" : "Mic";
-                const QString autoState = m_model->autoSave() ? "ON" : "OFF";
+                if (!m_model->autoSave()) {
+                    // Offer Auto-Save inline so the user can act on the
+                    // remedy without hunting for the Auto-Save tab.
+                    QMessageBox box(this);
+                    box.setWindowTitle("Profile already exists");
+                    box.setIcon(QMessageBox::Question);
+                    box.setText(
+                        QString("A %1 profile named \"%2\" already exists.").arg(kind, name));
+                    box.setInformativeText(
+                        QString("The radio can't overwrite %1 profiles directly — updates "
+                                "are captured by Auto-Save while the profile is active. "
+                                "Auto-Save is currently OFF.\n\n"
+                                "Would you like to enable Auto-Save now so your changes "
+                                "to \"%2\" are captured?").arg(kind, name));
+                    auto* enableBtn = box.addButton("Enable Auto-Save", QMessageBox::AcceptRole);
+                    box.addButton("Close", QMessageBox::RejectRole);
+                    box.setDefaultButton(enableBtn);
+                    box.exec();
+                    if (box.clickedButton() == enableBtn) {
+                        m_model->sendCommand("profile autosave on");
+                        // Keep the sibling Auto-Save tab checkbox in sync —
+                        // RadioModel has no autoSaveChanged signal, so the
+                        // checkbox would otherwise read stale until the
+                        // dialog is reopened.
+                        if (m_autoSaveTx) {
+                            QSignalBlocker block(m_autoSaveTx);
+                            m_autoSaveTx->setChecked(true);
+                        }
+                    }
+                    return;
+                }
                 QMessageBox::information(this, "Profile already exists",
                     QString("A %1 profile named \"%2\" already exists.\n\n"
                             "The radio cannot overwrite %1 profiles directly. "
-                            "Updates are captured by Auto-Save (currently %3) "
+                            "Updates are captured by Auto-Save (currently ON) "
                             "while the profile is active.\n\n"
                             "To replace this profile, delete it first and then "
-                            "Create it again, or enable Auto-Save on the "
-                            "Auto-Save tab so future changes follow it automatically.")
-                        .arg(kind, name, autoState));
+                            "Create it again.")
+                        .arg(kind, name));
                 return;
             }
             if (type == "transmit")
