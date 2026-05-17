@@ -211,7 +211,7 @@ constexpr int kMinPanXpixels = 100;
 constexpr int kMinPanYpixels = 20;
 constexpr int kMinRadioPanYpixels = 100;
 constexpr qint64 kPanLayoutRestoreWaitingForFirstPan = -1;
-constexpr int kPanLayoutRestoreWindowMs = 5000;
+constexpr int kPanLayoutRestoreWindowMs = 30000;
 constexpr qint64 kXvtrWaterfallDecisionLogIntervalMs = 20000;
 constexpr double kSwrSweepStepMhz = 0.020;
 constexpr double kSwrSweepEdgeGuardMhz = 0.005;
@@ -2607,7 +2607,7 @@ MainWindow::MainWindow(QWidget* parent)
                 // The radio restores pans from the GUIClientID session.
                 // Accept whatever the radio gives and arrange based on count.
                 const int panCount = m_panStack->count();
-                if (panCount > 1) {
+                if (!m_suppressStartupPanLayoutRearrange && panCount > 1) {
                     // Pick a layout based on the number of pans the radio restored
                     const QString saved = AppSettings::instance()
                         .value("PanadapterLayout", "1").toString();
@@ -5946,6 +5946,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                 showPanadapterSliceCapacityMessage();
                 return true;
             }
+            m_suppressStartupPanLayoutRearrange = true;
             auto& s = AppSettings::instance();
             s.setValue("PanadapterLayout", layoutId);
             s.save();
@@ -8260,6 +8261,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
 
     m_connPanel->setConnected(connected);
     if (connected) {
+        m_suppressStartupPanLayoutRearrange = false;
         m_layoutRestoreUntilMs = kPanLayoutRestoreWaitingForFirstPan;
         m_radioInfoLabel->setText(m_radioModel.model());
         m_radioVersionLabel->setText(m_radioModel.version());
@@ -8528,6 +8530,7 @@ void MainWindow::onConnectionStateChanged(bool connected)
         if (m_layoutRestoreTimer) {
             m_layoutRestoreTimer->stop();
         }
+        m_suppressStartupPanLayoutRearrange = false;
         m_layoutRestoreUntilMs = 0;
         if (m_appletPanel) {
             m_appletPanel->clearSliceButtons();

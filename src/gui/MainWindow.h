@@ -640,6 +640,9 @@ private:
     QHash<QString, QMetaObject::Connection> m_wfLineDurationReconcileConnections;
     QTimer* m_layoutRestoreTimer{nullptr}; // debounced layout rearrange after pans added on connect
     qint64 m_layoutRestoreUntilMs{0};
+    // User layout choices should suppress startup rearrange, but still allow
+    // the pending timer to restore saved floating pan windows.
+    bool m_suppressStartupPanLayoutRearrange{false};
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     QTimer* m_bsExpiryTimer{nullptr};    // band-stack bookmark auto-expiry, started on connect only (#1471)
     QTimer* m_bsAutoSaveTimer{nullptr};  // band-stack dwell auto-save (single-shot per dwell window)
