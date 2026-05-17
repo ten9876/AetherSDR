@@ -180,8 +180,16 @@ private:
                           TuneIntent intent, const char* source);
     void applyPanRangeRequest(const QString& panId, double centerMhz,
                               double bandwidthMhz, const char* source);
+    // leftFlagEdgeOffsetMhz / rightFlagEdgeOffsetMhz extend the trigger
+    // comparison out to the VFO flag's outer edges so the flag panel never
+    // clips a pan edge.  Only IncrementalTune consumes the offsets; other
+    // intents (CommandedTargetCenter, RevealOffscreen) ignore them.  Default
+    // 0.0 preserves the original slice-frequency comparison for non-flag
+    // callers.  See #2761 + panFollowVfo() for the integration site.
     TuneCenteringResult revealFrequencyIfNeeded(SliceModel* slice, double mhz,
-                                                TuneIntent intent, const char* source);
+                                                TuneIntent intent, const char* source,
+                                                double leftFlagEdgeOffsetMhz = 0.0,
+                                                double rightFlagEdgeOffsetMhz = 0.0);
     void logTunePolicyDecision(const char* source, TuneIntent intent,
                                double oldFreqMhz, double newFreqMhz,
                                const TuneCenteringResult& result) const;

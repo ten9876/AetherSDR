@@ -83,6 +83,12 @@ public:
     bool isCollapsed() const { return m_collapsed; }
     void setCollapsed(bool collapsed);
 
+    // Which side of the slice marker the flag panel is currently rendered on.
+    // Tracked by updatePosition() via m_lastOnLeft.  Used by panFollowVfo()
+    // to extend the pan-follow trigger to the flag's outer edge — single-side
+    // for non-split slices, both-sides for split pairs (#2761).
+    bool onLeft() const { return m_lastOnLeft; }
+
 #ifdef HAVE_RADE
     void setRadeActive(bool on, const QString& label = QStringLiteral("RADE"));
     void setRadeSynced(bool synced);
