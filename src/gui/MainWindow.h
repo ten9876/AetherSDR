@@ -81,7 +81,6 @@ class NetworkDiagnosticsHistory;
 class WhatsNewDialog;
 class ProfileManagerDialog;
 class ProfileImportExportDialog;
-class RadioSetupDialog;
 class NetworkDiagnosticsDialog;
 class MemoryDialog;
 class PropDashboardDialog;
@@ -504,7 +503,7 @@ private:
 
     // Modeless dialogs
     QPointer<DxClusterDialog> m_spotHubDialog;
-    QPointer<RadioSetupDialog> m_radioSetupDialog;
+    QPointer<QDialog> m_radioSetupDialog;
     QPointer<NetworkDiagnosticsDialog> m_networkDiagnosticsDialog;
     QPointer<PropDashboardDialog> m_propDashboardDialog;
     QPointer<TxBandDialog> m_txBandDialog;
@@ -583,6 +582,8 @@ private:
     // helpers do not echo model-driven changes back to the radio.
     bool m_updatingFromModel{false};
     bool m_shuttingDown{false};
+    bool m_panadapterUiPreparedForShutdown{false};
+    void preparePanadapterUiForShutdown();
     void toggleConnectionDialog();
     bool m_useSystemClock{true};     // true when no GPS installed
     bool m_paTempUseFahrenheit{true};
@@ -638,6 +639,7 @@ private:
     QHash<QString, WaterfallLineDurationReconcileState> m_wfLineDurationReconcile;
     QHash<QString, QMetaObject::Connection> m_wfLineDurationReconcileConnections;
     QTimer* m_layoutRestoreTimer{nullptr}; // debounced layout rearrange after pans added on connect
+    qint64 m_layoutRestoreUntilMs{0};
     QTimer* m_heartbeatMissTimer{nullptr}; // fires every 1.5s to detect missed discovery beats
     QTimer* m_bsExpiryTimer{nullptr};    // band-stack bookmark auto-expiry, started on connect only (#1471)
     QTimer* m_bsAutoSaveTimer{nullptr};  // band-stack dwell auto-save (single-shot per dwell window)
