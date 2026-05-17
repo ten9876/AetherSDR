@@ -1015,7 +1015,16 @@ QWidget* RadioSetupDialog::buildTxTab()
         vbox->addWidget(group);
     }
 
-    // Max Power / Tune Mode / Show TX in Waterfall
+    // Max Power / Show TX in Waterfall / Slice-TX Follow
+    //
+    // Tune Mode (single_tone / two_tone) used to live here too but was
+    // removed — it persisted "Two Tone" across restarts as if it were a
+    // normal operating mode, which surprised users who hit the regular
+    // Tune button later and got an unexpected 2-tone test.  Tune Mode is
+    // now a transient one-shot, surfaced via the TUNE button's right-
+    // click menu in TxApplet ("Mono Tone" / "Two Tone").  Picking either
+    // sets the radio's tune_mode for the next tune cycle only; nothing
+    // is written to AppSettings.
     {
         auto* grid = new QGridLayout;
         grid->setSpacing(6);
@@ -1041,28 +1050,9 @@ QWidget* RadioSetupDialog::buildTxTab()
                 QString("transmit set max_power_level=%1").arg(val));
         });
 
-        auto* tmLbl = new QLabel("Tune Mode:");
-        tmLbl->setStyleSheet(kLabelStyle);
-        grid->addWidget(tmLbl, 1, 0);
-        auto* tmCmb = new QComboBox;
-        tmCmb->addItems({"Single Tone", "Two Tone"});
-        // Seed from the persisted preference (#2696) — the radio drops
-        // tune_mode across power cycles, so the saved value is the user's
-        // intent and matches what the connect-time resend asks the radio
-        // for. Falls back to single_tone if AppSettings is empty.
-        const QString seedMode = TransmitModel::savedTuneMode();
-        tmCmb->setCurrentText(seedMode == "single_tone" ? "Single Tone" : "Two Tone");
-        AetherSDR::applyComboStyle(tmCmb);
-        connect(tmCmb, &QComboBox::currentTextChanged, this, [this](const QString& text) {
-            QString mode = (text == "Single Tone") ? "single_tone" : "two_tone";
-            TransmitModel::saveTuneMode(mode);
-            m_model->sendCommand("transmit set tune_mode=" + mode);
-        });
-        grid->addWidget(tmCmb, 1, 1);
-
         auto* swLbl = new QLabel("Show TX in Waterfall:");
         swLbl->setStyleSheet(kLabelStyle);
-        grid->addWidget(swLbl, 2, 0);
+        grid->addWidget(swLbl, 1, 0);
         auto* swBtn = new QPushButton(tx.showTxInWaterfall() ? "Enabled" : "Disabled");
         swBtn->setCheckable(true);
         swBtn->setChecked(tx.showTxInWaterfall());
@@ -1077,12 +1067,12 @@ QWidget* RadioSetupDialog::buildTxTab()
             m_model->sendCommand(
                 QString("transmit set show_tx_in_waterfall=%1").arg(on ? 1 : 0));
         });
-        grid->addWidget(swBtn, 2, 1);
+        grid->addWidget(swBtn, 1, 1);
 
         // Slice–TX Follow Mode (#441, #1351) — mutually exclusive toggles
         auto* followLbl = new QLabel("Slice/TX Follow:");
         followLbl->setStyleSheet(kLabelStyle);
-        grid->addWidget(followLbl, 3, 0);
+        grid->addWidget(followLbl, 2, 0);
 
         const QString kFollowBtnStyle =
             "QPushButton { background: #1a2a3a; border: 1px solid #304050; "
@@ -1110,7 +1100,7 @@ QWidget* RadioSetupDialog::buildTxTab()
         followRow->addWidget(tfBtn);
         followRow->addWidget(afBtn);
         followRow->addStretch(1);
-        grid->addLayout(followRow, 3, 1);
+        grid->addLayout(followRow, 2, 1);
 
         // Mutual exclusion: enabling one disables the other
         connect(tfBtn, &QPushButton::toggled, this, [tfBtn, afBtn](bool on) {

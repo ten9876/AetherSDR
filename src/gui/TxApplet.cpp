@@ -209,6 +209,11 @@ void TxApplet::buildUI()
         m_tuneBtn->setFixedHeight(22);
         m_tuneBtn->setAccessibleName("Tune");
         m_tuneBtn->setAccessibleDescription("Start or stop tune carrier");
+        // Right-click picks the carrier shape (Mono Tone / Two Tone) for
+        // the next tune cycle.  Transient one-shot — no AppSettings write.
+        m_tuneBtn->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_tuneBtn, &QPushButton::customContextMenuRequested,
+                this, &TxApplet::showTuneContextMenu);
         row->addWidget(m_tuneBtn);
 
         m_moxBtn = new QPushButton("MOX");
@@ -595,6 +600,41 @@ void TxApplet::showAtuContextMenu(const QPoint& pos)
             this, &TxApplet::confirmAndClearAtuMemories);
 
     menu.exec(m_atuBtn->mapToGlobal(pos));
+}
+
+void TxApplet::showTuneContextMenu(const QPoint& pos)
+{
+    if (!m_model) return;
+
+    QMenu menu(m_tuneBtn);
+
+    // Reflect the radio's current tune_mode in the check marks so the user
+    // can see what the next Tune press will do.  Selecting either entry is
+    // a one-shot — the radio's tune_mode lives in volatile state and reverts
+    // to single_tone on its own across power cycles; AetherSDR does not
+    // persist the choice in AppSettings.
+    const QString current = m_model->tuneMode();
+
+    auto* mono = menu.addAction("Mono Tone");
+    mono->setCheckable(true);
+    mono->setChecked(current != QStringLiteral("two_tone"));
+    mono->setToolTip("Next Tune press transmits a single carrier (normal Tune).");
+    connect(mono, &QAction::triggered, this, [this]() {
+        if (m_model)
+            m_model->setTuneMode(QStringLiteral("single_tone"));
+    });
+
+    auto* two = menu.addAction("Two Tone");
+    two->setCheckable(true);
+    two->setChecked(current == QStringLiteral("two_tone"));
+    two->setToolTip("Next Tune press transmits a two-tone test signal\n"
+                    "(for IMD / linearity measurement).");
+    connect(two, &QAction::triggered, this, [this]() {
+        if (m_model)
+            m_model->setTuneMode(QStringLiteral("two_tone"));
+    });
+
+    menu.exec(m_tuneBtn->mapToGlobal(pos));
 }
 
 void TxApplet::openPreTuneDialog()
