@@ -160,14 +160,6 @@ public:
     void setRfPower(int power);
     void setTunePower(int power);
     void setTuneMode(const QString& mode);
-
-    // Tune-mode preference is persisted client-side (#2696). The radio drops
-    // tune_mode to "single_tone" across power cycles, so the user's choice is
-    // cached in AppSettings under the "RadioTxSetup" nested-JSON blob and
-    // re-applied on every connect (mirrors the met_in_rx resend pattern).
-    // Returns "single_tone" or "two_tone".
-    static QString savedTuneMode();
-    static void saveTuneMode(const QString& mode);
     void startTune(PttSource source = PttSource::Tune);
     void startTwoToneTune(PttSource source = PttSource::Tune);
     void toggleTwoToneTune();

@@ -62,6 +62,11 @@ private:
     void showAtuContextMenu(const QPoint& pos);
     void openPreTuneDialog();
     void confirmAndClearAtuMemories();
+    // Right-click menu on the TUNE button — picks the carrier shape for
+    // the *next* tune cycle: "Mono Tone" (single_tone) or "Two Tone".
+    // Nothing is persisted — selecting Two Tone is a transient one-shot
+    // and the radio reverts to single_tone on its own across power cycles.
+    void showTuneContextMenu(const QPoint& pos);
 
     TransmitModel* m_model{nullptr};
     RadioModel*       m_radioModel{nullptr};

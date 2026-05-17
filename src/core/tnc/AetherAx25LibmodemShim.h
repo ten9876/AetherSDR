@@ -5,6 +5,7 @@
 #include <QByteArray>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 #include <memory>
@@ -40,6 +41,7 @@ struct Ax25DecoderDiagnostics {
     double receiveGateFloorDbfs{-120.0};
     bool receiveGateOpen{false};
     quint64 receiveGateResets{0};
+    int decodeLanes{1};
     int demodSymbols{0};
     double averageConfidence{0.0};
     double onesPercent{0.0};
@@ -50,7 +52,9 @@ struct Ax25DecoderDiagnostics {
     int currentFrameBits{0};
     int lastFrameBits{0};
     int preambleFlags{0};
+    quint64 hdlcFrameStarts{0};
     quint64 hdlcFrameCandidates{0};
+    quint64 plausibleAx25Candidates{0};
     quint64 framesAccepted{0};
     quint64 decodeRejected{0};
     quint64 rejectTooShort{0};
@@ -62,6 +66,38 @@ struct Ax25DecoderDiagnostics {
     QString lastRejectExpectedFcs;
     int lastRejectFrameBits{0};
     int lastRejectFrameBytes{0};
+};
+
+struct Ax25TransmitFrame {
+    QString source;
+    QString destination;
+    QStringList path;
+    quint8 control{0x03};
+    quint8 pid{0xf0};
+    QByteArray payload;
+    QString payloadText;
+    QString payloadHex;
+};
+
+struct Ax25TransmitResult {
+    bool ok{false};
+    QString error;
+    Ax25TransmitFrame frame;
+    QByteArray stereoFloat32Pcm;
+    int sampleRate{0};
+    int baud{0};
+    double markHz{0.0};
+    double spaceHz{0.0};
+    Ax25TonePolarity polarity{Ax25TonePolarity::Normal};
+    int preambleFlags{0};
+    int postambleFlags{0};
+    int frameBytes{0};
+    int bitCount{0};
+    int audioFrames{0};
+    int vitaPacketFrames{0};
+    double durationSeconds{0.0};
+    double rmsDbfs{-120.0};
+    double peakDbfs{-120.0};
 };
 
 Ax25DemodConfig ax25DemodConfigForProfile(
@@ -87,6 +123,9 @@ public:
                                                int sampleRate);
     QVector<Ax25DecodedFrame> processRecoveredBitsForTest(const QVector<quint8>& bits,
                                                           double quality = 1.0);
+    Ax25TransmitResult buildTransmitAudio(const QString& text,
+                                          const QString& defaultSource,
+                                          const QString& defaultDestination = QStringLiteral("APRS")) const;
 
     Ax25DecoderDiagnostics diagnosticsSnapshot() const;
     QString demodDescription() const;

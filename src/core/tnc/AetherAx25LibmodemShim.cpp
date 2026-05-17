@@ -13,6 +13,7 @@
 #include <cmath>
 #include <iterator>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace AetherSDR {
@@ -33,6 +34,19 @@ constexpr double kReceiveGateCloseRiseDb = 1.0;
 constexpr double kReceiveGateMinimumDbfs = -32.0;
 constexpr double kReceiveGateFloorAlpha = 0.04;
 constexpr double kReceiveGateCloseSeconds = 3.0;
+constexpr int kDuplicateSuppressSeconds = 2;
+constexpr int kTxPreambleFlags = 80;
+constexpr int kTxPostambleFlags = 8;
+constexpr int kTxVitaPacketFrames = 128;
+constexpr double kTxAfskAmplitude = 0.35;
+// Phase diversity compensates for 300 baud HF timing drift until the shim grows
+// a proper packet-synchronous timing loop. Phase 1 is retained because captures
+// show it recovers bursts missed by the alternate 4-sample-spaced bank.
+constexpr std::array<int, 21> kHf300DecodePhaseOffsets = {
+    1,
+    3, 7, 11, 15, 19, 23, 27, 31, 35, 39,
+    43, 47, 51, 55, 59, 63, 67, 71, 75, 79
+};
 
 QString fcsToString(const std::array<uint8_t, 2>& fcs)
 {
@@ -58,7 +72,23 @@ QString addressToString(const lm::address& address)
     return text;
 }
 
-Ax25DecodedFrame toDecodedFrame(const lm::ax25::frame& frame, double quality)
+QByteArray frameSignature(const Ax25DecodedFrame& frame)
+{
+    QByteArray signature;
+    signature += frame.source.toUtf8();
+    signature += '\0';
+    signature += frame.destination.toUtf8();
+    signature += '\0';
+    signature += frame.path.join(QLatin1Char(',')).toUtf8();
+    signature += '\0';
+    signature += static_cast<char>(frame.control);
+    signature += static_cast<char>(frame.pid);
+    signature += '\0';
+    signature += frame.payload;
+    return signature;
+}
+
+Ax25DecodedFrame toDecodedFrame(const lm::ax25::frame& frame, double quality, int phaseOffsetSamples)
 {
     Ax25DecodedFrame out;
     out.timestampUtc = QDateTime::currentDateTimeUtc();
@@ -75,7 +105,84 @@ Ax25DecodedFrame toDecodedFrame(const lm::ax25::frame& frame, double quality)
     out.isUiFrame = (out.control == 0x03 && out.pid == 0xf0);
     out.fcsOk = true;
     out.confidenceOrQuality = quality;
+    out.decodePhaseOffsetSamples = phaseOffsetSamples;
     return out;
+}
+
+Ax25TransmitFrame toTransmitFrame(const lm::packet& packet)
+{
+    Ax25TransmitFrame out;
+    out.source = QString::fromStdString(packet.from);
+    out.destination = QString::fromStdString(packet.to);
+    for (const auto& path : packet.path)
+        out.path.append(QString::fromStdString(path));
+    out.payload = QByteArray(packet.data.data(), static_cast<qsizetype>(packet.data.size()));
+    out.payloadText = Ax25FrameFormatter::payloadText(out.payload);
+    out.payloadHex = Ax25FrameFormatter::payloadHex(out.payload);
+    return out;
+}
+
+QString normalizedDefaultAddress(QString address, const QString& fallback)
+{
+    address = address.trimmed().toUpper();
+    if (address.isEmpty())
+        address = fallback;
+    lm::address parsed;
+    if (lm::try_parse_address(address.toStdString(), parsed))
+        return QString::fromStdString(lm::to_string(parsed, true));
+    return fallback;
+}
+
+std::optional<lm::packet> packetFromTransmitText(const QString& text,
+                                                 const QString& defaultSource,
+                                                 const QString& defaultDestination,
+                                                 QString& error)
+{
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) {
+        error = QStringLiteral("enter text to transmit");
+        return std::nullopt;
+    }
+
+    lm::packet packet;
+    const std::string monitorText = trimmed.toStdString();
+    if (trimmed.contains(QLatin1Char('>')) && trimmed.contains(QLatin1Char(':'))) {
+        if (lm::try_decode_packet(monitorText, packet))
+            return packet;
+        error = QStringLiteral("invalid monitor syntax; use SRC>DST,path:payload");
+        return std::nullopt;
+    }
+
+    const QString source = normalizedDefaultAddress(defaultSource, QStringLiteral("NOCALL"));
+    const QString destination = normalizedDefaultAddress(defaultDestination, QStringLiteral("APRS"));
+    packet = lm::packet(source.toStdString(),
+                        destination.toStdString(),
+                        {},
+                        text.toStdString());
+    return packet;
+}
+
+void measureStereoFloatPcm(const QByteArray& pcm, double& rmsDbfs, double& peakDbfs)
+{
+    const int sampleCount = pcm.size() / static_cast<int>(sizeof(float));
+    if (sampleCount <= 0) {
+        rmsDbfs = -120.0;
+        peakDbfs = -120.0;
+        return;
+    }
+
+    const auto* samples = reinterpret_cast<const float*>(pcm.constData());
+    double sumSquares = 0.0;
+    double peak = 0.0;
+    for (int i = 0; i < sampleCount; ++i) {
+        const double sample = std::isfinite(samples[i])
+            ? std::clamp(static_cast<double>(samples[i]), -1.0, 1.0)
+            : 0.0;
+        sumSquares += sample * sample;
+        peak = std::max(peak, std::abs(sample));
+    }
+    rmsDbfs = toDbfs(std::sqrt(sumSquares / static_cast<double>(sampleCount)));
+    peakDbfs = toDbfs(peak);
 }
 
 } // namespace
@@ -116,12 +223,27 @@ QString ax25ModemProfileName(Ax25ModemProfile profile)
 
 struct AetherAx25LibmodemShim::Impl {
     Ax25DemodConfig config;
-    std::unique_ptr<lm::sinc_corr_afsk_demodulator> demod;
-    lm::ax25::bitstream_state bitstreamState;
-    std::vector<uint8_t> bitstreamBuffer;
-    std::array<uint8_t, 1000> candidateFrameBytes{};
-    double lastQuality{0.0};
+    struct DecodeLane {
+        int phaseOffsetSamples{0};
+        int samplesUntilStart{0};
+        std::unique_ptr<lm::sinc_corr_afsk_demodulator> demod;
+        lm::ax25::bitstream_state bitstreamState;
+        std::vector<uint8_t> bitstreamBuffer;
+        std::array<uint8_t, 1000> candidateFrameBytes{};
+        double lastQuality{0.0};
+    };
+    struct RecentFrame {
+        QByteArray signature;
+        quint64 sampleIndex{0};
+    };
+
+    std::vector<DecodeLane> lanes;
+    quint64 totalAudioSamplesProcessed{0};
+    quint64 currentDecodeSampleIndex{0};
+    std::vector<RecentFrame> recentFrames;
+    quint64 totalHdlcFrameStarts{0};
     quint64 totalHdlcFrameCandidates{0};
+    quint64 totalPlausibleAx25Candidates{0};
     quint64 totalFramesAccepted{0};
     quint64 totalDecodeRejected{0};
     quint64 totalRejectTooShort{0};
@@ -202,13 +324,14 @@ struct AetherAx25LibmodemShim::Impl {
 
     Impl()
     {
-        bitstreamBuffer.reserve(8192);
         configure(config);
     }
 
     void configure(const Ax25DemodConfig& next)
     {
         config = next;
+        lanes.clear();
+
         const double mark = config.polarity == Ax25TonePolarity::Inverted
             ? config.spaceHz
             : config.markHz;
@@ -218,33 +341,52 @@ struct AetherAx25LibmodemShim::Impl {
 
         const double pllAlpha = config.profile == Ax25ModemProfile::Hf300 ? 0.0 : 0.015;
 
-        demod = std::make_unique<lm::sinc_corr_afsk_demodulator>(
-            mark,
-            space,
-            config.baud,
-            config.sampleRate,
-            0.75,
-            6.0,
-            0.75,
-            3.0,
-            0.008,
-            0.005,
-            pllAlpha);
+        auto addLane = [&](int phaseOffsetSamples) {
+            auto& lane = lanes.emplace_back();
+            lane.phaseOffsetSamples = phaseOffsetSamples;
+            lane.samplesUntilStart = phaseOffsetSamples;
+            lane.demod = std::make_unique<lm::sinc_corr_afsk_demodulator>(
+                mark,
+                space,
+                config.baud,
+                config.sampleRate,
+                0.75,
+                6.0,
+                0.75,
+                3.0,
+                0.008,
+                0.005,
+                pllAlpha);
+            lane.bitstreamBuffer.reserve(8192);
+            lane.bitstreamBuffer.resize(8192);
+        };
+
+        if (config.profile == Ax25ModemProfile::Hf300) {
+            for (int phaseOffset : kHf300DecodePhaseOffsets)
+                addLane(phaseOffset);
+        } else {
+            addLane(0);
+        }
         resetDecoderState(true, true);
     }
 
     void resetDecoderState(bool clearCounters, bool clearDiagnostics)
     {
-        if (demod)
-            demod->reset();
-        bitstreamState.reset();
-        bitstreamState.max_frame_bits = 4096;
-        bitstreamBuffer.clear();
-        bitstreamBuffer.resize(8192);
-        lastQuality = 0.0;
+        for (auto& lane : lanes) {
+            if (lane.demod)
+                lane.demod->reset();
+            resetLaneBitstream(lane);
+            lane.lastQuality = 0.0;
+            lane.samplesUntilStart = lane.phaseOffsetSamples;
+        }
 
         if (clearCounters) {
+            totalAudioSamplesProcessed = 0;
+            currentDecodeSampleIndex = 0;
+            recentFrames.clear();
+            totalHdlcFrameStarts = 0;
             totalHdlcFrameCandidates = 0;
+            totalPlausibleAx25Candidates = 0;
             totalFramesAccepted = 0;
             totalDecodeRejected = 0;
             totalRejectTooShort = 0;
@@ -267,6 +409,20 @@ struct AetherAx25LibmodemShim::Impl {
 
         if (clearDiagnostics)
             diagnosticsWindow = {};
+    }
+
+    void resetLaneBitstream(DecodeLane& lane)
+    {
+        lane.bitstreamState.reset();
+        lane.bitstreamState.max_frame_bits = 4096;
+        lane.bitstreamBuffer.clear();
+        lane.bitstreamBuffer.resize(8192);
+    }
+
+    void resetBitstreamStates()
+    {
+        for (auto& lane : lanes)
+            resetLaneBitstream(lane);
     }
 
     double measureBlockRmsDbfs(const float* samples, int sampleCount) const
@@ -309,7 +465,7 @@ struct AetherAx25LibmodemShim::Impl {
                 receiveGateOpen = true;
                 receiveGateIdleSamples = 0;
                 ++receiveGateResets;
-                resetDecoderState(false, false);
+                resetBitstreamStates();
                 if (diagnosticsLoggingEnabled) {
                     qCDebug(lcAx25).nospace()
                         << "receive gate opened: rms="
@@ -350,7 +506,8 @@ struct AetherAx25LibmodemShim::Impl {
         }
     }
 
-    bool candidateHasAx25Structure(size_t frameBytesSize,
+    bool candidateHasAx25Structure(const DecodeLane& lane,
+                                   size_t frameBytesSize,
                                    uint8_t& control,
                                    uint8_t& pid,
                                    size_t& pathCount,
@@ -367,8 +524,8 @@ struct AetherAx25LibmodemShim::Impl {
         pid = 0;
 
         auto [pathOut, dataOut, parsed] = lm::ax25::try_decode_frame_no_fcs(
-            candidateFrameBytes.data(),
-            candidateFrameBytes.data() + frameBytesSize - 2,
+            lane.candidateFrameBytes.data(),
+            lane.candidateFrameBytes.data() + frameBytesSize - 2,
             from,
             to,
             path.begin(),
@@ -396,28 +553,29 @@ struct AetherAx25LibmodemShim::Impl {
             acceptedFcs);
     }
 
-    void recordReject(size_t frameBytesSize,
+    bool recordReject(const DecodeLane& lane,
+                      size_t frameBytesSize,
                       const std::array<uint8_t, 2>& actualFcs,
                       const std::array<uint8_t, 2>& expectedFcs)
     {
         ++totalDecodeRejected;
-        lastRejectFrameBits = static_cast<int>(bitstreamState.frame_size_bits);
+        lastRejectFrameBits = static_cast<int>(lane.bitstreamState.frame_size_bits);
         lastRejectFrameBytes = static_cast<int>(frameBytesSize);
-        lastRejectPreviewHex = framePreviewHex(candidateFrameBytes, frameBytesSize);
+        lastRejectPreviewHex = framePreviewHex(lane.candidateFrameBytes, frameBytesSize);
         lastRejectActualFcs = frameBytesSize >= 18 ? fcsToString(actualFcs) : QString();
         lastRejectExpectedFcs = frameBytesSize >= 18 ? fcsToString(expectedFcs) : QString();
 
         if (frameBytesSize < 18) {
             ++totalRejectTooShort;
             lastRejectReason = QStringLiteral("too-short");
-            return;
+            return false;
         }
 
         uint8_t control = 0;
         uint8_t pid = 0;
         size_t pathCount = 0;
         size_t dataLength = 0;
-        const bool ax25Like = candidateHasAx25Structure(frameBytesSize, control, pid, pathCount, dataLength);
+        const bool ax25Like = candidateHasAx25Structure(lane, frameBytesSize, control, pid, pathCount, dataLength);
 
         if (actualFcs != expectedFcs) {
             if (ax25Like) {
@@ -428,21 +586,24 @@ struct AetherAx25LibmodemShim::Impl {
                     .arg(pathCount)
                     .arg(dataLength)
                     .toUpper();
+                return true;
             } else {
                 ++totalRejectMalformed;
                 lastRejectReason = QStringLiteral("malformed+bad-fcs");
             }
-            return;
+            return false;
         }
 
         ++totalRejectMalformed;
         lastRejectReason = QStringLiteral("malformed");
+        return false;
     }
 
-    std::optional<Ax25DecodedFrame> processBit(uint8_t bit, double quality)
+    std::optional<Ax25DecodedFrame> processBit(DecodeLane& lane, uint8_t bit, double quality)
     {
-        lastQuality = 0.95 * lastQuality + 0.05 * quality;
-        const bool wasComplete = bitstreamState.complete;
+        lane.lastQuality = 0.95 * lane.lastQuality + 0.05 * quality;
+        const bool wasComplete = lane.bitstreamState.complete;
+        const bool wasInFrame = lane.bitstreamState.in_frame;
         lm::address from;
         lm::address to;
         std::array<lm::address, 8> path = {};
@@ -454,10 +615,10 @@ struct AetherAx25LibmodemShim::Impl {
 
         auto [candidateFrameBytesSize, pathOut, dataOut, decoded] = lm::ax25::try_decode_bitstream(
             bit ? 1 : 0,
-            bitstreamState,
-            bitstreamBuffer.begin(),
-            bitstreamBuffer.end(),
-            candidateFrameBytes,
+            lane.bitstreamState,
+            lane.bitstreamBuffer.begin(),
+            lane.bitstreamBuffer.end(),
+            lane.candidateFrameBytes,
             from,
             to,
             path.begin(),
@@ -468,12 +629,16 @@ struct AetherAx25LibmodemShim::Impl {
             actualFcs,
             expectedFcs);
 
-        if (bitstreamState.complete && !wasComplete) {
+        if (lane.bitstreamState.in_frame && !wasInFrame)
+            ++totalHdlcFrameStarts;
+
+        if (lane.bitstreamState.complete && !wasComplete) {
             ++totalHdlcFrameCandidates;
             if (decoded) {
-                ++totalFramesAccepted;
+                ++totalPlausibleAx25Candidates;
             } else {
-                recordReject(candidateFrameBytesSize, actualFcs, expectedFcs);
+                if (recordReject(lane, candidateFrameBytesSize, actualFcs, expectedFcs))
+                    ++totalPlausibleAx25Candidates;
             }
         }
         if (!decoded)
@@ -489,7 +654,36 @@ struct AetherAx25LibmodemShim::Impl {
         frame.control[0] = control;
         frame.pid = pid;
         frame.crc = actualFcs;
-        return toDecodedFrame(frame, lastQuality);
+        return toDecodedFrame(frame, lane.lastQuality, lane.phaseOffsetSamples);
+    }
+
+    bool shouldEmitFrame(const Ax25DecodedFrame& frame)
+    {
+        const QByteArray signature = frameSignature(frame);
+        const quint64 duplicateWindowSamples = static_cast<quint64>(
+            std::max(1, config.sampleRate) * kDuplicateSuppressSeconds);
+
+        recentFrames.erase(std::remove_if(recentFrames.begin(),
+                                          recentFrames.end(),
+                                          [&](const RecentFrame& recent) {
+                                              return currentDecodeSampleIndex >= recent.sampleIndex
+                                                  && currentDecodeSampleIndex - recent.sampleIndex > duplicateWindowSamples;
+                                          }),
+                           recentFrames.end());
+
+        const auto duplicate = std::find_if(recentFrames.begin(),
+                                            recentFrames.end(),
+                                            [&](const RecentFrame& recent) {
+                                                return recent.signature == signature
+                                                    && currentDecodeSampleIndex >= recent.sampleIndex
+                                                    && currentDecodeSampleIndex - recent.sampleIndex <= duplicateWindowSamples;
+                                            });
+        if (duplicate != recentFrames.end())
+            return false;
+
+        recentFrames.push_back({ signature, currentDecodeSampleIndex });
+        ++totalFramesAccepted;
+        return true;
     }
 
     void recordAudioSample(float sample, int sampleRate)
@@ -541,6 +735,7 @@ struct AetherAx25LibmodemShim::Impl {
         diagnostics.receiveGateFloorDbfs = receiveGateFloorDbfs;
         diagnostics.receiveGateOpen = receiveGateOpen;
         diagnostics.receiveGateResets = receiveGateResets;
+        diagnostics.decodeLanes = static_cast<int>(lanes.size());
         diagnostics.demodSymbols = diagnosticsWindow.demodSymbols;
         diagnostics.averageConfidence = diagnosticsWindow.demodSymbols > 0
             ? diagnosticsWindow.confidenceSum / static_cast<double>(diagnosticsWindow.demodSymbols)
@@ -549,14 +744,28 @@ struct AetherAx25LibmodemShim::Impl {
             ? 100.0 * static_cast<double>(diagnosticsWindow.oneBits)
                 / static_cast<double>(diagnosticsWindow.demodSymbols)
             : 0.0;
-        diagnostics.searching = bitstreamState.searching;
-        diagnostics.inPreamble = bitstreamState.in_preamble;
-        diagnostics.inFrame = bitstreamState.in_frame;
-        diagnostics.aborted = bitstreamState.aborted;
-        diagnostics.currentFrameBits = static_cast<int>(bitstreamState.bitstream_size);
-        diagnostics.lastFrameBits = static_cast<int>(bitstreamState.frame_size_bits);
-        diagnostics.preambleFlags = static_cast<int>(bitstreamState.preamble_count);
+        diagnostics.searching = true;
+        diagnostics.inPreamble = false;
+        diagnostics.inFrame = false;
+        diagnostics.aborted = false;
+        diagnostics.currentFrameBits = 0;
+        diagnostics.lastFrameBits = 0;
+        diagnostics.preambleFlags = 0;
+        for (const auto& lane : lanes) {
+            diagnostics.searching = diagnostics.searching && lane.bitstreamState.searching;
+            diagnostics.inPreamble = diagnostics.inPreamble || lane.bitstreamState.in_preamble;
+            diagnostics.inFrame = diagnostics.inFrame || lane.bitstreamState.in_frame;
+            diagnostics.aborted = diagnostics.aborted || lane.bitstreamState.aborted;
+            diagnostics.currentFrameBits = std::max(diagnostics.currentFrameBits,
+                                                    static_cast<int>(lane.bitstreamState.bitstream_size));
+            diagnostics.lastFrameBits = std::max(diagnostics.lastFrameBits,
+                                                 static_cast<int>(lane.bitstreamState.frame_size_bits));
+            diagnostics.preambleFlags = std::max(diagnostics.preambleFlags,
+                                                 static_cast<int>(lane.bitstreamState.preamble_count));
+        }
+        diagnostics.hdlcFrameStarts = totalHdlcFrameStarts;
         diagnostics.hdlcFrameCandidates = totalHdlcFrameCandidates;
+        diagnostics.plausibleAx25Candidates = totalPlausibleAx25Candidates;
         diagnostics.framesAccepted = totalFramesAccepted;
         diagnostics.decodeRejected = totalDecodeRejected;
         diagnostics.rejectTooShort = totalRejectTooShort;
@@ -626,7 +835,7 @@ QVector<Ax25DecodedFrame> AetherAx25LibmodemShim::processMonoFloat(const float* 
                                                                    int sampleRate)
 {
     QVector<Ax25DecodedFrame> frames;
-    if (!samples || sampleCount <= 0 || !m_impl->demod)
+    if (!samples || sampleCount <= 0 || m_impl->lanes.empty())
         return frames;
 
     if (sampleRate != m_impl->config.sampleRate) {
@@ -642,13 +851,25 @@ QVector<Ax25DecodedFrame> AetherAx25LibmodemShim::processMonoFloat(const float* 
             ? std::clamp(samples[i], -1.0f, 1.0f)
             : 0.0f;
         m_impl->recordAudioSample(sample, sampleRate);
-        lm::demod_result result;
-        if (!m_impl->demod->try_demodulate(sample, result))
-            continue;
-        m_impl->recordDemodSymbol(result);
-        if (auto decoded = m_impl->processBit(result.bit, result.confidence)) {
-            frames.append(*decoded);
+        m_impl->currentDecodeSampleIndex = m_impl->totalAudioSamplesProcessed;
+        for (size_t laneIndex = 0; laneIndex < m_impl->lanes.size(); ++laneIndex) {
+            auto& lane = m_impl->lanes[laneIndex];
+            if (lane.samplesUntilStart > 0) {
+                --lane.samplesUntilStart;
+                continue;
+            }
+
+            lm::demod_result result;
+            if (!lane.demod || !lane.demod->try_demodulate(sample, result))
+                continue;
+            if (laneIndex == 0)
+                m_impl->recordDemodSymbol(result);
+            if (auto decoded = m_impl->processBit(lane, result.bit, result.confidence);
+                decoded && m_impl->shouldEmitFrame(*decoded)) {
+                frames.append(*decoded);
+            }
         }
+        ++m_impl->totalAudioSamplesProcessed;
     }
     return frames;
 }
@@ -658,11 +879,124 @@ QVector<Ax25DecodedFrame> AetherAx25LibmodemShim::processRecoveredBitsForTest(
     double quality)
 {
     QVector<Ax25DecodedFrame> frames;
+    if (m_impl->lanes.empty())
+        return frames;
+    auto& lane = m_impl->lanes.front();
     for (quint8 bit : bits) {
-        if (auto decoded = m_impl->processBit(bit, quality))
+        m_impl->currentDecodeSampleIndex++;
+        if (auto decoded = m_impl->processBit(lane, bit, quality);
+            decoded && m_impl->shouldEmitFrame(*decoded)) {
             frames.append(*decoded);
+        }
     }
     return frames;
+}
+
+Ax25TransmitResult AetherAx25LibmodemShim::buildTransmitAudio(
+    const QString& text,
+    const QString& defaultSource,
+    const QString& defaultDestination) const
+{
+    Ax25TransmitResult result;
+    const auto cfg = m_impl->config;
+    result.sampleRate = cfg.sampleRate;
+    result.baud = cfg.baud;
+    result.polarity = cfg.polarity;
+    result.markHz = cfg.markHz;
+    result.spaceHz = cfg.spaceHz;
+    result.preambleFlags = kTxPreambleFlags;
+    result.postambleFlags = kTxPostambleFlags;
+    result.vitaPacketFrames = kTxVitaPacketFrames;
+
+    if (cfg.sampleRate <= 0 || cfg.baud <= 0 || cfg.sampleRate % cfg.baud != 0) {
+        result.error = QStringLiteral("unsupported TX sample-rate/baud combination: %1 Hz / %2 baud")
+            .arg(cfg.sampleRate)
+            .arg(cfg.baud);
+        return result;
+    }
+
+    QString error;
+    const std::optional<lm::packet> maybePacket =
+        packetFromTransmitText(text, defaultSource, defaultDestination, error);
+    if (!maybePacket) {
+        result.error = error;
+        return result;
+    }
+    const lm::packet& packet = *maybePacket;
+    result.frame = toTransmitFrame(packet);
+
+    const lm::ax25::frame frame = lm::ax25::to_frame(packet);
+    if (!lm::ax25::validate_frame(frame)) {
+        result.error = QStringLiteral("invalid AX.25 address or frame fields");
+        return result;
+    }
+
+    const std::vector<uint8_t> frameBytes = lm::ax25::encode_frame(packet);
+    const std::vector<uint8_t> bits = lm::ax25::encode_bitstream(
+        frameBytes,
+        0,
+        kTxPreambleFlags,
+        kTxPostambleFlags);
+    result.frameBytes = static_cast<int>(frameBytes.size());
+    result.bitCount = static_cast<int>(bits.size());
+
+    const int samplesPerSymbol = cfg.sampleRate / cfg.baud;
+    const int payloadFrames = static_cast<int>(bits.size()) * samplesPerSymbol;
+    const int paddedFrames = ((payloadFrames + kTxVitaPacketFrames - 1) / kTxVitaPacketFrames)
+        * kTxVitaPacketFrames;
+    result.audioFrames = paddedFrames;
+    result.durationSeconds = static_cast<double>(paddedFrames) / static_cast<double>(cfg.sampleRate);
+    result.stereoFloat32Pcm.resize(paddedFrames * 2 * static_cast<int>(sizeof(float)));
+
+    const double mark = cfg.polarity == Ax25TonePolarity::Inverted
+        ? cfg.spaceHz
+        : cfg.markHz;
+    const double space = cfg.polarity == Ax25TonePolarity::Inverted
+        ? cfg.markHz
+        : cfg.spaceHz;
+    double phase = 0.0;
+    int frameIndex = 0;
+    auto* dst = reinterpret_cast<float*>(result.stereoFloat32Pcm.data());
+    for (uint8_t bit : bits) {
+        const double frequency = bit ? mark : space;
+        const double phaseStep = 2.0 * kPi * frequency / static_cast<double>(cfg.sampleRate);
+        for (int i = 0; i < samplesPerSymbol; ++i) {
+            const float sample = static_cast<float>(kTxAfskAmplitude * std::sin(phase));
+            dst[frameIndex * 2] = sample;
+            dst[frameIndex * 2 + 1] = sample;
+            ++frameIndex;
+            phase += phaseStep;
+            if (phase >= 2.0 * kPi)
+                phase -= 2.0 * kPi;
+        }
+    }
+    while (frameIndex < paddedFrames) {
+        dst[frameIndex * 2] = 0.0f;
+        dst[frameIndex * 2 + 1] = 0.0f;
+        ++frameIndex;
+    }
+    measureStereoFloatPcm(result.stereoFloat32Pcm, result.rmsDbfs, result.peakDbfs);
+    result.ok = true;
+
+    qCInfo(lcAx25).noquote()
+        << QStringLiteral("AX.25 TX packetized SRC=%1 DST=%2 VIA=%3 payloadBytes=%4 frameBytes=%5 bits=%6 samples=%7 duration=%8s levelRms=%9dBFS levelPeak=%10dBFS baud=%11 mark=%12 space=%13 polarity=%14")
+            .arg(result.frame.source,
+                 result.frame.destination,
+                 result.frame.path.join(QStringLiteral(",")))
+            .arg(result.frame.payload.size())
+            .arg(result.frameBytes)
+            .arg(result.bitCount)
+            .arg(result.audioFrames)
+            .arg(result.durationSeconds, 0, 'f', 2)
+            .arg(result.rmsDbfs, 0, 'f', 1)
+            .arg(result.peakDbfs, 0, 'f', 1)
+            .arg(result.baud)
+            .arg(result.markHz, 0, 'f', 0)
+            .arg(result.spaceHz, 0, 'f', 0)
+            .arg(result.polarity == Ax25TonePolarity::Normal
+                 ? QStringLiteral("Normal")
+                 : QStringLiteral("Reverse"));
+    return result;
 }
 
 Ax25DecoderDiagnostics AetherAx25LibmodemShim::diagnosticsSnapshot() const
@@ -673,7 +1007,7 @@ Ax25DecoderDiagnostics AetherAx25LibmodemShim::diagnosticsSnapshot() const
 QString AetherAx25LibmodemShim::demodDescription() const
 {
     const auto cfg = m_impl->config;
-    return QStringLiteral("%1: %2 Hz, %3 bps, mark %4 Hz, space %5 Hz, %6")
+    return QStringLiteral("%1: %2 Hz, %3 bps, mark %4 Hz, space %5 Hz, %6, %7 lane%8")
         .arg(ax25ModemProfileName(cfg.profile))
         .arg(cfg.sampleRate)
         .arg(cfg.baud)
@@ -681,7 +1015,9 @@ QString AetherAx25LibmodemShim::demodDescription() const
         .arg(cfg.spaceHz, 0, 'f', 0)
         .arg(cfg.polarity == Ax25TonePolarity::Normal
              ? QStringLiteral("Normal")
-             : QStringLiteral("Inverted"));
+             : QStringLiteral("Inverted"))
+        .arg(m_impl->lanes.size())
+        .arg(m_impl->lanes.size() == 1 ? QString() : QStringLiteral("s"));
 }
 
 void AetherAx25LibmodemShim::feedAudio(const QByteArray& monoFloat32Pcm, int sampleRate)
@@ -691,12 +1027,13 @@ void AetherAx25LibmodemShim::feedAudio(const QByteArray& monoFloat32Pcm, int sam
     const QVector<Ax25DecodedFrame> frames = processMonoFloat(samples, sampleCount, sampleRate);
     for (const auto& frame : frames) {
         qCDebug(lcAx25).noquote()
-            << QStringLiteral("decoded AX.25 frame SRC=%1 DST=%2 VIA=%3 UI=%4 pid=%5 payload=%6")
+            << QStringLiteral("decoded AX.25 frame SRC=%1 DST=%2 VIA=%3 UI=%4 pid=%5 phase=%6 payload=%7")
                 .arg(frame.source,
                      frame.destination,
                      frame.path.join(QStringLiteral(",")),
                      frame.isUiFrame ? QStringLiteral("yes") : QStringLiteral("no"),
                      QStringLiteral("%1").arg(frame.pid, 2, 16, QLatin1Char('0')).toUpper(),
+                     QString::number(frame.decodePhaseOffsetSamples),
                      frame.payloadText.isEmpty() ? frame.payloadHex : frame.payloadText);
         emit frameDecoded(frame);
     }
@@ -716,13 +1053,16 @@ void AetherAx25LibmodemShim::feedAudio(const QByteArray& monoFloat32Pcm, int sam
                 << " gateRms=" << QString::number(diagnostics->receiveGateRmsDbfs, 'f', 1) << "dBFS"
                 << " gateFloor=" << QString::number(diagnostics->receiveGateFloorDbfs, 'f', 1) << "dBFS"
                 << " gateResets=" << diagnostics->receiveGateResets
+                << " lanes=" << diagnostics->decodeLanes
                 << " symbols=" << diagnostics->demodSymbols
                 << " conf=" << QString::number(diagnostics->averageConfidence, 'f', 2)
                 << " ones=" << QString::number(diagnostics->onesPercent, 'f', 1) << "%"
                 << " state="
                 << (diagnostics->inFrame ? "frame" : diagnostics->inPreamble ? "preamble" : "search")
                 << " bits=" << diagnostics->currentFrameBits
+                << " starts=" << diagnostics->hdlcFrameStarts
                 << " hdlc=" << diagnostics->hdlcFrameCandidates
+                << " ax25=" << diagnostics->plausibleAx25Candidates
                 << " ok=" << diagnostics->framesAccepted
                 << " reject=" << diagnostics->decodeRejected
                 << " short=" << diagnostics->rejectTooShort

@@ -1842,10 +1842,6 @@ void RadioModel::registerAsGuiClient(const QString& clientId)
     sendCmd("sub slice all", [this](int, const QString&) {
       sendCmd("sub pan all", [this](int, const QString&) {
       sendCmd("sub tx all", [this](int, const QString&) {
-        // Re-apply persisted Tune Mode preference (#2696). The radio resets
-        // tune_mode to "single_tone" on every power-cycle and only AetherSDR
-        // remembers the user's choice; mirrors the met_in_rx resend below.
-        sendCmd("transmit set tune_mode=" + TransmitModel::savedTuneMode());
         sendCmd("sub atu all", [this](int, const QString&) {
         sendCmd("sub amplifier all", [this](int, const QString&) {
           sendCmd("sub meter all", [this](int, const QString&) {
