@@ -164,18 +164,25 @@ int main(int argc, char* argv[])
                            + "/AetherSDR";
     QDir().mkpath(logDir);
 
-    // Timestamped log file — keep last 5 sessions
+    // Load AppSettings before pruning/log-start so retention config and the
+    // active-file size cap (AppSettings["LogRetention"], #2498) are available
+    // to LogManager. SHistorySoftEdgeDb migration moved here for the same
+    // reason.
+    AetherSDR::AppSettings::instance().load();
+    {
+        auto& s = AetherSDR::AppSettings::instance();
+        if (s.contains("SHistorySoftEdgeDb")) {
+            s.remove("SHistorySoftEdgeDb");
+            s.save();
+        }
+    }
+
     const QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss");
     const QString logPath = logDir + "/aethersdr-" + timestamp + ".log";
 
-    // Prune old log files (keep newest 4 + the one we're about to create = 5)
-    {
-        QDir dir(logDir);
-        QStringList logs = dir.entryList({"aethersdr-*.log"}, QDir::Files, QDir::Name);
-        while (logs.size() >= 5) {
-            dir.remove(logs.takeFirst());
-        }
-    }
+    // Bounded historical footprint: retention by age + total size cap,
+    // both configurable in AppSettings["LogRetention"]. (#2498)
+    AetherSDR::LogManager::instance().pruneOldLogs(logDir);
 
     // Skip stderr when it's a pipe to a non-draining parent (Stream Deck
     // "Run Command", systemd user services, GUI launchers).  Once the
@@ -197,19 +204,6 @@ int main(int argc, char* argv[])
     // Use Fusion style as a clean cross-platform base
     // (our dark theme overrides colors via stylesheet)
     app.setStyle(QStyleFactory::create("Fusion"));
-
-    // Load XML settings (auto-migrates from QSettings on first run)
-    AetherSDR::AppSettings::instance().load();
-
-    // One-shot migration: drop dead SHistorySoftEdgeDb key whose
-    // consumer was removed in #2549.
-    {
-        auto& s = AetherSDR::AppSettings::instance();
-        if (s.contains("SHistorySoftEdgeDb")) {
-            s.remove("SHistorySoftEdgeDb");
-            s.save();
-        }
-    }
 
     // Load slice color overrides (must be after AppSettings::load)
     AetherSDR::SliceColorManager::instance().load();

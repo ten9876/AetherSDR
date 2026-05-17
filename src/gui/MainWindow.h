@@ -80,10 +80,14 @@ class NetworkDiagnosticsHistory;
 class WhatsNewDialog;
 class ProfileManagerDialog;
 class ProfileImportExportDialog;
+class RadioSetupDialog;
 class NetworkDiagnosticsDialog;
 class MemoryDialog;
+class PropDashboardDialog;
+class TxBandDialog;
 class AetherDspDialog;
 class DxClusterDialog;
+class Ax25HfPacketDecodeDialog;
 class MidiMappingDialog;
 class CwxPanel;
 class DvkPanel;
@@ -121,6 +125,7 @@ private slots:
     // Radio/connection events
     void onConnectionStateChanged(bool connected);
     void onConnectionError(const QString& msg);
+    void onRadioMessage(const QString& text);
     void onSliceAdded(SliceModel* slice);
     void onSliceRemoved(int id);
 
@@ -281,6 +286,7 @@ private:
     void showPanadapterSliceCapacityMessage();
     void updatePaTempLabel();
     void showNetworkDiagnosticsDialog();
+    void showAx25HfPacketDecodeDialog();
     QJsonObject buildControlDevicesSnapshot() const;
     void showPropDashboard();
     bool confirmClientSlotAvailability(const RadioInfo& info, QList<quint32>* disconnectHandles);
@@ -488,11 +494,12 @@ private:
 
     // Modeless dialogs
     QPointer<DxClusterDialog> m_spotHubDialog;
-    QPointer<QDialog> m_radioSetupDialog;
+    QPointer<RadioSetupDialog> m_radioSetupDialog;
     QPointer<NetworkDiagnosticsDialog> m_networkDiagnosticsDialog;
-    QPointer<QDialog> m_propDashboardDialog;
-    QPointer<QDialog> m_txBandDialog;
+    QPointer<PropDashboardDialog> m_propDashboardDialog;
+    QPointer<TxBandDialog> m_txBandDialog;
     QPointer<MemoryDialog> m_memoryDialog;
+    QPointer<Ax25HfPacketDecodeDialog> m_ax25HfPacketDecodeDialog;
     QPointer<WhatsNewDialog> m_whatsNewDialog;
     QPointer<AetherDspDialog> m_dspDialog;
     QPointer<ProfileManagerDialog> m_profileManagerDialog;
@@ -707,8 +714,17 @@ private:
     QString m_lastRadeRxCallsign;
     void activateRADE(int sliceId);
     void deactivateRADE();
+    void onRadeSliceModeChanged(const QString& mode);
     void startFreeDvReporting(int sliceId);
     void stopFreeDvReporting(int sliceId);
+    // FreeDV Docker waveform sync/SNR display state
+    int  m_fdvDisplaySliceId{-1};
+    int  m_fdvSnrMeterIndex{-1};
+    bool m_fdvSynced{false};
+    void activateFdvDisplay(int sliceId);
+    void deactivateFdvDisplay();
+    void onFdvMeterUpdated(int index, float value);
+    void onFdvMetersChanged();
 #endif
 
 #if defined(Q_OS_MAC) || defined(HAVE_PIPEWIRE)

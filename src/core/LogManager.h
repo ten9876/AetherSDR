@@ -36,6 +36,7 @@ Q_DECLARE_LOGGING_CATEGORY(lcDevices)
 Q_DECLARE_LOGGING_CATEGORY(lcPerf)
 Q_DECLARE_LOGGING_CATEGORY(lcCw)
 Q_DECLARE_LOGGING_CATEGORY(lcSHistory)
+Q_DECLARE_LOGGING_CATEGORY(lcAx25)
 
 // Central registry for toggling per-module diagnostic logging at runtime.
 // The Support dialog (Help → Support) uses this to let users enable/disable
@@ -74,6 +75,19 @@ public:
     void setActiveLogFilePath(const QString& path);
     qint64 logFileSize() const;
     void clearLog();
+
+    // Bounded historical footprint: delete timestamped logs in dir that
+    // are older than retention.days, then drop oldest-first until total
+    // size <= retention.maxTotalMb. Reads AppSettings["LogRetention"]
+    // (see RetentionConfig). Call once at startup before startLogging.
+    void pruneOldLogs(const QString& dir);
+
+    struct RetentionConfig {
+        int activeLogMaxMb{100};
+        int retentionDays{7};
+        int retentionMaxTotalMb{500};
+    };
+    RetentionConfig retentionConfig() const;
 
     // Persist toggle state to AppSettings
     void saveSettings();

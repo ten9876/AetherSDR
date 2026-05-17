@@ -6,6 +6,7 @@
 
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -22,13 +23,25 @@ public:
         quint64 droppedHighPriorityLines{0};
         quint64 maxQueueDepth{0};
         quint64 maxBatchSize{0};
+        quint64 rotationCount{0};
     };
+
+    // Invoked from the writer thread when the active file exceeds the
+    // size cap. The callback must return the path of the new file to
+    // open (a fresh timestamp under the same directory); returning an
+    // empty string disables further rotation. The callback is also the
+    // right place to update LogManager's active path and any symlinks.
+    using RotationCallback = std::function<QString(const QString& currentPath)>;
 
     AsyncLogWriter();
     ~AsyncLogWriter();
 
     AsyncLogWriter(const AsyncLogWriter&) = delete;
     AsyncLogWriter& operator=(const AsyncLogWriter&) = delete;
+
+    // Configure size-based rotation. Must be called before start().
+    // maxFileBytes <= 0 disables rotation.
+    void setRotationConfig(qint64 maxFileBytes, RotationCallback cb);
 
     bool start(const QString& path, bool mirrorToStderr);
     void shutdown();
@@ -86,6 +99,9 @@ private:
     bool m_started{false};
     bool m_accepting{false};
     bool m_stopping{false};
+
+    qint64 m_maxFileBytes{0};
+    RotationCallback m_rotationCallback;
 
     Counters m_counters;
     quint64 m_pendingDroppedDebugInfo{0};

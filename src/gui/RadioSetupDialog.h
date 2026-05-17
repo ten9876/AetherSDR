@@ -1,6 +1,7 @@
 #pragma once
 
-#include <QDialog>
+#include "PersistentDialog.h"
+
 #include <QHash>
 #include <QVector>
 #include <functional>
@@ -26,7 +27,7 @@ class AntennaGeniusModel;
 
 // Radio Setup dialog — tabbed configuration window matching SmartSDR's
 // Settings → Radio Setup. Shows radio info, GPS, TX, RX, filters, etc.
-class RadioSetupDialog : public QDialog {
+class RadioSetupDialog : public PersistentDialog {
     Q_OBJECT
 
 public:
@@ -35,7 +36,6 @@ public:
                               PgxlConnection* pgxl = nullptr,
                               AntennaGeniusModel* ag = nullptr,
                               QWidget* parent = nullptr);
-    void setFramelessMode(bool on);
     void selectTab(const QString& tabName);
 
 signals:
@@ -76,8 +76,6 @@ private:
     TgxlConnection*    m_tgxl{nullptr};
     PgxlConnection*    m_pgxl{nullptr};
     AntennaGeniusModel* m_ag{nullptr};
-    QWidget*     m_titleBar{nullptr};
-    QVBoxLayout* m_bodyLayout{nullptr};
     QTabWidget*  m_tabs{nullptr};
 
     // Radio tab fields
