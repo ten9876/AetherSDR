@@ -6,6 +6,11 @@ namespace AetherSDR {
 
 const std::vector<ReleaseEntry>& whatsNewEntries() {
     static const std::vector<ReleaseEntry> entries = {
+        {QStringLiteral("26.5.2.1"), QStringLiteral("2026-05-17"), QStringLiteral("New region data"), {
+            {ChangeCategory::BugFix, QStringLiteral("TCI TX audio level regression vs v26.5.1"), QStringLiteral("v26.5.2's TCI server identity (`device:SunSDR2DX` + `protocol:ExpertSDR2,1.9`, added in #2597 for RF2K-S amplifier whitelist compatibility) hit a specific code path in WSJT-X's `TCITransceiver` (`T...")},
+            {ChangeCategory::BugFix, QStringLiteral("Windows process lingering in Task Manager after close (#2802, chibondking)"), QStringLiteral("Three independent root causes ganged up to keep `AetherSDR.exe` visible in Task Manager indefinitely after the main window closed. Each ships a minimal one-line fix matching an existing precedent: ...")},
+            {ChangeCategory::BugFix, QStringLiteral("Linux AppImage build failure on gcc 11 strict mode"), QStringLiteral("`third_party/libmodem_core/bitstream.h:192` used unqualified `container` inside the `noexcept(noexcept(...))` clause of a class template member. gcc 11.4 (Ubuntu 22.04 native runner used by the App...")},
+        }},
         {QStringLiteral("26.5.2"), QStringLiteral("2026-05-17"), QStringLiteral("Six days of community momentum — AetherModem, FreeDV ergonomics, FLEX-6700 4m/2m, dialog architecture sweep"), {
             {ChangeCategory::Feature, QStringLiteral("AetherModem — AX.25 packet decoder (Phase 0, #2753, jensenpat)"), QStringLiteral("Native HDLC/AX.25 packet decoder integrated into the slice signal path. 21-lane phase-bank receiver with FCS validation. New `Packet Decoder` dialog accessible from the slice context menu; tagged a...")},
             {ChangeCategory::Feature, QStringLiteral("AetherModem Phase-0 indicator on Packet Decoder dialog"), QStringLiteral("Surfaces the Experimental status with a dedicated banner so operators understand TX coverage (HF 300 baud only) vs RX coverage (HF 300 + VHF 1200).")},

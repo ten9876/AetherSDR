@@ -64,9 +64,10 @@ cmake --build build -j$(nproc)
 
 Full dependency list is in `README.md` — don't duplicate it here.
 
-Current version: **26.5.2** (set in both `CMakeLists.txt` and `README.md`).
-Versioning scheme is **CalVer** (`YY.M.patch`) starting from v26.5.1, the
-1.0-equivalent. Earlier tags used semver through v0.9.8.
+Current version: **26.5.2.1** (set in both `CMakeLists.txt` and `README.md`).
+Versioning scheme is **CalVer** (`YY.M.patch[.hotfix]`) starting from v26.5.1,
+the 1.0-equivalent. Hotfix sub-patches use a 4th component (e.g. 26.5.2.1).
+Earlier tags used semver through v0.9.8.
 
 ---
 

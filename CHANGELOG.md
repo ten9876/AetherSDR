@@ -6,6 +6,97 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 > **Versioning:** Starting with **v26.5.1**, AetherSDR moves to **CalVer**
 > (`YY.M.patch`). Earlier tags used semver through v0.9.8.
 
+## [v26.5.2.1] — 2026-05-17
+
+### Hotfix — TCI TX audio level, Windows process-hang, SSA Sweden band plan, AppImage build
+
+Three bug fixes plus one community contribution shipped within a day of
+v26.5.2.  Recommended upgrade for any operator using TCI digital modes
+(WSJT-X / JTDX), Windows users with MQTT or floating-panel windows, and
+Linux operators building from source on Ubuntu 22.04.
+
+### Bug fixes
+
+**TCI TX audio level regression vs v26.5.1 (#2806)**
+- v26.5.2's TCI server identity (`device:SunSDR2DX` + `protocol:ExpertSDR2,1.9`,
+  added in #2597 for RF2K-S amplifier whitelist compatibility) hit a
+  specific code path in WSJT-X's `TCITransceiver`
+  (`TCITransceiver.cpp:823` + `.hpp:188-200`) that halves outgoing TX
+  sample amplitude (K2 = 0.499 / 0x7FFF vs K1 = 0.999 / 0x7FFF, ~-6 dB
+  at the source) when **both** of these match:
+  - `device:` is `"SunSDR2DX"` or `"SunSDR2PRO"`
+  - `protocol:` is not `"ExpertSDR3"`
+- Operators measured ~70 W of 100 W expected on a 100 W slice.
+- Fix changes identity to `device:AetherSDR` + `protocol:ExpertSDR3,1.5`,
+  which clears **both** triggers (belt-and-suspenders) and selects
+  WSJT-X command formats that AetherSDR has supported correctly since
+  v26.5.1.  Side benefit: the literal `device:AetherSDR` avoids the
+  leading-space parser trip the older `<name> <model>` form caused
+  when a radio nickname was empty.
+- Everything else from #2597 (strict init-burst order, `vfo_limits`,
+  `if_limits`, `channels_count`, `split_enable`, post-READY audio
+  stream configuration) is preserved — that's the bulk of what the
+  RF2K-S TCI parser actually keys on to engage.  Configurable /
+  per-client adaptive identity to restore the SunSDR2DX whitelist
+  half is tracked in #2806.
+
+**Windows process lingering in Task Manager after close (#2802, chibondking)**
+- Three independent root causes ganged up to keep `AetherSDR.exe`
+  visible in Task Manager indefinitely after the main window closed.
+  Each ships a minimal one-line fix matching an existing precedent:
+  - `m_aetherialStrip` carries `Qt::Window` for an independent taskbar
+    entry; Qt 6 treats that as top-level for `quitOnLastWindowClosed`,
+    and the default `WA_QuitOnClose = true` blocked the quit signal.
+    Now sets `WA_QuitOnClose = false` immediately after the window-flag
+    is applied.
+  - `m_appletPanelFloatWindow` is constructed `parent = nullptr` (a
+    real top-level) and was the only top-level secondary window in the
+    codebase missing `WA_QuitOnClose = false`.  `FloatingContainerWindow`
+    has set the same attribute since the frameless popout work.
+  - `MqttClient::~MqttClient` called `mosquitto_destroy()` on Windows
+    without ever stopping the loop thread (the existing `#ifndef Q_OS_WIN`
+    guard in `disconnect()` skipped `loop_stop` to avoid a deadlock).
+    libmosquitto's contract requires `loop_stop` before `destroy`; the
+    destructor now calls `mosquitto_loop_stop(m_mosq, true)` (`force=true`,
+    can't deadlock) — the same pattern `connectToBroker()` already used.
+- Result: process exits within ~1 s of main-window close, every time.
+
+**Linux AppImage build failure on gcc 11 strict mode (#2799)**
+- `third_party/libmodem_core/bitstream.h:192` used unqualified `container`
+  inside the `noexcept(noexcept(...))` clause of a class template member.
+  gcc 11.4 (Ubuntu 22.04 native runner used by the AppImage workflow)
+  requires `this->container` for two-phase name lookup of class-template
+  member access from inside a function-signature noexcept clause.  Newer
+  gcc (Docker CI image) was lenient; AppImage CI bombed on the v26.5.2
+  tag push.
+- Fix qualifies both references with `this->` — pure portability,
+  zero user-visible change.  Restored the v26.5.2 AppImage x86_64
+  artifact via `workflow_dispatch` after the fix landed.
+
+### New region data
+
+**SSA (Sweden) band plan (#2805, NF0T)**
+- Adds `resources/bandplans/ssa-sweden.json` — Swedish national overlay
+  on IARU Region 1 with the correct 6 m band edge (50–52 MHz, not the
+  IARU R1 file's 50–54 MHz), embedded power-limit suffixes on bands
+  where PTSFS 2025:1 imposes substantially lower caps (60 m 15 W e.i.r.p.,
+  30 m 150 W p.e.p.), Swedish segment labels (ALLA, FYRAR, SMAL DIGI),
+  and finer 6 m segmentation matching SSA's published v3.0 plan
+  (separate beacon-only 50.400–50.500 segment, FM/DV repeater input
+  51.210–51.390, output 51.810–51.990).  89 Swedish-language activity-
+  center / digital / beacon / emergency spots.
+- Auto-loaded by `BandPlanManager::loadPlans()`, surfaced in
+  View → Band Plan submenu.  Principle IV — no hardcoded Swedish edges
+  in C++.
+
+### Contributors
+
+Thanks to **@chibondking** for the Windows process-hang root-cause
+analysis and triple-fix (#2802); **@NF0T** for the SSA Sweden band plan
+on top of an already-busy week of FreeDV/RADE work (#2805); and
+**@jensenpat** for the third_party libmodem_core code that landed in
+#2753 (and whose portability tweak is in this hotfix).
+
 ## [v26.5.2] — 2026-05-17
 
 ### Six days of community momentum — AetherModem, FreeDV ergonomics, FLEX-6700 4m/2m, dialog architecture sweep
