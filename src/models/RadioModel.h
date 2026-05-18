@@ -803,9 +803,8 @@ private:
     void evaluateNetworkQuality();
     void resetNetworkHealthSamples();
     void recordNetworkHealthSample(int currentErrors, int currentPackets);
-    void applyAdaptiveFrameRate(NetState newState, NetState oldState);
-
     enum class NetState { Off, Excellent, VeryGood, Good, Fair, Poor };
+    void applyAdaptiveFrameRate(NetState newState, NetState oldState);
     double networkQualityTargetScore(int pingMs) const;
     NetState networkStateForScore(double score, NetState currentState) const;
     bool usesRemoteNetworkThresholds() const;
