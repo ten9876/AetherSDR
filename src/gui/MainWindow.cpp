@@ -10797,8 +10797,13 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
             sw, &SpectrumWidget::setWfBlankerThreshold);
     connect(menu, &SpectrumOverlayMenu::backgroundImageRequested,
             this, [this, sw] {
-        QString path = QFileDialog::getOpenFileName(sw, "Choose Background Image",
-            QString(), "Images (*.png *.jpg *.jpeg *.bmp)");
+        QString path = QFileDialog::getOpenFileName(
+            sw->window(),
+            "Choose Background Image",
+            QString(),
+            "Images (*.png *.jpg *.jpeg *.bmp)",
+            nullptr,
+            QFileDialog::DontUseNativeDialog);
         if (path.isEmpty()) return;
         sw->setBackgroundImage(path);
         auto& s = AppSettings::instance();
