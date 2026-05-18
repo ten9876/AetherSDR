@@ -517,6 +517,20 @@ void TciServer::onTextMessage(const QString& msg)
             continue;
         }
 
+        // Spectrum event subscribe/unsubscribe — enables waterfall row forwarding
+        if (trimmed == "spectrum_event:on") {
+            client.spectrumEnabled = true;
+            qCInfo(lcCat) << "TCI: spectrum_event enabled for client"
+                          << ws->peerAddress().toString();
+            continue;
+        }
+        if (trimmed == "spectrum_event:off") {
+            client.spectrumEnabled = false;
+            qCInfo(lcCat) << "TCI: spectrum_event disabled for client"
+                          << ws->peerAddress().toString();
+            continue;
+        }
+
         if (trimmed.startsWith("audio_stream_samples:")) {
             // Samples per audio packet — acknowledge but we use fixed packet sizes
             ws->sendTextMessage(cmd.trimmed() + ";");
@@ -1496,6 +1510,53 @@ void TciServer::onIqDataReady(int channel, const QByteArray& rawPayload, int sam
 
     for (auto& cs : m_clients) {
         if (cs.iqEnabled && cs.iqChannel == trx)
+            cs.socket->sendBinaryMessage(frame);
+    }
+}
+
+// ── Waterfall row → TCI binary spectrum frames (type=4) ──────────────────────
+
+void TciServer::onWaterfallRowReady(quint32 streamId, const QVector<float>& binsDbm,
+                                    double lowMhz, double highMhz,
+                                    quint32 timecode, qint64 emittedNs)
+{
+    Q_UNUSED(streamId); Q_UNUSED(timecode); Q_UNUSED(emittedNs);
+
+    bool anySpectrum = false;
+    for (const auto& cs : m_clients) {
+        if (cs.spectrumEnabled) { anySpectrum = true; break; }
+    }
+    if (!anySpectrum) return;
+
+    const int nBins = binsDbm.size();
+    if (nBins == 0) return;
+
+    // 64-byte header (reuses TciAudioHeader layout) + float32 dBm bins.
+    // type=4 (SPECTRUM, AetherSDR extension).
+    // reserved[0] = low edge in Hz, reserved[1] = high edge in Hz.
+    constexpr int kHeaderBytes = 64;
+    QByteArray frame(kHeaderBytes + nBins * static_cast<int>(sizeof(float)),
+                     Qt::Uninitialized);
+
+    struct Header {
+        quint32 receiver, sampleRate, format, codec, crc, length, type, channels;
+        quint32 reserved[8];
+    };
+    auto* hdr = reinterpret_cast<Header*>(frame.data());
+    std::memset(hdr, 0, kHeaderBytes);
+    hdr->format     = 3;      // float32
+    hdr->length     = static_cast<quint32>(nBins);
+    hdr->type       = 4;      // SPECTRUM
+    hdr->channels   = 1;
+    hdr->reserved[0] = static_cast<quint32>(lowMhz  * 1'000'000.0);
+    hdr->reserved[1] = static_cast<quint32>(highMhz * 1'000'000.0);
+
+    auto* dst = reinterpret_cast<float*>(frame.data() + kHeaderBytes);
+    for (int i = 0; i < nBins; ++i)
+        dst[i] = binsDbm[i];
+
+    for (auto& cs : m_clients) {
+        if (cs.spectrumEnabled)
             cs.socket->sendBinaryMessage(frame);
     }
 }
