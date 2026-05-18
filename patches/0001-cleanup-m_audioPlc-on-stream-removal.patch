@@ -1,0 +1,78 @@
+cpp
+/**
+ * @brief Updates the set of stream IDs owned by this panadapter stream.
+ *
+ * Removes any prior owned stream IDs that are no longer present in @p newStreamIds,
+ * performing cleanup (e.g., removing stale audio PLC state) and emitting a
+ * streamRemoved signal for each removed ID. This prevents slow, monotonic growth
+ * of m_audioPlc across radio reconnections.
+ *
+ * @param newStreamIds  The updated set of stream IDs that this stream should own.
+ *                      Must not be null (if passed as pointer-type). Duplicates
+ *                      are automatically handled by QSet.
+ *
+ * @pre The object must be in a valid, initialised state (m_audioPlc, ownedStreamIds).
+ * @post ownedStreamIds == newStreamIds.
+ * @post For every old ID not in newStreamIds, m_audioPlc does not contain that ID.
+ * @post streamRemoved(streamId) has been emitted for each removed ID.
+ *
+ * @throws None. Logs errors if unexpected conditions occur (e.g., mismatched internal state).
+ *
+ * @note This method is typically called when an audio stream is torn down or when
+ *       a DAX channel disconnects. The single-line fix (m_audioPlc.remove) addresses
+ *       a code‑review finding from PR #2732 (packet‑loss concealment resource leak).
+ */
+void PanadapterStream::setOwnedStreamIds(const QSet<uint64_t>& newStreamIds)
+{
+    // Early return if no change – avoid unnecessary work and signals.
+    if (newStreamIds == ownedStreamIds) {
+        Q_LOG_TRACE("setOwnedStreamIds: no change in stream set, returning early.");
+        return;
+    }
+
+    // Validate input (defensive check – newStreamIds is const reference, cannot be null).
+    // Additional checks could go here if the set is expected to never be empty, etc.
+
+    // Iterate over a snapshot of the old set so we can safely modify ownedStreamIds.
+    const QSet<uint64_t> oldOwned = ownedStreamIds;
+
+    for (const uint64_t streamId : oldOwned) {
+        if (!newStreamIds.contains(streamId)) {
+            // --- CRITICAL FIX: Clean up audio PLC state immediately ---
+            // Prevents monotonic memory/resource leak when a stream goes away
+            // (e.g., slice closed, DAX channel disconnected).
+            bool removed = m_audioPlc.remove(streamId);
+            if (Q_UNLIKELY(!removed)) {
+                // This should not happen if the internal state is consistent;
+                // log a warning for diagnostics.
+                Q_LOG_WARN("setOwnedStreamIds: m_audioPlc did not contain streamId {} "
+                           "that was present in ownedStreamIds. Possible state mismatch.",
+                           streamId);
+            }
+
+            // Emit signal before erase – receivers (e.g., audio pipeline) rely on this.
+            emit streamRemoved(streamId);
+
+            // Erase from owned set (using const_iterator to match old loop style)
+            auto it = ownedStreamIds.find(streamId);
+            if (Q_LIKELY(it != ownedStreamIds.end())) {
+                ownedStreamIds.erase(it);
+            } else {
+                Q_LOG_ERROR("setOwnedStreamIds: streamId {} was not found in ownedStreamIds "
+                            "though it was present in oldOwned. State corruption?",
+                            streamId);
+            }
+        }
+    }
+
+    // Insert any new stream IDs that are not already owned (should have been removed above).
+    for (const uint64_t streamId : newStreamIds) {
+        if (!ownedStreamIds.contains(streamId)) {
+            ownedStreamIds.insert(streamId);
+            // Optionally initialise m_audioPlc lazily on first audio packet arrival,
+            // as per existing behaviour. No action required here.
+        }
+    }
+
+    Q_LOG_DEBUG("setOwnedStreamIds completed. Owned stream count: {}", ownedStreamIds.size());
+}
