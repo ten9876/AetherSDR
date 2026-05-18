@@ -10779,7 +10779,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
     });
     connect(menu, &SpectrumOverlayMenu::fftFpsChanged,
             this, [this, applet, sw](int v) {
-        sw->setFftFps(v);
+        sw->setFftFps(v);  // always update restore target for when throttle lifts
+        if (m_adaptiveThrottleActive)
+            return;
         m_radioModel.sendCommand(
             QString("display pan set %1 fps=%2").arg(applet->panId()).arg(v));
     });
@@ -10816,7 +10818,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setWfAutoBlackOffset(offset);
     });
     const auto applyWaterfallLineDuration = [this, applet, sw](int ms) {
-        sw->setWfLineDuration(ms);
+        sw->setWfLineDuration(ms);  // always update restore target for when throttle lifts
+        if (m_adaptiveThrottleActive)
+            return;
         auto* pan = m_radioModel.panadapter(applet->panId());
         if (pan && !pan->waterfallId().isEmpty())
             m_radioModel.sendCommand(
@@ -10880,11 +10884,16 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         sw->setNoiseFloorPosition(75);
         sw->setFreqGridSpacing(0);  // Auto (#1390)
 
-        // Radio commands for radio-authoritative display settings
+        // Radio commands for radio-authoritative display settings.
+        // fps and line_duration are suppressed while adaptive throttle is active
+        // so the reset doesn't fight the congestion-aware cap. The SpectrumWidget
+        // values above (sw->setFftFps / sw->setWfLineDuration) are already updated,
+        // so they become the new restore targets when the throttle lifts.
         m_radioModel.sendCommand(
             QString("display pan set %1 average=0").arg(applet->panId()));
-        m_radioModel.sendCommand(
-            QString("display pan set %1 fps=25").arg(applet->panId()));
+        if (!m_adaptiveThrottleActive)
+            m_radioModel.sendCommand(
+                QString("display pan set %1 fps=25").arg(applet->panId()));
         m_radioModel.sendCommand(
             QString("display pan set %1 weighted_average=0").arg(applet->panId()));
         auto* pan = m_radioModel.panadapter(applet->panId());
@@ -10893,8 +10902,9 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 QString("display panafall set %1 color_gain=50").arg(pan->waterfallId()));
             m_radioModel.sendCommand(
                 QString("display panafall set %1 black_level=15").arg(pan->waterfallId()));
-            m_radioModel.sendCommand(
-                QString("display panafall set %1 line_duration=100").arg(pan->waterfallId()));
+            if (!m_adaptiveThrottleActive)
+                m_radioModel.sendCommand(
+                    QString("display panafall set %1 line_duration=100").arg(pan->waterfallId()));
         }
 
         // Persist all defaults to AppSettings

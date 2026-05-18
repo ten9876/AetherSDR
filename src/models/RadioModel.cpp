@@ -2379,6 +2379,10 @@ void RadioModel::startNetworkMonitor()
     m_maxPingRtt = 0;
     m_pingMissCount = 0;
     m_pingDisconnectTriggered = false;
+    // Safety: ensure MainWindow's m_adaptiveThrottleActive is cleared even if
+    // the connectionStateChanged(false) path was somehow skipped.  Pans are not
+    // yet rebuilt at this point so the fps-restore loop in the handler is a no-op.
+    emit adaptiveThrottleChanged(false, 0);
 
     // RTT is read from kernel TCP_INFO (smoothed RTT from TCP ACK timing),
     // completely independent of Qt event loop buffering. Falls back to

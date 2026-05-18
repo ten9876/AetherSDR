@@ -7,87 +7,137 @@ this by progressively reducing the FFT/waterfall frame rate to shed UDP load,
 and by tolerating more missed pings before declaring the link dead.
 
 ────────────────────────────────────────────────────────────────────────────
-Part 1 — Adaptive frame-rate throttling
+Part 1 — Adaptive frame-rate throttling (RadioModel)
 ────────────────────────────────────────────────────────────────────────────
-When the existing network quality score transitions between tiers, a new
-RadioModel::applyAdaptiveFrameRate() method sends updated fps and waterfall
-line_duration commands to ALL owned panadapters (not just the active one):
+evaluateNetworkQuality() captures the previous NetState before the assignment
+and calls applyAdaptiveFrameRate(newState, oldState) only on transitions —
+so display pan set fps=N is never re-sent to a pan that is already at the
+correct throttled rate.
 
-  NetState::Good  → 15 fps / 150 ms wf
-  NetState::Fair  →  8 fps / 250 ms wf
-  NetState::Poor  →  4 fps / 500 ms wf
-  VeryGood/Excellent → restore (signal to MainWindow; see Part 3)
+applyAdaptiveFrameRate() maps state to a (fps, wfMs) pair and returns early
+when the fps cap hasn't changed (newCap == oldCap), ensuring VeryGood↔Excellent
+churn produces no chatter:
 
-This is tied into evaluateNetworkQuality() immediately after each state
-transition, so throttling engages as soon as the score crosses a hysteresis
-threshold — before pings start failing.
+  NetState::Good  → 15 fps / 150 ms wf line_duration
+  NetState::Fair  →  8 fps / 250 ms wf line_duration
+  NetState::Poor  →  4 fps / 500 ms wf line_duration
+  VeryGood/Excellent → signal MainWindow to restore user-configured values
+
+The method iterates m_panadapters.values() directly and sends
+"display pan set <panId> fps=N" to every owned pan, not just m_activePanId
+(which setPanFps/setWaterfallLineDuration do). Each waterfallId is also
+updated if present.
 
 ────────────────────────────────────────────────────────────────────────────
-Part 2 — Extended ping miss threshold in Poor state
+Part 2 — Extended ping miss threshold in Poor state (RadioModel)
 ────────────────────────────────────────────────────────────────────────────
+The ping timer fires every 1 s and sends "ping" over the radio control TCP
+channel (not OS-level TCP keepalive). When the radio is slow to respond, the
+router buffers fill with UDP FFT/audio traffic, crowding out TCP ACKs. Once
+the adaptive throttle cuts UDP load, brief TCP stalls are more likely to be
+transient congestion than a dead link.
+
 The forced-disconnect threshold is now state-aware:
 
-  Normal (Excellent … Fair): 5 consecutive missed pings (~5 s) — unchanged
-  Poor: 15 consecutive missed pings (~15 s)
+  Normal (Excellent → Fair): PING_MISS_DISCONNECT = 5  (~5 s) — unchanged
+  Poor:                       PING_MISS_DISCONNECT_POOR = 15 (~15 s)
 
-By the time the link is rated Poor the adaptive throttle has already cut UDP
-load significantly, so TCP keepalives are more likely to succeed. The longer
-window gives the link time to recover without triggering a full teardown.
-If the link is truly dead, the 15-second timeout still fires and reconnect
-proceeds normally.
+The longer window only applies when NetState is already Poor, so a sudden
+hard failure (iptables DROP) still disconnects at 5 s in every other state.
 
 ────────────────────────────────────────────────────────────────────────────
-Part 3 — fps/waterfall restore on throttle lift + reconcile suppression
+Part 3 — fps/wf restore on throttle lift; reconcile and user input handling
+         (MainWindow)
 ────────────────────────────────────────────────────────────────────────────
-RadioModel emits adaptiveThrottleChanged(bool active, int fpsCap) on every
-engage/lift event.
+RadioModel emits adaptiveThrottleChanged(bool active, int fpsCap) on each
+engage/lift crossing:
 
-MainWindow connects this signal:
-- active=true: sets m_adaptiveThrottleActive, causing schedulePanFpsReconcile
-  and scheduleWaterfallLineDurationReconcile to return early so they don't
-  fight the throttle.
-- active=false: iterates all PanadapterApplets and pushes each SpectrumWidget's
-  user-configured fftFps() / wfLineDuration() back to the radio. The flag is
-  also cleared on disconnect so it doesn't leak across sessions.
+active=true:
+  MainWindow sets m_adaptiveThrottleActive = true.
+  - schedulePanFpsReconcile() returns early — the radio's echoed fps is
+    intentionally below the user setting during congestion; the reconcile
+    timer must not fight the throttle.
+  - scheduleWaterfallLineDurationReconcile() same guard.
+  - The fftFpsChanged lambda (user FPS slider) still calls sw->setFftFps(v)
+    so the restore target stays current, but skips the radio sendCommand.
+  - The applyWaterfallLineDuration lambda (user WF speed slider/drag) same
+    pattern: update sw, skip radio command.
+  - The displaySettingsReset handler (user "Reset display settings") skips
+    the fps=25 and line_duration=100 radio commands only; all other resets
+    (average, weighted_average, color_gain, black_level) still apply.
+
+active=false:
+  MainWindow iterates m_panStack->allApplets() and pushes each
+  SpectrumWidget's fftFps() and wfLineDuration() back to the radio, restoring
+  the user-configured values in one shot.
+
+Cleanup:
+  m_adaptiveThrottleActive is cleared in the connectionStateChanged(false)
+  handler on disconnect. As a belt-and-suspenders measure, startNetworkMonitor()
+  also emits adaptiveThrottleChanged(false, 0) at the start of each new session;
+  pans are not yet rebuilt at that point so the restore loop is a no-op.
+
+────────────────────────────────────────────────────────────────────────────
+Scope note
+────────────────────────────────────────────────────────────────────────────
+Only FFT and waterfall UDP streams are throttled. DAX audio, DAX IQ, TX
+waveform, meter, and net-CW streams are untouched — a heavily-DAX-loaded
+session may still drop out if DAX audio alone saturates the link. A future
+follow-on could issue a "stream set ... type=remote_audio_rx compression=alaw"
+renegotiation in Poor state, but that is out of scope here.
 
 ────────────────────────────────────────────────────────────────────────────
 Files changed
 ────────────────────────────────────────────────────────────────────────────
 src/models/RadioModel.h
-  — NetState private section: add applyAdaptiveFrameRate() declaration
-  — Add PING_MISS_DISCONNECT_POOR = 15 alongside existing PING_MISS_DISCONNECT
-  — Signals: add adaptiveThrottleChanged(bool active, int fpsCap)
+  — applyAdaptiveFrameRate() declaration
+  — PING_MISS_DISCONNECT_POOR = 15 constant
+  — adaptiveThrottleChanged(bool active, int fpsCap) signal
 
 src/models/RadioModel.cpp
-  — evaluateNetworkQuality(): capture prevState, call applyAdaptiveFrameRate()
-    on state transitions
-  — startNetworkMonitor() ping timer: use PING_MISS_DISCONNECT_POOR when in
-    NetState::Poor
-  — Add applyAdaptiveFrameRate() implementation (after networkStateForScore)
+  — evaluateNetworkQuality(): capture prevState, call applyAdaptiveFrameRate
+    only on transitions
+  — startNetworkMonitor(): safety emit adaptiveThrottleChanged(false, 0) on
+    each new session
+  — startNetworkMonitor() ping timer: use PING_MISS_DISCONNECT_POOR in Poor
+  — applyAdaptiveFrameRate(): full implementation
 
 src/gui/MainWindow.h
-  — Add bool m_adaptiveThrottleActive{false}
+  — bool m_adaptiveThrottleActive{false}
 
 src/gui/MainWindow.cpp
-  — Constructor: connect adaptiveThrottleChanged; restore user fps on lift
-  — connectionStateChanged(false) path: reset m_adaptiveThrottleActive
-  — schedulePanFpsReconcile(): early-return when m_adaptiveThrottleActive
-  — scheduleWaterfallLineDurationReconcile(): same guard
+  — Constructor: connect adaptiveThrottleChanged; suppress reconcile on active;
+    restore all-pan fps/wf on lift
+  — connectionStateChanged(false): clear m_adaptiveThrottleActive
+  — schedulePanFpsReconcile(): early-return when throttle active
+  — scheduleWaterfallLineDurationReconcile(): same
+  — fftFpsChanged lambda: update sw (restore target), skip radio cmd if throttled
+  — applyWaterfallLineDuration lambda: same pattern
+  — displaySettingsReset handler: skip fps=25 and line_duration=100 radio
+    commands if throttled; all other resets still apply
 
 ────────────────────────────────────────────────────────────────────────────
-Testing notes
+Test cases to exercise before merge
 ────────────────────────────────────────────────────────────────────────────
-To simulate congestion on LAN (Linux/macOS with tc):
-  sudo tc qdisc add dev eth0 root netem loss 2% delay 80ms
+Multi-pan:
+  Two slices on two panadapters — verify both pans get the throttled fps, not
+  just the active one.  Switch active pan during throttle — no re-broadcast.
 
-Expected behaviour:
-1. Network label transitions Good → Fair → Poor as congestion builds.
-2. lcProtocol debug log shows "adaptive throttle engaged — fps cap 4 / wf line 500 ms".
-3. Waterfall visibly slows; spectrum update rate drops — but connection stays up.
-4. Remove tc rule: label recovers, "adaptive throttle lifted" logged, full fps
-   restores within one second.
-5. With 15+ consecutive ping drops the radio disconnects and the existing
-   "Reconnecting to radio…" banner appears — same as before, just later.
+User slider during congestion (point 3):
+  Move FPS slider while in Poor state. Observed: slider value updates in
+  SpectrumWidget; radio keeps the throttled fps; no fight. On recovery the
+  slider's value is the restored fps.
 
-On Windows, use Clumsy (https://jagt.github.io/clumsy/) to inject packet
-loss/delay on the loopback or LAN adapter for equivalent testing.
+Induction with tc netem (Linux):
+  sudo tc qdisc add dev eth0 root netem loss 5% delay 200ms
+  Confirm: network label Poor, lcProtocol logs "adaptive throttle engaged —
+  fps cap 4". Clear rule; confirm "adaptive throttle lifted", full fps
+  restored with no oscillation.
+
+Hard link death in Poor:
+  iptables -A INPUT -p udp --dport 4992 -j DROP (keep TCP alive)
+  After ~15 s: forced disconnect, reconnect dialog appears.
+
+Auto-reconnect cleanliness:
+  After reconnect m_adaptiveThrottleActive is false (check via network label
+  returning to Excellent immediately on fresh link).
