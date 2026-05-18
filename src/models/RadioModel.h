@@ -441,6 +441,10 @@ signals:
     void autoSaveChanged(bool autoSave);
     // Emitted on each successful ping response from the radio.
     void pingReceived();
+    // Emitted when adaptive frame-rate throttling engages or lifts.
+    // active=true: all pans are being throttled to fpsCap fps to reduce UDP load.
+    // active=false: throttle lifted; receivers should restore user-configured fps.
+    void adaptiveThrottleChanged(bool active, int fpsCap);
     // Generic status relay — for dialogs that need to listen for specific objects.
     void statusReceived(const QString& object, const QMap<QString, QString>& kvs);
     // Emitted when the radio sends an M-prefix informational, warning, error,
@@ -799,6 +803,7 @@ private:
     void evaluateNetworkQuality();
     void resetNetworkHealthSamples();
     void recordNetworkHealthSample(int currentErrors, int currentPackets);
+    void applyAdaptiveFrameRate(NetState newState, NetState oldState);
 
     enum class NetState { Off, Excellent, VeryGood, Good, Fair, Poor };
     double networkQualityTargetScore(int pingMs) const;
@@ -829,7 +834,11 @@ private:
     NetState      m_netState{NetState::Off};
     int           m_pingMissCount{0};          // consecutive unanswered pings
     bool          m_pingDisconnectTriggered{false};
-    static constexpr int PING_MISS_DISCONNECT = 5; // force disconnect after 5 missed pings (~5s)
+    // Normal: disconnect after 5 unanswered pings (~5 s).
+    // Poor: allow 15 (~15 s) — adaptive throttle has already cut UDP load, so
+    // brief TCP stalls are more likely to be transient congestion than a dead link.
+    static constexpr int PING_MISS_DISCONNECT      = 5;
+    static constexpr int PING_MISS_DISCONNECT_POOR = 15;
 
     // Network diagnostics — byte counters for rate calculation
 

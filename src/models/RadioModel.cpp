@@ -2400,7 +2400,10 @@ void RadioModel::startNetworkMonitor()
             return;
         }
         ++m_pingMissCount;
-        if (m_pingMissCount >= PING_MISS_DISCONNECT) {
+        const int missThreshold = (m_netState == NetState::Poor)
+                                      ? PING_MISS_DISCONNECT_POOR
+                                      : PING_MISS_DISCONNECT;
+        if (m_pingMissCount >= missThreshold) {
             if (m_pingDisconnectTriggered)
                 return;
 
@@ -2439,8 +2442,12 @@ void RadioModel::evaluateNetworkQuality()
                              ? (targetScore <= 45.0 ? 0.45 : 0.30)
                              : 0.12;
     m_networkQualityScore += (targetScore - m_networkQualityScore) * alpha;
+    const NetState prevState = m_netState;
     m_netState = networkStateForScore(m_networkQualityScore, m_netState);
     if (ping > m_maxPingRtt) m_maxPingRtt = ping;
+
+    if (m_netState != prevState)
+        applyAdaptiveFrameRate(m_netState, prevState);
 
     static const char* names[] = {"Off", "Excellent", "Very Good", "Good", "Fair", "Poor"};
     emit networkQualityChanged(names[static_cast<int>(m_netState)], ping);
@@ -2562,6 +2569,51 @@ RadioModel::NetState RadioModel::networkStateForScore(double score, NetState cur
     if (score >= 45.0)
         return NetState::Fair;
     return NetState::Poor;
+}
+
+void RadioModel::applyAdaptiveFrameRate(NetState newState, NetState oldState)
+{
+    // Map state → fps cap (0 = no throttle, restore user setting)
+    auto fpsCap = [](NetState s) -> int {
+        switch (s) {
+        case NetState::Poor: return 4;
+        case NetState::Fair: return 8;
+        case NetState::Good: return 15;
+        default:             return 0;
+        }
+    };
+    auto wfMsCap = [](int fps) -> int {
+        if (fps <= 4)  return 500;
+        if (fps <= 8)  return 250;
+        if (fps <= 15) return 150;
+        return 0;
+    };
+
+    const int newCap = fpsCap(newState);
+    const int oldCap = fpsCap(oldState);
+    if (newCap == oldCap)
+        return;
+
+    const bool throttling = (newCap > 0);
+
+    if (throttling) {
+        const int wfMs = wfMsCap(newCap);
+        qCDebug(lcProtocol) << "RadioModel: adaptive throttle engaged — fps cap"
+                            << newCap << "/ wf line" << wfMs << "ms";
+        for (auto it = m_panadapters.cbegin(); it != m_panadapters.cend(); ++it) {
+            auto* pan = it.value();
+            sendCmd(QString("display pan set %1 fps=%2").arg(pan->panId()).arg(newCap));
+            if (!pan->waterfallId().isEmpty())
+                sendCmd(QString("display panafall set %1 line_duration=%2")
+                            .arg(pan->waterfallId()).arg(wfMs));
+        }
+    } else {
+        qCDebug(lcProtocol) << "RadioModel: adaptive throttle lifted — signalling fps restore";
+        // Actual fps restore is done by MainWindow so it can use each pan's
+        // SpectrumWidget user setting rather than a hard-coded value.
+    }
+
+    emit adaptiveThrottleChanged(throttling, newCap);
 }
 
 bool RadioModel::usesRemoteNetworkThresholds() const

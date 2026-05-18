@@ -640,6 +640,7 @@ private:
     };
     QHash<QString, PanFpsReconcileState> m_panFpsReconcile;
     QHash<QString, QMetaObject::Connection> m_panFpsReconcileConnections;
+    bool m_adaptiveThrottleActive{false}; // fps/wf reconcile suppressed while true
     struct WaterfallLineDurationReconcileState {
         QTimer* timer{nullptr};
         QPointer<SpectrumWidget> spectrum;
