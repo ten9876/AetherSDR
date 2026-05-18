@@ -2467,7 +2467,6 @@ void RadioModel::evaluateNetworkQuality()
         }
     }
 
-
     static const char* names[] = {"Off", "Excellent", "Very Good", "Good", "Fair", "Poor"};
     emit networkQualityChanged(names[static_cast<int>(m_netState)], ping);
 }

@@ -4449,12 +4449,12 @@ MainWindow::MainWindow(QWidget* parent)
                             .arg(pan->waterfallId()).arg(userWfMs));
             }
         }
-        Q_UNUSED(fpsCap);
     });
 
     connect(&m_radioModel, &RadioModel::adaptiveThrottleChanged,
             this, [this](bool active, int fpsCap) {
         m_adaptiveThrottleActive = active;
+        m_adaptiveFpsCap = active ? fpsCap : 0;
         if (!active) {
             // Throttle lifted — push each pan's user-configured fps back to the radio.
             // The reconcile timers are suppressed while throttle is active, so they
