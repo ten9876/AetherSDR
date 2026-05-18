@@ -4452,6 +4452,34 @@ MainWindow::MainWindow(QWidget* parent)
         Q_UNUSED(fpsCap);
     });
 
+    connect(&m_radioModel, &RadioModel::adaptiveThrottleChanged,
+            this, [this](bool active, int fpsCap) {
+        m_adaptiveThrottleActive = active;
+        if (!active) {
+            // Throttle lifted — push each pan's user-configured fps back to the radio.
+            // The reconcile timers are suppressed while throttle is active, so they
+            // won't have done this automatically.
+            if (!m_panStack) return;
+            for (auto* applet : m_panStack->allApplets()) {
+                if (!applet) continue;
+                auto* sw = applet->spectrumWidget();
+                if (!sw) continue;
+                const QString panId = applet->panId();
+                const int userFps = sw->fftFps();
+                if (userFps > 0)
+                    m_radioModel.sendCommand(
+                        QString("display pan set %1 fps=%2").arg(panId).arg(userFps));
+                const int userWfMs = sw->wfLineDuration();
+                auto* pan = m_radioModel.panadapter(panId);
+                if (pan && !pan->waterfallId().isEmpty() && userWfMs > 0)
+                    m_radioModel.sendCommand(
+                        QString("display panafall set %1 line_duration=%2")
+                            .arg(pan->waterfallId()).arg(userWfMs));
+            }
+        }
+        Q_UNUSED(fpsCap);
+    });
+
     connect(&m_radioModel.meterModel(), &MeterModel::hwTelemetryChanged,
             this, [this](float paTemp, float supplyVolts) {
         m_lastPaTempC = paTemp;
