@@ -278,6 +278,27 @@ void RxApplet::buildUI()
         m_sliceGroup = new QButtonGroup(this);
         m_sliceGroup->setExclusive(true);
         tabLayout->addStretch();
+
+        m_muteAllBtn = new QPushButton(QString::fromUtf8("\xF0\x9F\x94\x87"));  // 🔇
+        m_muteAllBtn->setToolTip("Mute all slices (click again to unmute all)");
+        m_muteAllBtn->setFixedSize(28, 20);
+        m_muteAllBtn->setStyleSheet(
+            "QPushButton { background: #2a2a2a; border: 1px solid #504040; "
+            "border-radius: 3px; font-size: 12px; padding: 0; }"
+            "QPushButton:hover { background: #3a3030; border-color: #a06060; }"
+            "QPushButton:pressed { background: #6a2020; }");
+        connect(m_muteAllBtn, &QPushButton::clicked, this, [this]() {
+            if (!m_radioModel) return;
+            const QList<SliceModel*> slices = m_radioModel->slices();
+            bool anyUnmuted = false;
+            for (const SliceModel* s : slices) {
+                if (s && !s->audioMute()) { anyUnmuted = true; break; }
+            }
+            for (SliceModel* s : slices)
+                if (s) s->setAudioMute(anyUnmuted);
+        });
+        tabLayout->addWidget(m_muteAllBtn);
+
         root->addWidget(m_sliceTabRow);
     }
 

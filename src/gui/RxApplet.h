@@ -166,6 +166,7 @@ private:
     QButtonGroup*           m_sliceGroup{nullptr};
     QVector<QToolButton*>   m_sliceBtns;
     bool                    m_sliceButtonClicksConnected{false};
+    QPushButton*            m_muteAllBtn{nullptr};
 
     // ── Header row ────────────────────────────────────────────────────────
     QLabel*      m_sliceBadge{nullptr};   // "A" / "B" / "C" / "D"

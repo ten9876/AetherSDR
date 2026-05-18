@@ -12466,6 +12466,16 @@ void MainWindow::registerShortcutActions()
             auto* s = activeSlice();
             if (s) s->setAudioMute(!s->audioMute());
         });
+    m_shortcutManager.registerAction("mute_all_slices_toggle", "Mute All Slices", "Audio",
+        QKeySequence(), [this]() {
+            const auto slices = m_radioModel.slices();
+            bool anyUnmuted = false;
+            for (const SliceModel* s : slices) {
+                if (s && !s->audioMute()) { anyUnmuted = true; break; }
+            }
+            for (SliceModel* s : slices)
+                if (s) s->setAudioMute(anyUnmuted);
+        });
     m_shortcutManager.registerAction("master_mute_toggle", "Master Mute Toggle", "Audio",
         QKeySequence(), [this]() {
             m_audio->setMuted(!m_audio->isMuted());
