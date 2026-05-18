@@ -104,12 +104,18 @@ src/models/RadioModel.cpp
 
 src/gui/MainWindow.h
   — bool m_adaptiveThrottleActive{false}
+  — int  m_adaptiveFpsCap{0}
 
 src/gui/MainWindow.cpp
-  — Constructor: connect adaptiveThrottleChanged; suppress reconcile on active;
-    restore all-pan fps/wf on lift
-  — connectionStateChanged(false): clear m_adaptiveThrottleActive
-  — schedulePanFpsReconcile(): early-return when throttle active
+  — Constructor: connect adaptiveThrottleChanged; set m_adaptiveFpsCap; suppress
+    reconcile on active; restore all-pan fps/wf on lift
+  — connectionStateChanged(false): clear m_adaptiveThrottleActive / m_adaptiveFpsCap
+  — networkQualityChanged lambda: append "· N fps cap" suffix to label text and
+    prepend cap line to tooltip when throttle active — explains why the fps slider
+    has no effect during congestion
+  — panadapterInfoChanged first-push: gate setPanFps and setWaterfallLineDuration
+    (+ tile re-sync one-shot) so a pan opened during throttle doesn't override the cap
+  — schedulePanFpsReconcile(): qCDebug + early-return when throttle active
   — scheduleWaterfallLineDurationReconcile(): same
   — fftFpsChanged lambda: update sw (restore target), skip radio cmd if throttled
   — applyWaterfallLineDuration lambda: same pattern
@@ -128,11 +134,25 @@ User slider during congestion (point 3):
   SpectrumWidget; radio keeps the throttled fps; no fight. On recovery the
   slider's value is the restored fps.
 
-Induction with tc netem (Linux):
+Anti-oscillation dwell (point 2):
+  With tc netem 2% loss / 70 ms (sits near the Good/VeryGood boundary), observe
+  the network label cycling. With this fix the label must stay at "Good · 15 fps
+  cap" for at least 5 s after engage before showing VeryGood. If it flips every
+  1-2 s the dwell is not firing — check THROTTLE_MIN_DWELL_MS and that
+  m_lastThrottleEngageMs is being set on every engage (not just the first).
+
+Induction with tc netem (Linux, wired):
   sudo tc qdisc add dev eth0 root netem loss 5% delay 200ms
-  Confirm: network label Poor, lcProtocol logs "adaptive throttle engaged —
-  fps cap 4". Clear rule; confirm "adaptive throttle lifted", full fps
-  restored with no oscillation.
+  Confirm: network label shows "Poor · 4 fps cap", tooltip prepends
+  "Adaptive throttle active: 4 fps cap", lcProtocol logs
+  "adaptive throttle engaged — fps cap 4". Clear rule; confirm
+  "adaptive throttle lifted", full fps restored with no oscillation.
+
+Wi-Fi / contested link (real-world path):
+  Run on a laptop connected via 2.4 GHz 802.11n with a microwave running.
+  802.11 retransmits spike RTT without visible packet loss — exercises the
+  RTT branch of networkQualityTargetScore rather than the loss branch.
+  Verify engage fires on RTT spike, label updates, and lift defers correctly.
 
 Hard link death in Poor:
   iptables -A INPUT -p udp --dport 4992 -j DROP (keep TCP alive)

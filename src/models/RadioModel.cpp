@@ -2379,6 +2379,7 @@ void RadioModel::startNetworkMonitor()
     m_maxPingRtt = 0;
     m_pingMissCount = 0;
     m_pingDisconnectTriggered = false;
+    m_pendingThrottleLift = false;
     // Safety: ensure MainWindow's m_adaptiveThrottleActive is cleared even if
     // the connectionStateChanged(false) path was somehow skipped.  Pans are not
     // yet rebuilt at this point so the fps-restore loop in the handler is a no-op.
@@ -2452,6 +2453,19 @@ void RadioModel::evaluateNetworkQuality()
 
     if (m_netState != prevState)
         applyAdaptiveFrameRate(m_netState, prevState);
+
+    // Fire a deferred throttle lift once the min-dwell has elapsed and the
+    // state has not re-entered a throttled tier since the engage.
+    if (m_pendingThrottleLift
+            && m_netState != NetState::Good
+            && m_netState != NetState::Fair
+            && m_netState != NetState::Poor) {
+        if (QDateTime::currentMSecsSinceEpoch() - m_lastThrottleEngageMs >= THROTTLE_MIN_DWELL_MS) {
+            m_pendingThrottleLift = false;
+            qCDebug(lcProtocol) << "RadioModel: deferred adaptive throttle lift firing after min-dwell";
+            emit adaptiveThrottleChanged(false, 0);
+        }
+    }
 
     static const char* names[] = {"Off", "Excellent", "Very Good", "Good", "Fair", "Poor"};
     emit networkQualityChanged(names[static_cast<int>(m_netState)], ping);
@@ -2601,6 +2615,8 @@ void RadioModel::applyAdaptiveFrameRate(NetState newState, NetState oldState)
     const bool throttling = (newCap > 0);
 
     if (throttling) {
+        m_lastThrottleEngageMs = QDateTime::currentMSecsSinceEpoch();
+        m_pendingThrottleLift = false;
         const int wfMs = wfMsCap(newCap);
         qCDebug(lcProtocol) << "RadioModel: adaptive throttle engaged — fps cap"
                             << newCap << "/ wf line" << wfMs << "ms";
@@ -2611,13 +2627,25 @@ void RadioModel::applyAdaptiveFrameRate(NetState newState, NetState oldState)
                 sendCmd(QString("display panafall set %1 line_duration=%2")
                             .arg(pan->waterfallId()).arg(wfMs));
         }
+        emit adaptiveThrottleChanged(throttling, newCap);
     } else {
+        // Min-dwell guard: if we just engaged, don't lift yet — let the link
+        // stabilise before restoring full fps. evaluateNetworkQuality() will
+        // fire the deferred lift once THROTTLE_MIN_DWELL_MS has elapsed.
+        if (QDateTime::currentMSecsSinceEpoch() - m_lastThrottleEngageMs < THROTTLE_MIN_DWELL_MS) {
+            m_pendingThrottleLift = true;
+            qCDebug(lcProtocol) << "RadioModel: adaptive throttle lift deferred"
+                                << "(min-dwell not reached)";
+            return;
+        }
+        m_pendingThrottleLift = false;
         qCDebug(lcProtocol) << "RadioModel: adaptive throttle lifted — signalling fps restore";
-        // Actual fps restore is done by MainWindow so it can use each pan's
-        // SpectrumWidget user setting rather than a hard-coded value.
+        // Intentionally no fps push here — RadioModel doesn't own the user-configured
+        // fps (that lives in each SpectrumWidget). MainWindow restores it via
+        // adaptiveThrottleChanged(false, 0). A headless consumer connecting to
+        // RadioModel without MainWindow receives the engage but must handle restore itself.
+        emit adaptiveThrottleChanged(false, 0);
     }
-
-    emit adaptiveThrottleChanged(throttling, newCap);
 }
 
 bool RadioModel::usesRemoteNetworkThresholds() const

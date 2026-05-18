@@ -839,6 +839,14 @@ private:
     // brief TCP stalls are more likely to be transient congestion than a dead link.
     static constexpr int PING_MISS_DISCONNECT      = 5;
     static constexpr int PING_MISS_DISCONNECT_POOR = 15;
+    // Minimum time at a throttled state before the throttle is allowed to lift.
+    // Prevents Good<->VeryGood oscillation: reducing fps lowers UDP load which
+    // improves the score, which would immediately lift the throttle and restart
+    // the cycle. 5 s of hysteresis breaks the loop without delaying recovery
+    // on a genuinely improving link.
+    static constexpr qint64 THROTTLE_MIN_DWELL_MS = 5000;
+    qint64 m_lastThrottleEngageMs{0};   // QDateTime::currentMSecsSinceEpoch() at last engage
+    bool   m_pendingThrottleLift{false}; // lift deferred by min-dwell; fired in evaluateNetworkQuality()
 
     // Network diagnostics — byte counters for rate calculation
 
