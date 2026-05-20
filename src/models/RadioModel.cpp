@@ -2608,6 +2608,7 @@ int RadioModel::currentAdaptiveFpsCap() const
     return fpsCapForState(m_netState);
 }
 
+
 int RadioModel::adaptiveWfMsForCap(int fpsCap) const
 {
     if (fpsCap <= 0)  return 0;
