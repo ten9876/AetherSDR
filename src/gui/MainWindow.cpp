@@ -11844,8 +11844,18 @@ void MainWindow::toggleAppletPanelFloating(bool floating)
     AppSettings::instance().setValue(
         "AppletPanelFloating", floating ? "True" : "False");
     AppSettings::instance().save();
-    if (m_titleBar)
+    if (m_titleBar) {
         m_titleBar->setAppletFloating(floating);
+        // While floating, the panel lives in its own window — neither
+        // dock-side icon should remain illuminated.  When re-docking,
+        // dockAppletPanel restores the persisted side and re-syncs the
+        // dock-side icon via setAppletPanelDockedLeft.
+        if (floating) {
+            const bool dockedLeft = AppSettings::instance()
+                .value("AppletPanelDockedLeft", "False").toString() == "True";
+            m_titleBar->setAppletDockState(false, dockedLeft);
+        }
+    }
 }
 
 void MainWindow::setFramelessWindow(bool on)
@@ -14957,6 +14967,17 @@ void MainWindow::dockAppletPanel()
     // is both simpler and deterministic.
     const int centerWidth = std::max(400, m_splitter->width() - 260);
     m_splitter->setSizes({0, 0, centerWidth, 260});
+
+    // Restore the user's last-known dock side and re-sync the title-bar
+    // icon.  addWidget above places the panel in the right slot; if the
+    // user last had it docked left, setAppletPanelDockedLeft moves it
+    // back, re-applies sizes by widget identity, and updates the dock-
+    // side icon.  Calling it for right-dock is a no-op for layout but
+    // still re-syncs the icon, which would otherwise stay stuck on the
+    // pre-float side highlight.
+    const bool dockedLeft = AppSettings::instance()
+        .value("AppletPanelDockedLeft", "False").toString() == "True";
+    setAppletPanelDockedLeft(dockedLeft);
 
     m_appletPanelFloatWindow->removeEventFilter(this);
     m_appletPanelFloatWindow->deleteLater();
