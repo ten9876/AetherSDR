@@ -805,6 +805,10 @@ private:
     void recordNetworkHealthSample(int currentErrors, int currentPackets);
     enum class NetState { Off, Excellent, VeryGood, Good, Fair, Poor };
     void applyAdaptiveFrameRate(NetState newState, NetState oldState);
+    static int fpsCapForState(NetState s);  // single source of truth; see obs. 1 in PR review
+    int  currentAdaptiveFpsCap() const;
+    int  adaptiveWfMsForCap(int fpsCap) const;
+    void sendAdaptiveCapToPan(const QString& panId, int fpsCap);
     double networkQualityTargetScore(int pingMs) const;
     NetState networkStateForScore(double score, NetState currentState) const;
     bool usesRemoteNetworkThresholds() const;
@@ -853,6 +857,7 @@ public:
     // Network diagnostics getters
     int     lastPingRtt()      const { return m_lastPingRtt; }
     int     maxPingRtt()       const { return m_maxPingRtt; }
+    bool    pendingThrottleLift() const { return m_pendingThrottleLift; }
     QString networkQuality()   const;
     int     packetLossWindowSeconds() const { return NETWORK_LOSS_WINDOW_SAMPLES; }
     int     packetLossWindowDrops() const { return m_packetLossWindowErrors; }

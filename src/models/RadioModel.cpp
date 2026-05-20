@@ -2589,26 +2589,49 @@ RadioModel::NetState RadioModel::networkStateForScore(double score, NetState cur
     return NetState::Poor;
 }
 
+// Single source of truth for the state→fps-cap mapping.
+// currentAdaptiveFpsCap(), applyAdaptiveFrameRate(), and any future
+// callers must all go through here so adding a new tier (e.g. Critical=2)
+// never silently diverges between code paths.
+int RadioModel::fpsCapForState(NetState s)
+{
+    switch (s) {
+    case NetState::Poor: return 4;
+    case NetState::Fair: return 8;
+    case NetState::Good: return 15;
+    default:             return 0;
+    }
+}
+
+int RadioModel::currentAdaptiveFpsCap() const
+{
+    return fpsCapForState(m_netState);
+}
+
+int RadioModel::adaptiveWfMsForCap(int fpsCap) const
+{
+    if (fpsCap <= 0)  return 0;
+    if (fpsCap <= 4)  return 500;
+    if (fpsCap <= 8)  return 250;
+    if (fpsCap <= 15) return 150;
+    return 0;
+}
+
+void RadioModel::sendAdaptiveCapToPan(const QString& panId, int fpsCap)
+{
+    if (panId.isEmpty() || fpsCap <= 0) return;
+    auto* pan = m_panadapters.value(panId, nullptr);
+    if (!pan) return;
+    sendCmd(QString("display pan set %1 fps=%2").arg(panId).arg(fpsCap));
+    if (!pan->waterfallId().isEmpty())
+        sendCmd(QString("display panafall set %1 line_duration=%2")
+                    .arg(pan->waterfallId()).arg(adaptiveWfMsForCap(fpsCap)));
+}
+
 void RadioModel::applyAdaptiveFrameRate(NetState newState, NetState oldState)
 {
-    // Map state → fps cap (0 = no throttle, restore user setting)
-    auto fpsCap = [](NetState s) -> int {
-        switch (s) {
-        case NetState::Poor: return 4;
-        case NetState::Fair: return 8;
-        case NetState::Good: return 15;
-        default:             return 0;
-        }
-    };
-    auto wfMsCap = [](int fps) -> int {
-        if (fps <= 4)  return 500;
-        if (fps <= 8)  return 250;
-        if (fps <= 15) return 150;
-        return 0;
-    };
-
-    const int newCap = fpsCap(newState);
-    const int oldCap = fpsCap(oldState);
+    const int newCap = fpsCapForState(newState);
+    const int oldCap = fpsCapForState(oldState);
     if (newCap == oldCap)
         return;
 
@@ -2617,16 +2640,10 @@ void RadioModel::applyAdaptiveFrameRate(NetState newState, NetState oldState)
     if (throttling) {
         m_lastThrottleEngageMs = QDateTime::currentMSecsSinceEpoch();
         m_pendingThrottleLift = false;
-        const int wfMs = wfMsCap(newCap);
         qCDebug(lcProtocol) << "RadioModel: adaptive throttle engaged — fps cap"
-                            << newCap << "/ wf line" << wfMs << "ms";
-        for (auto it = m_panadapters.cbegin(); it != m_panadapters.cend(); ++it) {
-            auto* pan = it.value();
-            sendCmd(QString("display pan set %1 fps=%2").arg(pan->panId()).arg(newCap));
-            if (!pan->waterfallId().isEmpty())
-                sendCmd(QString("display panafall set %1 line_duration=%2")
-                            .arg(pan->waterfallId()).arg(wfMs));
-        }
+                            << newCap << "/ wf line" << adaptiveWfMsForCap(newCap) << "ms";
+        for (auto it = m_panadapters.cbegin(); it != m_panadapters.cend(); ++it)
+            sendAdaptiveCapToPan(it.key(), newCap);
         emit adaptiveThrottleChanged(throttling, newCap);
     } else {
         // Min-dwell guard: if we just engaged, don't lift yet — let the link
@@ -3178,6 +3195,23 @@ PanadapterModel* RadioModel::ensureOwnedPanadapter(const QString& panId)
     m_panadapters[normalizedPanId] = pan;
     if (m_activePanId.isEmpty())
         m_activePanId = normalizedPanId;
+
+    // Apply active throttle cap immediately — applyAdaptiveFrameRate only fires
+    // on tier transitions, so a pan opened mid-throttle would run at the radio
+    // default (~25 fps) until the next state change.
+    const int activeCap = currentAdaptiveFpsCap();
+    if (activeCap > 0) {
+        qCDebug(lcProtocol) << "RadioModel: applying active throttle cap" << activeCap
+                            << "to newly-claimed pan" << normalizedPanId;
+        sendAdaptiveCapToPan(normalizedPanId, activeCap);
+        // waterfallId may not be assigned yet (arrives in a subsequent status
+        // message) — re-apply the cap once it lands.
+        connect(pan, &PanadapterModel::waterfallIdChanged,
+                this, [this, normalizedPanId]() {
+            const int cap = currentAdaptiveFpsCap();
+            if (cap > 0) sendAdaptiveCapToPan(normalizedPanId, cap);
+        });
+    }
 
     connect(pan, &PanadapterModel::waterfallIdChanged,
             this, &RadioModel::updateStreamFilters);

@@ -4410,16 +4410,24 @@ MainWindow::MainWindow(QWidget* parent)
         else if (quality == "Poor") color = "#cc3333";
         else if (quality == "Good") color = "#00b4d8";
         // Append fps cap so users understand why moving the fps slider has no effect.
+        // Show "(restoring)" during the min-dwell hold so testers can distinguish
+        // stuck throttle from a deliberate stability wait.
+        const bool dwellPending = m_adaptiveFpsCap > 0 && m_radioModel.pendingThrottleLift();
         const QString capSuffix = m_adaptiveFpsCap > 0
-            ? QStringLiteral(" · %1 fps cap").arg(m_adaptiveFpsCap)
+            ? (dwellPending
+               ? QStringLiteral(" · %1 fps cap (restoring)").arg(m_adaptiveFpsCap)
+               : QStringLiteral(" · %1 fps cap").arg(m_adaptiveFpsCap))
             : QString();
         m_networkLabel->setText(QString("[<span style='color:%1'>%2</span>]")
             .arg(color, quality + capSuffix));
         Q_UNUSED(pingMs);
         QString tooltip = buildNetworkTooltip(m_radioModel);
-        if (m_adaptiveFpsCap > 0)
-            tooltip.prepend(
-                QString("Adaptive throttle active: %1 fps cap\n\n").arg(m_adaptiveFpsCap));
+        if (m_adaptiveFpsCap > 0) {
+            const QString throttleMsg = dwellPending
+                ? QStringLiteral("Adaptive throttle holding for link stability — restoring shortly\n\n")
+                : QString("Adaptive throttle active: %1 fps cap\n\n").arg(m_adaptiveFpsCap);
+            tooltip.prepend(throttleMsg);
+        }
         m_networkLabel->setToolTip(tooltip);
     });
 
@@ -4449,35 +4457,6 @@ MainWindow::MainWindow(QWidget* parent)
                             .arg(pan->waterfallId()).arg(userWfMs));
             }
         }
-    });
-
-    connect(&m_radioModel, &RadioModel::adaptiveThrottleChanged,
-            this, [this](bool active, int fpsCap) {
-        m_adaptiveThrottleActive = active;
-        m_adaptiveFpsCap = active ? fpsCap : 0;
-        if (!active) {
-            // Throttle lifted — push each pan's user-configured fps back to the radio.
-            // The reconcile timers are suppressed while throttle is active, so they
-            // won't have done this automatically.
-            if (!m_panStack) return;
-            for (auto* applet : m_panStack->allApplets()) {
-                if (!applet) continue;
-                auto* sw = applet->spectrumWidget();
-                if (!sw) continue;
-                const QString panId = applet->panId();
-                const int userFps = sw->fftFps();
-                if (userFps > 0)
-                    m_radioModel.sendCommand(
-                        QString("display pan set %1 fps=%2").arg(panId).arg(userFps));
-                const int userWfMs = sw->wfLineDuration();
-                auto* pan = m_radioModel.panadapter(panId);
-                if (pan && !pan->waterfallId().isEmpty() && userWfMs > 0)
-                    m_radioModel.sendCommand(
-                        QString("display panafall set %1 line_duration=%2")
-                            .arg(pan->waterfallId()).arg(userWfMs));
-            }
-        }
-        Q_UNUSED(fpsCap);
     });
 
     connect(&m_radioModel.meterModel(), &MeterModel::hwTelemetryChanged,
