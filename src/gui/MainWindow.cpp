@@ -14863,6 +14863,52 @@ void MainWindow::registerMidiParams()
                 setActiveSlice(slices[prev]->sliceId());
             }
         });
+
+    // ── QSO Recorder ────────────────────────────────────────────────────
+    // Mirror the exact dual routing used by the VFO ⏺/▶ buttons
+    // (MainWindow.cpp:11413-11443): RecordingMode=="Client" → QsoRecorder,
+    // otherwise → SliceModel::setRecordOn / setPlayOn (radio-side).
+    reg("global.qsoRecord", "QSO Record", "Global", P::Toggle, 0, 1,
+        [this](float v) {
+            const bool on = v > 0.5f;
+            const bool clientSide =
+                AppSettings::instance().value("RecordingMode", "Radio").toString() == "Client";
+            if (clientSide) {
+                if (on) m_qsoRecorder->startRecording();
+                else    m_qsoRecorder->stopRecording();
+            } else if (auto* s = activeSlice()) {
+                s->setRecordOn(on);
+            }
+        },
+        [this]() -> float {
+            const bool clientSide =
+                AppSettings::instance().value("RecordingMode", "Radio").toString() == "Client";
+            if (clientSide)
+                return (m_qsoRecorder && m_qsoRecorder->isRecording()) ? 1.0f : 0.0f;
+            auto* s = activeSlice();
+            return (s && s->recordOn()) ? 1.0f : 0.0f;
+        });
+
+    reg("global.qsoPlay", "QSO Playback", "Global", P::Toggle, 0, 1,
+        [this](float v) {
+            const bool on = v > 0.5f;
+            const bool clientSide =
+                AppSettings::instance().value("RecordingMode", "Radio").toString() == "Client";
+            if (clientSide) {
+                if (on) m_qsoRecorder->startPlayback();
+                else    m_qsoRecorder->stopPlayback();
+            } else if (auto* s = activeSlice()) {
+                s->setPlayOn(on);
+            }
+        },
+        [this]() -> float {
+            const bool clientSide =
+                AppSettings::instance().value("RecordingMode", "Radio").toString() == "Client";
+            if (clientSide)
+                return (m_qsoRecorder && m_qsoRecorder->isPlaying()) ? 1.0f : 0.0f;
+            auto* s = activeSlice();
+            return (s && s->playOn()) ? 1.0f : 0.0f;
+        });
 }
 #endif
 
