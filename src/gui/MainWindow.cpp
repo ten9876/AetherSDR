@@ -228,12 +228,33 @@ constexpr int kSwrSweepTgxlRestoreTimeoutMs = 3500;
 constexpr int kSwrSweepMaxPoints = 260;
 constexpr double kMemoryRevealTargetToleranceMhz = 0.000001;
 
+bool isTransientAudioDeviceId(const QByteArray& id)
+{
+#ifdef Q_OS_LINUX
+    // PipeWire/pulse-shim churns these constantly (monitor sources, per-app
+    // loopbacks, fallback auto-null sink, echo-cancel/combine virtuals).
+    // They are never useful as a PC mic or local speaker target; treating
+    // them as "new devices" is what re-fires the dialog in #2864.
+    if (id.contains(".monitor"))               return true;
+    if (id.startsWith("pulse_input_loopback")) return true;
+    if (id.contains("auto_null"))              return true;
+    if (id.contains("echo-cancel"))            return true;
+    if (id.contains("combined"))               return true;
+#else
+    Q_UNUSED(id);
+#endif
+    return false;
+}
+
 QList<QByteArray> audioDeviceIds(const QList<QAudioDevice>& devices)
 {
     QList<QByteArray> ids;
     ids.reserve(devices.size());
-    for (const QAudioDevice& device : devices)
+    for (const QAudioDevice& device : devices) {
+        if (isTransientAudioDeviceId(device.id()))
+            continue;
         ids.append(device.id());
+    }
     return ids;
 }
 
@@ -250,6 +271,8 @@ QList<QByteArray> newlyAddedAudioDeviceIds(const QList<QAudioDevice>& devices,
 {
     QList<QByteArray> added;
     for (const QAudioDevice& device : devices) {
+        if (isTransientAudioDeviceId(device.id()))
+            continue;
         if (!containsAudioDeviceId(knownIds, device.id()))
             added.append(device.id());
     }
@@ -6439,7 +6462,14 @@ void MainWindow::handleAudioDeviceListChanged()
         && m_radioModel.transmitModel().micSelection() == "PC";
 
     const bool deviceAdded = !addedInputIds.isEmpty() || !addedOutputIds.isEmpty();
-    if (!deviceAdded) {
+    // Only prompt when the user's existing selection is no longer usable;
+    // a new arrival while both selections still work is platform-audio
+    // churn, not an actionable change (issue #2864).
+    const bool currentSelectionStillValid =
+        audioDevicePresent(inputDevices, currentInput)
+        && audioDevicePresent(outputDevices, currentOutput);
+    const bool userChoiceRequired = deviceAdded && !currentSelectionStillValid;
+    if (!userChoiceRequired) {
         if (resetInput || resetOutput)
             resetMissingAudioDevicesToDefault(resetInput,
                                               resetOutput,
