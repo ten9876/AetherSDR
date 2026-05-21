@@ -12,6 +12,12 @@ on:
   push:
     branches: [main]
 
+# Least-privilege GITHUB_TOKEN. CI only needs to read repo contents to
+# build and test — no writes, no token-bearing API calls. Any future job
+# that needs more (e.g. publishing a comment) must opt in at the job level.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
