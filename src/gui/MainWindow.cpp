@@ -8819,9 +8819,13 @@ void MainWindow::onRadioMessage(const QString& text, MessageSeverity severity)
     // client notices that the radio sends on every connect / disconnect —
     // they're documented as silent-log in SmartSDR.  Show a status-bar
     // toast instead of a modal popup so the operator notices without an
-    // interruptive dialog.  Warnings, errors, and fatals are user-actionable
-    // and continue to surface as modal QMessageBox to preserve PR #2771's
-    // intent for FreeDV/ATU/interlock conflicts.  See #2785 for context.
+    // interruptive dialog.  Interlock M-messages are log-only here because
+    // the interlock status path already surfaces actionable TX blocks over
+    // the panadapter/waterfall.  Other warnings, errors, and fatals are
+    // user-actionable and continue to surface as modal QMessageBox to preserve
+    // PR #2771's intent for FreeDV/ATU conflicts.  See #2785 for context.
+    const bool interlockMessage = text.contains(QStringLiteral("interlock"),
+                                                Qt::CaseInsensitive);
     switch (severity) {
     case MessageSeverity::Info:
         qCInfo(lcGui) << "Radio M-message [Info]:" << text;
@@ -8830,14 +8834,20 @@ void MainWindow::onRadioMessage(const QString& text, MessageSeverity severity)
         break;
     case MessageSeverity::Warning:
         qCWarning(lcGui) << "Radio M-message [Warning]:" << text;
+        if (interlockMessage)
+            break;
         QMessageBox::warning(this, tr("Radio"), text);
         break;
     case MessageSeverity::Error:
         qCCritical(lcGui) << "Radio M-message [Error]:" << text;
+        if (interlockMessage)
+            break;
         QMessageBox::critical(this, tr("Radio — Error"), text);
         break;
     case MessageSeverity::Fatal:
         qCCritical(lcGui) << "Radio M-message [Fatal]:" << text;
+        if (interlockMessage)
+            break;
         QMessageBox::critical(this, tr("Radio — Fatal"), text);
         break;
     }
