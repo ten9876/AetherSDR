@@ -3,6 +3,7 @@
 #include "CwDecodeSettings.h"
 #ifdef HAVE_MQTT
 #include "MqttApplet.h"
+#include "core/MqttAntennaAlias.h"
 #endif
 #include "ConnectionPanel.h"
 #include "Theme.h"
@@ -1723,6 +1724,45 @@ MainWindow::MainWindow(QWidget* parent)
             sw->clearMqttDisplay();
         }
     });
+    auto mqttAntennaAliasQueue = std::make_shared<MqttAntennaAliasQueue>();
+    auto hasStableRadioAliasKey = [this] {
+        return m_radioModel.isConnected()
+            && (!m_radioModel.chassisSerial().trimmed().isEmpty()
+                || !m_radioModel.serial().trimmed().isEmpty());
+    };
+    auto applyMqttAntennaAlias = [this](const QString& token, const QString& alias) {
+        if (alias.trimmed().isEmpty())
+            m_radioModel.clearAntennaAlias(token);
+        else
+            m_radioModel.setAntennaAlias(token, alias);
+    };
+    auto flushPendingMqttAntennaAliases = [mqttAntennaAliasQueue,
+                                           hasStableRadioAliasKey,
+                                           applyMqttAntennaAlias] {
+        for (const auto& update : mqttAntennaAliasQueue->flush(hasStableRadioAliasKey()))
+            applyMqttAntennaAlias(update.token, update.alias);
+    };
+    connect(m_appletPanel->mqttApplet(), &MqttApplet::antennaAliasRequested,
+            this, [mqttAntennaAliasQueue,
+                   hasStableRadioAliasKey,
+                   applyMqttAntennaAlias,
+                   this](const QString& token,
+                         const QString& alias) {
+        const MqttAntennaAliasUpdate update{token, alias};
+        for (const auto& ready : mqttAntennaAliasQueue->receive(
+                 update, m_radioModel.isConnected(), hasStableRadioAliasKey()))
+            applyMqttAntennaAlias(ready.token, ready.alias);
+    });
+    connect(&m_radioModel, &RadioModel::connectionStateChanged,
+            this, [mqttAntennaAliasQueue,
+                   flushPendingMqttAntennaAliases](bool connected) {
+        if (connected)
+            flushPendingMqttAntennaAliases();
+        else
+            mqttAntennaAliasQueue->clear();
+    });
+    connect(&m_radioModel, &RadioModel::infoChanged,
+            this, [flushPendingMqttAntennaAliases] { flushPendingMqttAntennaAliases(); });
 #endif
 
     m_spotThread = new QThread(this);
