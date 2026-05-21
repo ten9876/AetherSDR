@@ -1049,6 +1049,8 @@ bool AudioEngine::startSidetoneStream()
     if (!m_outputDevice.isNull()) {
         const auto outputs = QMediaDevices::audioOutputs();
         for (const auto& d : outputs) {
+            // Use the freshly enumerated Qt device object so backend-specific
+            // handles follow the selected endpoint after hotplug/default churn.
             if (d.id() == m_outputDevice.id()) { dev = d; break; }
         }
         if (dev.id() != m_outputDevice.id()) {

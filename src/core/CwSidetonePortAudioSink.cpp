@@ -31,20 +31,23 @@ PaDeviceIndex findPortAudioOutputDevice(const QAudioDevice& device)
     }
 
     PaDeviceIndex partialMatch = paNoDevice;
+    QString partialMatchName;
     bool partialMatchAmbiguous = false;
     for (PaDeviceIndex i = 0; i < count; ++i) {
         const PaDeviceInfo* info = Pa_GetDeviceInfo(i);
         if (!info || info->maxOutputChannels <= 0 || !info->name)
             continue;
 
+        const QString rawName = QString::fromUtf8(info->name);
         const QString candidate =
-            normalizedDeviceName(QString::fromUtf8(info->name));
+            normalizedDeviceName(rawName);
         if (candidate == target)
             return i;
 
         if (candidate.contains(target) || target.contains(candidate)) {
             if (partialMatch == paNoDevice) {
                 partialMatch = i;
+                partialMatchName = rawName;
             } else {
                 partialMatchAmbiguous = true;
             }
@@ -58,6 +61,13 @@ PaDeviceIndex findPortAudioOutputDevice(const QAudioDevice& device)
         return paNoDevice;
     }
 
+    if (partialMatch != paNoDevice) {
+        qCWarning(lcAudio) << "CwSidetonePortAudioSink: selected Qt output device"
+                           << device.description()
+                           << "partially matched PortAudio output"
+                           << partialMatchName
+                           << "by name substring";
+    }
     return partialMatch;
 }
 
@@ -135,9 +145,9 @@ bool CwSidetonePortAudioSink::start(const QAudioDevice& device,
         return false;
     }
     if (!device.isNull()) {
-        qCInfo(lcAudio) << "CwSidetonePortAudioSink: matched selected Qt output"
-                        << device.description()
-                        << "to PortAudio device" << devInfo->name;
+        qCWarning(lcAudio) << "CwSidetonePortAudioSink: matched selected Qt output"
+                           << device.description()
+                           << "to PortAudio output" << devInfo->name;
     }
 
     // Prefer 48 kHz; fall back to the device's native rate only if the
