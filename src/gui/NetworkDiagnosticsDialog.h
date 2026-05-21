@@ -5,9 +5,11 @@
 
 #include <QComboBox>
 #include <QFile>
+#include <QHeaderView>
 #include <QLabel>
 #include <QObject>
 #include <QSet>
+#include <QTableWidget>
 #include <QTimer>
 #include <QVector>
 
@@ -41,6 +43,14 @@ struct NetworkDiagnosticsSample {
     double daxLossPct{0.0};
     double audioBufferMs{0.0};
     double underrunsPerSecond{0.0};
+    double audioFeedRateHz{0.0};
+    double audioFeedDeficitMs{0.0};
+    double audioLatePacketsPerSecond{0.0};
+    qint64 audioLatePackets{0};
+    qint64 audioPacketGaps{0};
+    qint64 audioLastPacketAgeMs{0};
+    quint16 audioPacketClassCode{0};
+    int audioStreamCount{0};
 };
 
 class NetworkDiagnosticsHistory : public QObject {
@@ -62,6 +72,7 @@ private:
     qint64 m_lastTxBytes{0};
     qint64 m_lastSampleMs{0};
     quint64 m_lastAudioUnderrunCount{0};
+    qint64 m_lastAudioLatePackets{0};
     qint64 m_lastCatBytes[PanadapterStream::CatCount]{};
 };
 
@@ -134,6 +145,12 @@ private:
     QLabel* m_audioPacketGapLabel;
     QLabel* m_audioPacketGapMaxLabel;
     QLabel* m_audioJitterLabel;
+    QLabel* m_audioStreamLabel;
+    QLabel* m_audioFeedRateLabel;
+    QLabel* m_audioFeedDeficitLabel;
+    QLabel* m_audioLateGapLabel;
+    QLabel* m_audioStreamHealthLabel;
+    QLabel* m_audioStreamsDetailLabel;
     QLabel* m_overviewStatusValue{nullptr};
     QLabel* m_overviewLatencyValue{nullptr};
     QLabel* m_overviewLossValue{nullptr};
@@ -147,6 +164,8 @@ private:
     TimeSeriesGraphWidget* m_ratesGraph{nullptr};
     TimeSeriesGraphWidget* m_lossGraph{nullptr};
     TimeSeriesGraphWidget* m_audioGraph{nullptr};
+    TimeSeriesGraphWidget* m_audioFeedGraph{nullptr};
+    QTableWidget* m_audioStreamsTable{nullptr};
 
     QPlainTextEdit* m_logViewer{nullptr};
     QLabel* m_logPathLabel{nullptr};

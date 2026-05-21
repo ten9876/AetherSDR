@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 #include <QComboBox>
@@ -12,7 +13,6 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QFrame>
-#include <QGroupBox>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QCheckBox>
@@ -33,19 +33,205 @@
 
 namespace AetherSDR {
 
+constexpr const char* kNetworkDiagnosticsStyle = R"(
+QWidget {
+    color: #aeb9cc;
+    background: #07101c;
+    font-size: 13px;
+}
+QLabel {
+    background: transparent;
+}
+QFrame#DiagnosticsPanel {
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 #111d2c, stop:1 #0a1421);
+    border: 1px solid #233246;
+    border-radius: 7px;
+}
+QTabWidget::pane {
+    background: transparent;
+    border: none;
+    top: 0;
+}
+QTabBar {
+    background: transparent;
+    border-bottom: none;
+}
+QTabBar::tab {
+    color: #aeb9cc;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 9px 16px;
+    margin: 3px 2px 2px 0;
+    min-height: 24px;
+    font-weight: 600;
+}
+QTabBar::tab:selected {
+    color: #d4deea;
+    border-color: #54c768;
+    background: #0d1c20;
+}
+QTabBar::tab:hover {
+    border-color: #3c526d;
+    color: #d6dfeb;
+}
+QLabel#DiagnosticsPanelTitle {
+    background: transparent;
+    color: #8d99ad;
+    font-size: 13px;
+    font-weight: 700;
+}
+QPushButton {
+    color: #aeb9cc;
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 #142235, stop:1 #0b1625);
+    border: 1px solid #26374e;
+    border-radius: 7px;
+    padding: 8px 16px;
+    font-weight: 600;
+}
+QPushButton:hover {
+    border-color: #3c526d;
+    color: #d6dfeb;
+}
+QPushButton:checked {
+    color: #d4deea;
+    border-color: #54c768;
+    background: #0d1c20;
+}
+QPushButton:disabled {
+    color: #6e7a8d;
+    border-color: #1d2a3c;
+    background: #0b1522;
+}
+QComboBox {
+    color: #aeb9cc;
+    background: #0b1625;
+    border: 1px solid #26374e;
+    border-radius: 5px;
+    padding: 6px 28px 6px 10px;
+}
+QComboBox:hover {
+    border-color: #3c526d;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+QComboBox QAbstractItemView {
+    background: #0b1625;
+    color: #aeb9cc;
+    border: 1px solid #26374e;
+    selection-background-color: #1b3650;
+    selection-color: #d4deea;
+}
+QCheckBox {
+    background: transparent;
+    color: #aeb9cc;
+    spacing: 9px;
+}
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid #34533c;
+    background: #0d1a18;
+}
+QCheckBox::indicator:checked {
+    background: #5ebd69;
+    border-color: #65d379;
+}
+QPlainTextEdit,
+QTableWidget {
+    color: #c2ccdb;
+    background: #050b13;
+    border: 1px solid #233246;
+    selection-background-color: #1b3650;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 12px;
+}
+QTableWidget {
+    gridline-color: #233246;
+}
+QTableWidget::item {
+    padding: 4px;
+}
+QTableWidget::item:alternate {
+    background: #0b1625;
+}
+QHeaderView::section {
+    background: #111d2c;
+    color: #8d99ad;
+    border: 1px solid #233246;
+    padding: 5px;
+    font-weight: 700;
+}
+QScrollArea,
+QScrollArea > QWidget > QWidget {
+    background: transparent;
+    border: none;
+}
+QScrollBar:vertical {
+    background: #07101c;
+    width: 12px;
+    margin: 8px 2px 8px 2px;
+    border-radius: 6px;
+}
+QScrollBar::handle:vertical {
+    background: #25364d;
+    border-radius: 5px;
+    min-height: 34px;
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+)";
+
+static QFrame* makeDiagnosticsPanel(const QString& title, QWidget* parent = nullptr)
+{
+    auto* frame = new QFrame(parent);
+    frame->setObjectName(QStringLiteral("DiagnosticsPanel"));
+    frame->setAttribute(Qt::WA_StyledBackground, true);
+
+    auto* layout = new QVBoxLayout(frame);
+    layout->setContentsMargins(8, 5, 8, 8);
+    layout->setSpacing(4);
+
+    auto* titleLabel = new QLabel(title, frame);
+    titleLabel->setObjectName(QStringLiteral("DiagnosticsPanelTitle"));
+    layout->addWidget(titleLabel);
+
+    return frame;
+}
+
+static QVBoxLayout* diagnosticsPanelLayout(QFrame* panel)
+{
+    return qobject_cast<QVBoxLayout*>(panel ? panel->layout() : nullptr);
+}
+
+static void addDiagnosticsPanelContent(QFrame* panel, QLayout* content)
+{
+    if (auto* layout = diagnosticsPanelLayout(panel)) {
+        layout->addLayout(content);
+        layout->addStretch(1);
+    }
+}
+
 class LogSyntaxHighlighter : public QSyntaxHighlighter {
 public:
     explicit LogSyntaxHighlighter(QTextDocument* parent)
         : QSyntaxHighlighter(parent)
     {
-        m_timeFormat.setForeground(QColor("#7f98b0"));
-        m_debugFormat.setForeground(QColor("#7f98b0"));
+        m_timeFormat.setForeground(QColor("#8d99ad"));
+        m_debugFormat.setForeground(QColor("#8d99ad"));
         m_infoFormat.setForeground(QColor("#77d8ff"));
-        m_warningFormat.setForeground(QColor("#ffd166"));
+        m_warningFormat.setForeground(QColor("#e8b977"));
         m_criticalFormat.setForeground(QColor("#ff6b6b"));
-        m_categoryFormat.setForeground(QColor("#c8d8e8"));
+        m_categoryFormat.setForeground(QColor("#d4deea"));
         m_categoryFormat.setFontWeight(QFont::Bold);
-        m_numberFormat.setForeground(QColor("#8fe388"));
+        m_numberFormat.setForeground(QColor("#80ed91"));
         m_protocolFormat.setForeground(QColor("#d8b4ff"));
     }
 
@@ -174,21 +360,21 @@ protected:
     {
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
-        painter.fillRect(rect(), QColor("#0a0a14"));
+        painter.fillRect(rect(), QColor("#050b13"));
 
         const QRectF plot = rect().adjusted(84, 30, -14, -42);
-        painter.setPen(QPen(QColor("#203040"), 1));
+        painter.setPen(QPen(QColor("#233246"), 1));
         painter.setBrush(Qt::NoBrush);
-        painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 4, 4);
+        painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 7, 7);
 
-        painter.setPen(QColor("#c8d8e8"));
+        painter.setPen(QColor("#d4deea"));
         const QFont normalFont = painter.font();
         QFont titleFont = painter.font();
         titleFont.setBold(true);
         painter.setFont(titleFont);
         painter.drawText(QRectF(10, 6, width() - 190, 18), Qt::AlignLeft | Qt::AlignVCenter, m_title);
         painter.setFont(normalFont);
-        painter.setPen(QColor("#8aa8c0"));
+        painter.setPen(QColor("#8d99ad"));
         painter.drawText(QRectF(width() - 180, 6, 166, 18),
                          Qt::AlignRight | Qt::AlignVCenter, rangeLabel());
 
@@ -197,7 +383,7 @@ protected:
             return !series.points.isEmpty();
         });
         if (!hasPoints || plot.width() < 20 || plot.height() < 20) {
-            painter.setPen(QColor("#8aa8c0"));
+            painter.setPen(QColor("#8d99ad"));
             painter.drawText(plot, Qt::AlignCenter, "Collecting graph data");
             return;
         }
@@ -235,7 +421,7 @@ protected:
         const int yTicks = m_logScale
             ? std::max(1, static_cast<int>(std::round(std::log10(maxY / minY))))
             : 4;
-        painter.setPen(QPen(QColor("#203040"), 1));
+        painter.setPen(QPen(QColor("#233246"), 1));
         for (int i = 0; i <= yTicks; ++i) {
             const double y = plot.bottom() - (plot.height() * i / yTicks);
             painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y));
@@ -252,10 +438,10 @@ protected:
             } else {
                 label = formatAxisValue(tickValue, axisSuffix);
             }
-            painter.setPen(QColor("#8aa8c0"));
+            painter.setPen(QColor("#8d99ad"));
             painter.drawText(QRectF(4, y - 8, 74, 16), Qt::AlignRight | Qt::AlignVCenter,
                              label);
-            painter.setPen(QPen(QColor("#203040"), 1));
+            painter.setPen(QPen(QColor("#233246"), 1));
         }
         for (int i = 0; i <= 4; ++i) {
             const double x = plot.left() + (plot.width() * i / 4.0);
@@ -368,7 +554,7 @@ protected:
             // the same y-coordinate.
             QLinearGradient bgGrad(rect.center().x(), rect.top(),
                                    rect.center().x(), rect.bottom());
-            const QColor bgSolid("#0a0a14");
+            const QColor bgSolid("#050b13");
             QColor bgEdge = bgSolid;
             bgEdge.setAlpha(0);
             // 20 px total: 6 px fully-opaque centre band, 7 px fade
@@ -544,8 +730,8 @@ private:
                 continue;
             }
             const bool selected = m_selectedLabels.isEmpty() || m_selectedLabels.contains(series.label);
-            const QColor textColor = selected ? QColor("#c8d8e8") : QColor("#5f7488");
-            const QColor lineColor = selected ? series.color : QColor("#405468");
+            const QColor textColor = selected ? QColor("#d4deea") : QColor("#6e7a8d");
+            const QColor lineColor = selected ? series.color : QColor("#25364d");
             const int labelWidth = fm.horizontalAdvance(series.label);
             const QRect hitRect(x, y, labelWidth + 24, 18);
 
@@ -581,19 +767,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
 {
     setMinimumSize(920, 680);
     resize(980, 760);
-    setStyleSheet(
-        "QDialog { background: #050710; }"
-        "QTabWidget::pane { border: 1px solid #203040; border-radius: 4px; top: -1px; }"
-        "QTabBar::tab { background: #0a0a14; border: 1px solid #203040; "
-        "border-bottom: none; color: #8aa8c0; padding: 7px 12px; }"
-        "QTabBar::tab:selected { color: #c8d8e8; background: #111120; }"
-        "QTabBar::tab:hover { color: #c8d8e8; }"
-        "QGroupBox { border: 1px solid #203040; border-radius: 4px; "
-        "color: #c8d8e8; font-weight: bold; margin-top: 12px; padding-top: 8px; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
-        "QLabel { color: #8aa8c0; }"
-        "QScrollArea { background: transparent; border: none; }"
-        "QScrollArea > QWidget > QWidget { background: transparent; }");
+    bodyWidget()->setStyleSheet(QString::fromLatin1(kNetworkDiagnosticsStyle));
 
     auto* body = new QVBoxLayout(bodyWidget());
     body->setSpacing(8);
@@ -602,16 +776,8 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     // tab bar so the tabs and the dropdown share a single row, eliminating
     // the otherwise-empty band above the tabs.
     auto* rangeLabel = new QLabel("Timeframe");
-    rangeLabel->setStyleSheet("QLabel { color: #8aa8c0; }");
     m_rangeCombo = new QComboBox(this);
     m_rangeCombo->setFixedWidth(132);
-    m_rangeCombo->setStyleSheet(
-        "QComboBox { background: #0a0a14; border: 1px solid #203040; "
-        "border-radius: 4px; color: #c8d8e8; padding: 3px 8px; }"
-        "QComboBox:hover { border-color: #00b4d8; }"
-        "QComboBox::drop-down { border: none; width: 18px; }"
-        "QComboBox QAbstractItemView { background: #111120; color: #c8d8e8; "
-        "selection-background-color: #00b4d8; selection-color: #000; }");
     m_rangeCombo->addItem("1 minute", 60);
     m_rangeCombo->addItem("5 minutes", 5 * 60);
     m_rangeCombo->addItem("15 minutes", 15 * 60);
@@ -649,13 +815,13 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     auto* content = new QWidget;
     detailsScroll->setWidget(content);
     auto* contentLayout = new QGridLayout(content);
-    contentLayout->setContentsMargins(8, 8, 8, 8);
+    contentLayout->setContentsMargins(6, 6, 6, 6);
     contentLayout->setColumnStretch(0, 1);
     contentLayout->setColumnStretch(1, 1);
     contentLayout->setColumnMinimumWidth(0, 430);
     contentLayout->setColumnMinimumWidth(1, 430);
-    contentLayout->setHorizontalSpacing(16);
-    contentLayout->setVerticalSpacing(14);
+    contentLayout->setHorizontalSpacing(12);
+    contentLayout->setVerticalSpacing(8);
     content->setMinimumWidth(900);
 
     auto makeVal = [](const QString& init = "") {
@@ -667,7 +833,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
         l->setMaximumWidth(kValueColumnWidth);
         l->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
         l->setMinimumHeight(l->fontMetrics().height() + 1);
-        l->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; }");
+        l->setStyleSheet("QLabel { color: #b9c4d7; font-weight: 600; }");
         return l;
     };
 
@@ -678,26 +844,25 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     auto makeNote = [](const QString& text) {
         auto* l = new QLabel(text);
         l->setWordWrap(true);
-        l->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; line-height: 1.2; }");
+        l->setStyleSheet("QLabel { color: #8d99ad; font-size: 10px; line-height: 1.1; }");
         return l;
     };
 
     auto makeHealthCard = [](const QString& title, const QString& subtitle) {
-        auto* card = new QGroupBox(title);
+        auto* card = makeDiagnosticsPanel(title);
         card->setMinimumHeight(96);
-        auto* layout = new QVBoxLayout(card);
-        layout->setContentsMargins(10, 12, 10, 10);
+        auto* layout = diagnosticsPanelLayout(card);
         auto* value = new QLabel("--");
         value->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
         value->setMinimumHeight(value->fontMetrics().height() + 4);
-        value->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; font-size: 18px; }");
+        value->setStyleSheet("QLabel { color: #d4deea; font-weight: 700; font-size: 18px; }");
         auto* hint = new QLabel(subtitle);
         hint->setWordWrap(true);
-        hint->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; }");
+        hint->setStyleSheet("QLabel { color: #8d99ad; font-size: 11px; }");
         layout->addWidget(value);
         layout->addWidget(hint);
         layout->addStretch();
-        return std::pair<QGroupBox*, QLabel*>{card, value};
+        return std::pair<QFrame*, QLabel*>{card, value};
     };
 
     const auto statusCard = makeHealthCard("Status", "Overall connection quality");
@@ -714,12 +879,14 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     overviewLayout->addWidget(audioCard.first, 0, 3);
 
     // ── Network Status group ─────────────────────────────────────────────
-    auto* statusGroup = new QGroupBox("Network Status");
+    auto* statusGroup = makeDiagnosticsPanel("Network Status");
     statusGroup->setMinimumWidth(430);
-    auto* statusGrid = new QGridLayout(statusGroup);
+    auto* statusGrid = new QGridLayout;
+    statusGrid->setContentsMargins(0, 0, 0, 0);
     statusGrid->setColumnStretch(1, 1);
     statusGrid->setVerticalSpacing(2);
     statusGrid->setHorizontalSpacing(12);
+    addDiagnosticsPanelContent(statusGroup, statusGrid);
 
     int row = 0;
     statusGrid->addWidget(makeNote(
@@ -759,12 +926,14 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     statusGrid->addWidget(m_maxRttLabel, row++, 1);
 
     // ── Stream Rates group ───────────────────────────────────────────────
-    auto* rateGroup = new QGroupBox("Incoming Stream Rates");
+    auto* rateGroup = makeDiagnosticsPanel("Incoming Stream Rates");
     rateGroup->setMinimumWidth(430);
-    auto* rateGrid = new QGridLayout(rateGroup);
+    auto* rateGrid = new QGridLayout;
+    rateGrid->setContentsMargins(0, 0, 0, 0);
     rateGrid->setColumnStretch(1, 1);
     rateGrid->setVerticalSpacing(2);
     rateGrid->setHorizontalSpacing(12);
+    addDiagnosticsPanelContent(rateGroup, rateGrid);
 
     row = 0;
     rateGrid->addWidget(makeNote(
@@ -799,12 +968,14 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     rateGrid->addWidget(m_txRateLabel, row++, 1);
 
     // ── Packet Loss group ────────────────────────────────────────────────
-    auto* dropGroup = new QGroupBox("Packet Loss (Sequence Gaps)");
+    auto* dropGroup = makeDiagnosticsPanel("Packet Loss (Sequence Gaps)");
     dropGroup->setMinimumWidth(430);
-    auto* dropGrid = new QGridLayout(dropGroup);
+    auto* dropGrid = new QGridLayout;
+    dropGrid->setContentsMargins(0, 0, 0, 0);
     dropGrid->setColumnStretch(1, 1);
     dropGrid->setVerticalSpacing(2);
     dropGrid->setHorizontalSpacing(12);
+    addDiagnosticsPanelContent(dropGroup, dropGrid);
 
     row = 0;
     dropGrid->addWidget(makeNote(
@@ -834,22 +1005,74 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     m_droppedLabel->setAlignment(Qt::AlignCenter);
     m_droppedLabel->setWordWrap(true);
     m_droppedLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_droppedLabel->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; }");
+    m_droppedLabel->setStyleSheet("QLabel { color: #b9c4d7; font-weight: 600; }");
     dropGrid->addWidget(m_droppedLabel, row++, 0, 1, 2);
 
     // ── Audio Playback group ──────────────────────────────────────────────
-    auto* audioGroup = new QGroupBox("Audio Playback");
+    auto* audioGroup = makeDiagnosticsPanel("Audio Playback");
     audioGroup->setMinimumWidth(430);
-    auto* audioGrid = new QGridLayout(audioGroup);
+    auto* audioGrid = new QGridLayout;
+    audioGrid->setContentsMargins(0, 0, 0, 0);
     audioGrid->setColumnStretch(1, 1);
     audioGrid->setVerticalSpacing(2);
     audioGrid->setHorizontalSpacing(12);
+    addDiagnosticsPanelContent(audioGroup, audioGrid);
 
     row = 0;
     audioGrid->addWidget(makeNote(
-        "Speaker-side buffer health. If underruns rise while the buffer stays near zero, "
-        "playback is starving. Arrival gap and jitter measure timing, not packet loss."),
+        "Radio-to-PC speaker audio health. The stream rate should stay near 24 kHz while audio is playing. "
+        "The Audio tab shows per-stream rows and timing trends."),
         row++, 0, 1, 2);
+
+    audioGrid->addWidget(new QLabel("Health:"), row, 0);
+    m_audioStreamHealthLabel = makeVal();
+    m_audioStreamHealthLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_audioStreamHealthLabel->setWordWrap(true);
+    m_audioStreamHealthLabel->setMinimumWidth(0);
+    m_audioStreamHealthLabel->setMaximumWidth(QWIDGETSIZE_MAX);
+    m_audioStreamHealthLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_audioStreamHealthLabel->setToolTip(
+        "Possible values:\n"
+        "- Healthy: stream is current, near 24 kHz, with no recent packet gaps or repeated late arrivals.\n"
+        "- Measuring RX audio: waiting for enough packets to calculate timing.\n"
+        "- No recent RX audio: the stream exists but packets stopped arriving.\n"
+        "- Audio stream is arriving too slowly: feed rate is low or slow-delivery delay is building.\n"
+        "- Audio packets are repeatedly late: late arrivals are recurring enough to threaten the playback buffer.\n"
+        "- Audio packet gaps detected: VITA sequence numbers indicate missing audio packets.\n"
+        "- Playback buffer ran low recently: local output briefly ran low, but the network stream may still be healthy.");
+    audioGrid->addWidget(m_audioStreamHealthLabel, row++, 1);
+
+    audioGrid->addWidget(new QLabel("Stream Status:"), row, 0);
+    m_audioStreamLabel = makeVal();
+    m_audioStreamLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_audioStreamLabel->setWordWrap(true);
+    m_audioStreamLabel->setMinimumWidth(0);
+    m_audioStreamLabel->setMaximumWidth(QWIDGETSIZE_MAX);
+    m_audioStreamLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    audioGrid->addWidget(m_audioStreamLabel, row++, 1);
+
+    audioGrid->addWidget(new QLabel("Avg Stream Rate:"), row, 0);
+    m_audioFeedRateLabel = makeVal();
+    audioGrid->addWidget(m_audioFeedRateLabel, row++, 1);
+
+    audioGrid->addWidget(new QLabel("Worst Slow Delivery:"), row, 0);
+    m_audioFeedDeficitLabel = makeVal();
+    audioGrid->addWidget(m_audioFeedDeficitLabel, row++, 1);
+
+    audioGrid->addWidget(new QLabel("Late Arrivals:"), row, 0);
+    m_audioLateGapLabel = makeVal();
+    audioGrid->addWidget(m_audioLateGapLabel, row++, 1);
+
+    audioGrid->addWidget(new QLabel("Support Details:"), row, 0);
+    m_audioStreamsDetailLabel = new QLabel;
+    m_audioStreamsDetailLabel->setWordWrap(true);
+    m_audioStreamsDetailLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_audioStreamsDetailLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_audioStreamsDetailLabel->setStyleSheet("QLabel { color: #8d99ad; font-size: 10px; }");
+    m_audioStreamsDetailLabel->setToolTip(
+        "The radio normally sends one mixed PC speaker stream. Use the Audio tab for per-stream timing rows.");
+    audioGrid->addWidget(m_audioStreamsDetailLabel, row++, 1);
+
     audioGrid->addWidget(new QLabel("RX Buffer Now:"), row, 0);
     m_audioBufferLabel = makeVal();
     audioGrid->addWidget(m_audioBufferLabel, row++, 1);
@@ -858,7 +1081,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     m_audioBufferPeakLabel = makeVal();
     audioGrid->addWidget(m_audioBufferPeakLabel, row++, 1);
 
-    audioGrid->addWidget(new QLabel("Underruns (total):"), row, 0);
+    audioGrid->addWidget(new QLabel("Playback Underruns:"), row, 0);
     m_audioUnderrunLabel = makeVal();
     audioGrid->addWidget(m_audioUnderrunLabel, row++, 1);
 
@@ -887,7 +1110,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     m_overviewLossGraph = new TimeSeriesGraphWidget("Recent Packet Loss", "%");
     m_overviewRatesGraph = new TimeSeriesGraphWidget("Total Stream Rates", " kbps");
     m_overviewRatesGraph->setLogScale(true);
-    m_overviewAudioGraph = new TimeSeriesGraphWidget("Audio Buffer", " ms");
+    m_overviewAudioGraph = new TimeSeriesGraphWidget("RX Audio Timing", " ms");
     m_overviewAudioGraph->setPrimaryAxisSeries("Buffer");
     overviewLayout->addWidget(m_overviewLatencyGraph, 1, 0, 1, 2);
     overviewLayout->addWidget(m_overviewLossGraph, 1, 2, 1, 2);
@@ -907,8 +1130,42 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(RadioModel* model,
     makeGraphTab("Rates", &m_ratesGraph, "Incoming Stream Rates", " kbps");
     m_ratesGraph->setLogScale(true);
     makeGraphTab("Packet Loss", &m_lossGraph, "Packet Loss by Stream", "%");
-    makeGraphTab("Audio", &m_audioGraph, "Playback Buffer", " ms");
+
+    makeGraphTab("Audio", &m_audioGraph, "RX Audio Buffer and Timing", " ms");
     m_audioGraph->setPrimaryAxisSeries("Buffer");
+    if (auto* audioPage = tabs->widget(tabs->count() - 1)) {
+        if (auto* audioLayout = qobject_cast<QVBoxLayout*>(audioPage->layout())) {
+            audioLayout->setSpacing(8);
+            auto* audioNote = new QLabel(
+                "PC speaker audio is normally one radio-mixed stream. If more than one transport stream appears, "
+                "each row below is shown separately; slice letters list the unmuted slices feeding the speaker mix.",
+                audioPage);
+            audioNote->setWordWrap(true);
+            audioNote->setStyleSheet("QLabel { color: #8d99ad; font-size: 11px; }");
+            audioLayout->insertWidget(0, audioNote);
+
+            m_audioStreamsTable = new QTableWidget(0, 9, audioPage);
+            m_audioStreamsTable->setHorizontalHeaderLabels({
+                "Stream", "Source", "Format", "Rate", "Slow Delivery",
+                "Late", "Packet Gaps", "Worst Gap", "Last Packet"
+            });
+            m_audioStreamsTable->verticalHeader()->setVisible(false);
+            m_audioStreamsTable->horizontalHeader()->setStretchLastSection(false);
+            m_audioStreamsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+            m_audioStreamsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+            m_audioStreamsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+            m_audioStreamsTable->setSelectionMode(QAbstractItemView::NoSelection);
+            m_audioStreamsTable->setFocusPolicy(Qt::NoFocus);
+            m_audioStreamsTable->setAlternatingRowColors(true);
+            m_audioStreamsTable->setMinimumHeight(136);
+            m_audioStreamsTable->setMaximumHeight(190);
+            audioLayout->insertWidget(1, m_audioStreamsTable);
+
+            m_audioFeedGraph = new TimeSeriesGraphWidget("RX Audio Stream Rate vs Target", " Hz", audioPage);
+            audioLayout->addWidget(m_audioFeedGraph, 1);
+        }
+    }
+
     QWidget* logsTab = buildLogsTab();
     tabs->addTab(logsTab, "Logs");
 
@@ -943,17 +1200,17 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(8);
 
-    auto* filterGroup = new QGroupBox("Filter Categories", page);
-    auto* filterGrid = new QGridLayout(filterGroup);
-    filterGrid->setContentsMargins(10, 14, 10, 8);
+    auto* filterGroup = makeDiagnosticsPanel("Filter Categories", page);
+    auto* filterGrid = new QGridLayout;
+    filterGrid->setContentsMargins(0, 0, 0, 0);
     filterGrid->setHorizontalSpacing(12);
     filterGrid->setVerticalSpacing(4);
+    addDiagnosticsPanelContent(filterGroup, filterGrid);
 
     auto* allCategories = new QCheckBox("General", filterGroup);
     allCategories->setProperty("logCategory", QStringLiteral("default"));
     allCategories->setChecked(true);
     allCategories->setToolTip("Uncategorized Qt log output");
-    allCategories->setStyleSheet("QCheckBox { color: #c8d8e8; }");
     filterGrid->addWidget(allCategories, 0, 0);
     m_logCategoryCheckboxes.push_back(allCategories);
     m_visibleLogCategories.insert(QStringLiteral("default"));
@@ -974,7 +1231,6 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
         checkbox->setProperty("logCategory", category.id);
         checkbox->setChecked(true);
         checkbox->setToolTip(QString("%1\nCategory: %2").arg(category.description, category.id));
-        checkbox->setStyleSheet("QCheckBox { color: #c8d8e8; }");
         m_logCategoryCheckboxes.push_back(checkbox);
         m_visibleLogCategories.insert(category.id);
         filterGrid->addWidget(checkbox, index / kColumns, index % kColumns);
@@ -993,8 +1249,8 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
     auto* filterButtonRow = new QHBoxLayout;
     auto* selectAllBtn = new QPushButton("Select All", page);
     auto* deselectAllBtn = new QPushButton("Deselect All", page);
-    selectAllBtn->setFixedHeight(24);
-    deselectAllBtn->setFixedHeight(24);
+    selectAllBtn->setMinimumHeight(32);
+    deselectAllBtn->setMinimumHeight(32);
     connect(selectAllBtn, &QPushButton::clicked, this, [this]() {
         setAllLogCategoriesVisible(true);
     });
@@ -1009,7 +1265,7 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
     auto* infoRow = new QHBoxLayout;
     m_logPathLabel = new QLabel(page);
     m_logPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_logPathLabel->setStyleSheet("QLabel { color: #8aa8c0; font-size: 11px; }");
+    m_logPathLabel->setStyleSheet("QLabel { color: #8d99ad; font-size: 11px; }");
     infoRow->addWidget(m_logPathLabel, 1);
 
     m_logLiveToggle = new QPushButton("Live", page);
@@ -1017,10 +1273,6 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
     m_logLiveToggle->setChecked(true);
     m_logLiveToggle->setFixedWidth(92);
     m_logLiveToggle->setToolTip("Live follows the newest log output. Turn it off to inspect older lines.");
-    m_logLiveToggle->setStyleSheet(
-        "QPushButton { background: #1a2030; color: #c8d8e8; border: 1px solid #203040; "
-        "border-radius: 4px; padding: 3px 8px; }"
-        "QPushButton:checked { background: #00607a; color: #e0f0ff; border-color: #00b4d8; }");
     connect(m_logLiveToggle, &QPushButton::toggled, this, [this](bool live) {
         setLogFollowLive(live);
     });
@@ -1031,9 +1283,6 @@ QWidget* NetworkDiagnosticsDialog::buildLogsTab()
     m_logViewer->setReadOnly(true);
     m_logViewer->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_logViewer->setMaximumBlockCount(2500);
-    m_logViewer->setStyleSheet(
-        "QPlainTextEdit { background: #0a0a14; color: #a0b0c0; "
-        "font-family: monospace; font-size: 11px; border: 1px solid #203040; }");
     new LogSyntaxHighlighter(m_logViewer->document());
     layout->addWidget(m_logViewer, 1);
 
@@ -1321,6 +1570,207 @@ static QString formatMsValue(int value)
     return value < 1 ? "< 1 ms" : QString("%1 ms").arg(value);
 }
 
+static QString formatPacketClassCode(quint16 pcc)
+{
+    return QStringLiteral("0x%1")
+        .arg(QString::number(pcc, 16).toUpper().rightJustified(4, QLatin1Char('0')));
+}
+
+static QString formatAudioCodec(quint16 pcc)
+{
+    switch (pcc) {
+    case 0x03E3u:
+        return "Stereo PCM";
+    case 0x0123u:
+        return "Reduced PCM";
+    case 0x8005u:
+        return "Opus";
+    default:
+        return "Unknown audio";
+    }
+}
+
+static QString formatStreamId(quint32 streamId)
+{
+    return QStringLiteral("0x%1")
+        .arg(QString::number(streamId, 16).toUpper().rightJustified(8, QLatin1Char('0')));
+}
+
+static QString formatFeedRate(double hz, int streamCount = 1)
+{
+    if (hz <= 0.0) {
+        return "Waiting for audio";
+    }
+    QString suffix;
+    if (streamCount > 1) {
+        suffix = " avg / stream";
+    }
+    if (hz >= 1000.0) {
+        return QString("%1 kHz%2").arg(hz / 1000.0, 0, 'f', 1).arg(suffix);
+    }
+    return QString("%1 Hz%2").arg(hz, 0, 'f', 1).arg(suffix);
+}
+
+static QString formatFeedDeficit(double deficitMs)
+{
+    if (std::abs(deficitMs) < 1.0) {
+        return "On time";
+    }
+    if (deficitMs < 0.0) {
+        return QString("%1 ms ahead").arg(std::abs(deficitMs), 0, 'f', 1);
+    }
+    return QString("%1 ms behind").arg(deficitMs, 0, 'f', 1);
+}
+
+static QString formatLateArrivals(qint64 latePackets, double latePacketsPerSecond)
+{
+    if (latePackets <= 0 && latePacketsPerSecond <= 0.0) {
+        return "None";
+    }
+    return QString("%1 late (%2/s)")
+        .arg(latePackets)
+        .arg(latePacketsPerSecond, 0, 'f', 1);
+}
+
+static QStringList audibleSliceLabels(const RadioModel* model)
+{
+    QStringList labels;
+    if (!model) {
+        return labels;
+    }
+
+    const QList<SliceModel*> slices = model->slices();
+    for (const SliceModel* slice : slices) {
+        if (!slice || slice->audioMute() || slice->audioGain() <= 0.5f) {
+            continue;
+        }
+        labels.push_back(slice->letter());
+    }
+    labels.removeDuplicates();
+    std::sort(labels.begin(), labels.end(), [](const QString& a, const QString& b) {
+        return QString::localeAwareCompare(a, b) < 0;
+    });
+    return labels;
+}
+
+static QString formatSliceMix(const QStringList& sliceLabels)
+{
+    if (sliceLabels.isEmpty()) {
+        return "no unmuted slices";
+    }
+    return QString("slice%1 %2")
+        .arg(sliceLabels.size() == 1 ? "" : "s")
+        .arg(sliceLabels.join(", "));
+}
+
+static QString formatAudioStream(const NetworkDiagnosticsSample& sample,
+                                 const QStringList& sliceLabels)
+{
+    if (sample.audioStreamCount <= 0) {
+        return "Waiting for RX audio";
+    }
+
+    const QString streamText = QString("%1 speaker stream%2")
+        .arg(sample.audioStreamCount)
+        .arg(sample.audioStreamCount == 1 ? "" : "s");
+    return QString("%1 carrying %2, %3")
+        .arg(streamText,
+             formatSliceMix(sliceLabels),
+             formatAudioCodec(sample.audioPacketClassCode));
+}
+
+static QString formatAudioSupportDetails(int streamCount, const QStringList& sliceLabels)
+{
+    if (streamCount <= 0) {
+        return "No RX audio packets seen yet.";
+    }
+    return QString("The radio sends PC speaker audio as a mixed remote_audio_rx stream. "
+                   "Slice audio is mixed before the packet stream, so per-slice packet timing is not available here. "
+                   "The Audio tab shows the transport stream rows; current mix: %1.")
+        .arg(formatSliceMix(sliceLabels));
+}
+
+static QString formatAudioStreamSource(const QStringList& sliceLabels)
+{
+    if (sliceLabels.isEmpty()) {
+        return "Speaker mix (no unmuted slices)";
+    }
+    return QString("Speaker mix: %1").arg(formatSliceMix(sliceLabels));
+}
+
+static QString formatAudioStreamFormat(quint16 pcc)
+{
+    return QString("%1 (%2)")
+        .arg(formatAudioCodec(pcc),
+             formatPacketClassCode(pcc));
+}
+
+enum class AudioHealthState {
+    Waiting,
+    NoRecentAudio,
+    Measuring,
+    SlowDelivery,
+    RepeatedLatePackets,
+    PacketGaps,
+    BufferLow,
+    Healthy,
+};
+
+struct AudioHealthStatus {
+    AudioHealthState state{AudioHealthState::Waiting};
+    QString text;
+};
+
+static AudioHealthStatus formatAudioHealth(const NetworkDiagnosticsSample& sample)
+{
+    if (sample.audioStreamCount <= 0) {
+        return {AudioHealthState::Waiting, "Waiting for RX audio"};
+    }
+    if (sample.audioLastPacketAgeMs > 1000) {
+        return {AudioHealthState::NoRecentAudio, "No recent RX audio"};
+    }
+    if (sample.audioFeedRateHz <= 0.0) {
+        return {AudioHealthState::Measuring, "Measuring RX audio"};
+    }
+
+    const bool underfed = sample.audioFeedDeficitMs >= 20.0
+        || sample.audioFeedRateHz < AudioEngine::DEFAULT_SAMPLE_RATE * 0.95;
+    if (underfed) {
+        return {AudioHealthState::SlowDelivery, "Audio stream is arriving too slowly"};
+    }
+    const bool recurringLatePackets = sample.audioLatePacketsPerSecond >= 2.0
+        || (sample.audioLatePacketsPerSecond >= 1.0 && sample.audioFeedDeficitMs >= 10.0);
+    if (recurringLatePackets) {
+        return {AudioHealthState::RepeatedLatePackets, "Audio packets are repeatedly late"};
+    }
+    if (sample.audioPacketGaps > 0) {
+        return {AudioHealthState::PacketGaps, "Audio packet gaps detected"};
+    }
+    if (sample.underrunsPerSecond > 0.0) {
+        return {AudioHealthState::BufferLow, "Playback buffer ran low recently"};
+    }
+    return {AudioHealthState::Healthy, "Healthy"};
+}
+
+static QString audioHealthStyle(AudioHealthState state)
+{
+    switch (state) {
+    case AudioHealthState::Healthy:
+        return "QLabel { color: #64d36e; font-weight: 700; }";
+    case AudioHealthState::SlowDelivery:
+    case AudioHealthState::PacketGaps:
+        return "QLabel { color: #ff6b6b; font-weight: 700; }";
+    case AudioHealthState::Waiting:
+    case AudioHealthState::NoRecentAudio:
+    case AudioHealthState::Measuring:
+        return "QLabel { color: #8d99ad; font-weight: 700; }";
+    case AudioHealthState::RepeatedLatePackets:
+    case AudioHealthState::BufferLow:
+        return "QLabel { color: #e8b977; font-weight: 700; }";
+    }
+    return "QLabel { color: #8d99ad; font-weight: 700; }";
+}
+
 NetworkDiagnosticsHistory::NetworkDiagnosticsHistory(RadioModel* model, AudioEngine* audio, QObject* parent)
     : QObject(parent)
     , m_model(model)
@@ -1409,6 +1859,48 @@ void NetworkDiagnosticsHistory::sampleNow()
         sample.audioBufferMs = audioBufferMs(m_audio->rxBufferBytes(), sampleRate);
         sample.underrunsPerSecond = static_cast<double>(underrunDelta) / elapsedSeconds;
     }
+
+    const QVector<PanadapterStream::AudioStreamDiagnostics> audioStreams =
+        m_model->audioStreamDiagnostics();
+    sample.audioStreamCount = audioStreams.size();
+    qint64 totalLatePackets = 0;
+    for (const PanadapterStream::AudioStreamDiagnostics& stream : audioStreams) {
+        totalLatePackets += stream.latePackets;
+    }
+    if (totalLatePackets >= m_lastAudioLatePackets) {
+        sample.audioLatePacketsPerSecond =
+            (totalLatePackets - m_lastAudioLatePackets) / elapsedSeconds;
+    }
+    m_lastAudioLatePackets = totalLatePackets;
+
+    if (!audioStreams.isEmpty()) {
+        double feedRateSum = 0.0;
+        int feedRateCount = 0;
+        qint64 primaryPackets = -1;
+        sample.audioLastPacketAgeMs = std::numeric_limits<qint64>::max();
+        for (const PanadapterStream::AudioStreamDiagnostics& stream : audioStreams) {
+            if (stream.feedRateHz > 0.0) {
+                feedRateSum += stream.feedRateHz;
+                ++feedRateCount;
+            }
+            sample.audioFeedDeficitMs = std::max(sample.audioFeedDeficitMs,
+                                                 std::max(0.0, stream.deficitMs));
+            sample.audioLatePackets += stream.latePackets;
+            sample.audioPacketGaps += stream.sequenceErrors;
+            sample.audioLastPacketAgeMs = std::min(sample.audioLastPacketAgeMs,
+                                                   stream.lastPacketAgeMs);
+            if (stream.packets > primaryPackets) {
+                primaryPackets = stream.packets;
+                sample.audioPacketClassCode = stream.packetClassCode;
+            }
+        }
+        if (feedRateCount > 0) {
+            sample.audioFeedRateHz = feedRateSum / feedRateCount;
+        }
+        if (sample.audioLastPacketAgeMs == std::numeric_limits<qint64>::max()) {
+            sample.audioLastPacketAgeMs = 0;
+        }
+    }
     m_lastSampleMs = nowMs;
 
     m_samples.push_back(sample);
@@ -1465,10 +1957,76 @@ void NetworkDiagnosticsHistory::pruneSamples(qint64 nowMs)
             bucket.daxLossPct = std::max(bucket.daxLossPct, sample.daxLossPct);
             bucket.audioBufferMs = sample.audioBufferMs;
             bucket.underrunsPerSecond = std::max(bucket.underrunsPerSecond, sample.underrunsPerSecond);
+            bucket.audioFeedRateHz =
+                mergeAverage(bucket.audioFeedRateHz, sample.audioFeedRateHz, bucketSampleCount);
+            bucket.audioFeedDeficitMs = std::max(bucket.audioFeedDeficitMs, sample.audioFeedDeficitMs);
+            bucket.audioLatePacketsPerSecond =
+                std::max(bucket.audioLatePacketsPerSecond, sample.audioLatePacketsPerSecond);
+            bucket.audioLatePackets = sample.audioLatePackets;
+            bucket.audioPacketGaps = sample.audioPacketGaps;
+            bucket.audioLastPacketAgeMs = sample.audioLastPacketAgeMs;
+            bucket.audioPacketClassCode = sample.audioPacketClassCode;
+            bucket.audioStreamCount = sample.audioStreamCount;
             ++bucketSampleCount;
         }
     }
     m_samples = std::move(compacted);
+}
+
+static void updateAudioStreamTable(QTableWidget* table,
+                                   const RadioModel* model,
+                                   const QVector<PanadapterStream::AudioStreamDiagnostics>& audioStreams)
+{
+    if (!table) {
+        return;
+    }
+
+    auto makeItem = [](const QString& text, const QColor& color = QColor("#c2ccdb")) {
+        auto* item = new QTableWidgetItem(text);
+        item->setForeground(color);
+        return item;
+    };
+    auto makeNumberItem = [&](const QString& text, bool warning = false) {
+        auto* item = makeItem(text, warning ? QColor("#e8b977") : QColor("#c2ccdb"));
+        item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        return item;
+    };
+
+    const QStringList sliceLabels = audibleSliceLabels(model);
+    table->setRowCount(audioStreams.isEmpty()
+                       ? 1
+                       : static_cast<int>(audioStreams.size()));
+    table->clearContents();
+
+    if (audioStreams.isEmpty()) {
+        table->setItem(0, 0, makeItem("Waiting"));
+        table->setItem(0, 1, makeItem(formatAudioStreamSource(sliceLabels), QColor("#8d99ad")));
+        for (int col = 2; col < table->columnCount(); ++col) {
+            table->setItem(0, col, makeItem("--", QColor("#6e7a8d")));
+        }
+        table->resizeRowsToContents();
+        return;
+    }
+
+    for (int row = 0; row < static_cast<int>(audioStreams.size()); ++row) {
+        const PanadapterStream::AudioStreamDiagnostics& stream = audioStreams.at(row);
+        const bool late = stream.latePackets > 0;
+        const bool gaps = stream.sequenceErrors > 0;
+        table->setItem(row, 0, makeItem(formatStreamId(stream.streamId)));
+        table->setItem(row, 1, makeItem(formatAudioStreamSource(sliceLabels)));
+        table->setItem(row, 2, makeItem(formatAudioStreamFormat(stream.packetClassCode)));
+        table->setItem(row, 3, makeNumberItem(formatFeedRate(stream.feedRateHz)));
+        table->setItem(row, 4, makeNumberItem(formatFeedDeficit(std::max(0.0, stream.deficitMs)),
+                                              stream.deficitMs >= 20.0));
+        table->setItem(row, 5, makeNumberItem(QString::number(stream.latePackets), late));
+        table->setItem(row, 6, makeNumberItem(QString::number(stream.sequenceErrors), gaps));
+        table->setItem(row, 7, makeNumberItem(QString("%1 ms").arg(stream.maxGapMs),
+                                              stream.maxGapMs > stream.expectedPacketMs * 2.0));
+        table->setItem(row, 8, makeNumberItem(QString("%1 ms ago").arg(stream.lastPacketAgeMs),
+                                              stream.lastPacketAgeMs > 1000));
+    }
+
+    table->resizeRowsToContents();
 }
 
 void NetworkDiagnosticsDialog::refresh()
@@ -1552,6 +2110,9 @@ void NetworkDiagnosticsDialog::refresh()
     if (m_audio) {
         const int sampleRate = m_audio->rxBufferSampleRate();
         const quint64 underruns = m_audio->rxBufferUnderrunCount();
+        const QVector<PanadapterStream::AudioStreamDiagnostics> audioStreams =
+            m_model->audioStreamDiagnostics();
+        const QStringList sliceLabels = audibleSliceLabels(m_model);
         m_audioBufferLabel->setText(formatAudioBuffer(m_audio->rxBufferBytes(), sampleRate));
         m_overviewAudioValue->setText(QString("%1 ms").arg(audioBufferMs(m_audio->rxBufferBytes(), sampleRate), 0, 'f', 1));
         m_audioBufferPeakLabel->setText(formatAudioBuffer(m_audio->rxBufferPeakBytes(), sampleRate));
@@ -1561,6 +2122,17 @@ void NetworkDiagnosticsDialog::refresh()
         m_audioPacketGapLabel->setText(formatMsValue(m_model->audioPacketGapMs()));
         m_audioPacketGapMaxLabel->setText(formatMsValue(m_model->audioPacketGapMaxMs()));
         m_audioJitterLabel->setText(formatMsValue(m_model->audioPacketJitterMs()));
+        m_audioStreamLabel->setText(formatAudioStream(sample, sliceLabels));
+        m_audioFeedRateLabel->setText(formatFeedRate(sample.audioFeedRateHz, sample.audioStreamCount));
+        m_audioFeedDeficitLabel->setText(formatFeedDeficit(sample.audioFeedDeficitMs));
+        m_audioLateGapLabel->setText(formatLateArrivals(sample.audioLatePackets,
+                                                        sample.audioLatePacketsPerSecond));
+        const AudioHealthStatus audioHealth = formatAudioHealth(sample);
+        m_audioStreamHealthLabel->setText(audioHealth.text);
+        m_audioStreamHealthLabel->setStyleSheet(audioHealthStyle(audioHealth.state));
+        m_audioStreamsDetailLabel->setText(formatAudioSupportDetails(sample.audioStreamCount,
+                                                                     sliceLabels));
+        updateAudioStreamTable(m_audioStreamsTable, m_model, audioStreams);
     } else {
         m_audioBufferLabel->setText("Unavailable");
         m_audioBufferPeakLabel->setText("Unavailable");
@@ -1569,26 +2141,34 @@ void NetworkDiagnosticsDialog::refresh()
         m_audioPacketGapLabel->setText("Unavailable");
         m_audioPacketGapMaxLabel->setText("Unavailable");
         m_audioJitterLabel->setText("Unavailable");
+        m_audioStreamLabel->setText("Unavailable");
+        m_audioFeedRateLabel->setText("Unavailable");
+        m_audioFeedDeficitLabel->setText("Unavailable");
+        m_audioLateGapLabel->setText("Unavailable");
+        m_audioStreamHealthLabel->setText("Unavailable");
+        m_audioStreamHealthLabel->setStyleSheet("QLabel { color: #8d99ad; font-weight: 700; }");
+        m_audioStreamsDetailLabel->setText("Unavailable");
+        updateAudioStreamTable(m_audioStreamsTable, m_model, {});
         m_overviewAudioValue->setText("Unavailable");
     }
 
     // Color the status label
     const QString q = m_model->networkQuality();
     if (q == "Excellent" || q == "Very Good") {
-        m_statusLabel->setStyleSheet("QLabel { color: #00cc66; font-weight: bold; }");
-        m_overviewStatusValue->setStyleSheet("QLabel { color: #00cc66; font-weight: bold; font-size: 18px; }");
+        m_statusLabel->setStyleSheet("QLabel { color: #64d36e; font-weight: 700; }");
+        m_overviewStatusValue->setStyleSheet("QLabel { color: #64d36e; font-weight: 700; font-size: 18px; }");
     } else if (q == "Good") {
-        m_statusLabel->setStyleSheet("QLabel { color: #88cc00; font-weight: bold; }");
-        m_overviewStatusValue->setStyleSheet("QLabel { color: #88cc00; font-weight: bold; font-size: 18px; }");
+        m_statusLabel->setStyleSheet("QLabel { color: #80ed91; font-weight: 700; }");
+        m_overviewStatusValue->setStyleSheet("QLabel { color: #80ed91; font-weight: 700; font-size: 18px; }");
     } else if (q == "Fair") {
-        m_statusLabel->setStyleSheet("QLabel { color: #ccaa00; font-weight: bold; }");
-        m_overviewStatusValue->setStyleSheet("QLabel { color: #ccaa00; font-weight: bold; font-size: 18px; }");
+        m_statusLabel->setStyleSheet("QLabel { color: #e8b977; font-weight: 700; }");
+        m_overviewStatusValue->setStyleSheet("QLabel { color: #e8b977; font-weight: 700; font-size: 18px; }");
     } else if (q == "Poor") {
-        m_statusLabel->setStyleSheet("QLabel { color: #cc3300; font-weight: bold; }");
-        m_overviewStatusValue->setStyleSheet("QLabel { color: #cc3300; font-weight: bold; font-size: 18px; }");
+        m_statusLabel->setStyleSheet("QLabel { color: #ff6b6b; font-weight: 700; }");
+        m_overviewStatusValue->setStyleSheet("QLabel { color: #ff6b6b; font-weight: 700; font-size: 18px; }");
     } else {
-        m_statusLabel->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; }");
-        m_overviewStatusValue->setStyleSheet("QLabel { color: #c8d8e8; font-weight: bold; font-size: 18px; }");
+        m_statusLabel->setStyleSheet("QLabel { color: #d4deea; font-weight: 700; }");
+        m_overviewStatusValue->setStyleSheet("QLabel { color: #d4deea; font-weight: 700; font-size: 18px; }");
     }
 
     updateCharts();
@@ -1688,7 +2268,15 @@ void NetworkDiagnosticsDialog::updateCharts()
     };
     QVector<TimeSeriesGraphWidget::Series> audioBufferSeries{
         buildSeriesWithUnit("Buffer", QColor("#00b4d8"), " ms", [](const NetworkDiagnosticsSample& s) { return s.audioBufferMs; }),
-        buildSeriesWithUnit("Underruns", QColor("#eb5757"), "/s", [](const NetworkDiagnosticsSample& s) { return s.underrunsPerSecond; })
+        buildSeriesWithUnit("Slow delivery", QColor("#f2c94c"), " ms", [](const NetworkDiagnosticsSample& s) { return s.audioFeedDeficitMs; }),
+        buildSeriesWithUnit("Playback underruns", QColor("#eb5757"), "/s", [](const NetworkDiagnosticsSample& s) { return s.underrunsPerSecond; }),
+        buildSeriesWithUnit("Late arrivals", QColor("#bb6bd9"), "/s", [](const NetworkDiagnosticsSample& s) { return s.audioLatePacketsPerSecond; })
+    };
+    QVector<TimeSeriesGraphWidget::Series> audioFeedSeries{
+        buildSeriesWithUnit("Avg stream rate", QColor("#6fcf97"), " Hz", [](const NetworkDiagnosticsSample& s) { return s.audioFeedRateHz; }),
+        buildSeriesWithUnit("Target", QColor("#8aa8c0"), " Hz", [](const NetworkDiagnosticsSample&) {
+            return static_cast<double>(AudioEngine::DEFAULT_SAMPLE_RATE);
+        })
     };
 
     m_overviewLatencyGraph->setSeries(latencySeries, rangeSeconds);
@@ -1702,6 +2290,7 @@ void NetworkDiagnosticsDialog::updateCharts()
     m_ratesGraph->setSeries(rateSeries, rangeSeconds);
     m_lossGraph->setSeries(lossSeries, rangeSeconds);
     m_audioGraph->setSeries(audioBufferSeries, rangeSeconds);
+    m_audioFeedGraph->setSeries(audioFeedSeries, rangeSeconds);
 }
 
 } // namespace AetherSDR

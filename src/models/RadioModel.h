@@ -858,6 +858,8 @@ public:
 
     // Per-category stream stats (Audio, FFT, Waterfall, Meter, DAX)
     PanadapterStream::CategoryStats categoryStats(PanadapterStream::StreamCategory cat) const;
+    QVector<PanadapterStream::AudioStreamDiagnostics> audioStreamDiagnostics() const;
+    void resetAudioStreamDiagnostics();
 };
 
 } // namespace AetherSDR

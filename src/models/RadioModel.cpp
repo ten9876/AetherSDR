@@ -2671,6 +2671,21 @@ PanadapterStream::CategoryStats RadioModel::categoryStats(PanadapterStream::Stre
     return m_panStream->categoryStats(cat);
 }
 
+QVector<PanadapterStream::AudioStreamDiagnostics> RadioModel::audioStreamDiagnostics() const
+{
+    return m_panStream ? m_panStream->audioStreamDiagnostics()
+                       : QVector<PanadapterStream::AudioStreamDiagnostics>{};
+}
+
+void RadioModel::resetAudioStreamDiagnostics()
+{
+    if (m_panStream) {
+        QMetaObject::invokeMethod(m_panStream,
+                                  &PanadapterStream::resetAudioStreamDiagnostics,
+                                  Qt::AutoConnection);
+    }
+}
+
 void RadioModel::handleMemoryStatus(int index, const QMap<QString, QString>& kvs)
 {
     // Check for removal — radio sends either "in_use=0" or "removed" (no value)
@@ -2869,6 +2884,7 @@ void RadioModel::createRxAudioStream()
 
     m_rxAudio.createPending = true;
     m_rxAudio.removeRequested = false;
+    resetAudioStreamDiagnostics();
     logRemoteAudioRxSummary(QStringLiteral("create requested"));
     sendCmd(QString("stream create type=remote_audio_rx compression=%1").arg(audioCompressionParam()),
         [this](int code, const QString& body) {
@@ -2894,6 +2910,7 @@ void RadioModel::createRxAudioStream()
                 m_rxAudio.streamId = streamId;
                 m_rxAudio.clientHandle = clientHandle();
                 m_rxAudio.compression = audioCompressionParam();
+                resetAudioStreamDiagnostics();
                 qCDebug(lcProtocol) << "RadioModel: remote_audio_rx stream created, id:"
                                     << RadioStatusOwnership::hexId(streamId);
                 logRemoteAudioRxSummary(QStringLiteral("create response adopted"));
@@ -2928,6 +2945,7 @@ void RadioModel::removeRxAudioStream()
     m_rxAudio.statusSeen = false;
     m_rxAudio.removeRequested = false;
     m_rxAudio.compression.clear();
+    resetAudioStreamDiagnostics();
     logRemoteAudioRxSummary(QStringLiteral("remove requested"));
 }
 
@@ -2989,6 +3007,7 @@ bool RadioModel::handleRemoteAudioRxStreamStatus(const QString& object,
     case RadioStatusOwnership::RemoteAudioRxAction::Adopted:
         qCDebug(lcProtocol) << "RadioModel: adopted owned remote_audio_rx status"
                             << streamText;
+        resetAudioStreamDiagnostics();
         logRemoteAudioRxSummary(QStringLiteral("status adopted"));
         break;
     case RadioStatusOwnership::RemoteAudioRxAction::Updated:
@@ -2999,6 +3018,7 @@ bool RadioModel::handleRemoteAudioRxStreamStatus(const QString& object,
     case RadioStatusOwnership::RemoteAudioRxAction::Removed:
         qCDebug(lcProtocol) << "RadioModel: owned remote_audio_rx removed"
                             << streamText;
+        resetAudioStreamDiagnostics();
         logRemoteAudioRxSummary(QStringLiteral("status removed"));
         break;
     case RadioStatusOwnership::RemoteAudioRxAction::NotRemoteAudio:
