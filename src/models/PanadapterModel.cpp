@@ -113,6 +113,13 @@ void PanadapterModel::applyPanStatus(const QMap<QString, QString>& kvs)
             emit antListChanged(m_antList);
         }
     }
+    if (kvs.contains("rxant")) {
+        const QString ant = kvs["rxant"];
+        if (ant != m_rxAntenna) {
+            m_rxAntenna = ant;
+            emit rxAntennaChanged(m_rxAntenna);
+        }
+    }
     if (kvs.contains("waterfall")) {
         setWaterfallId(kvs["waterfall"]);
     }

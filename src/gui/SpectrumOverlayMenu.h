@@ -56,7 +56,7 @@ public:
                                   int freqGridSpacingKhz = 0);
 
     // Set the panadapter ID this overlay belongs to (for +RX routing).
-    void setPanId(const QString& id) { m_panId = id; }
+    void setPanId(const QString& id);
     QString panId() const { return m_panId; }
 
     // Connect/disconnect the ANT panel to a slice model.
@@ -139,6 +139,8 @@ signals:
 
 private:
     QString m_panId;
+    QPointer<PanadapterModel> m_panadapter;
+    QMetaObject::Connection m_panRxAntennaConnection;
     void toggle();
     void updateLayout();
     void toggleBandPanel();
@@ -155,8 +157,10 @@ private:
     void hideAllSubPanels();
     void showBandPanelAt(const QPoint& pos);
     void syncAntPanel();
+    void wirePanadapterRxAntenna();
     void refreshAntennaCombo();
     void setRxAntennaComboToken(const QString& token);
+    QString currentRxAntennaToken() const;
 
     static constexpr int kBtnAddRx = 0;
     static constexpr int kBtnAddTnf = 1;

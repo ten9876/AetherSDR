@@ -1310,6 +1310,18 @@ target_include_directories(slice_model_letter_test PRIVATE src)
 target_link_libraries(slice_model_letter_test PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME slice_model_letter_test COMMAND slice_model_letter_test)
 
+add_executable(panadapter_model_rx_antenna_test
+    tests/panadapter_model_rx_antenna_test.cpp
+    src/models/PanadapterModel.cpp
+    src/core/PerfTelemetry.cpp
+    src/core/LogManager.cpp
+    src/core/AsyncLogWriter.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(panadapter_model_rx_antenna_test PRIVATE src)
+target_link_libraries(panadapter_model_rx_antenna_test PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME panadapter_model_rx_antenna_test COMMAND panadapter_model_rx_antenna_test)
+
 add_executable(packet_loss_concealment_test
     tests/packet_loss_concealment_test.cpp
     src/core/PacketLossConcealment.cpp
