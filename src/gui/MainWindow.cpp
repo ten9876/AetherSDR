@@ -3464,7 +3464,12 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_flexCoalesceTimer, &QTimer::timeout, this, [this]() {
         if (m_flexTargetMhz < 0.0) return;
         auto* s = activeSlice();
-        if (!s || s->isLocked()) { m_flexTargetMhz = -1.0; return; }
+        if (!s) { m_flexTargetMhz = -1.0; return; }
+        if (s->isLocked()) {
+            s->notifyTuneBlockedByLock();
+            m_flexTargetMhz = -1.0;
+            return;
+        }
         double target = m_flexTargetMhz;
         applyTuneRequest(s, target, TuneIntent::IncrementalTune, "flexcontrol");
     });
@@ -3505,7 +3510,12 @@ MainWindow::MainWindow(QWidget* parent)
         }
         // Frequency mode (default)
         auto* s = activeSlice();
-        if (!s || s->isLocked()) return;
+        if (!s) return;
+        if (s->isLocked()) {
+            s->notifyTuneBlockedByLock();
+            m_flexTargetMhz = -1.0;
+            return;
+        }
         int stepHz = spectrum() ? spectrum()->stepSize() : 100;
         // Initialize target from slice on first step or after external QSY (#1098)
         if (m_flexTargetMhz < 0.0 ||
@@ -3657,7 +3667,13 @@ MainWindow::MainWindow(QWidget* parent)
             this, [this](const QString& paramId, int steps) {
         if (paramId == "rx.tuneKnob") {
             auto* s = activeSlice();
-            if (!s || s->isLocked()) {
+            if (!s) {
+                m_midiTuneTargetMhz = -1.0;
+                m_midiTuneIdleTimer.stop();
+                return;
+            }
+            if (s->isLocked()) {
+                s->notifyTuneBlockedByLock();
                 m_midiTuneTargetMhz = -1.0;
                 m_midiTuneIdleTimer.stop();
                 return;
@@ -3700,7 +3716,12 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_hidCoalesceTimer, &QTimer::timeout, this, [this]() {
         if (m_hidPendingSteps == 0) return;
         auto* s = activeSlice();
-        if (!s || s->isLocked()) { m_hidPendingSteps = 0; return; }
+        if (!s) { m_hidPendingSteps = 0; return; }
+        if (s->isLocked()) {
+            s->notifyTuneBlockedByLock();
+            m_hidPendingSteps = 0;
+            return;
+        }
         int stepHz = spectrum() ? spectrum()->stepSize() : 100;
         double newMhz = s->frequency() + m_hidPendingSteps * stepHz / 1e6;
         m_hidPendingSteps = 0;
@@ -8963,6 +8984,7 @@ bool MainWindow::activateMemorySpot(int memoryIndex, const QString& preferredPan
         return false;
     }
     if (slice->isLocked()) {
+        slice->notifyTuneBlockedByLock();
         statusBar()->showMessage("Unlock the target slice before recalling a memory.", 3000);
         return false;
     }
@@ -9720,6 +9742,7 @@ void MainWindow::applyTuneRequest(SliceModel* slice, double mhz,
     const double oldFreqMhz = slice->frequency();
     auto* sw = spectrumForSlice(slice);
     if (slice->isLocked()) {
+        slice->notifyTuneBlockedByLock();
         if (slice->sliceId() == m_activeSliceId && sw) {
             m_updatingFromModel = true;
             sw->setVfoFrequency(oldFreqMhz);
@@ -12276,7 +12299,11 @@ void MainWindow::registerShortcutActions()
     auto nudgeFreq = [this](int steps) {
         if (!m_radioModel.isConnected()) return;
         auto* s = activeSlice();
-        if (!s || s->isLocked()) return;
+        if (!s) return;
+        if (s->isLocked()) {
+            s->notifyTuneBlockedByLock();
+            return;
+        }
         int stepHz = spectrum() ? spectrum()->stepSize() : 100;
         double newMhz = s->frequency() + steps * stepHz / 1e6;
         applyTuneRequest(s, newMhz, TuneIntent::IncrementalTune, "keyboard-step");
@@ -12367,19 +12394,22 @@ void MainWindow::registerShortcutActions()
             QKeySequence(), [this, freq]() {
                 if (!m_radioModel.isConnected()) return;
                 auto* s = activeSlice();
-                if (s && !s->isLocked()) {
-                    TuneCenteringResult result;
-                    if (auto* pan = m_radioModel.panadapter(s->panId())) {
-                        result.oldCenterMhz = pan->centerMhz();
-                        result.bandwidthMhz = pan->bandwidthMhz();
-                    }
-                    result.newCenterMhz = freq;
-                    result.followRevealTriggered = true;
-                    result.hardCenterUsed = true;
-                    logTunePolicyDecision("band-shortcut", TuneIntent::AbsoluteJump,
-                                          s->frequency(), freq, result);
-                    s->tuneAndRecenter(freq);
+                if (!s) return;
+                if (s->isLocked()) {
+                    s->notifyTuneBlockedByLock();
+                    return;
                 }
+                TuneCenteringResult result;
+                if (auto* pan = m_radioModel.panadapter(s->panId())) {
+                    result.oldCenterMhz = pan->centerMhz();
+                    result.bandwidthMhz = pan->bandwidthMhz();
+                }
+                result.newCenterMhz = freq;
+                result.followRevealTriggered = true;
+                result.hardCenterUsed = true;
+                logTunePolicyDecision("band-shortcut", TuneIntent::AbsoluteJump,
+                                      s->frequency(), freq, result);
+                s->tuneAndRecenter(freq);
             });
     }
 
@@ -14518,7 +14548,11 @@ void MainWindow::registerMidiParams()
         [this](float v) {
             // Absolute fallback (non-relative bindings): center=64
             auto* s = activeSlice();
-            if (!s || s->isLocked()) return;
+            if (!s) return;
+            if (s->isLocked()) {
+                s->notifyTuneBlockedByLock();
+                return;
+            }
             int steps = static_cast<int>(v) - 64;
             if (steps == 0) return;
             int stepHz = spectrum() ? spectrum()->stepSize() : 100;
