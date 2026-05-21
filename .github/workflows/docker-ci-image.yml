@@ -8,7 +8,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  packages: write
+  contents: write       # peter-evans/create-pull-request: push the bump branch
+  packages: write       # docker/build-push-action: push the image
+  pull-requests: write  # peter-evans/create-pull-request: open the bump PR
 
 jobs:
   build:
@@ -25,8 +27,57 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .github/docker
           push: true
           tags: ghcr.io/ten9876/aethersdr-ci:latest
+
+      - name: Update workflow consumers to new digest
+        id: pin
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          if [ -z "$DIGEST" ]; then
+            echo "::error::docker/build-push-action did not return a digest"
+            exit 1
+          fi
+          # Rewrite any existing reference (digest form OR tag form) to the
+          # newly published digest. Idempotent both ways: re-runs producing
+          # the same digest leave the files unchanged, and the bootstrap
+          # run swaps the legacy ":latest" reference cleanly.
+          for f in .github/workflows/ci.yml .github/workflows/codeql.yml; do
+            sed -i -E \
+              "s#(ghcr\.io/ten9876/aethersdr-ci)(@sha256:[a-f0-9]+|:[A-Za-z0-9._-]+)#\1@${DIGEST}#g" \
+              "$f"
+          done
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Pinned ci.yml and codeql.yml to ${DIGEST}"
+          git diff --stat .github/workflows/ci.yml .github/workflows/codeql.yml
+
+      - name: Open PR to bump pinned digest
+        if: steps.pin.outputs.digest != ''
+        uses: peter-evans/create-pull-request@v8
+        with:
+          branch: ci-image/digest-bump
+          delete-branch: true
+          commit-message: "ci: pin aethersdr-ci to ${{ steps.pin.outputs.digest }}"
+          title: "ci: pin aethersdr-ci image to latest build"
+          body: |
+            Automated update from `docker-ci-image.yml` after building and
+            publishing a new CI image from the current
+            `.github/docker/Dockerfile`.
+
+            Updates the `ghcr.io/ten9876/aethersdr-ci` reference in
+            `ci.yml` and `codeql.yml` to:
+
+                ${{ steps.pin.outputs.digest }}
+
+            The image is still tagged `:latest` at the registry; pinning the
+            workflow consumers by digest gives each CI run a reproducible,
+            immutable reference even if the `:latest` tag is republished later.
+
+            Review the linked Dockerfile change(s) and the resulting digest
+            before merging.
+          labels: ci
