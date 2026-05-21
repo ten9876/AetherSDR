@@ -1,9 +1,10 @@
 # AetherSDR CODEOWNERS
 #
-# Three tiers, last-matching-pattern wins:
+# Four tiers, last-matching-pattern wins:
 #   1. Broad default — jensenpat + maintainer
 #   2. Mechanical/safe paths — also approvable by @AetherClaude (machine user)
-#   3. Maintainer-only — direction-impacting paths reserved to @ten9876
+#   3. Architecture & infrastructure — jensenpat + maintainer (no bot approval)
+#   4. Project policy — reserved to @ten9876
 #
 # Self-approval is hard-blocked by GitHub regardless of CODEOWNERS membership,
 # so a contributor cannot approve their own PR even on paths they own.
@@ -19,22 +20,24 @@ docs/                        @ten9876 @jensenpat @AetherClaude
 .github/docker/              @ten9876 @jensenpat @AetherClaude
 .github/ISSUE_TEMPLATE/      @ten9876 @jensenpat @AetherClaude
 
-# ── Tier 3: maintainer-only — direction, architecture, project policy ──────
+# ── Tier 3: architecture & infrastructure — bot cannot approve ─────────────
 # Visual/UX direction (per CLAUDE.md "AI Agent Boundaries")
-src/gui/MainWindow.h         @ten9876
-src/gui/MainWindow.cpp       @ten9876
+src/gui/MainWindow.h         @ten9876 @jensenpat
+src/gui/MainWindow.cpp       @ten9876 @jensenpat
 
 # Architecture — central state, threading, protocol bedrock
-src/core/RadioModel.h        @ten9876
-src/core/RadioModel.cpp      @ten9876
-src/core/AudioEngine.h       @ten9876
-src/core/AudioEngine.cpp     @ten9876
-src/core/PanadapterStream.h  @ten9876
-src/core/PanadapterStream.cpp @ten9876
+src/models/RadioModel.h      @ten9876 @jensenpat
+src/models/RadioModel.cpp    @ten9876 @jensenpat
+src/core/AudioEngine.h       @ten9876 @jensenpat
+src/core/AudioEngine.cpp     @ten9876 @jensenpat
+src/core/PanadapterStream.h  @ten9876 @jensenpat
+src/core/PanadapterStream.cpp @ten9876 @jensenpat
 
-# Build, project policy, and infrastructure
-CMakeLists.txt               @ten9876
+# Build & CI infrastructure
+CMakeLists.txt               @ten9876 @jensenpat
+.github/workflows/           @ten9876 @jensenpat
+
+# ── Tier 4: project policy — maintainer-only ───────────────────────────────
 CLAUDE.md                    @ten9876
 CONTRIBUTING.md              @ten9876
 .github/CODEOWNERS           @ten9876
-.github/workflows/           @ten9876
