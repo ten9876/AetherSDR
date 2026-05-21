@@ -3,6 +3,7 @@
 #include "CwDecodeSettings.h"
 #ifdef HAVE_MQTT
 #include "MqttApplet.h"
+#include "core/MqttAntennaAliasParser.h"
 #endif
 #include "ConnectionPanel.h"
 #include "Theme.h"
@@ -1706,6 +1707,11 @@ MainWindow::MainWindow(QWidget* parent)
         for (const QString& t : topics) {
             m_mqttClient->subscribe(t);
         }
+        // Always subscribe the fixed antenna-alias contract topics (#2880).
+        // Kept out of the user's `MqttTopics` so they can't accidentally
+        // unsubscribe them.
+        m_mqttClient->subscribe(MqttAntennaAliasParser::kNamesTopic);
+        m_mqttClient->subscribe(MqttAntennaAliasParser::kNamePrefix + QStringLiteral("+"));
     });
     connect(m_appletPanel->mqttApplet(), &MqttApplet::disconnectRequested,
             this, [this] { m_mqttClient->disconnect(); });
@@ -1722,6 +1728,22 @@ MainWindow::MainWindow(QWidget* parent)
         if (auto* sw = m_panStack->activeSpectrum()) {
             sw->clearMqttDisplay();
         }
+    });
+
+    // MQTT → local antenna-alias updates (#2880).
+    // Drop messages while no radio is connected so queued aliases cannot
+    // leak to a later radio with a different antenna set. Unknown tokens
+    // are silently ignored — `knownAntennaTokens()` is the right "what's
+    // real on this radio" source (FlexLib treats e.g. XVTA as 6700-only
+    // when a transverter is configured).
+    connect(m_appletPanel->mqttApplet(), &MqttApplet::antennaAliasRequested,
+            this, [this](const QString& token, const QString& alias) {
+        if (!m_radioModel.isConnected())
+            return;
+        const QStringList known = m_radioModel.knownAntennaTokens();
+        if (!known.contains(token))
+            return;
+        m_radioModel.setAntennaAlias(token, alias);
     });
 #endif
 

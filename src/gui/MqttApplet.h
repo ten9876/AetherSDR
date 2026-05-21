@@ -45,6 +45,8 @@ signals:
     void disconnectRequested();
     void displayValueChanged(const QString& key, const QString& value);
     void displayCleared();
+    // Empty `alias` means clear; receivers validate the token (#2880).
+    void antennaAliasRequested(const QString& token, const QString& alias);
 
 private:
     void buildUI();

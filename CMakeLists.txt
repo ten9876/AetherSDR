@@ -472,6 +472,7 @@ set(CORE_SOURCES
     src/core/TciServer.cpp
     src/core/TciProtocol.cpp
     src/core/MqttClient.cpp
+    src/core/MqttAntennaAliasParser.cpp
     src/core/PgxlConnection.cpp
     src/core/FirmwareUploader.cpp
     src/core/DvkWavTransfer.cpp
@@ -1470,6 +1471,19 @@ target_include_directories(antenna_alias_test PRIVATE src)
 target_link_libraries(antenna_alias_test PRIVATE Qt6::Core)
 set_target_properties(antenna_alias_test PROPERTIES AUTOMOC ON)
 add_test(NAME antenna_alias_test COMMAND antenna_alias_test)
+
+# MQTT antenna-alias contract: parser + radio-gating (#2880).
+# Drives the pure parser directly; no live broker, no Qt UI link.
+add_executable(mqtt_antenna_alias_test
+    tests/mqtt_antenna_alias_test.cpp
+    src/core/MqttAntennaAliasParser.cpp
+    src/models/AntennaAliasStore.cpp
+    src/core/AppSettings.cpp
+)
+target_include_directories(mqtt_antenna_alias_test PRIVATE src)
+target_link_libraries(mqtt_antenna_alias_test PRIVATE Qt6::Core)
+set_target_properties(mqtt_antenna_alias_test PROPERTIES AUTOMOC ON)
+add_test(NAME mqtt_antenna_alias_test COMMAND mqtt_antenna_alias_test)
 
 # Pure-math test for the ATU pre-tune center-frequency calculator.
 # Locks in the IARU R1 reference table from issue #2624 so future edits

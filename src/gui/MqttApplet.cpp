@@ -1,5 +1,6 @@
 #include "MqttApplet.h"
 #include "core/AppSettings.h"
+#include "core/MqttAntennaAliasParser.h"
 #include "core/MqttClient.h"
 
 #include <QVBoxLayout>
@@ -280,6 +281,15 @@ void MqttApplet::onMessageReceived(const QString& topic, const QByteArray& paylo
             emit displayValueChanged(shortTopic, value);
             break;
         }
+    }
+
+    // Antenna-alias contract (#2880): fixed AetherSDR-owned topics that map
+    // an external coax-switch automation system (e.g. 4O3A Antenna Genius)
+    // onto the existing local-alias APIs. The parser is pure so unit tests
+    // exercise it without a live broker; MainWindow validates the token
+    // against the connected radio.
+    for (const auto& upd : MqttAntennaAliasParser::parse(topic, payload)) {
+        emit antennaAliasRequested(upd.token, upd.alias);
     }
 }
 
