@@ -2623,10 +2623,10 @@ void RadioModel::sendAdaptiveCapToPan(const QString& panId, int fpsCap)
     if (panId.isEmpty() || fpsCap <= 0) return;
     auto* pan = m_panadapters.value(panId, nullptr);
     if (!pan) return;
-    sendCmd(QString("display pan set %1 fps=%2").arg(panId).arg(fpsCap));
+    sendCommand(QString("display pan set %1 fps=%2").arg(panId).arg(fpsCap));
     if (!pan->waterfallId().isEmpty())
-        sendCmd(QString("display panafall set %1 line_duration=%2")
-                    .arg(pan->waterfallId()).arg(adaptiveWfMsForCap(fpsCap)));
+        sendCommand(QString("display panafall set %1 line_duration=%2")
+                        .arg(pan->waterfallId()).arg(adaptiveWfMsForCap(fpsCap)));
 }
 
 void RadioModel::applyAdaptiveFrameRate(NetState newState, NetState oldState)
