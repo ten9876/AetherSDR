@@ -33,16 +33,14 @@ src/core/AudioEngine.cpp     @ten9876 @jensenpat
 src/core/PanadapterStream.h  @ten9876 @jensenpat
 src/core/PanadapterStream.cpp @ten9876 @jensenpat
 
-# Build & CI infrastructure
+# Build configuration
 CMakeLists.txt               @ten9876 @jensenpat
-.github/workflows/           @ten9876 @jensenpat
 
 # Security tooling & agent configuration
 .github/codeql/              @ten9876 @jensenpat
 .claude/commands/            @ten9876 @jensenpat
 
-# ── Tier 4: project policy & cryptographic anchors — maintainer-only ───────
-# Governance, contributor guidance, agent rules, and access policy.
+# ── Tier 4: project policy — maintainer-only ──────────────────────────────
 CLAUDE.md                    @ten9876
 CONTRIBUTING.md              @ten9876
 GOVERNANCE.md                @ten9876
@@ -51,6 +49,8 @@ SECURITY.md                  @ten9876
 LICENSE                      @ten9876
 .github/CODEOWNERS           @ten9876
 
-# Release signing key — supply-chain critical. Overrides the tier-2 docs/
-# pattern so the bot cannot approve a key swap.
+# CI runtime — release artifacts, registry pushes, GITHUB_TOKEN scopes.
+.github/workflows/           @ten9876
+
+# Release signing key — overrides the tier-2 docs/ pattern.
 docs/RELEASE-SIGNING-KEY.pub.asc  @ten9876
