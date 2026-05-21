@@ -223,6 +223,10 @@ void SliceModel::setNrlLevel(int v)
 void SliceModel::setNrsLevel(int v)
 {
     v = std::clamp(v, 0, 100);
+    // Record any explicit user choice (including a deliberate 50) so the
+    // applyStatus() re-push won't fight a value the user picked themselves.
+    m_nrsLevelUser = v;
+    m_nrsLevelUserOverride = true;
     if (m_nrsLevel == v) return;
     m_nrsLevel = v;
     sendCommand(QString("slice set %1 speex_nr_level=%2").arg(m_id).arg(v));
@@ -744,6 +748,15 @@ void SliceModel::applyStatus(const QMap<QString, QString>& kvs)
     }
     if (kvs.contains("speex_nr_level")) {
         int v = kvs["speex_nr_level"].toInt();
+        // The radio's `profile global` snapshot does not persist
+        // speex_nr_level. On recall the firmware reports its default of 50
+        // even when the user previously set a different value. If we have a
+        // cached user choice that differs, push it back. Same precedent as
+        // the rtty_mark workaround below.
+        if (v == 50 && m_nrsLevelUserOverride && m_nrsLevelUser != 50) {
+            v = m_nrsLevelUser;
+            sendCommand(QString("slice set %1 speex_nr_level=%2").arg(m_id).arg(v));
+        }
         if (m_nrsLevel != v) { m_nrsLevel = v; emit nrsLevelChanged(v); }
     }
     if (kvs.contains("nrf_level")) {
